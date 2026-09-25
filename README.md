@@ -19,10 +19,18 @@ Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP s
 | [0009](docs/decisions/0009-storage.md) | Change log and conditions |
 | [0010](docs/decisions/0010-two-tiers.md) | One codebase, two tiers |
 | [0011](docs/decisions/0011-code-and-deployment.md) | Code and deployment |
+| [0012](docs/decisions/0012-field-level-inheritance.md) | Inheritance works per field |
+| [0013](docs/decisions/0013-locations-and-services.md) | Two trees: Locations and Services |
+| [0014](docs/decisions/0014-per-user-keys.md) | Per-user keys have their own channel |
+| [0015](docs/decisions/0015-library.md) | A global library of named definitions |
+| [0016](docs/decisions/0016-open-for-extension.md) | Built open for later features |
 
 ## Open questions
 
-- Intent model contents: which objects exist and their fields (next topic).
+- Intent model contents: the full field list for each object type.
+- UI for assigning services to locations (mockup first).
+- Which folders offer the VXLAN library drop-down (0015).
+- Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
 - AP identity and enrollment; how config is signed.
 - Time-series engine for the server-hosted manager.
