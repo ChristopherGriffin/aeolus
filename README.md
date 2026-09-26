@@ -14,7 +14,7 @@ Each milestone ends in something checkable before the next starts.
    1. Field schema, validation and encrypted secrets ([`internal/schema`](internal/schema), [`internal/secret`](internal/secret)).
    2. Accounts, tokens and roles ([`internal/access`](internal/access), [`internal/change`](internal/change) `Authorize`).
    3. The HTTP API with preview ([`internal/api`](internal/api), [`cmd/aeolus`](cmd/aeolus), [API reference](docs/api.md)), running on Aeolus and updated with [`aeolus-update`](deploy/update.sh).
-   4. The MCP adapter. Done when a change made through it shows up in the log under Claude's name.
+   4. The MCP adapter ([`internal/mcpadapter`](internal/mcpadapter), served at `/mcp`). Done when a change made through it shows up in the log under Claude's name.
 4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
 5. **ucode agent on a lab AP**: the full loop, with drift shown.
 6. **Key channel** (0014).
@@ -53,6 +53,7 @@ Each milestone ends in something checkable before the next starts.
 | [0028](docs/decisions/0028-mcp-adapter.md) | The MCP adapter |
 | [0029](docs/decisions/0029-field-checks-and-config-checks.md) | Field checks refuse changes; config checks report them |
 | [0030](docs/decisions/0030-who-may-change-what.md) | Who may make which change |
+| [0031](docs/decisions/0031-mcp-pass-through.md) | The MCP adapter holds no credentials (proposed) |
 
 ## Open questions
 

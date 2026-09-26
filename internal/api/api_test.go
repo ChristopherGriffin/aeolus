@@ -128,6 +128,9 @@ func (f *fixture) change(as string, op map[string]any) (int, map[string]any) {
 
 func TestHealthAndAuthentication(t *testing.T) {
 	f := newFixture(t)
+	if code, body := f.do("GET", "/", "", nil); code != 200 || body["api"] != "/v1" {
+		t.Fatalf("root = %d %v", code, body)
+	}
 	if code, body := f.do("GET", "/healthz", "", nil); code != 200 || body["ok"] != true {
 		t.Fatalf("healthz = %d %v", code, body)
 	}
