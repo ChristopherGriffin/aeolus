@@ -80,16 +80,27 @@ var (
 	ErrRevoked     = errors.New("token is already revoked")
 )
 
+// APToken is an AP's credential (0033), kept apart from account tokens: an AP
+// token never works on the admin API, and an account token never works as an
+// AP.
+type APToken struct {
+	ID      string
+	AP      hierarchy.NodeID
+	Hash    []byte
+	Revoked bool
+}
+
 // Access is the set of accounts, tokens and grants.
 type Access struct {
 	accounts map[AccountID]*Account
 	tokens   map[string]*Token
 	grants   map[Grant]bool
+	apTokens map[string]*APToken
 }
 
 // New returns an empty Access.
 func New() *Access {
-	return &Access{accounts: map[AccountID]*Account{}, tokens: map[string]*Token{}, grants: map[Grant]bool{}}
+	return &Access{accounts: map[AccountID]*Account{}, tokens: map[string]*Token{}, grants: map[Grant]bool{}, apTokens: map[string]*APToken{}}
 }
 
 // Clone returns an independent copy.
@@ -106,6 +117,11 @@ func (a *Access) Clone() *Access {
 	}
 	for g := range a.grants {
 		c.grants[g] = true
+	}
+	for id, tok := range a.apTokens {
+		cp := *tok
+		cp.Hash = append([]byte(nil), tok.Hash...)
+		c.apTokens[id] = &cp
 	}
 	return c
 }
@@ -239,7 +255,34 @@ func (a *Access) AdminAnywhere(account AccountID) bool {
 	return false
 }
 
-const tokenPrefix = "aeolus1"
+// AddAPToken records an AP's token ID and hash.
+func (a *Access) AddAPToken(id string, ap hierarchy.NodeID, hash []byte) error {
+	if id == "" || ap == "" || len(hash) != sha256.Size {
+		return ErrBadTokenArg
+	}
+	if _, ok := a.apTokens[id]; ok {
+		return fmt.Errorf("token %s %w", id, ErrExists)
+	}
+	a.apTokens[id] = &APToken{ID: id, AP: ap, Hash: append([]byte(nil), hash...)}
+	return nil
+}
+
+// RevokeAPTokens revokes every token an AP holds and returns how many.
+func (a *Access) RevokeAPTokens(ap hierarchy.NodeID) int {
+	n := 0
+	for _, tok := range a.apTokens {
+		if tok.AP == ap && !tok.Revoked {
+			tok.Revoked = true
+			n++
+		}
+	}
+	return n
+}
+
+const (
+	tokenPrefix   = "aeolus1"
+	apTokenPrefix = "aeolusap1"
+)
 
 // NewToken makes a token: the plain text to hand out once, and the ID and hash
 // to record.
@@ -256,6 +299,33 @@ func NewToken() (plain, id string, hash []byte, err error) {
 	secret := base64.RawURLEncoding.EncodeToString(sec)
 	sum := sha256.Sum256([]byte(secret))
 	return tokenPrefix + "." + id + "." + secret, id, sum[:], nil
+}
+
+// NewAPToken makes an AP token, in the same shape as NewToken but with its
+// own prefix.
+func NewAPToken() (plain, id string, hash []byte, err error) {
+	plain, id, hash, err = NewToken()
+	if err != nil {
+		return "", "", nil, err
+	}
+	return apTokenPrefix + strings.TrimPrefix(plain, tokenPrefix), id, hash, nil
+}
+
+// AuthenticateAP returns the AP a plain AP token belongs to.
+func (a *Access) AuthenticateAP(plain string) (hierarchy.NodeID, error) {
+	parts := strings.SplitN(plain, ".", 3)
+	if len(parts) != 3 || parts[0] != apTokenPrefix {
+		return "", ErrBadToken
+	}
+	tok, ok := a.apTokens[parts[1]]
+	if !ok || tok.Revoked {
+		return "", ErrBadToken
+	}
+	sum := sha256.Sum256([]byte(parts[2]))
+	if subtle.ConstantTimeCompare(sum[:], tok.Hash) != 1 {
+		return "", ErrBadToken
+	}
+	return tok.AP, nil
 }
 
 // Authenticate returns the account a plain token belongs to.

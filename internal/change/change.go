@@ -47,6 +47,10 @@ const (
 	RemoveConcentrator Kind = "remove-concentrator"
 	SetVNI             Kind = "set-vni"
 	RemoveVNI          Kind = "remove-vni"
+
+	// APs arriving and leaving (0033, 0038).
+	Enroll   Kind = "enroll"
+	RemoveAP Kind = "remove-ap"
 )
 
 // Built-in folders every Org has (0032), and the manager's own actor name for
@@ -55,6 +59,11 @@ const (
 	LandingZone hierarchy.NodeID = "landing-zone"
 	Sandbox     hierarchy.NodeID = "sandbox"
 	SystemActor                  = "aeolus"
+
+	// LandingZoneLimit caps how many APs may wait in Landing Zone (0038).
+	// Enrollment needs no token, so this bounds what anonymous callers can
+	// add to the log until a person adopts or removes some.
+	LandingZoneLimit = 250
 )
 
 // TreeName picks one of the Org's two trees (0013).
@@ -98,6 +107,9 @@ type State struct {
 	Org     *hierarchy.Org
 	Access  *access.Access
 	Library *library.Library
+	// Facts holds what each AP reported about itself when it enrolled
+	// (0033), for the person deciding whether to adopt it.
+	Facts map[hierarchy.NodeID]json.RawMessage
 }
 
 // Clone returns an independent copy, or nil for nil.
@@ -105,7 +117,11 @@ func (s *State) Clone() *State {
 	if s == nil {
 		return nil
 	}
-	return &State{Org: s.Org.Clone(), Access: s.Access.Clone(), Library: s.Library.Clone()}
+	facts := make(map[hierarchy.NodeID]json.RawMessage, len(s.Facts))
+	for ap, f := range s.Facts {
+		facts[ap] = f // never modified in place
+	}
+	return &State{Org: s.Org.Clone(), Access: s.Access.Clone(), Library: s.Library.Clone(), Facts: facts}
 }
 
 var (
@@ -124,6 +140,7 @@ var (
 	ErrReserved    = errors.New("that account name is reserved for the manager itself")
 	ErrNoConcID    = errors.New("change needs a concentrator")
 	ErrInUse       = errors.New("still in use")
+	ErrFull        = fmt.Errorf("Landing Zone holds %d APs, its limit: adopt or remove some before more can enroll", LandingZoneLimit)
 )
 
 // InUseError lists what still refers to a concentrator or VNI.
@@ -163,6 +180,8 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 		eff, err = applyLibrary(s, op)
 	case AddAccount, IssueToken, RevokeToken, GrantRole, RevokeRole:
 		eff, err = applyAccess(s, op)
+	case Enroll, RemoveAP:
+		eff, err = applyAP(s, op)
 	default:
 		eff, err = apply(s.Org, op)
 	}
@@ -200,6 +219,11 @@ func validate(op Op) error {
 			return ErrNoTokenID
 		}
 		return nil
+	case Enroll:
+		if op.TokenID == "" {
+			return ErrNoTokenID
+		}
+	case RemoveAP:
 	case GrantRole, RevokeRole:
 		if op.Account == "" {
 			return ErrNoAccount
@@ -216,7 +240,7 @@ func validate(op Op) error {
 // createOrg starts the state. The Org's first account is its admin at the
 // root of both trees, so there is never a moment without one.
 func createOrg(op Op) (*State, Effect, error) {
-	s := &State{Org: hierarchy.NewOrg(op.Node, op.Name), Access: access.New(), Library: library.New()}
+	s := &State{Org: hierarchy.NewOrg(op.Node, op.Name), Access: access.New(), Library: library.New(), Facts: map[hierarchy.NodeID]json.RawMessage{}}
 	if err := s.Access.AddAccount(op.Account, string(op.Account)); err != nil {
 		return nil, Effect{}, err
 	}

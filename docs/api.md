@@ -1,6 +1,6 @@
 # Aeolus API, v1
 
-JSON over HTTPS (0026). Every request except `/healthz` carries `Authorization: Bearer <token>`. A node you cannot view answers `404`.
+JSON over HTTPS (0026). Every request except `/healthz` and `/v1/enroll` carries `Authorization: Bearer <token>`: an account's token, or on the AP routes an AP's. A node you cannot view answers `404`.
 
 ## Reads
 
@@ -9,7 +9,7 @@ JSON over HTTPS (0026). Every request except `/healthz` carries `Authorization: 
 | `GET /healthz` | `{ok, seq}` | nothing |
 | `GET /v1/whoami` | your account and grants | a token |
 | `GET /v1/trees/{locations\|services}` | the nodes you can view, root first | viewer on each node |
-| `GET /v1/trees/{tree}/nodes/{id}` | the node, its ancestry, your role there, every field with its value, `from` and `origin` (`self`, `inherited`, `locked`, `baseline`), the overrides menu (`in_effect`, `below`), `locks_above`, and `problems`: the rules its config breaks (0029) | viewer |
+| `GET /v1/trees/{tree}/nodes/{id}` | the node, its ancestry, your role there, every field with its value, `from` and `origin` (`self`, `inherited`, `locked`, `baseline`), the overrides menu (`in_effect`, `below`), `locks_above`, `problems`: the rules its config breaks (0029), and for an enrolled AP the `facts` it sent (0038) | viewer |
 | `GET /v1/aps/{id}/config` | the AP's resolved Location fields and networks with origins, its service folders, its `version`, whether it is `unassigned` (in Landing Zone), the composed `document` it will receive (secrets sealed), and `check: {ok, problems}` | viewer on the AP |
 | `GET /v1/library` | the concentrators, with their labeled VNIs and the Location folders they may be used at (0023) | a token |
 | `GET /v1/changes?after=N&limit=M` | change-log entries after `N` (limit 1 to 1000, default 100) | viewer at the Org root of either tree |
@@ -31,7 +31,16 @@ An `op` is one change, as the change log records it:
 {"kind": "set", "tree": "services", "node": "household", "path": "network.sweet.ssid", "value": "Sweet Spot"}
 ```
 
-Kinds: `add-folder`, `add-ap`, `move`, `set`, `unset`, `lock`, `unlock`, `break-hierarchy`, `assign-services`, `add-builtins`, `add-account`, `grant`, `revoke`, `revoke-token`, and for the library `set-concentrator` (`concentrator`, `value: {name, address, port, mtu, scope}`), `remove-concentrator`, `set-vni` (`concentrator`, `vni`, label in `name`) and `remove-vni` (0037). Moving an AP out of Landing Zone (a node with `"isolated": true`) is adoption: it needs viewer on Landing Zone and operator on the destination (0032). `create-org` happens only through `aeolus init` on the manager host, and tokens are issued through `/v1/tokens`. Set values are checked against the field schema (`internal/schema/v1.json`), and secret values are sealed before they are logged (0027). Who may make which change is 0030.
+Kinds: `add-folder`, `add-ap`, `remove-ap` (0038), `move`, `set`, `unset`, `lock`, `unlock`, `break-hierarchy`, `assign-services`, `add-builtins`, `add-account`, `grant`, `revoke`, `revoke-token`, and for the library `set-concentrator` (`concentrator`, `value: {name, address, port, mtu, scope}`), `remove-concentrator`, `set-vni` (`concentrator`, `vni`, label in `name`) and `remove-vni` (0037). Moving an AP out of Landing Zone (a node with `"isolated": true`) is adoption: it needs viewer on Landing Zone and operator on the destination (0032). `create-org` happens only through `aeolus init` on the manager host, and tokens are issued through `/v1/tokens`. Set values are checked against the field schema (`internal/schema/v1.json`), and secret values are sealed before they are logged (0027). Who may make which change is 0030.
+
+## AP routes
+
+What an AP uses (0033, 0038). An AP token starts `aeolusap1.` and works only here; account tokens do not work here.
+
+| Request | Body | Returns |
+|---|---|---|
+| `POST /v1/enroll` | no token; `{mac, macs?, hostname?, model?, board?, openwrt?, radios?}` | `201` with the AP's `ap` ID (`ap-` and its MAC's hex digits), `name` and `token`, shown once. The AP lands in Landing Zone. `409` if that ID is already known; `503` if Landing Zone is full (250). |
+| `GET /v1/ap/config` | `If-None-Match: "<version it runs>"` | `304` if unchanged; otherwise `{ap, version, state}`, where `state` is `unassigned` (in Landing Zone), `held` (with `problems`; keep running what you have) or `ready` (with `config`, secrets included, and the version as the `ETag`) |
 
 ## MCP
 
@@ -39,4 +48,4 @@ Kinds: `add-folder`, `add-ap`, `move`, `set`, `unset`, `lock`, `unlock`, `break-
 
 ## Errors
 
-`{"error": "..."}` with `400` (invalid change or value), `401` (no or bad token), `403` (not permitted), `404` (not found or not visible), `409` (conflicts with the current state: a lock, an AP that would stop resolving, something that already exists).
+`{"error": "..."}` with `400` (invalid change or value), `401` (no or bad token), `403` (not permitted), `404` (not found or not visible), `409` (conflicts with the current state: a lock, an AP that would stop resolving, something that already exists), `503` (Landing Zone is full).

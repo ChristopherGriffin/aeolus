@@ -418,6 +418,36 @@ func TestAdoptionMovesAnAPOutOfIsolation(t *testing.T) {
 	}
 }
 
+func TestRemoveAP(t *testing.T) {
+	o := symtus(t)
+	L := o.Locations
+	must(t, L.Set("pump-ap", "radio.5g.channel", "36"))
+	removed, err := L.RemoveAP("pump-ap")
+	must(t, err)
+	if len(removed) != 1 || removed[0].Path != "radio.5g.channel" || removed[0].Value != "36" {
+		t.Fatalf("removed = %+v", removed)
+	}
+	if _, ok := L.Node("pump-ap"); ok || len(L.Descendants("pump")) != 0 {
+		t.Fatal("AP still in the tree")
+	}
+	for _, ap := range L.APs() {
+		if ap == "pump-ap" {
+			t.Fatal("AP still listed")
+		}
+	}
+	// The same ID can be added again, and starts clean.
+	must(t, L.AddAP("pump-ap", "PumphouseAP", "pump"))
+	if _, ok := L.Own("pump-ap", "radio.5g.channel"); ok {
+		t.Fatal("re-added AP kept its old value")
+	}
+	if _, err := L.RemoveAP("pump"); !errors.Is(err, ErrNotAnAP) {
+		t.Errorf("removing a folder: %v", err)
+	}
+	if _, err := L.RemoveAP("nope"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("removing a missing AP: %v", err)
+	}
+}
+
 func moveErr(t *Tree, id, parent NodeID) error {
 	_, err := t.Move(id, parent)
 	return err

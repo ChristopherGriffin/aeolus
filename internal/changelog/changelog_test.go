@@ -132,6 +132,46 @@ func TestVersionsBumpOnlyForAPsWhoseConfigChanged(t *testing.T) {
 	wantVersions(t, l, after, map[hierarchy.NodeID]int64{"office-ap": e.Seq, "gate-ap": e.Seq})
 }
 
+// An AP's version also covers what its config takes from the library (0023):
+// where its concentrators are, whether it may use them, and whether they have
+// its VNIs.
+func TestLibraryChangesReversionTheAPsThatUseThem(t *testing.T) {
+	l := open(t)
+	commitAll(t, l, scenario())
+	conc := func(id, address string, scope ...hierarchy.NodeID) change.Op {
+		return change.Op{Kind: change.SetConcentrator, Concentrator: id,
+			Value: js(map[string]any{"name": id, "address": address, "port": 4789, "mtu": 1450, "scope": scope})}
+	}
+	commitAll(t, l, []change.Op{
+		conc("homelab", "1.1.1.2", "gate"),
+		conc("cloud", "2.2.2.2"),
+		{Kind: change.SetVNI, Concentrator: "homelab", VNI: 20, Name: "Trusted"},
+		setOp(change.Services, "household", "network.sweet.transport.primary.type", "vxlan"),
+		setOp(change.Services, "household", "network.sweet.transport.primary.concentrator", "homelab"),
+		setOp(change.Services, "household", "network.sweet.transport.primary.vni", 20),
+	})
+	start := versions(l)
+
+	// Only the gate may use homelab, so only its AP sees the new address.
+	e := commit(t, l, conc("homelab", "1.1.1.3", "gate"))
+	wantVersions(t, l, start, map[hierarchy.NodeID]int64{"gate-ap": e.Seq})
+
+	// Nothing uses cloud.
+	after := versions(l)
+	commit(t, l, conc("cloud", "2.2.2.3"))
+	wantVersions(t, l, after, nil)
+
+	// Widening the scope brings homelab to the office AP.
+	e = commit(t, l, conc("homelab", "1.1.1.3", "gate", "house"))
+	wantVersions(t, l, after, map[hierarchy.NodeID]int64{"office-ap": e.Seq})
+
+	// A VNI nobody uses changes nothing; relabeling one changes nothing.
+	after = versions(l)
+	commit(t, l, change.Op{Kind: change.SetVNI, Concentrator: "homelab", VNI: 30, Name: "Guest"})
+	commit(t, l, change.Op{Kind: change.SetVNI, Concentrator: "homelab", VNI: 20, Name: "Household"})
+	wantVersions(t, l, after, nil)
+}
+
 func TestNewAPGetsAVersion(t *testing.T) {
 	l := open(t)
 	commitAll(t, l, scenario())

@@ -176,7 +176,7 @@ func TestTheManagerMayDoOnlyTwoThings(t *testing.T) {
 	mustApply(t, s, Op{Kind: AddBuiltins})
 	allowed := []Op{
 		{Kind: AddBuiltins},
-		{Kind: AddAP, Tree: Locations, Node: "new-ap", Name: "NewAP", Parent: LandingZone},
+		{Kind: Enroll, Node: "new-ap", Name: "NewAP", TokenID: "t1", TokenHash: make([]byte, 32)},
 	}
 	for _, op := range allowed {
 		if err := Authorize(s, SystemActor, op); err != nil {
@@ -184,7 +184,9 @@ func TestTheManagerMayDoOnlyTwoThings(t *testing.T) {
 		}
 	}
 	refused := []Op{
+		{Kind: AddAP, Tree: Locations, Node: "x", Name: "X", Parent: LandingZone},
 		{Kind: AddAP, Tree: Locations, Node: "x", Name: "X", Parent: "house"},
+		{Kind: RemoveAP, Node: "gate-ap"},
 		{Kind: Set, Tree: Locations, Node: "house", Path: "system.tz", Value: json.RawMessage(`"UTC"`)},
 		{Kind: AddAccount, Account: "x", Name: "X"},
 		{Kind: GrantRole, Account: "claude", Tree: Locations, Node: "symtus", Role: "admin"},

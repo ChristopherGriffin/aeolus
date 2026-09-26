@@ -45,7 +45,7 @@ func Authorize(s *State, actor string, op Op) error {
 		return ErrNoOrg
 	}
 	if actor == SystemActor {
-		return authorizeSystem(op)
+		return authorizeSystem(s, op)
 	}
 	who := access.AccountID(actor)
 	if _, ok := s.Access.Account(who); !ok {
@@ -135,6 +135,10 @@ func Authorize(s *State, actor string, op Op) error {
 		return nil
 	case GrantRole, RevokeRole:
 		return need(access.Admin, op.Tree, op.Node)
+	case Enroll:
+		return fmt.Errorf("%w: APs enroll themselves, through POST /v1/enroll", ErrForbidden)
+	case RemoveAP:
+		return need(access.Operator, Locations, op.Node)
 	case IssueToken:
 		if op.Account == who {
 			return nil
@@ -150,12 +154,16 @@ func Authorize(s *State, actor string, op Op) error {
 }
 
 // authorizeSystem limits what the manager may do in its own name (0036):
-// create the built-in folders, and record an enrolling AP in Landing Zone.
-func authorizeSystem(op Op) error {
-	switch {
-	case op.Kind == AddBuiltins:
+// create the built-in folders, and enroll APs into Landing Zone while it has
+// room (0038).
+func authorizeSystem(s *State, op Op) error {
+	switch op.Kind {
+	case AddBuiltins:
 		return nil
-	case op.Kind == AddAP && op.Tree == Locations && op.Parent == LandingZone:
+	case Enroll:
+		if len(s.Org.Locations.Descendants(LandingZone)) >= LandingZoneLimit {
+			return ErrFull
+		}
 		return nil
 	}
 	return fmt.Errorf("%w: the manager itself may only add built-in folders and enroll APs into Landing Zone", ErrForbidden)
