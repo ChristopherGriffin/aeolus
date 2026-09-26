@@ -28,6 +28,11 @@ func NewOrg(id NodeID, name string) *Org {
 	}
 }
 
+// Clone returns an independent copy of the Org.
+func (o *Org) Clone() *Org {
+	return &Org{Locations: o.Locations.Clone(), Services: o.Services.Clone()}
+}
+
 // AssignServices sets which service folders apply at a Locations node.
 func (o *Org) AssignServices(at NodeID, folders []NodeID) error {
 	for _, f := range folders {

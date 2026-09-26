@@ -326,6 +326,37 @@ func TestLocksAbove(t *testing.T) {
 	}
 }
 
+func TestCloneIsIndependent(t *testing.T) {
+	o := symtus(t)
+	c := o.Clone()
+	must(t, c.Locations.Set("house", "radio.5g.width", "20"))
+	must(t, c.Locations.BreakHierarchy("gate"))
+	must(t, c.Locations.AddFolder("barn", "Barn", "symtus"))
+	want(t, o.Locations, "office-ap", "radio.5g.width", Resolved{"40", "house", OriginInherited})
+	if n, _ := o.Locations.Node("gate"); n.Broken {
+		t.Fatal("break on the clone reached the original")
+	}
+	if _, ok := o.Locations.Node("barn"); ok {
+		t.Fatal("folder added to the clone reached the original")
+	}
+}
+
+func TestAPsOwnAndIsLocked(t *testing.T) {
+	L := symtus(t).Locations
+	if got := L.APs(); !reflect.DeepEqual(got, []NodeID{"gate-ap", "office-ap", "pump-ap"}) {
+		t.Fatalf("APs = %v", got)
+	}
+	if v, ok := L.Own("house", "radio.5g.width"); !ok || v != "40" {
+		t.Fatalf("Own(house) = %v, %v", v, ok)
+	}
+	if _, ok := L.Own("office", "radio.5g.width"); ok {
+		t.Fatal("Own reported an inherited value")
+	}
+	if !L.IsLocked("symtus", "system.poll") || L.IsLocked("house", "system.poll") {
+		t.Fatal("IsLocked wrong")
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

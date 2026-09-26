@@ -12,6 +12,7 @@ package hierarchy
 import (
 	"errors"
 	"fmt"
+	"sort"
 )
 
 // NodeID identifies a node. IDs are stable; names can change.
@@ -157,6 +158,57 @@ func (t *Tree) Descendants(id NodeID) []NodeID {
 	for _, c := range t.children[id] {
 		out = append(out, c)
 		out = append(out, t.Descendants(c)...)
+	}
+	return out
+}
+
+// APs returns every AP in the tree, sorted.
+func (t *Tree) APs() []NodeID {
+	var out []NodeID
+	for id, n := range t.nodes {
+		if n.Kind == KindAP {
+			out = append(out, id)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// Clone returns an independent copy of the tree. Values are shared, which is
+// safe because stored values are immutable.
+func (t *Tree) Clone() *Tree {
+	c := &Tree{
+		root:     t.root,
+		allowAPs: t.allowAPs,
+		nodes:    make(map[NodeID]*Node, len(t.nodes)),
+		children: make(map[NodeID][]NodeID, len(t.children)),
+		set:      cloneValues(t.set),
+		base:     cloneValues(t.base),
+		locks:    make(map[NodeID]map[Path]bool, len(t.locks)),
+	}
+	for id, n := range t.nodes {
+		cp := *n
+		c.nodes[id] = &cp
+	}
+	for id, kids := range t.children {
+		c.children[id] = append([]NodeID(nil), kids...)
+	}
+	for id, ls := range t.locks {
+		c.locks[id] = make(map[Path]bool, len(ls))
+		for p, v := range ls {
+			c.locks[id][p] = v
+		}
+	}
+	return c
+}
+
+func cloneValues(m map[NodeID]map[Path]Value) map[NodeID]map[Path]Value {
+	out := make(map[NodeID]map[Path]Value, len(m))
+	for id, vals := range m {
+		out[id] = make(map[Path]Value, len(vals))
+		for p, v := range vals {
+			out[id][p] = v
+		}
 	}
 	return out
 }

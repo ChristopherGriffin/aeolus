@@ -21,10 +21,19 @@ func (e *LockedError) Error() string {
 // Override is a value set at a node that replaces something it would
 // otherwise inherit.
 type Override struct {
-	Node  NodeID
-	Path  Path
-	Value Value
+	Node  NodeID `json:"node"`
+	Path  Path   `json:"path"`
+	Value Value  `json:"value"`
 }
+
+// Own returns the value set at the node itself, if any.
+func (t *Tree) Own(id NodeID, p Path) (Value, bool) {
+	v, ok := t.set[id][p]
+	return v, ok
+}
+
+// IsLocked reports whether the node itself locks p.
+func (t *Tree) IsLocked(id NodeID, p Path) bool { return t.locks[id][p] }
 
 // Set stores a value at a node. It is refused when a lock above applies.
 func (t *Tree) Set(id NodeID, p Path, v Value) error {
