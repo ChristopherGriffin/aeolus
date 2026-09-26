@@ -90,6 +90,12 @@ func TestLoadOrCreate(t *testing.T) {
 	}
 }
 
+func TestLoadNeverCreates(t *testing.T) {
+	if _, err := Load(filepath.Join(t.TempDir(), "missing.key")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Load of a missing key: %v", err)
+	}
+}
+
 func box(t *testing.T) *Box {
 	t.Helper()
 	b, err := LoadOrCreate(filepath.Join(t.TempDir(), "secret.key"))

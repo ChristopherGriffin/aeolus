@@ -13,7 +13,7 @@ Each milestone ends in something checkable before the next starts.
 3. **Admin API and identities** (0024–0028), in four parts:
    1. Field schema, validation and encrypted secrets ([`internal/schema`](internal/schema), [`internal/secret`](internal/secret)).
    2. Accounts, tokens and roles ([`internal/access`](internal/access), [`internal/change`](internal/change) `Authorize`).
-   3. The HTTP API with preview, running on Aeolus.
+   3. The HTTP API with preview ([`internal/api`](internal/api), [`cmd/aeolus`](cmd/aeolus), [API reference](docs/api.md)), running on Aeolus.
    4. The MCP adapter. Done when a change made through it shows up in the log under Claude's name.
 4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
 5. **ucode agent on a lab AP**: the full loop, with drift shown.

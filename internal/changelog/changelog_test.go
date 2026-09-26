@@ -253,6 +253,26 @@ func TestCommitsAreAuthorizedAgainstLiveState(t *testing.T) {
 	}
 }
 
+func TestPreviewRecordsNothing(t *testing.T) {
+	l := open(t)
+	commitAll(t, l, scenario())
+	seq, before := l.Seq(), versions(l)
+	state, eff, changed, err := l.Preview("claude", setOp(change.Locations, "house", "radio.5g.width", "20"))
+	must(t, err)
+	if !reflect.DeepEqual(changed, []hierarchy.NodeID{"office-ap"}) || eff.After != "20" {
+		t.Fatalf("preview changed %v, effect %+v", changed, eff)
+	}
+	if r, _ := state.Org.Locations.Resolve("office-ap", "radio.5g.width"); r.Value != "20" {
+		t.Fatalf("preview state width = %v", r.Value)
+	}
+	if l.Seq() != seq || !reflect.DeepEqual(versions(l), before) {
+		t.Fatal("preview changed the log or the versions")
+	}
+	if r, _ := l.Snapshot().Org.Locations.Resolve("office-ap", "radio.5g.width"); r.Value != "40" {
+		t.Fatalf("live width after preview = %v", r.Value)
+	}
+}
+
 func TestDSN(t *testing.T) {
 	const q = "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_txlock=immediate"
 	for in, want := range map[string]string{

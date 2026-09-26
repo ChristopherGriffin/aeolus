@@ -48,10 +48,10 @@ func New(key []byte) (*Box, error) {
 }
 
 // LoadOrCreate reads the key file at path, creating it with a fresh random
-// key if it does not exist.
+// key if it does not exist. Only setup should create a key: a new key cannot
+// open anything sealed with the old one.
 func LoadOrCreate(path string) (*Box, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		key := make([]byte, 32)
 		if _, err := rand.Read(key); err != nil {
 			return nil, err
@@ -62,6 +62,13 @@ func LoadOrCreate(path string) (*Box, error) {
 		}
 		return New(key)
 	}
+	return Load(path)
+}
+
+// Load reads an existing key file. It refuses a file readable by group or
+// others.
+func Load(path string) (*Box, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
