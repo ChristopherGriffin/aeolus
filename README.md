@@ -64,7 +64,7 @@ Each milestone ends in something checkable before the next starts.
 | [0035](docs/decisions/0035-dhcp-observation.md) | DHCP observation: vendor-neutral detection and network watch |
 | [0036](docs/decisions/0036-the-manager-as-an-actor.md) | The manager as an actor |
 | [0037](docs/decisions/0037-library-rules.md) | Library rules: who edits it, and references |
-| [0038](docs/decisions/0038-enrollment-and-the-poll.md) | Enrollment and the config poll in detail (proposed) |
+| [0038](docs/decisions/0038-enrollment-and-the-poll.md) | Enrollment and the config poll in detail |
 
 ## Open questions
 

@@ -1,8 +1,8 @@
 # 0038. Enrollment and the config poll in detail
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-26
-- Proposed by: Claude, while building M4 part 3
+- Proposed by: Claude, while building M4 part 3; accepted by Griff with the part 3a merge
 - Refines: 0007, 0029, 0033, 0036
 
 ## Decision
