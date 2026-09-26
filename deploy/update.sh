@@ -1,8 +1,10 @@
 #!/bin/sh
 # Build and install an Aeolus release on the manager host (0011).
 #
-# Run as root on the manager host:  update.sh [ref]
-# ref defaults to the newest v* tag. The code is fetched with the host's
+# Run as root on the manager host:  aeolus-update [ref]
+# ref defaults to the newest v* tag. The script installs itself as
+# /usr/local/sbin/aeolus-update; run that copy, never the one in the checkout,
+# because the checkout changes under a running script. The code is fetched with the host's
 # read-only deploy key, built with the Go toolchain go.mod asks for, and
 # installed; a running service is restarted. Only /var/lib/aeolus and
 # /etc/aeolus hold state, so the host can always be rebuilt.
@@ -38,6 +40,7 @@ HOME=/root GOTOOLCHAIN=auto CGO_ENABLED=0 go build -trimpath \
 mv -f "$BIN/aeolus.new" "$BIN/aeolus"
 
 install -m 0644 deploy/aeolus.service /etc/systemd/system/aeolus.service
+install -m 0755 deploy/update.sh /usr/local/sbin/aeolus-update
 if [ ! -f /etc/aeolus/serve.env ]; then
 	printf 'AEOLUS_HOSTS=%s,%s\n' "$(hostname -f)" "$(hostname -I | awk '{print $1}')" >/etc/aeolus/serve.env
 fi
