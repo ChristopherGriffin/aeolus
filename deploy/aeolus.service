@@ -1,0 +1,32 @@
+[Unit]
+Description=Aeolus manager API
+Documentation=https://github.com/ChristopherGriffin/aeolus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=aeolus
+Group=aeolus
+# AEOLUS_HOSTS names the host in a self-signed certificate made on first start.
+EnvironmentFile=/etc/aeolus/serve.env
+ExecStart=/opt/aeolus/bin/aeolus serve -hosts ${AEOLUS_HOSTS}
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/aeolus /etc/aeolus
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
