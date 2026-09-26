@@ -69,8 +69,8 @@ Each milestone ends in something checkable before the next starts.
 | [0037](docs/decisions/0037-library-rules.md) | Library rules: who edits it, and references |
 | [0038](docs/decisions/0038-enrollment-and-the-poll.md) | Enrollment and the config poll in detail |
 | [0039](docs/decisions/0039-render-check-and-reports.md) | The render check, AP reports and the conditions store |
-| [0040](docs/decisions/0040-the-ap-agent.md) | The AP agent, v1 (proposed) |
-| [0041](docs/decisions/0041-keeping-rendered-uci.md) | Keeping rendered UCI without its secrets (proposed) |
+| [0040](docs/decisions/0040-the-ap-agent.md) | The AP agent, v1 |
+| [0041](docs/decisions/0041-keeping-rendered-uci.md) | Keeping rendered UCI without its secrets |
 
 ## Open questions
 

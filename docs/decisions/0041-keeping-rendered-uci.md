@@ -1,8 +1,8 @@
 # 0041. Keeping rendered UCI without its secrets
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-26
-- Proposed by: Claude, correcting a conflict between 0008 and 0039
+- Proposed by: Claude, correcting a conflict between 0008 and 0039; accepted by Griff
 - Supersedes: 0039's rule that rendered UCI is not kept
 
 ## Context

@@ -38,7 +38,7 @@
     - SSH keys, the poll interval and rate limits;
     - HA timing (`ha`, `failback`, `holddown`).
   - **Every schema field is listed as checked or deferred** in `internal/rendercheck`. A test fails when a field is in neither list, so no field goes unchecked without anyone deciding it.
-- **Rendered UCI is not kept.** It carries passphrases in plain text (0027). The manager records its SHA-256, the version, the result and the problems.
+- **Rendered UCI is not kept** (superseded by 0041: it is kept with secrets blanked). It carries passphrases in plain text (0027). The manager records its SHA-256, the version, the result and the problems.
 - **Reports.**
   - `POST /v1/ap/applied`: after each apply attempt, the version and UCI hash applied, whether it worked, and the error if not.
     - An apply whose hash no `ok` check covers is recorded as unchecked.

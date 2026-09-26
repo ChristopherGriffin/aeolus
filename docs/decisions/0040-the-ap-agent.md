@@ -1,8 +1,8 @@
 # 0040. The AP agent, v1
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-26
-- Proposed by: Claude, to start M5 on PumphouseAP
+- Proposed by: Claude, to start M5 on PumphouseAP; accepted by Griff
 - Refines: 0008, 0020, 0022, 0033, 0038, 0039
 
 ## Context
