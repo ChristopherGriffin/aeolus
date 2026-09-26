@@ -111,7 +111,7 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request, c call) error {
 		fields[p] = viewResolved(res)
 	}
 	problems := compose.Node(c.state, s.schema, name, t, id, s.reveal)
-	writeJSON(w, http.StatusOK, map[string]any{
+	page := map[string]any{
 		"tree":        name,
 		"node":        viewNode(n),
 		"ancestry":    t.Ancestry(id),
@@ -120,7 +120,11 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request, c call) error {
 		"overrides":   map[string]any{"in_effect": viewOverrides(t.OverridesInEffect(id)), "below": viewOverrides(t.OverridesBelow(id))},
 		"locks_above": viewOverrides(t.LocksAbove(id)),
 		"problems":    problems,
-	})
+	}
+	if f, ok := c.state.Facts[id]; ok && name == change.Locations {
+		page["facts"] = f // what it sent when it enrolled (0033)
+	}
+	writeJSON(w, http.StatusOK, page)
 	return nil
 }
 

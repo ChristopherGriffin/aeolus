@@ -32,6 +32,35 @@ func TestTokensAuthenticateUntilRevoked(t *testing.T) {
 	}
 }
 
+func TestAPTokens(t *testing.T) {
+	a := New()
+	plain, id, hash, err := NewAPToken()
+	must(t, err)
+	if !strings.HasPrefix(plain, "aeolusap1."+id+".") {
+		t.Fatalf("AP token %q", plain)
+	}
+	must(t, a.AddAPToken(id, "ap-1", hash))
+	if err := a.AddAPToken(id, "ap-2", hash); !errors.Is(err, ErrExists) {
+		t.Fatalf("duplicate AP token ID: %v", err)
+	}
+	c := a.Clone()
+	if ap, err := a.AuthenticateAP(plain); err != nil || ap != "ap-1" {
+		t.Fatalf("AuthenticateAP = %q, %v", ap, err)
+	}
+	if _, err := a.AuthenticateAP(strings.Replace(plain, "aeolusap1.", "aeolus1.", 1)); !errors.Is(err, ErrBadToken) {
+		t.Fatalf("an AP token with an account prefix: %v", err)
+	}
+	if n := a.RevokeAPTokens("ap-1"); n != 1 {
+		t.Fatalf("revoked %d", n)
+	}
+	if _, err := a.AuthenticateAP(plain); !errors.Is(err, ErrBadToken) {
+		t.Fatalf("after revoke: %v", err)
+	}
+	if _, err := c.AuthenticateAP(plain); err != nil {
+		t.Fatalf("revoking reached a clone: %v", err)
+	}
+}
+
 func TestStoredTokenHoldsNoSecret(t *testing.T) {
 	plain, id, hash, err := NewToken()
 	must(t, err)

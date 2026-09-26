@@ -2,7 +2,9 @@
 // UI, the CLI and the MCP adapter all use it; none has a private path into
 // the database.
 //
-// Every request except /healthz carries "Authorization: Bearer <token>".
+// Every request except /healthz and /v1/enroll carries "Authorization:
+// Bearer <token>": an account's token, or on the /v1/ap/ routes an AP's
+// (0038).
 // Every write is one change with a reason, authorized and checked at commit
 // time (0029, 0030). Secrets are never returned in plain text (0027), and a
 // node the caller cannot view answers 404, not 403, so the API does not
@@ -69,6 +71,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/preview", s.auth(s.preview))
 	mux.Handle("POST /v1/tokens", s.auth(s.issueToken))
 	mux.Handle("DELETE /v1/tokens/{id}", s.auth(s.revokeToken))
+
+	// The routes APs use (0033, 0038).
+	mux.HandleFunc("POST /v1/enroll", s.enroll)
+	mux.Handle("GET /v1/ap/config", s.apAuth(s.apPoll))
 	return mux
 }
 
@@ -94,15 +100,21 @@ func (s *Server) auth(h handler) http.Handler {
 			return
 		}
 		if err := h(w, r, call{actor: who, state: state}); err != nil {
-			code := status(err)
-			if code == http.StatusInternalServerError {
-				slog.Error("api", "method", r.Method, "path", r.URL.Path, "actor", who, "err", err)
-				writeError(w, code, "internal error")
-				return
-			}
-			writeError(w, code, err.Error())
+			s.fail(w, r, string(who), err)
 		}
 	})
+}
+
+// fail answers with the error's status. An unexpected error is logged, and
+// the caller told only that something went wrong.
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, who string, err error) {
+	code := status(err)
+	if code == http.StatusInternalServerError {
+		slog.Error("api", "method", r.Method, "path", r.URL.Path, "caller", who, "err", err)
+		writeError(w, code, "internal error")
+		return
+	}
+	writeError(w, code, err.Error())
 }
 
 // apiError is an error with its own status.
@@ -133,6 +145,8 @@ func status(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, change.ErrForbidden), errors.Is(err, change.ErrUnknownActor):
 		return http.StatusForbidden
+	case errors.Is(err, change.ErrFull):
+		return http.StatusServiceUnavailable
 	case errors.Is(err, hierarchy.ErrNotFound), errors.Is(err, access.ErrNoAccount),
 		errors.Is(err, access.ErrNoToken), errors.Is(err, access.ErrNoGrant):
 		return http.StatusNotFound
@@ -150,7 +164,8 @@ func status(err error) int {
 		errors.Is(err, change.ErrReserved), errors.Is(err, hierarchy.ErrIsolated),
 		errors.Is(err, hierarchy.ErrBadParent), errors.Is(err, hierarchy.ErrAPsNotHere), errors.Is(err, hierarchy.ErrMoveRoot),
 		errors.Is(err, hierarchy.ErrCycle), errors.Is(err, hierarchy.ErrBreakRoot), errors.Is(err, hierarchy.ErrBroken),
-		errors.Is(err, hierarchy.ErrNotSetHere), errors.Is(err, hierarchy.ErrLockOnValue), errors.Is(err, hierarchy.ErrNotLocked):
+		errors.Is(err, hierarchy.ErrNotSetHere), errors.Is(err, hierarchy.ErrLockOnValue), errors.Is(err, hierarchy.ErrNotLocked),
+		errors.Is(err, hierarchy.ErrNotAnAP), errors.Is(err, access.ErrBadTokenArg):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

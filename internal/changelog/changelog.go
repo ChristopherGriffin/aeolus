@@ -340,9 +340,12 @@ type fingerprint struct {
 	err    error
 }
 
-// fingerprints records every AP's resolved values, without origins: a change
-// that only moves where a value comes from (a break, for example) does not
-// change the AP's config.
+// fingerprints records, for every AP, everything its composed config is built
+// from (0007, 0023): its resolved values, without origins, and what it uses of
+// the library. A change that only moves where a value comes from (a break,
+// for example) does not change the AP's config; a new address for a
+// concentrator it uses does, and so does the AP moving in or out of that
+// concentrator's scope.
 func fingerprints(s *change.State) map[hierarchy.NodeID]fingerprint {
 	out := map[hierarchy.NodeID]fingerprint{}
 	if s == nil {
@@ -359,12 +362,43 @@ func fingerprints(s *change.State) map[hierarchy.NodeID]fingerprint {
 		for p, r := range cfg.Location {
 			v["location/"+string(p)] = r.Value
 		}
+		ancestry := o.Locations.Ancestry(ap)
 		for id, n := range cfg.Networks {
 			for f, r := range n.Fields {
 				v["network/"+id+"/"+f] = r.Value
+			}
+			for _, slot := range []string{"primary", "fallback"} {
+				if cid, ok := n.Fields["transport."+slot+".concentrator"]; ok {
+					vni := n.Fields["transport."+slot+".vni"]
+					v["library/"+id+"/"+slot] = uses(s, cid.Value, vni.Value, ancestry)
+				}
 			}
 		}
 		out[ap] = fingerprint{values: v}
 	}
 	return out
+}
+
+// libraryUse is what one transport takes from the library, exactly as the
+// composed config does (compose.AP): whether its concentrator exists and may
+// be used here, and if so where it is and whether it has the VNI. A
+// concentrator's name and VNI labels are left out: the AP never sees them.
+type libraryUse struct {
+	Found, Available, VNIDefined bool
+	Address                      string
+	Port, MTU                    int
+}
+
+func uses(s *change.State, concentrator, vni any, ancestry []hierarchy.NodeID) libraryUse {
+	id, _ := concentrator.(string)
+	k, ok := s.Library.Get(id)
+	if !ok {
+		return libraryUse{}
+	}
+	if !k.AvailableAt(ancestry) {
+		return libraryUse{Found: true}
+	}
+	n, _ := vni.(float64)
+	_, defined := k.VNIs[int(n)]
+	return libraryUse{Found: true, Available: true, VNIDefined: defined, Address: k.Address, Port: k.Port, MTU: k.MTU}
 }
