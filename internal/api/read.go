@@ -33,17 +33,18 @@ func (s *Server) whoami(w http.ResponseWriter, _ *http.Request, c call) error {
 }
 
 type nodeView struct {
-	ID     hierarchy.NodeID `json:"id"`
-	Name   string           `json:"name"`
-	Kind   string           `json:"kind"`
-	Parent hierarchy.NodeID `json:"parent,omitempty"`
-	Broken bool             `json:"broken,omitempty"`
+	ID       hierarchy.NodeID `json:"id"`
+	Name     string           `json:"name"`
+	Kind     string           `json:"kind"`
+	Parent   hierarchy.NodeID `json:"parent,omitempty"`
+	Broken   bool             `json:"broken,omitempty"`
+	Isolated bool             `json:"isolated,omitempty"`
 }
 
 var kindNames = map[hierarchy.Kind]string{hierarchy.KindOrg: "org", hierarchy.KindFolder: "folder", hierarchy.KindAP: "ap"}
 
 func viewNode(n hierarchy.Node) nodeView {
-	return nodeView{ID: n.ID, Name: n.Name, Kind: kindNames[n.Kind], Parent: n.Parent, Broken: n.Broken}
+	return nodeView{ID: n.ID, Name: n.Name, Kind: kindNames[n.Kind], Parent: n.Parent, Broken: n.Broken, Isolated: n.Isolated}
 }
 
 // tree lists the nodes of a tree the caller can view, root first, depth first.

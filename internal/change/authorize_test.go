@@ -3,6 +3,7 @@ package change
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
@@ -141,6 +142,98 @@ func TestCreateOrgMakesItsCallerAdminOfBothTrees(t *testing.T) {
 	}
 	if _, _, err := Apply(nil, Op{Kind: CreateOrg, Node: "symtus", Name: "Symtus"}); !errors.Is(err, ErrNoAccount) {
 		t.Fatalf("create-org without an admin: %v", err)
+	}
+}
+
+func TestBuiltins(t *testing.T) {
+	s := people(t)
+	_, eff, err := Apply(s, Op{Kind: AddBuiltins})
+	must(t, err)
+	if !reflect.DeepEqual(eff.After, []string{"locations/landing-zone", "locations/sandbox", "services/sandbox"}) {
+		t.Fatalf("created %v", eff.After)
+	}
+	if n, _ := s.Org.Locations.Node(LandingZone); !n.Isolated {
+		t.Fatal("Landing Zone is not isolated")
+	}
+	if n, _ := s.Org.Locations.Node(Sandbox); n.Isolated {
+		t.Fatal("Sandbox is isolated")
+	}
+	if _, _, err := Apply(s, Op{Kind: AddBuiltins}); !errors.Is(err, ErrBuiltins) {
+		t.Fatalf("second add-builtins: %v", err)
+	}
+}
+
+func TestBuiltinsRefuseALookalike(t *testing.T) {
+	s := people(t)
+	mustApply(t, s, Op{Kind: AddFolder, Tree: Services, Node: Sandbox, Name: "My sandbox", Parent: "household"})
+	if _, _, err := Apply(s, Op{Kind: AddBuiltins}); !errors.Is(err, hierarchy.ErrExists) {
+		t.Fatalf("add-builtins over a lookalike: %v", err)
+	}
+}
+
+func TestTheManagerMayDoOnlyTwoThings(t *testing.T) {
+	s := people(t)
+	mustApply(t, s, Op{Kind: AddBuiltins})
+	allowed := []Op{
+		{Kind: AddBuiltins},
+		{Kind: AddAP, Tree: Locations, Node: "new-ap", Name: "NewAP", Parent: LandingZone},
+	}
+	for _, op := range allowed {
+		if err := Authorize(s, SystemActor, op); err != nil {
+			t.Errorf("%s: %v", op.Kind, err)
+		}
+	}
+	refused := []Op{
+		{Kind: AddAP, Tree: Locations, Node: "x", Name: "X", Parent: "house"},
+		{Kind: Set, Tree: Locations, Node: "house", Path: "system.tz", Value: json.RawMessage(`"UTC"`)},
+		{Kind: AddAccount, Account: "x", Name: "X"},
+		{Kind: GrantRole, Account: "claude", Tree: Locations, Node: "symtus", Role: "admin"},
+	}
+	for _, op := range refused {
+		if err := Authorize(s, SystemActor, op); !errors.Is(err, ErrForbidden) {
+			t.Errorf("%s: got %v, want ErrForbidden", op.Kind, err)
+		}
+	}
+	if _, _, err := Apply(s, Op{Kind: AddAccount, Account: SystemActor, Name: "impostor"}); !errors.Is(err, ErrReserved) {
+		t.Fatalf("an account named aeolus: %v", err)
+	}
+	if err := Authorize(s, "claude", Op{Kind: AddBuiltins}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("operator adding built-ins: %v", err)
+	}
+}
+
+func TestAdoptionIsDecidedByTheDestination(t *testing.T) {
+	s := people(t)
+	mustApply(t, s, Op{Kind: AddBuiltins})
+	mustApply(t, s, Op{Kind: AddAP, Tree: Locations, Node: "new-ap", Name: "NewAP", Parent: LandingZone})
+	for _, op := range []Op{
+		{Kind: AddAccount, Account: "house-op", Name: "House operator"},
+		{Kind: GrantRole, Account: "house-op", Tree: Locations, Node: "house", Role: "operator"},
+		{Kind: AddAccount, Account: "house-adopter", Name: "House adopter"},
+		{Kind: GrantRole, Account: "house-adopter", Tree: Locations, Node: "house", Role: "operator"},
+		{Kind: GrantRole, Account: "house-adopter", Tree: Locations, Node: LandingZone, Role: "viewer"},
+	} {
+		mustApply(t, s, op)
+	}
+	adopt := func(dest hierarchy.NodeID) Op {
+		return Op{Kind: Move, Tree: Locations, Node: "new-ap", Parent: dest}
+	}
+	cases := []struct {
+		actor string
+		op    Op
+		ok    bool
+	}{
+		{"house-op", adopt("house"), false},     // cannot see Landing Zone
+		{"house-adopter", adopt("house"), true}, // sees it, operates the destination
+		{"house-adopter", adopt("gate"), false}, // no role on the destination
+		{"claude", adopt("gate"), true},         // operator at the root
+		{"gatekeeper", adopt("gate"), false},    // admin on gate, but cannot see Landing Zone
+	}
+	for _, c := range cases {
+		err := Authorize(s, c.actor, c.op)
+		if (err == nil) != c.ok {
+			t.Errorf("%s adopting into %s: %v, want ok=%v", c.actor, c.op.Parent, err, c.ok)
+		}
 	}
 }
 
