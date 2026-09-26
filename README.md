@@ -2,7 +2,7 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: M1 and M2 done (resolution engine, change log); M3 next.** Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: v0.1.0 running on Aeolus** (`https://aeolus.symtus.com:8443`). M1, M2 and M3 parts 1–3 are done; the MCP adapter (M3 part 4) is next. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
 
 ## Build order
 
@@ -13,7 +13,7 @@ Each milestone ends in something checkable before the next starts.
 3. **Admin API and identities** (0024–0028), in four parts:
    1. Field schema, validation and encrypted secrets ([`internal/schema`](internal/schema), [`internal/secret`](internal/secret)).
    2. Accounts, tokens and roles ([`internal/access`](internal/access), [`internal/change`](internal/change) `Authorize`).
-   3. The HTTP API with preview ([`internal/api`](internal/api), [`cmd/aeolus`](cmd/aeolus), [API reference](docs/api.md)), running on Aeolus.
+   3. The HTTP API with preview ([`internal/api`](internal/api), [`cmd/aeolus`](cmd/aeolus), [API reference](docs/api.md)), running on Aeolus and updated with [`aeolus-update`](deploy/update.sh).
    4. The MCP adapter. Done when a change made through it shows up in the log under Claude's name.
 4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
 5. **ucode agent on a lab AP**: the full loop, with drift shown.
