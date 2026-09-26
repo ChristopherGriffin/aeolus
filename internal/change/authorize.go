@@ -125,6 +125,9 @@ func Authorize(s *State, actor string, op Op) error {
 			return err
 		}
 		return need(access.Admin, Services, root)
+	case SetConcentrator, RemoveConcentrator, SetVNI, RemoveVNI:
+		// The library serves every network (0037).
+		return need(access.Admin, Services, s.Org.Services.Root())
 	case AddAccount:
 		if !s.Access.AdminAnywhere(who) {
 			return &ForbiddenError{Actor: actor, Need: access.Admin}

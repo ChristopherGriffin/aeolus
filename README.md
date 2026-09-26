@@ -17,7 +17,7 @@ Each milestone ends in something checkable before the next starts.
    4. The MCP adapter ([`internal/mcpadapter`](internal/mcpadapter), served at `/mcp`). Done when a change made through it shows up in the log under Claude's name.
 4. **AP contract** (0032–0036), in four parts:
    1. Landing Zone and Sandbox built in; adoption; the manager as an actor.
-   2. The concentrator library (0023) and per-AP filtering.
+   2. The concentrator library (0023) and per-AP filtering ([`internal/library`](internal/library), [`internal/compose`](internal/compose)).
    3. AP endpoints: enroll, config poll, render check, state reports.
    4. The manager side of DHCP observation (0035): relay listener and option 224 listener.
 5. **ucode agent on a lab AP**: the full loop, with drift shown.
@@ -63,6 +63,7 @@ Each milestone ends in something checkable before the next starts.
 | [0034](docs/decisions/0034-detecting-openwifi-aps.md) | Detecting unconfigured OpenWiFi APs (partly superseded by 0035) |
 | [0035](docs/decisions/0035-dhcp-observation.md) | DHCP observation: vendor-neutral detection and network watch |
 | [0036](docs/decisions/0036-the-manager-as-an-actor.md) | The manager as an actor |
+| [0037](docs/decisions/0037-library-rules.md) | Library rules: who edits it, and references (proposed) |
 
 ## Open questions
 

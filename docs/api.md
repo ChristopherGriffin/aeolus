@@ -10,7 +10,8 @@ JSON over HTTPS (0026). Every request except `/healthz` carries `Authorization: 
 | `GET /v1/whoami` | your account and grants | a token |
 | `GET /v1/trees/{locations\|services}` | the nodes you can view, root first | viewer on each node |
 | `GET /v1/trees/{tree}/nodes/{id}` | the node, its ancestry, your role there, every field with its value, `from` and `origin` (`self`, `inherited`, `locked`, `baseline`), the overrides menu (`in_effect`, `below`), `locks_above`, and `problems`: the rules its config breaks (0029) | viewer |
-| `GET /v1/aps/{id}/config` | the AP's resolved Location fields and networks with origins, its service folders, its `version`, and `check: {ok, problems}` | viewer on the AP |
+| `GET /v1/aps/{id}/config` | the AP's resolved Location fields and networks with origins, its service folders, its `version`, whether it is `unassigned` (in Landing Zone), the composed `document` it will receive (secrets sealed), and `check: {ok, problems}` | viewer on the AP |
+| `GET /v1/library` | the concentrators, with their labeled VNIs and the Location folders they may be used at (0023) | a token |
 | `GET /v1/changes?after=N&limit=M` | change-log entries after `N` (limit 1 to 1000, default 100) | viewer at the Org root of either tree |
 
 Secrets are never returned: a secret value appears as `{"sealed": true}`, and token hashes are dropped.
@@ -30,11 +31,11 @@ An `op` is one change, as the change log records it:
 {"kind": "set", "tree": "services", "node": "household", "path": "network.sweet.ssid", "value": "Sweet Spot"}
 ```
 
-Kinds: `add-folder`, `add-ap`, `move`, `set`, `unset`, `lock`, `unlock`, `break-hierarchy`, `assign-services`, `add-builtins`, `add-account`, `grant`, `revoke`, `revoke-token`. Moving an AP out of Landing Zone (a node with `"isolated": true`) is adoption: it needs viewer on Landing Zone and operator on the destination (0032). `create-org` happens only through `aeolus init` on the manager host, and tokens are issued through `/v1/tokens`. Set values are checked against the field schema (`internal/schema/v1.json`), and secret values are sealed before they are logged (0027). Who may make which change is 0030.
+Kinds: `add-folder`, `add-ap`, `move`, `set`, `unset`, `lock`, `unlock`, `break-hierarchy`, `assign-services`, `add-builtins`, `add-account`, `grant`, `revoke`, `revoke-token`, and for the library `set-concentrator` (`concentrator`, `value: {name, address, port, mtu, scope}`), `remove-concentrator`, `set-vni` (`concentrator`, `vni`, label in `name`) and `remove-vni` (0037). Moving an AP out of Landing Zone (a node with `"isolated": true`) is adoption: it needs viewer on Landing Zone and operator on the destination (0032). `create-org` happens only through `aeolus init` on the manager host, and tokens are issued through `/v1/tokens`. Set values are checked against the field schema (`internal/schema/v1.json`), and secret values are sealed before they are logged (0027). Who may make which change is 0030.
 
 ## MCP
 
-`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` requires a reason.
+`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `get_library`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` requires a reason.
 
 ## Errors
 

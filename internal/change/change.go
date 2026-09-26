@@ -15,6 +15,7 @@ import (
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/library"
 )
 
 // Kind names an operation.
@@ -40,6 +41,12 @@ const (
 	RevokeToken Kind = "revoke-token"
 	GrantRole   Kind = "grant"
 	RevokeRole  Kind = "revoke"
+
+	// The library (0023).
+	SetConcentrator    Kind = "set-concentrator"
+	RemoveConcentrator Kind = "remove-concentrator"
+	SetVNI             Kind = "set-vni"
+	RemoveVNI          Kind = "remove-vni"
 )
 
 // Built-in folders every Org has (0032), and the manager's own actor name for
@@ -73,6 +80,9 @@ type Op struct {
 	Role      string           `json:"role,omitempty"`
 	TokenID   string           `json:"token_id,omitempty"`
 	TokenHash []byte           `json:"token_hash,omitempty"`
+
+	Concentrator string `json:"concentrator,omitempty"`
+	VNI          int    `json:"vni,omitempty"`
 }
 
 // Effect records what a change did, for the change log: the state before and
@@ -85,8 +95,9 @@ type Effect struct {
 
 // State is everything the change log rebuilds.
 type State struct {
-	Org    *hierarchy.Org
-	Access *access.Access
+	Org     *hierarchy.Org
+	Access  *access.Access
+	Library *library.Library
 }
 
 // Clone returns an independent copy, or nil for nil.
@@ -94,7 +105,7 @@ func (s *State) Clone() *State {
 	if s == nil {
 		return nil
 	}
-	return &State{Org: s.Org.Clone(), Access: s.Access.Clone()}
+	return &State{Org: s.Org.Clone(), Access: s.Access.Clone(), Library: s.Library.Clone()}
 }
 
 var (
@@ -111,7 +122,21 @@ var (
 	ErrNotAFolder  = errors.New("roles are granted on folders, not APs")
 	ErrBuiltins    = errors.New("the built-in folders already exist")
 	ErrReserved    = errors.New("that account name is reserved for the manager itself")
+	ErrNoConcID    = errors.New("change needs a concentrator")
+	ErrInUse       = errors.New("still in use")
 )
+
+// InUseError lists what still refers to a concentrator or VNI.
+type InUseError struct {
+	What string
+	By   []string
+}
+
+func (e *InUseError) Error() string {
+	return fmt.Sprintf("%s is %v by %v", e.What, ErrInUse, e.By)
+}
+
+func (e *InUseError) Unwrap() error { return ErrInUse }
 
 // Apply applies op to s and reports its effect. It returns the state to use
 // from then on: a new one for create-org, otherwise s itself. On error, s is
@@ -134,6 +159,8 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 	switch op.Kind {
 	case AddBuiltins:
 		eff, err = addBuiltins(s.Org)
+	case SetConcentrator, RemoveConcentrator, SetVNI, RemoveVNI:
+		eff, err = applyLibrary(s, op)
 	case AddAccount, IssueToken, RevokeToken, GrantRole, RevokeRole:
 		eff, err = applyAccess(s, op)
 	default:
@@ -145,6 +172,11 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 func validate(op Op) error {
 	switch op.Kind {
 	case AddBuiltins:
+		return nil
+	case SetConcentrator, RemoveConcentrator, SetVNI, RemoveVNI:
+		if op.Concentrator == "" {
+			return ErrNoConcID
+		}
 		return nil
 	case CreateOrg:
 		if op.Account == "" {
@@ -184,7 +216,7 @@ func validate(op Op) error {
 // createOrg starts the state. The Org's first account is its admin at the
 // root of both trees, so there is never a moment without one.
 func createOrg(op Op) (*State, Effect, error) {
-	s := &State{Org: hierarchy.NewOrg(op.Node, op.Name), Access: access.New()}
+	s := &State{Org: hierarchy.NewOrg(op.Node, op.Name), Access: access.New(), Library: library.New()}
 	if err := s.Access.AddAccount(op.Account, string(op.Account)); err != nil {
 		return nil, Effect{}, err
 	}

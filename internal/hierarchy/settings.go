@@ -32,6 +32,16 @@ func (t *Tree) Own(id NodeID, p Path) (Value, bool) {
 	return v, ok
 }
 
+// EachSet calls fn for every value set anywhere in the tree, in no particular
+// order. Copies taken at a break are not included.
+func (t *Tree) EachSet(fn func(node NodeID, p Path, v Value)) {
+	for n, vals := range t.set {
+		for p, v := range vals {
+			fn(n, p, v)
+		}
+	}
+}
+
 // IsLocked reports whether the node itself locks p.
 func (t *Tree) IsLocked(id NodeID, p Path) bool { return t.locks[id][p] }
 

@@ -96,7 +96,7 @@ func TestScenarioPassesTheGuardAndBuildsValidConfigs(t *testing.T) {
 	for _, ap := range org.Locations.APs() {
 		cfg, err := org.ResolveAP(ap)
 		must(t, err)
-		doc, err := Document(cfg, box.Open)
+		doc, err := document(cfg, box.Open)
 		must(t, err)
 		if err := s.CheckDocument(doc); err != nil {
 			t.Fatalf("%s config invalid: %v\n%v", ap, err, doc)
@@ -105,7 +105,7 @@ func TestScenarioPassesTheGuardAndBuildsValidConfigs(t *testing.T) {
 
 	cfg, err := org.ResolveAP("office-ap")
 	must(t, err)
-	doc, err := Document(cfg, box.Open)
+	doc, err := document(cfg, box.Open)
 	must(t, err)
 	radio5 := doc["radio"].(map[string]any)["5g"].(map[string]any)
 	if radio5["width"] != float64(40) || radio5["channel"] != float64(48) {
@@ -118,7 +118,7 @@ func TestScenarioPassesTheGuardAndBuildsValidConfigs(t *testing.T) {
 
 	gate, err := org.ResolveAP("gate-ap")
 	must(t, err)
-	gdoc, err := Document(gate, nil)
+	gdoc, err := document(gate, nil)
 	must(t, err)
 	primary := gdoc["network"].(map[string]any)["sweet"].(map[string]any)["transport"].(map[string]any)["primary"].(map[string]any)
 	if primary["type"] != "vxlan" || primary["vni"] != float64(20) {
@@ -355,11 +355,26 @@ func TestSecretsNeverReachTheLogInPlainText(t *testing.T) {
 	defer log.Close()
 	cfg, err := log.Snapshot().Org.ResolveAP("office-ap")
 	must(t, err)
-	doc, err := Document(cfg, box.Open)
+	doc, err := document(cfg, box.Open)
 	must(t, err)
 	if got := doc["network"].(map[string]any)["sweet"].(map[string]any)["passphrase"]; got != passphrase {
 		t.Fatalf("passphrase after replay = %v", got)
 	}
+}
+
+// document assembles an AP's resolved fields; the manager does this, with the
+// library, in package compose.
+func document(cfg hierarchy.APConfig, reveal func(string, any) (any, error)) (map[string]any, error) {
+	fields := map[string]any{}
+	for p, r := range cfg.Location {
+		fields[string(p)] = r.Value
+	}
+	for id, n := range cfg.Networks {
+		for f, r := range n.Fields {
+			fields["network."+id+"."+f] = r.Value
+		}
+	}
+	return Assemble(fields, reveal)
 }
 
 // schemaOnly adapts CheckOp to the change log's commit check.
