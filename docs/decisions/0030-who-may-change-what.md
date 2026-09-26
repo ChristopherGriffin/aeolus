@@ -1,8 +1,8 @@
 # 0030. Who may make which change
 
-- Status: Proposed (awaiting Griff)
+- Status: Accepted
 - Date: 2026-09-25
-- Proposed by: Claude, while building M3
+- Proposed by: Claude, while building M3; accepted by Griff with the part 2 merge
 - Refines: 0024, 0025
 
 ## Decision
