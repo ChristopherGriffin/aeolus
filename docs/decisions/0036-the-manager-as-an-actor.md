@@ -1,8 +1,8 @@
 # 0036. The manager as an actor
 
-- Status: Proposed (awaiting Griff)
+- Status: Accepted
 - Date: 2026-09-26
-- Proposed by: Claude, while building M4
+- Proposed by: Claude, while building M4; accepted by Griff with the part 1 merge
 - Refines: 0009, 0024
 
 ## Context

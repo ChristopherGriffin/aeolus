@@ -62,7 +62,7 @@ Each milestone ends in something checkable before the next starts.
 | [0033](docs/decisions/0033-ap-enrollment-and-identity.md) | AP enrollment and identity without a CA |
 | [0034](docs/decisions/0034-detecting-openwifi-aps.md) | Detecting unconfigured OpenWiFi APs (partly superseded by 0035) |
 | [0035](docs/decisions/0035-dhcp-observation.md) | DHCP observation: vendor-neutral detection and network watch |
-| [0036](docs/decisions/0036-the-manager-as-an-actor.md) | The manager as an actor (proposed) |
+| [0036](docs/decisions/0036-the-manager-as-an-actor.md) | The manager as an actor |
 
 ## Open questions
 
