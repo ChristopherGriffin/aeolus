@@ -2,7 +2,7 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: running on Aeolus** (`https://aeolus.symtus.com:8443`, the latest `v*` tag). M1–M3 are done. M4, the AP contract, is under way: Landing Zone, Sandbox, adoption and the concentrator library are in; APs enroll, poll for their config, have their rendered UCI checked against intent, and report what they applied and their state. The manager side of DHCP observation is next. PumphouseAP is the lab AP. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: running on Aeolus** (`https://aeolus.symtus.com:8443`, the latest `v*` tag). M1–M3 are done. M4, the AP contract, is under way: Landing Zone, Sandbox, adoption and the concentrator library are in; APs enroll, poll for their config, have their rendered UCI checked against intent, and report what they applied and their state. Next is the agent on PumphouseAP (M5), ahead of the DHCP listeners, so the whole loop runs on a real AP sooner. PumphouseAP is the lab AP. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
 
 ## Build order
 
@@ -19,9 +19,12 @@ Each milestone ends in something checkable before the next starts.
    1. Landing Zone and Sandbox built in; adoption; the manager as an actor.
    2. The concentrator library (0023) and per-AP filtering ([`internal/library`](internal/library), [`internal/compose`](internal/compose)).
    3. AP endpoints ([AP routes](docs/api.md#ap-routes)): enroll and the config poll (0038); the render check, apply and state reports, and the conditions store (0039, [`internal/rendercheck`](internal/rendercheck), [`internal/conditions`](internal/conditions)).
-   4. The manager side of DHCP observation (0035): relay listener and option 224 listener.
-5. **ucode agent on a lab AP**: the full loop, with drift shown.
-6. **Key channel** (0014).
+   4. The manager side of DHCP observation (0035): relay listener and option 224 listener. Built after M5.
+5. **The AP agent** (0040), on PumphouseAP, in two parts:
+   1. The full loop in Sandbox: install, enroll, poll, render, check, apply with automatic revert, reports; VLAN transports. The renderer is tested against the manager's check in CI.
+   2. On the AP itself: VXLAN, switching between transports and HA (0020, 0022), and VLAN detection on the uplink.
+6. **Web UI**, from the mockup: read-only first (both trees, AP pages with their condition and sync, the change log), then editing with the page guard (0029).
+7. **Key channel** (0014).
 
 ## Decisions
 
@@ -66,6 +69,8 @@ Each milestone ends in something checkable before the next starts.
 | [0037](docs/decisions/0037-library-rules.md) | Library rules: who edits it, and references |
 | [0038](docs/decisions/0038-enrollment-and-the-poll.md) | Enrollment and the config poll in detail |
 | [0039](docs/decisions/0039-render-check-and-reports.md) | The render check, AP reports and the conditions store |
+| [0040](docs/decisions/0040-the-ap-agent.md) | The AP agent, v1 (proposed) |
+| [0041](docs/decisions/0041-keeping-rendered-uci.md) | Keeping rendered UCI without its secrets (proposed) |
 
 ## Open questions
 
