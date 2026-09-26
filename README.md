@@ -2,7 +2,18 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: architecture.** There is no code yet. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: M1, the resolution engine.** Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+
+## Build order
+
+Each milestone ends in something checkable before the next starts.
+
+1. **Resolution engine** ([`internal/hierarchy`](internal/hierarchy)): both trees, field-level inheritance, locks, Break Hierarchy, service assignment, per-AP resolution.
+2. **Change log and versions**: append-only log in SQLite, Org-wide sequence, per-AP version numbers.
+3. **Admin API and identities**: every actor has its own identity; CLI and MCP are clients of the API.
+4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
+5. **ucode agent on a lab AP**: the full loop, with drift shown.
+6. **Key channel** (0014).
 
 ## Decisions
 
@@ -24,6 +35,7 @@ Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP s
 | [0014](docs/decisions/0014-per-user-keys.md) | Per-user keys have their own channel |
 | [0015](docs/decisions/0015-library.md) | A global library of named definitions |
 | [0016](docs/decisions/0016-open-for-extension.md) | Built open for later features |
+| [0017](docs/decisions/0017-locks-remove-hidden-overrides.md) | A lock removes the overrides it hides (proposed) |
 
 ## Open questions
 

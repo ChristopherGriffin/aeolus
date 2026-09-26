@@ -1,0 +1,44 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go test -race -cover ./...
+
+  # Both tiers from day one (0010): the manager must also build for AP hardware.
+  build-ap-targets:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goarch: arm64 }
+          - { goarch: arm, goarm: "7" }
+          - { goarch: mipsle, gomips: softfloat }
+          - { goarch: mips, gomips: softfloat }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          GOMIPS: ${{ matrix.gomips }}
