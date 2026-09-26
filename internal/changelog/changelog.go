@@ -74,22 +74,32 @@ type Log struct {
 	mu       sync.Mutex
 	db       *sql.DB
 	now      func() time.Time
+	check    func(change.Op) error
 	seq      int64
 	org      *hierarchy.Org
 	versions map[hierarchy.NodeID]int64
 }
 
-// Open opens or creates the log at path and replays it. now supplies commit
-// times; nil means time.Now.
-func Open(path string, now func() time.Time) (*Log, error) {
-	if now == nil {
-		now = time.Now
+// Options configures a Log.
+type Options struct {
+	// Now supplies commit times; nil means time.Now.
+	Now func() time.Time
+	// Check vets every change before it is committed, for example against
+	// the field schema (0027). It is not applied on replay: what is already
+	// in the log stays in the log.
+	Check func(change.Op) error
+}
+
+// Open opens or creates the log at path and replays it.
+func Open(path string, opts Options) (*Log, error) {
+	if opts.Now == nil {
+		opts.Now = time.Now
 	}
 	db, err := sql.Open("sqlite3", dsn(path))
 	if err != nil {
 		return nil, err
 	}
-	l := &Log{db: db, now: now, versions: map[hierarchy.NodeID]int64{}}
+	l := &Log{db: db, now: opts.Now, check: opts.Check, versions: map[hierarchy.NodeID]int64{}}
 	if err := l.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -159,6 +169,11 @@ func (l *Log) Close() error { return l.db.Close() }
 func (l *Log) Commit(actor, reason string, op change.Op) (Entry, error) {
 	if actor == "" {
 		return Entry{}, ErrNoActor
+	}
+	if l.check != nil {
+		if err := l.check(op); err != nil {
+			return Entry{}, err
+		}
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
