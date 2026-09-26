@@ -36,12 +36,13 @@ Each milestone ends in something checkable before the next starts.
 | [0015](docs/decisions/0015-library.md) | A global library of named definitions |
 | [0016](docs/decisions/0016-open-for-extension.md) | Built open for later features |
 | [0017](docs/decisions/0017-locks-remove-hidden-overrides.md) | A lock removes the overrides it hides (proposed) |
+| [0018](docs/decisions/0018-network-transport.md) | Network transport: primary and fallback |
 
 ## Open questions
 
 - Intent model contents: the full field list for each object type.
 - UI for assigning services to locations (mockup first).
-- Which folders offer the VXLAN library drop-down (0015).
+- When a network's fallback transport applies, and the library shape for VXLAN (0018).
 - Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
 - AP identity and enrollment; how config is signed.
