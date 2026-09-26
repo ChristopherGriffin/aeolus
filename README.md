@@ -2,7 +2,7 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: M1, the resolution engine.** Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: M1 done (resolution engine); M2 next.** Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
 
 ## Build order
 
@@ -35,7 +35,7 @@ Each milestone ends in something checkable before the next starts.
 | [0014](docs/decisions/0014-per-user-keys.md) | Per-user keys have their own channel |
 | [0015](docs/decisions/0015-library.md) | A global library of named definitions |
 | [0016](docs/decisions/0016-open-for-extension.md) | Built open for later features |
-| [0017](docs/decisions/0017-locks-remove-hidden-overrides.md) | A lock removes the overrides it hides (proposed) |
+| [0017](docs/decisions/0017-locks-remove-hidden-overrides.md) | A lock removes the overrides it hides |
 | [0018](docs/decisions/0018-network-transport.md) | Network transport: primary and fallback |
 | [0019](docs/decisions/0019-server-tier-first.md) | Server tier first; election later |
 | [0020](docs/decisions/0020-aps-act-on-their-own.md) | APs act on their own: transport choice and VLAN detection |
@@ -48,7 +48,6 @@ Each milestone ends in something checkable before the next starts.
 - Intent model contents: the full field list for each object type.
 - UI for assigning services to locations (mockup first).
 - VLAN detection method and VXLAN health check (0020).
-- How concentrator scoping meets service assignment: pull-down, per-AP filtering, check (0023).
 - Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
 - AP identity and enrollment; how config is signed.

@@ -1,8 +1,8 @@
 # 0017. A lock removes the overrides it hides
 
-- Status: Proposed (awaiting Griff)
+- Status: Accepted
 - Date: 2026-09-25
-- Proposed by: Claude, while building M1
+- Proposed by: Claude, while building M1; accepted by Griff with the M1 merge
 - Refines: 0005
 
 ## Context
