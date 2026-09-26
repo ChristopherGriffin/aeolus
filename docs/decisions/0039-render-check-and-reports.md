@@ -1,8 +1,8 @@
 # 0039. The render check, AP reports and the conditions store
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-26
-- Proposed by: Claude, while building M4 part 3; the check verifies intent, retention is adjustable, and last-seen is updated on every request, as Griff decided
+- Proposed by: Claude, while building M4 part 3; the check verifies intent, retention is adjustable, and last-seen is updated on every request, as Griff decided; accepted by Griff with the part 3b merge
 - Refines: 0008, 0009, 0020, 0022, 0027, 0029
 
 ## Decision

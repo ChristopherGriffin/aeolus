@@ -65,7 +65,7 @@ Each milestone ends in something checkable before the next starts.
 | [0036](docs/decisions/0036-the-manager-as-an-actor.md) | The manager as an actor |
 | [0037](docs/decisions/0037-library-rules.md) | Library rules: who edits it, and references |
 | [0038](docs/decisions/0038-enrollment-and-the-poll.md) | Enrollment and the config poll in detail |
-| [0039](docs/decisions/0039-render-check-and-reports.md) | The render check, AP reports and the conditions store (proposed) |
+| [0039](docs/decisions/0039-render-check-and-reports.md) | The render check, AP reports and the conditions store |
 
 ## Open questions
 
