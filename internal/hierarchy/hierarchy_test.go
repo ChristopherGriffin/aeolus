@@ -357,6 +357,17 @@ func TestAPsOwnAndIsLocked(t *testing.T) {
 	}
 }
 
+func TestAncestryIgnoresBreaks(t *testing.T) {
+	L := symtus(t).Locations
+	must(t, L.BreakHierarchy("gate"))
+	if got := L.Ancestry("gate-ap"); !reflect.DeepEqual(got, []NodeID{"symtus", "gate", "gate-ap"}) {
+		t.Fatalf("Ancestry(gate-ap) = %v", got)
+	}
+	if got := L.Ancestry("nope"); got != nil {
+		t.Fatalf("Ancestry(nope) = %v", got)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

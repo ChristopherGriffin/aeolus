@@ -35,7 +35,7 @@ func scenario(t *testing.T, s *Schema, box *secret.Box) []change.Op {
 		return change.Op{Kind: change.Set, Tree: tree, Node: hierarchy.NodeID(node), Path: hierarchy.Path(path), Value: prepared}
 	}
 	return []change.Op{
-		{Kind: change.CreateOrg, Node: "symtus", Name: "Symtus"},
+		{Kind: change.CreateOrg, Node: "symtus", Name: "Symtus", Account: "griff"},
 		folder(L, "house", "House", "symtus"),
 		folder(L, "office", "Office", "house"),
 		ap("office-ap", "OfficeOpenWrt", "office"),
@@ -82,16 +82,17 @@ func scenario(t *testing.T, s *Schema, box *secret.Box) []change.Op {
 
 func TestScenarioPassesTheGuardAndBuildsValidConfigs(t *testing.T) {
 	s, box := v1(t), newBox(t)
-	var org *hierarchy.Org
+	var state *change.State
 	for _, op := range scenario(t, s, box) {
 		if err := s.CheckOp(op); err != nil {
 			t.Fatalf("%+v refused: %v", op, err)
 		}
 		var err error
-		if org, _, err = change.Apply(org, op); err != nil {
+		if state, _, err = change.Apply(state, op); err != nil {
 			t.Fatalf("%+v: %v", op, err)
 		}
 	}
+	org := state.Org
 	for _, ap := range org.Locations.APs() {
 		cfg, err := org.ResolveAP(ap)
 		must(t, err)
@@ -326,7 +327,7 @@ func TestSecretsNeverReachTheLogInPlainText(t *testing.T) {
 	s, box := v1(t), newBox(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "aeolus.db")
-	log, err := changelog.Open(path, changelog.Options{Check: s.CheckOp})
+	log, err := changelog.Open(path, changelog.Options{Check: schemaOnly(s)})
 	must(t, err)
 	for _, op := range scenario(t, s, box) {
 		if _, err := log.Commit("claude", "scenario", op); err != nil {
@@ -349,16 +350,21 @@ func TestSecretsNeverReachTheLogInPlainText(t *testing.T) {
 		}
 	}
 
-	log, err = changelog.Open(path, changelog.Options{Check: s.CheckOp})
+	log, err = changelog.Open(path, changelog.Options{Check: schemaOnly(s)})
 	must(t, err)
 	defer log.Close()
-	cfg, err := log.Snapshot().ResolveAP("office-ap")
+	cfg, err := log.Snapshot().Org.ResolveAP("office-ap")
 	must(t, err)
 	doc, err := Document(cfg, box.Open)
 	must(t, err)
 	if got := doc["network"].(map[string]any)["sweet"].(map[string]any)["passphrase"]; got != passphrase {
 		t.Fatalf("passphrase after replay = %v", got)
 	}
+}
+
+// schemaOnly adapts CheckOp to the change log's commit check.
+func schemaOnly(s *Schema) func(*change.State, string, change.Op) error {
+	return func(_ *change.State, _ string, op change.Op) error { return s.CheckOp(op) }
 }
 
 func v1(t *testing.T) *Schema {

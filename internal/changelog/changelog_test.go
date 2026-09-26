@@ -3,12 +3,14 @@ package changelog
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
@@ -29,7 +31,7 @@ func scenario() []change.Op {
 		return change.Op{Kind: change.AssignServices, Node: hierarchy.NodeID(node), Services: folders}
 	}
 	return []change.Op{
-		{Kind: change.CreateOrg, Node: "symtus", Name: "Symtus"},
+		{Kind: change.CreateOrg, Node: "symtus", Name: "Symtus", Account: "griff"},
 		folder(L, "house", "House", "symtus"),
 		folder(L, "office", "Office", "house"),
 		ap("office-ap", "OfficeOpenWrt", "office"),
@@ -59,14 +61,14 @@ func TestReplayRebuildsState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "aeolus.db")
 	l := openAt(t, path)
 	commitAll(t, l, scenario())
-	wantSeq, wantState, wantVersions := l.Seq(), resolved(t, l.Snapshot()), versions(l)
+	wantSeq, wantState, wantVersions := l.Seq(), resolved(t, l.Snapshot().Org), versions(l)
 	must(t, l.Close())
 
 	l = openAt(t, path)
 	if l.Seq() != wantSeq {
 		t.Fatalf("seq after reopen = %d, want %d", l.Seq(), wantSeq)
 	}
-	if got := resolved(t, l.Snapshot()); !reflect.DeepEqual(got, wantState) {
+	if got := resolved(t, l.Snapshot().Org); !reflect.DeepEqual(got, wantState) {
 		t.Fatalf("state after replay differs:\n%v\nwant\n%v", got, wantState)
 	}
 	if got := versions(l); !reflect.DeepEqual(got, wantVersions) {
@@ -96,7 +98,7 @@ func TestAtRebuildsThePast(t *testing.T) {
 	}{{a.Seq, "20"}, {b.Seq, "160"}, {a.Seq - 1, "40"}} {
 		org, err := l.At(c.seq)
 		must(t, err)
-		if r, _ := org.Locations.Resolve("office-ap", "radio.5g.width"); r.Value != c.want {
+		if r, _ := org.Org.Locations.Resolve("office-ap", "radio.5g.width"); r.Value != c.want {
 			t.Errorf("At(%d) width = %v, want %s", c.seq, r.Value, c.want)
 		}
 	}
@@ -165,7 +167,7 @@ func TestRefusedChangesLeaveNoTrace(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("refused changes were logged: %v", entries)
 	}
-	cfg, err := l.Snapshot().ResolveAP("pump-ap")
+	cfg, err := l.Snapshot().Org.ResolveAP("pump-ap")
 	must(t, err)
 	if !reflect.DeepEqual(cfg.Services, []hierarchy.NodeID{"iot"}) {
 		t.Fatalf("pump services = %v after a refused change", cfg.Services)
@@ -207,6 +209,50 @@ func TestFirstChangeMustCreateTheOrg(t *testing.T) {
 	}
 }
 
+func TestCommitsAreAuthorizedAgainstLiveState(t *testing.T) {
+	dir := t.TempDir()
+	l, err := Open(filepath.Join(dir, "aeolus.db"), Options{Check: change.Authorize})
+	must(t, err)
+	defer l.Close()
+
+	if _, err := l.Commit("claude", "", change.Op{Kind: change.CreateOrg, Node: "symtus", Name: "Symtus", Account: "griff"}); !errors.Is(err, change.ErrForbidden) {
+		t.Fatalf("create-org naming someone else: %v", err)
+	}
+	commitAs(t, l, "griff", change.Op{Kind: change.CreateOrg, Node: "symtus", Name: "Symtus", Account: "griff"})
+	commitAs(t, l, "griff", change.Op{Kind: change.AddFolder, Tree: change.Locations, Node: "house", Name: "House", Parent: "symtus"})
+	commitAs(t, l, "griff", change.Op{Kind: change.AddAccount, Account: "claude", Name: "Claude"})
+
+	plain, id, hash, err := access.NewToken()
+	must(t, err)
+	commitAs(t, l, "griff", change.Op{Kind: change.IssueToken, Account: "claude", TokenID: id, TokenHash: hash})
+	if who, err := l.Snapshot().Access.Authenticate(plain); err != nil || who != "claude" {
+		t.Fatalf("Authenticate = %q, %v", who, err)
+	}
+
+	width := setOp(change.Locations, "house", "radio.5g.width", 40)
+	if _, err := l.Commit("claude", "", width); !errors.Is(err, change.ErrForbidden) {
+		t.Fatalf("set before any grant: %v", err)
+	}
+	seq := l.Seq()
+	commitAs(t, l, "griff", change.Op{Kind: change.GrantRole, Account: "claude", Tree: change.Locations, Node: "symtus", Role: "operator"})
+	e := commitAs(t, l, "claude", width)
+	if e.Seq != seq+2 || e.Actor != "claude" {
+		t.Fatalf("claude's change = %+v", e)
+	}
+	must(t, l.Close())
+
+	secretPart := plain[strings.LastIndex(plain, ".")+1:]
+	files, err := filepath.Glob(filepath.Join(dir, "aeolus.db*"))
+	must(t, err)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		must(t, err)
+		if strings.Contains(string(data), secretPart) {
+			t.Fatalf("%s contains a token secret", filepath.Base(f))
+		}
+	}
+}
+
 func TestDSN(t *testing.T) {
 	const q = "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_txlock=immediate"
 	for in, want := range map[string]string{
@@ -244,6 +290,15 @@ func commit(t *testing.T, l *Log, op change.Op) Entry {
 	return e
 }
 
+func commitAs(t *testing.T, l *Log, actor string, op change.Op) Entry {
+	t.Helper()
+	e, err := l.Commit(actor, "test", op)
+	if err != nil {
+		t.Fatalf("%s %+v: %v", actor, op, err)
+	}
+	return e
+}
+
 func commitAll(t *testing.T, l *Log, ops []change.Op) {
 	t.Helper()
 	for _, op := range ops {
@@ -276,7 +331,7 @@ func resolved(t *testing.T, o *hierarchy.Org) map[hierarchy.NodeID]hierarchy.APC
 
 func versions(l *Log) map[hierarchy.NodeID]int64 {
 	out := map[hierarchy.NodeID]int64{}
-	for _, ap := range l.Snapshot().Locations.APs() {
+	for _, ap := range l.Snapshot().Org.Locations.APs() {
 		out[ap], _ = l.Version(ap)
 	}
 	return out

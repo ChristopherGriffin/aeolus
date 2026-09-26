@@ -12,7 +12,7 @@ Each milestone ends in something checkable before the next starts.
 2. **Change log and versions** ([`internal/change`](internal/change), [`internal/changelog`](internal/changelog)): append-only log in SQLite, Org-wide sequence, per-AP version numbers.
 3. **Admin API and identities** (0024–0028), in four parts:
    1. Field schema, validation and encrypted secrets ([`internal/schema`](internal/schema), [`internal/secret`](internal/secret)).
-   2. Accounts, tokens and roles.
+   2. Accounts, tokens and roles ([`internal/access`](internal/access), [`internal/change`](internal/change) `Authorize`).
    3. The HTTP API with preview, running on Aeolus.
    4. The MCP adapter. Done when a change made through it shows up in the log under Claude's name.
 4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
@@ -52,6 +52,7 @@ Each milestone ends in something checkable before the next starts.
 | [0027](docs/decisions/0027-field-schema-and-secrets.md) | Field schema and secrets |
 | [0028](docs/decisions/0028-mcp-adapter.md) | The MCP adapter |
 | [0029](docs/decisions/0029-field-checks-and-config-checks.md) | Field checks refuse changes; config checks report them |
+| [0030](docs/decisions/0030-who-may-change-what.md) | Who may make which change (proposed) |
 
 ## Open questions
 
