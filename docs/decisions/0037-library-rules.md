@@ -1,8 +1,8 @@
 # 0037. Library rules: who edits it, and references
 
-- Status: Proposed (awaiting Griff)
+- Status: Accepted
 - Date: 2026-09-26
-- Proposed by: Claude, while building M4
+- Proposed by: Claude, while building M4; accepted by Griff with the part 2 merge
 - Refines: 0023, 0029, 0030
 
 ## Decision

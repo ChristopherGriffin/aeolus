@@ -63,7 +63,7 @@ Each milestone ends in something checkable before the next starts.
 | [0034](docs/decisions/0034-detecting-openwifi-aps.md) | Detecting unconfigured OpenWiFi APs (partly superseded by 0035) |
 | [0035](docs/decisions/0035-dhcp-observation.md) | DHCP observation: vendor-neutral detection and network watch |
 | [0036](docs/decisions/0036-the-manager-as-an-actor.md) | The manager as an actor |
-| [0037](docs/decisions/0037-library-rules.md) | Library rules: who edits it, and references (proposed) |
+| [0037](docs/decisions/0037-library-rules.md) | Library rules: who edits it, and references |
 
 ## Open questions
 
