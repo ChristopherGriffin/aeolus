@@ -25,4 +25,6 @@
 ## Open
 
 - How APs find the manager: a DNS name first, with a DHCP option as an override for sites that need one.
+- **Constraint (verified 2026-09-26):** Aeolus discovery must never use DHCP options 43, 60, 138 or 224. OpenWiFi (uCentral) APs request those by default and find their gateway through 224, so reusing any of them could send an OpenWiFi AP to Aeolus or confuse its discovery. A DNS name cannot affect them.
+- Detecting unconfigured OpenWiFi APs, which run no Aeolus agent and so never enroll.
 - Limiting enrollment requests, and clearing Landing Zone of devices that never get adopted.
