@@ -2,14 +2,14 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: M1 done (resolution engine); M2 next.** Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: M1 and M2 done (resolution engine, change log); M3 next.** Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
 
 ## Build order
 
 Each milestone ends in something checkable before the next starts.
 
 1. **Resolution engine** ([`internal/hierarchy`](internal/hierarchy)): both trees, field-level inheritance, locks, Break Hierarchy, service assignment, per-AP resolution.
-2. **Change log and versions**: append-only log in SQLite, Org-wide sequence, per-AP version numbers.
+2. **Change log and versions** ([`internal/change`](internal/change), [`internal/changelog`](internal/changelog)): append-only log in SQLite, Org-wide sequence, per-AP version numbers.
 3. **Admin API and identities**: every actor has its own identity; CLI and MCP are clients of the API.
 4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
 5. **ucode agent on a lab AP**: the full loop, with drift shown.
