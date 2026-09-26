@@ -38,12 +38,15 @@ Each milestone ends in something checkable before the next starts.
 | [0017](docs/decisions/0017-locks-remove-hidden-overrides.md) | A lock removes the overrides it hides (proposed) |
 | [0018](docs/decisions/0018-network-transport.md) | Network transport: primary and fallback |
 | [0019](docs/decisions/0019-server-tier-first.md) | Server tier first; election later |
+| [0020](docs/decisions/0020-aps-act-on-their-own.md) | APs act on their own: transport choice and VLAN detection |
+| [0021](docs/decisions/0021-concentrators-and-vni-labels.md) | Concentrators in the library, labeled VNIs |
 
 ## Open questions
 
 - Intent model contents: the full field list for each object type.
 - UI for assigning services to locations (mockup first).
-- When a network's fallback transport applies, and the library shape for VXLAN (0018).
+- VLAN detection method, VXLAN health check and hold-down for switching back (0020).
+- Scope of VNI labels: per concentrator or per folder (0021).
 - Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
 - AP identity and enrollment; how config is signed.

@@ -19,5 +19,5 @@
 
 ## Open
 
-- When the fallback applies: chosen per AP by the manager from the AP's port config (config time), or switched by the AP when the primary fails (run time), or both.
-- Library shape: the library holds concentrators (address, UDP port, MTU) and each network sets its own VNI, or each library entry is a full VXLAN config including the VNI.
+- ~~When the fallback applies.~~ Resolved by 0020: the AP chooses and switches on its own.
+- ~~Library shape.~~ Resolved by 0021: the library holds concentrators; VNIs carry labels.
