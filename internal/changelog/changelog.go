@@ -74,9 +74,9 @@ type Log struct {
 	mu       sync.Mutex
 	db       *sql.DB
 	now      func() time.Time
-	check    func(change.Op) error
+	check    func(*change.State, string, change.Op) error
 	seq      int64
-	org      *hierarchy.Org
+	state    *change.State
 	versions map[hierarchy.NodeID]int64
 }
 
@@ -84,10 +84,12 @@ type Log struct {
 type Options struct {
 	// Now supplies commit times; nil means time.Now.
 	Now func() time.Time
-	// Check vets every change before it is committed, for example against
-	// the field schema (0027). It is not applied on replay: what is already
-	// in the log stays in the log.
-	Check func(change.Op) error
+	// Check vets every change before it is committed: against the field
+	// schema (0027) and the actor's permissions (0025, 0030). It runs under
+	// the log's lock with the current state, so the decision and the commit
+	// see the same state. It is not applied on replay: what is already in the
+	// log stays in the log.
+	Check func(state *change.State, actor string, op change.Op) error
 }
 
 // Open opens or creates the log at path and replays it.
@@ -149,11 +151,11 @@ func (l *Log) replay() error {
 		return err
 	}
 	for _, e := range entries {
-		org, _, changed, err := run(l.org, e.Op)
+		state, _, changed, err := run(l.state, e.Op)
 		if err != nil {
 			return fmt.Errorf("replaying change %d: %w", e.Seq, err)
 		}
-		l.org, l.seq = org, e.Seq
+		l.state, l.seq = state, e.Seq
 		for _, ap := range changed {
 			l.versions[ap] = e.Seq
 		}
@@ -170,19 +172,15 @@ func (l *Log) Commit(actor, reason string, op change.Op) (Entry, error) {
 	if actor == "" {
 		return Entry{}, ErrNoActor
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.check != nil {
-		if err := l.check(op); err != nil {
+		if err := l.check(l.state, actor, op); err != nil {
 			return Entry{}, err
 		}
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 
-	var work *hierarchy.Org
-	if l.org != nil {
-		work = l.org.Clone()
-	}
-	org, eff, changed, err := run(work, op)
+	state, eff, changed, err := run(l.state.Clone(), op)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -190,7 +188,7 @@ func (l *Log) Commit(actor, reason string, op change.Op) (Entry, error) {
 	if e.Seq, err = l.insert(e); err != nil {
 		return Entry{}, err
 	}
-	l.org, l.seq = org, e.Seq
+	l.state, l.seq = state, e.Seq
 	for _, ap := range changed {
 		l.versions[ap] = e.Seq
 	}
@@ -224,13 +222,10 @@ func (l *Log) Seq() int64 {
 }
 
 // Snapshot returns a copy of the current state, or nil before the Org exists.
-func (l *Log) Snapshot() *hierarchy.Org {
+func (l *Log) Snapshot() *change.State {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.org == nil {
-		return nil
-	}
-	return l.org.Clone()
+	return l.state.Clone()
 }
 
 // Version returns an AP's config version: the sequence number of the latest
@@ -278,38 +273,38 @@ func (l *Log) Entries(after int64, limit int) ([]Entry, error) {
 
 // At rebuilds the state as it was right after change seq, by replaying the log
 // up to it. It returns nil for a point before the Org was created.
-func (l *Log) At(seq int64) (*hierarchy.Org, error) {
+func (l *Log) At(seq int64) (*change.State, error) {
 	entries, err := l.Entries(0, 0)
 	if err != nil {
 		return nil, err
 	}
-	var org *hierarchy.Org
+	var state *change.State
 	for _, e := range entries {
 		if e.Seq > seq {
 			break
 		}
-		if org, _, err = change.Apply(org, e.Op); err != nil {
+		if state, _, err = change.Apply(state, e.Op); err != nil {
 			return nil, fmt.Errorf("replaying change %d: %w", e.Seq, err)
 		}
 	}
-	return org, nil
+	return state, nil
 }
 
-// run applies op to o, which it may modify, and returns the resulting Org, the
-// change's effect, and the APs whose resolved values changed. It refuses a
+// run applies op to s, which it may modify, and returns the resulting state,
+// the change's effect, and the APs whose resolved values changed. It refuses a
 // change that would leave a previously resolvable AP unresolvable.
 //
 // It resolves every AP before and after, which is simple and fine at
 // prototype scale; narrowing it to the affected subtree can come later.
-func run(o *hierarchy.Org, op change.Op) (*hierarchy.Org, change.Effect, []hierarchy.NodeID, error) {
-	before := fingerprints(o)
-	o, eff, err := change.Apply(o, op)
+func run(s *change.State, op change.Op) (*change.State, change.Effect, []hierarchy.NodeID, error) {
+	before := fingerprints(s)
+	s, eff, err := change.Apply(s, op)
 	if err != nil {
 		return nil, change.Effect{}, nil, err
 	}
-	after := fingerprints(o)
+	after := fingerprints(s)
 	var changed []hierarchy.NodeID
-	for _, ap := range o.Locations.APs() {
+	for _, ap := range s.Org.Locations.APs() {
 		a := after[ap]
 		b, existed := before[ap]
 		if existed && b.err == nil && a.err != nil {
@@ -319,7 +314,7 @@ func run(o *hierarchy.Org, op change.Op) (*hierarchy.Org, change.Effect, []hiera
 			changed = append(changed, ap)
 		}
 	}
-	return o, eff, changed, nil
+	return s, eff, changed, nil
 }
 
 type fingerprint struct {
@@ -330,11 +325,12 @@ type fingerprint struct {
 // fingerprints records every AP's resolved values, without origins: a change
 // that only moves where a value comes from (a break, for example) does not
 // change the AP's config.
-func fingerprints(o *hierarchy.Org) map[hierarchy.NodeID]fingerprint {
+func fingerprints(s *change.State) map[hierarchy.NodeID]fingerprint {
 	out := map[hierarchy.NodeID]fingerprint{}
-	if o == nil {
+	if s == nil {
 		return out
 	}
+	o := s.Org
 	for _, ap := range o.Locations.APs() {
 		cfg, err := o.ResolveAP(ap)
 		if err != nil {

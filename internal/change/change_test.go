@@ -13,11 +13,11 @@ func TestFirstChangeCreatesTheOrg(t *testing.T) {
 	if _, _, err := Apply(nil, Op{Kind: AddFolder, Tree: Locations, Node: "house", Name: "House", Parent: "symtus"}); !errors.Is(err, ErrNoOrg) {
 		t.Fatalf("got %v, want ErrNoOrg", err)
 	}
-	o, _, err := Apply(nil, Op{Kind: CreateOrg, Node: "symtus", Name: "Symtus"})
+	o, _, err := Apply(nil, Op{Kind: CreateOrg, Node: "symtus", Name: "Symtus", Account: "griff"})
 	if err != nil || o == nil {
 		t.Fatalf("create-org: %v", err)
 	}
-	if _, _, err := Apply(o, Op{Kind: CreateOrg, Node: "other", Name: "Other"}); !errors.Is(err, ErrOrgExists) {
+	if _, _, err := Apply(o, Op{Kind: CreateOrg, Node: "other", Name: "Other", Account: "griff"}); !errors.Is(err, ErrOrgExists) {
 		t.Fatalf("second create-org: got %v", err)
 	}
 }
@@ -82,9 +82,9 @@ func TestBadOps(t *testing.T) {
 	}
 }
 
-func org(t *testing.T) *hierarchy.Org {
+func org(t *testing.T) *State {
 	t.Helper()
-	o, _, err := Apply(nil, Op{Kind: CreateOrg, Node: "symtus", Name: "Symtus"})
+	o, _, err := Apply(nil, Op{Kind: CreateOrg, Node: "symtus", Name: "Symtus", Account: "griff"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func org(t *testing.T) *hierarchy.Org {
 	return o
 }
 
-func mustApply(t *testing.T, o *hierarchy.Org, op Op) {
+func mustApply(t *testing.T, o *State, op Op) {
 	t.Helper()
 	if _, _, err := Apply(o, op); err != nil {
 		t.Fatalf("%+v: %v", op, err)

@@ -81,6 +81,9 @@ func NewTree(root NodeID, name string, allowAPs bool) *Tree {
 	return t
 }
 
+// Root returns the Org root's ID.
+func (t *Tree) Root() NodeID { return t.root }
+
 // Node returns a copy of a node.
 func (t *Tree) Node(id NodeID) (Node, bool) {
 	n, ok := t.nodes[id]
@@ -150,6 +153,21 @@ func (t *Tree) move(id, newParent NodeID) error {
 	n.Parent = newParent
 	t.children[newParent] = append(t.children[newParent], id)
 	return nil
+}
+
+// Ancestry returns the chain from the Org root down to id, ignoring breaks:
+// the path roles flow along (0025). It is empty for an unknown node.
+func (t *Tree) Ancestry(id NodeID) []NodeID {
+	var out []NodeID
+	for c := id; c != ""; {
+		n, ok := t.nodes[c]
+		if !ok {
+			return nil
+		}
+		out = append([]NodeID{c}, out...)
+		c = n.Parent
+	}
+	return out
 }
 
 // Descendants returns every node below id, depth first.
