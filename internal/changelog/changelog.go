@@ -195,6 +195,24 @@ func (l *Log) Commit(actor, reason string, op change.Op) (Entry, error) {
 	return e, nil
 }
 
+// Preview runs a change exactly as Commit would, with the same checks,
+// against a copy of the current state, and records nothing (0026). It returns
+// the state the change would produce, its effect, and the APs it would
+// re-version.
+func (l *Log) Preview(actor string, op change.Op) (*change.State, change.Effect, []hierarchy.NodeID, error) {
+	if actor == "" {
+		return nil, change.Effect{}, nil, ErrNoActor
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.check != nil {
+		if err := l.check(l.state, actor, op); err != nil {
+			return nil, change.Effect{}, nil, err
+		}
+	}
+	return run(l.state.Clone(), op)
+}
+
 func (l *Log) insert(e Entry) (int64, error) {
 	op, err := json.Marshal(e.Op)
 	if err != nil {

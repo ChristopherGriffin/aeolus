@@ -238,29 +238,49 @@ func (s *Schema) CheckDocument(doc map[string]any) error {
 	return nil
 }
 
+// Problems lists what is wrong with a whole or partial config, one entry per
+// problem, or nil when it passes. The API reports these per AP and per node
+// so the UI can keep an admin on a page until they are fixed (0029).
+func (s *Schema) Problems(doc map[string]any) []string {
+	err := s.whole.Validate(doc)
+	if err == nil {
+		return nil
+	}
+	var ve *jsonschema.ValidationError
+	if errors.As(err, &ve) {
+		return problems(ve)
+	}
+	return []string{err.Error()}
+}
+
 // Document assembles the nested config an AP receives from its resolved
 // fields. reveal opens sealed secrets; with a nil reveal they stay sealed.
 func Document(cfg hierarchy.APConfig, reveal func(path string, v any) (any, error)) (map[string]any, error) {
-	doc := map[string]any{}
-	put := func(path string, v any) error {
-		if reveal != nil && secret.IsSealed(v) {
-			var err error
-			if v, err = reveal(path, v); err != nil {
-				return err
-			}
-		}
-		return insert(doc, strings.Split(path, "."), v)
-	}
+	fields := map[string]any{}
 	for p, r := range cfg.Location {
-		if err := put(string(p), r.Value); err != nil {
-			return nil, err
-		}
+		fields[string(p)] = r.Value
 	}
 	for id, n := range cfg.Networks {
 		for f, r := range n.Fields {
-			if err := put("network."+id+"."+f, r.Value); err != nil {
+			fields["network."+id+"."+f] = r.Value
+		}
+	}
+	return Assemble(fields, reveal)
+}
+
+// Assemble nests flat field values ("radio.5g.width") into a config document.
+// reveal opens sealed secrets; with a nil reveal they stay sealed.
+func Assemble(fields map[string]any, reveal func(path string, v any) (any, error)) (map[string]any, error) {
+	doc := map[string]any{}
+	for path, v := range fields {
+		if reveal != nil && secret.IsSealed(v) {
+			var err error
+			if v, err = reveal(path, v); err != nil {
 				return nil, err
 			}
+		}
+		if err := insert(doc, strings.Split(path, "."), v); err != nil {
+			return nil, err
 		}
 	}
 	return doc, nil
