@@ -32,6 +32,10 @@ An `op` is one change, as the change log records it:
 
 Kinds: `add-folder`, `add-ap`, `move`, `set`, `unset`, `lock`, `unlock`, `break-hierarchy`, `assign-services`, `add-account`, `grant`, `revoke`, `revoke-token`. `create-org` happens only through `aeolus init` on the manager host, and tokens are issued through `/v1/tokens`. Set values are checked against the field schema (`internal/schema/v1.json`), and secret values are sealed before they are logged (0027). Who may make which change is 0030.
 
+## MCP
+
+`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` requires a reason.
+
 ## Errors
 
 `{"error": "..."}` with `400` (invalid change or value), `401` (no or bad token), `403` (not permitted), `404` (not found or not visible), `409` (conflicts with the current state: a lock, an AP that would stop resolving, something that already exists).

@@ -17,6 +17,7 @@ import (
 
 	"github.com/ChristopherGriffin/aeolus/internal/api"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
+	"github.com/ChristopherGriffin/aeolus/internal/mcpadapter"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
 )
@@ -84,9 +85,13 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 		return nil, nil, errors.New("the change log holds no Org yet; run aeolus init first")
 	}
 	slog.Info("aeolus loaded", "seq", log.Seq())
+	apiHandler := api.New(log, sch, box).Handler()
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpadapter.New(apiHandler, version))
+	mux.Handle("/", apiHandler)
 	return &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(log, sch, box).Handler(),
+		Handler:           mux,
 		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

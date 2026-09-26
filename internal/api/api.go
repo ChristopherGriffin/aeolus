@@ -53,6 +53,7 @@ func Check(sch *schema.Schema) func(*change.State, string, change.Op) error {
 // Handler returns the API's routes.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", root)
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.Handle("GET /v1/whoami", s.auth(s.whoami))
 	mux.Handle("GET /v1/trees/{tree}", s.auth(s.tree))
@@ -163,6 +164,14 @@ func readJSON(r *http.Request, v any) error {
 		return badRequest("request body: %v", err)
 	}
 	return nil
+}
+
+// root points a visitor, or a browser, at what is here.
+func root(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"service": "aeolus", "api": "/v1", "health": "/healthz", "mcp": "/mcp",
+		"docs": "https://github.com/ChristopherGriffin/aeolus/blob/main/docs/api.md",
+	})
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
