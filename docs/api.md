@@ -10,7 +10,8 @@ JSON over HTTPS (0026). Every request except `/healthz` and `/v1/enroll` carries
 | `GET /v1/whoami` | your account and grants | a token |
 | `GET /v1/trees/{locations\|services}` | the nodes you can view, root first | viewer on each node |
 | `GET /v1/trees/{tree}/nodes/{id}` | the node, its ancestry, your role there, every field with its value, `from` and `origin` (`self`, `inherited`, `locked`, `baseline`), the overrides menu (`in_effect`, `below`), `locks_above`, `problems`: the rules its config breaks (0029), and for an enrolled AP the `facts` it sent (0038) | viewer |
-| `GET /v1/aps/{id}/config` | the AP's resolved Location fields and networks with origins, its service folders, its `version`, whether it is `unassigned` (in Landing Zone), the composed `document` it will receive (secrets sealed), and `check: {ok, problems}` | viewer on the AP |
+| `GET /v1/aps/{id}/config` | the AP's resolved Location fields and networks with origins, its service folders, its `version`, whether it is `unassigned` (in Landing Zone), the composed `document` it will receive (secrets sealed), `check: {ok, problems}`, and `condition`: when it was last `seen` and from where, the version it runs, `in_sync` (whether that is its current version), and its latest render `check`, `apply` and `state` report (0039) | viewer on the AP |
+| `GET /v1/aps/{id}/history?limit=N` | the AP's recent render `checks`, `applies` and `states`, newest first (limit 1 to 200, default 20) | viewer on the AP |
 | `GET /v1/library` | the concentrators, with their labeled VNIs and the Location folders they may be used at (0023) | a token |
 | `GET /v1/changes?after=N&limit=M` | change-log entries after `N` (limit 1 to 1000, default 100) | viewer at the Org root of either tree |
 
@@ -41,10 +42,15 @@ What an AP uses (0033, 0038). An AP token starts `aeolusap1.` and works only her
 |---|---|---|
 | `POST /v1/enroll` | no token; `{mac, macs?, hostname?, model?, board?, openwrt?, radios?}` | `201` with the AP's `ap` ID (`ap-` and its MAC's hex digits), `name` and `token`, shown once. The AP lands in Landing Zone. `409` if that ID is already known; `503` if Landing Zone is full (250). |
 | `GET /v1/ap/config` | `If-None-Match: "<version it runs>"` | `304` if unchanged; otherwise `{ap, version, state}`, where `state` is `unassigned` (in Landing Zone), `held` (with `problems`; keep running what you have) or `ready` (with `config`, secrets included, and the version as the `ETag`) |
+| `POST /v1/ap/render` | `{version, uci}`: the rendered UCI as `uci export` text | `{result, problems, version, hash}`: `ok` (apply it), `refused` (the UCI is malformed, misses the intent, or the config is held) or `stale` (poll again). The rules are 0039 and `internal/rendercheck`. |
+| `POST /v1/ap/applied` | `{version, hash, ok, error?}` after each apply attempt | `{recorded, checked}`: whether an `ok` check covered that version and hash |
+| `POST /v1/ap/state` | `{version, uptime, openwrt?, radios?: [{radio, band, channel, width, clients}], vlans?: [IDs seen on the uplink], transports?: {network: {active, primary, fallback}}}` | `{recorded}`. `active` is `primary`, `fallback` or `none`; health is `up`, `down` or `unknown`. |
+
+Every AP request updates when it was last seen. An AP in Landing Zone can only poll: its checks and reports answer `409` and are not recorded. The rendered UCI is never stored, only its SHA-256.
 
 ## MCP
 
-`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `get_library`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` requires a reason.
+`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `get_ap_history`, `get_library`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` requires a reason.
 
 ## Errors
 

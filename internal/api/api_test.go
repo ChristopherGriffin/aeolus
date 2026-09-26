@@ -14,6 +14,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
+	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
@@ -26,6 +27,7 @@ type fixture struct {
 	url    string
 	dir    string
 	log    *changelog.Log
+	conds  *conditions.Store
 	tokens map[string]string // account -> plain token
 }
 
@@ -94,9 +96,12 @@ func newFixture(t *testing.T) *fixture {
 		}
 		tokens[who] = plain
 	}
-	srv := httptest.NewServer(New(log, sch, box).Handler())
+	conds, err := conditions.Open(filepath.Join(dir, "conditions.db"), nil)
+	must(t, err)
+	t.Cleanup(func() { conds.Close() })
+	srv := httptest.NewServer(New(log, sch, box, conds).Handler())
 	t.Cleanup(srv.Close)
-	return &fixture{t: t, url: srv.URL, dir: dir, log: log, tokens: tokens}
+	return &fixture{t: t, url: srv.URL, dir: dir, log: log, conds: conds, tokens: tokens}
 }
 
 // do sends a request as an account ("" for none) and returns the status and

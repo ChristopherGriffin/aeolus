@@ -129,6 +129,30 @@ func TestScenarioPassesTheGuardAndBuildsValidConfigs(t *testing.T) {
 	}
 }
 
+func TestLeaves(t *testing.T) {
+	sch := v1(t)
+	leaves := sch.Leaves()
+	has := map[string]bool{}
+	for _, l := range leaves {
+		has[l] = true
+	}
+	for _, want := range []string{"radio.5g.channel", "system.management.vlan", "system.ntp", "ports.*.tagged", "network.*.transport.primary.vni", "network.*.roaming.ft", "concentrators.*.mtu"} {
+		if !has[want] {
+			t.Errorf("missing %s", want)
+		}
+	}
+	for _, l := range leaves {
+		if strings.Contains(l, "libraryConcentrator") || strings.HasSuffix(l, ".transport") || strings.HasPrefix(l, ".") {
+			t.Errorf("unexpected leaf %s", l)
+		}
+		if f, err := sch.Field(hierarchy.Path(strings.ReplaceAll(l, "*", "x"))); err != nil && !strings.HasPrefix(l, "concentrators.") {
+			t.Errorf("%s is not a field: %v", l, err)
+		} else if err == nil && f.Path == "" {
+			t.Errorf("%s resolved to nothing", l)
+		}
+	}
+}
+
 func TestFieldPaths(t *testing.T) {
 	s := v1(t)
 	ok := map[hierarchy.Path]change.TreeName{

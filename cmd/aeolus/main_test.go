@@ -197,6 +197,25 @@ func TestServeAddsBuiltInFoldersOnce(t *testing.T) {
 	}
 }
 
+func TestServeKeepsConditionsBesideTheLog(t *testing.T) {
+	p := newPaths(t)
+	runInitOK(t, p)
+	args := []string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}
+	_, closeAll, err := newServer(args, &bytes.Buffer{})
+	must(t, err)
+	must(t, closeAll())
+	if _, err := os.Stat(filepath.Join(filepath.Dir(p.db), "conditions.db")); err != nil {
+		t.Fatalf("conditions database: %v", err)
+	}
+	if _, _, err := newServer(append(args, "-keep-state-days", "0"), &bytes.Buffer{}); err == nil {
+		t.Fatal("serve accepted keeping state reports for 0 days")
+	}
+	t.Setenv("AEOLUS_KEEP_STATE_DAYS", "90")
+	if n := defaultKeepDays(); n != 90 {
+		t.Fatalf("keep days from the environment = %d", n)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

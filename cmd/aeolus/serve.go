@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/api"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
+	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/mcpadapter"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
@@ -25,11 +28,11 @@ import (
 
 // runServe serves the API over HTTPS until SIGINT or SIGTERM.
 func runServe(args []string, stderr io.Writer) error {
-	srv, closeLog, err := newServer(args, stderr)
+	srv, closeAll, err := newServer(args, stderr)
 	if err != nil {
 		return err
 	}
-	defer closeLog()
+	defer closeAll()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	errc := make(chan error, 1)
@@ -48,7 +51,7 @@ func runServe(args []string, stderr io.Writer) error {
 }
 
 // newServer opens everything serve needs and returns the configured server
-// and a function that closes the change log.
+// and a function that closes it all.
 func newServer(args []string, stderr io.Writer) (*http.Server, func() error, error) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -58,8 +61,16 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 	certPath := fs.String("cert", "/etc/aeolus/tls.crt", "TLS certificate (a self-signed one is made if missing)")
 	tlsKeyPath := fs.String("tls-key", "/etc/aeolus/tls.key", "TLS private key")
 	hosts := fs.String("hosts", "", "comma-separated names and IPs for a self-signed certificate")
+	condsPath := fs.String("conditions", "", "conditions database (default: conditions.db beside the change log)")
+	keepDays := fs.Int("keep-state-days", defaultKeepDays(), "days to keep AP state reports (default from AEOLUS_KEEP_STATE_DAYS, else 30)")
 	if err := fs.Parse(args); err != nil {
 		return nil, nil, err
+	}
+	if *keepDays < 1 {
+		return nil, nil, errors.New("-keep-state-days must be at least 1")
+	}
+	if *condsPath == "" {
+		*condsPath = filepath.Join(filepath.Dir(*db), "conditions.db")
 	}
 
 	sch, err := schema.V1()
@@ -91,8 +102,18 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 		log.Close()
 		return nil, nil, fmt.Errorf("adding built-in folders: %w", err)
 	}
-	slog.Info("aeolus loaded", "seq", log.Seq())
-	apiHandler := api.New(log, sch, box).Handler()
+	conds, err := conditions.Open(*condsPath, nil)
+	if err != nil {
+		log.Close()
+		return nil, nil, fmt.Errorf("conditions: %w", err)
+	}
+	stopTrim := trimStates(conds, time.Duration(*keepDays)*24*time.Hour)
+	closeAll := func() error {
+		stopTrim()
+		return errors.Join(conds.Close(), log.Close())
+	}
+	slog.Info("aeolus loaded", "seq", log.Seq(), "keep_state_days", *keepDays)
+	apiHandler := api.New(log, sch, box, conds).Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpadapter.New(apiHandler, version))
 	mux.Handle("/", apiHandler)
@@ -104,7 +125,48 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
-	}, log.Close, nil
+	}, closeAll, nil
+}
+
+// defaultKeepDays reads AEOLUS_KEEP_STATE_DAYS, which serve.env can set
+// (0039); 30 otherwise.
+func defaultKeepDays() int {
+	if n, err := strconv.Atoi(os.Getenv("AEOLUS_KEEP_STATE_DAYS")); err == nil {
+		return n
+	}
+	return 30
+}
+
+// trimStates deletes state reports older than keep, now and every hour,
+// until the returned function is called.
+func trimStates(conds *conditions.Store, keep time.Duration) (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	trim := func() {
+		if n, err := conds.TrimStates(keep); err != nil {
+			slog.Error("trimming state reports", "err", err)
+		} else if n > 0 {
+			slog.Info("trimmed state reports", "deleted", n)
+		}
+	}
+	go func() {
+		defer close(finished)
+		trim()
+		tick := time.NewTicker(time.Hour)
+		defer tick.Stop()
+		for {
+			select {
+			case <-tick.C:
+				trim()
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}
 }
 
 func splitList(s string) []string {

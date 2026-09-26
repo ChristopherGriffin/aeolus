@@ -2,7 +2,7 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: running on Aeolus** (`https://aeolus.symtus.com:8443`, the latest `v*` tag). M1–M3 are done. M4, the AP contract, is under way: Landing Zone, Sandbox, adoption and the concentrator library are in, and APs can enroll and poll for their config. The render check and state reports are next. PumphouseAP is the lab AP. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: running on Aeolus** (`https://aeolus.symtus.com:8443`, the latest `v*` tag). M1–M3 are done. M4, the AP contract, is under way: Landing Zone, Sandbox, adoption and the concentrator library are in; APs enroll, poll for their config, have their rendered UCI checked against intent, and report what they applied and their state. The manager side of DHCP observation is next. PumphouseAP is the lab AP. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
 
 ## Build order
 
@@ -15,10 +15,10 @@ Each milestone ends in something checkable before the next starts.
    2. Accounts, tokens and roles ([`internal/access`](internal/access), [`internal/change`](internal/change) `Authorize`).
    3. The HTTP API with preview ([`internal/api`](internal/api), [`cmd/aeolus`](cmd/aeolus), [API reference](docs/api.md)), running on Aeolus and updated with [`aeolus-update`](deploy/update.sh).
    4. The MCP adapter ([`internal/mcpadapter`](internal/mcpadapter), served at `/mcp`). Done when a change made through it shows up in the log under Claude's name.
-4. **AP contract** (0032–0038), in four parts:
+4. **AP contract** (0032–0039), in four parts:
    1. Landing Zone and Sandbox built in; adoption; the manager as an actor.
    2. The concentrator library (0023) and per-AP filtering ([`internal/library`](internal/library), [`internal/compose`](internal/compose)).
-   3. AP endpoints: enroll and the config poll (0038, [AP routes](docs/api.md#ap-routes)), then the render check and state reports.
+   3. AP endpoints ([AP routes](docs/api.md#ap-routes)): enroll and the config poll (0038); the render check, apply and state reports, and the conditions store (0039, [`internal/rendercheck`](internal/rendercheck), [`internal/conditions`](internal/conditions)).
    4. The manager side of DHCP observation (0035): relay listener and option 224 listener.
 5. **ucode agent on a lab AP**: the full loop, with drift shown.
 6. **Key channel** (0014).
@@ -65,6 +65,7 @@ Each milestone ends in something checkable before the next starts.
 | [0036](docs/decisions/0036-the-manager-as-an-actor.md) | The manager as an actor |
 | [0037](docs/decisions/0037-library-rules.md) | Library rules: who edits it, and references |
 | [0038](docs/decisions/0038-enrollment-and-the-poll.md) | Enrollment and the config poll in detail |
+| [0039](docs/decisions/0039-render-check-and-reports.md) | The render check, AP reports and the conditions store (proposed) |
 
 ## Open questions
 

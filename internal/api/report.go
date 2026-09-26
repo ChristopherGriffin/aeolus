@@ -1,0 +1,275 @@
+package api
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"regexp"
+	"strconv"
+
+	"github.com/ChristopherGriffin/aeolus/internal/access"
+	"github.com/ChristopherGriffin/aeolus/internal/change"
+	"github.com/ChristopherGriffin/aeolus/internal/compose"
+	"github.com/ChristopherGriffin/aeolus/internal/conditions"
+	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/rendercheck"
+	"github.com/ChristopherGriffin/aeolus/internal/uci"
+)
+
+// The render check and the reports (0039).
+
+const (
+	maxUCI    = 256 << 10
+	maxReport = 64 << 10
+	maxError  = 2048
+)
+
+var (
+	hashRE      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	networkIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+)
+
+// unadopted refuses a check or report from an AP in Landing Zone: it has no
+// config, and nobody has vouched for it yet (0039). Nothing is recorded.
+func unadopted(state *change.State, ap hierarchy.NodeID) error {
+	if state.Org.Locations.InIsolated(ap) {
+		return &apiError{http.StatusConflict, "this AP is in Landing Zone: it has nothing to check or report until a person adopts it"}
+	}
+	return nil
+}
+
+// render checks the UCI an AP rendered before it applies it (0008, 0039).
+// The UCI itself is not kept, since it carries passphrases in plain text;
+// its hash is.
+func (s *Server) render(w http.ResponseWriter, r *http.Request, c apCall) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUCI+4096)
+	var req struct {
+		Version int64  `json:"version"`
+		UCI     string `json:"uci"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	sum := sha256.Sum256([]byte(req.UCI))
+	hash := hex.EncodeToString(sum[:])
+
+	// The version is read on both sides of the snapshot: if a change landed
+	// in between, the state may not be the one the AP rendered.
+	current, _ := s.log.Version(c.ap)
+	state := s.log.Snapshot()
+	after, _ := s.log.Version(c.ap)
+	if err := unadopted(state, c.ap); err != nil {
+		return err
+	}
+	check := conditions.Check{Version: req.Version, Hash: hash}
+	switch {
+	case req.Version != after || after != current:
+		check.Result = conditions.Stale
+		check.Problems = []string{fmt.Sprintf("version %d is not current (%d): poll again", req.Version, after)}
+	default:
+		res, err := compose.AP(state, s.schema, c.ap, s.reveal)
+		if err != nil {
+			return err
+		}
+		switch parsed, err := uci.Parse(req.UCI); {
+		case len(res.Problems) > 0:
+			check.Result, check.Problems = conditions.Refused, append([]string{"the config itself is held (0029)"}, res.Problems...)
+		case err != nil:
+			check.Result, check.Problems = conditions.Refused, []string{"the UCI does not parse: " + err.Error()}
+		default:
+			check.Problems = rendercheck.Check(res.Doc, parsed)
+			check.Result = conditions.OK
+			if len(check.Problems) > 0 {
+				check.Result = conditions.Refused
+			}
+		}
+	}
+	if check.Problems == nil {
+		check.Problems = []string{}
+	}
+	if err := s.conds.RecordCheck(c.ap, check); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": check.Result, "problems": check.Problems, "version": after, "hash": hash})
+	return nil
+}
+
+// applied records an apply attempt, and whether an ok check covered it.
+func (s *Server) applied(w http.ResponseWriter, r *http.Request, c apCall) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxReport)
+	var req struct {
+		Version int64  `json:"version"`
+		Hash    string `json:"hash"`
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if !hashRE.MatchString(req.Hash) {
+		return badRequest("hash must be the SHA-256 of the UCI, as 64 lowercase hex digits")
+	}
+	if len(req.Error) > maxError {
+		return badRequest("error is longer than %d characters", maxError)
+	}
+	if err := unadopted(s.log.Snapshot(), c.ap); err != nil {
+		return err
+	}
+	a, err := s.conds.RecordApply(c.ap, conditions.Apply{Version: req.Version, Hash: req.Hash, OK: req.OK, Error: req.Error})
+	if err != nil {
+		return err
+	}
+	if !a.Checked {
+		slog.Warn("AP applied UCI that no ok check covers", "ap", c.ap, "version", req.Version, "hash", req.Hash)
+	}
+	if req.OK {
+		if err := s.conds.Running(c.ap, req.Version); err != nil {
+			return err
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"recorded": true, "checked": a.Checked})
+	return nil
+}
+
+// stateReport is what an AP reports about itself periodically (0039).
+type stateReport struct {
+	Version    int64                     `json:"version"`
+	Uptime     int64                     `json:"uptime"`
+	OpenWrt    string                    `json:"openwrt,omitempty"`
+	Radios     []radioState              `json:"radios,omitempty"`
+	VLANs      []int                     `json:"vlans,omitempty"`
+	Transports map[string]transportState `json:"transports,omitempty"`
+}
+
+type radioState struct {
+	Radio   string `json:"radio"`
+	Band    string `json:"band"`
+	Channel int    `json:"channel,omitempty"`
+	Width   int    `json:"width,omitempty"`
+	Clients int    `json:"clients"`
+}
+
+// transportState is one network's transports: which is carrying traffic, and
+// how each is doing (0020, 0022).
+type transportState struct {
+	Active   string `json:"active"`
+	Primary  string `json:"primary,omitempty"`
+	Fallback string `json:"fallback,omitempty"`
+}
+
+var (
+	bands   = map[string]bool{"2g": true, "5g": true, "6g": true}
+	actives = map[string]bool{"primary": true, "fallback": true, "none": true}
+	healths = map[string]bool{"": true, "up": true, "down": true, "unknown": true}
+)
+
+func (st *stateReport) check() error {
+	if st.Version < 0 || st.Uptime < 0 {
+		return badRequest("version and uptime cannot be negative")
+	}
+	if err := plainText("openwrt", st.OpenWrt, maxText); err != nil {
+		return err
+	}
+	if len(st.Radios) > 8 {
+		return badRequest("at most 8 radios")
+	}
+	for _, rd := range st.Radios {
+		if !bands[rd.Band] {
+			return badRequest("radio band %q: want 2g, 5g or 6g", rd.Band)
+		}
+		if err := plainText("radio", rd.Radio, 32); err != nil {
+			return err
+		}
+		if rd.Channel < 0 || rd.Width < 0 || rd.Clients < 0 {
+			return badRequest("radio numbers cannot be negative")
+		}
+	}
+	seen := map[int]bool{}
+	for _, v := range st.VLANs {
+		if v < 1 || v > 4094 || seen[v] {
+			return badRequest("vlans must be distinct IDs from 1 to 4094")
+		}
+		seen[v] = true
+	}
+	if len(st.Transports) > 64 {
+		return badRequest("at most 64 networks")
+	}
+	for id, t := range st.Transports {
+		if !networkIDRE.MatchString(id) {
+			return badRequest("%q is not a network ID", id)
+		}
+		if !actives[t.Active] || !healths[t.Primary] || !healths[t.Fallback] {
+			return badRequest("network %s: active is primary, fallback or none; health is up, down or unknown", id)
+		}
+	}
+	return nil
+}
+
+// state records a state report.
+func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxReport)
+	var req stateReport
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if err := req.check(); err != nil {
+		return err
+	}
+	if err := unadopted(s.log.Snapshot(), c.ap); err != nil {
+		return err
+	}
+	report, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	if err := s.conds.RecordState(c.ap, req.Version, report); err != nil {
+		return err
+	}
+	if err := s.conds.Running(c.ap, req.Version); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"recorded": true})
+	return nil
+}
+
+// apHistory lists an AP's recent checks, applies and state reports, newest
+// first.
+func (s *Server) apHistory(w http.ResponseWriter, r *http.Request, c call) error {
+	id := hierarchy.NodeID(r.PathValue("ap"))
+	t := c.state.Org.Locations
+	if n, ok := t.Node(id); !ok || n.Kind != hierarchy.KindAP || roleOn(c, change.Locations, t, id) < access.Viewer {
+		return errNotFound
+	}
+	limit := 20
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			return badRequest("limit must be 1 to 200")
+		}
+		limit = n
+	}
+	h, err := s.conds.History(id, limit)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ap": id, "checks": h.Checks, "applies": h.Applies, "states": h.States})
+	return nil
+}
+
+// condition is what the manager knows of an AP's own account of itself, for
+// the AP's config view: last seen, what it runs, and whether that is its
+// current version.
+func (s *Server) condition(ap hierarchy.NodeID, version int64) (map[string]any, error) {
+	l, err := s.conds.Latest(ap)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"seen": l.Seen, "check": l.Check, "apply": l.Apply, "state": l.State, "in_sync": nil}
+	if l.Seen != nil && l.Seen.Running != nil {
+		out["in_sync"] = *l.Seen.Running == version
+	}
+	return out, nil
+}

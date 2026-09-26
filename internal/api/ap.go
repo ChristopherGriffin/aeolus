@@ -167,6 +167,12 @@ func (s *Server) apAuth(h apHandler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "missing or invalid AP token")
 			return
 		}
+		// Every AP request counts as being seen (0039). Failing to record it
+		// does not stop the AP.
+		source, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if err := s.conds.Seen(ap, source); err != nil {
+			slog.Error("recording last seen", "ap", ap, "err", err)
+		}
 		if err := h(w, r, apCall{ap: ap}); err != nil {
 			s.fail(w, r, string(ap), err)
 		}
