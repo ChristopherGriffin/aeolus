@@ -15,6 +15,7 @@ package uci
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -81,6 +82,19 @@ func (s *Section) List(name string) []string {
 		return []string{v}
 	}
 	return s.lists[name]
+}
+
+// Names lists the section's options and lists, sorted.
+func (s *Section) Names() []string {
+	var out []string
+	for n := range s.options {
+		out = append(out, n)
+	}
+	for n := range s.lists {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Flag reads a boolean option the way UCI does: "1", "yes", "on" and "true"
@@ -228,4 +242,37 @@ func words(line string) ([]string, error) {
 		out = append(out, cur.String())
 	}
 	return out, nil
+}
+
+// Redacted is a secret value, as it appears in a redacted copy.
+const Redacted = "<secret>"
+
+// Redact returns text with secret values replaced by Redacted: the value of
+// every option or list named in names, and any value equal to one of values
+// (0041). Every other line is kept exactly. A line that does not parse is
+// kept only if it holds none of the values.
+func Redact(text string, names map[string]bool, values []string) string {
+	secret := map[string]bool{}
+	for _, v := range values {
+		if v != "" {
+			secret[v] = true
+		}
+	}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		w, err := words(line)
+		if err != nil {
+			for v := range secret {
+				if strings.Contains(line, v) {
+					lines[i] = "# " + Redacted
+				}
+			}
+			continue
+		}
+		if len(w) == 3 && (w[0] == "option" || w[0] == "list") && (names[w[1]] || secret[w[2]]) {
+			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+			lines[i] = indent + w[0] + " " + w[1] + " '" + Redacted + "'"
+		}
+	}
+	return strings.Join(lines, "\n")
 }

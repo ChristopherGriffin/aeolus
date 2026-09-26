@@ -1,0 +1,28 @@
+{
+	"about": "Every rule at once: radio settings, a new VLAN and a reused one, roaming, a hidden 2.4 GHz-only network, a disabled network, the time zone, NTP and syslog, and a leftover Aeolus section to remove.",
+	"current": "pumphouse-current.json",
+	"stale": ["aeolus_gone_radio0"],
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		},
+		"timezone": "CST6CDT,M3.2.0,M11.1.0"
+	},
+	"intent": {
+		"radio": {
+			"2g": { "enabled": true, "channel": 11, "width": 20 },
+			"5g": { "channel": 36, "width": 160, "power": 20 },
+			"6g": { "width": 320 }
+		},
+		"system": { "country": "US", "tz": "America/Chicago", "ntp": ["time.symtus.com", "0.pool.ntp.org"], "syslog": "192.168.20.50:514", "poll": 30 },
+		"network": {
+			"sweet-lab": { "ssid": "Sweet Lab", "security": "wpa2-wpa3", "passphrase": "fixture-passphrase-2", "roaming": { "ft": true, "rrm": true, "btm": true },
+				"transport": { "primary": { "type": "vlan", "vlan": 30 }, "fallback": { "type": "vlan", "vlan": 20 } } },
+			"iot-lab": { "ssid": "IoT Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-3", "bands": ["2g"], "hidden": true, "isolation": true,
+				"transport": { "primary": { "type": "vlan", "vlan": 10 } } },
+			"off": { "enabled": false, "ssid": "Off", "security": "open", "transport": { "primary": { "type": "vlan", "vlan": 40 } } }
+		}
+	}
+}

@@ -2,7 +2,7 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: running on Aeolus** (`https://aeolus.symtus.com:8443`, the latest `v*` tag). M1–M3 are done. M4, the AP contract, is under way: Landing Zone, Sandbox, adoption and the concentrator library are in; APs enroll, poll for their config, have their rendered UCI checked against intent, and report what they applied and their state. Next is the agent on PumphouseAP (M5), ahead of the DHCP listeners, so the whole loop runs on a real AP sooner. PumphouseAP is the lab AP. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: running on Aeolus** (`https://aeolus.symtus.com:8443`, the latest `v*` tag). M1–M3 are done. M4, the AP contract, is under way: Landing Zone, Sandbox, adoption and the concentrator library are in; APs enroll, poll for their config, have their rendered UCI checked against intent, and report what they applied and their state. The agent (M5, [`agent/`](agent)) is next on PumphouseAP, ahead of the DHCP listeners, so the whole loop runs on a real AP sooner. PumphouseAP is the lab AP. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
 
 ## Build order
 

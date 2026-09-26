@@ -30,7 +30,7 @@ var Coverage = map[string]string{
 	"system.tz":                    "",
 	"system.ntp":                   "",
 	"system.syslog":                "",
-	"system.poll":                  "the agent's own setting; checked with the agent in M5",
+	"system.poll":                  "",
 	"system.ssh_keys":              "kept in dropbear's authorized_keys, not UCI; checked with the agent in M5",
 	"system.management.vlan":       layout,
 	"system.management.addressing": layout,
@@ -107,6 +107,7 @@ func Check(doc map[string]any, c *uci.Config) []string {
 	k.radioSettings(doc, radios)
 	k.networks(doc, radios)
 	k.system(obj(doc, "system"))
+	k.agent(obj(doc, "system"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -365,6 +366,21 @@ func (k *checker) system(sys map[string]any) {
 			k.add("system.ntp: servers are %v, want %v", got, ntp)
 		}
 	}
+}
+
+// agent checks the settings rendered for the agent itself, in its own
+// package (0040): the poll interval.
+func (k *checker) agent(sys map[string]any) {
+	poll, ok := sys["poll"]
+	if !ok {
+		return
+	}
+	s := k.c.Package("aeolus").Named("agent")
+	if s == nil || s.Type != "agent" {
+		k.add("aeolus: no agent section, want poll %s", text(poll))
+		return
+	}
+	k.option("aeolus.agent", s, "poll", text(poll))
 }
 
 // option checks one option's value. Only non-secret options go through here.

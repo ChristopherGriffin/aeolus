@@ -1,0 +1,17 @@
+{
+	"about": "The M5 lab: PumphouseAP adopted into Sandbox with one test network on VLAN 20, which the AP already carries.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		}
+	},
+	"intent": {
+		"system": { "country": "US", "poll": 60 },
+		"network": {
+			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1", "transport": { "primary": { "type": "vlan", "vlan": 20 } } }
+		}
+	}
+}

@@ -3,8 +3,9 @@
 //
 // It is a second SQLite database beside the change log, and not the system of
 // record. Checks and applies are kept for good and cannot be changed, like
-// the change log: they are what each AP was told and what it did. State
-// reports are trimmed after a retention period.
+// the change log: they are what each AP was told and what it did. A check
+// keeps the UCI the AP sent, with its secrets blanked (0041). State reports
+// are trimmed after a retention period.
 package conditions
 
 import (
@@ -20,7 +21,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 const schema = `
 CREATE TABLE aps (
@@ -70,6 +71,12 @@ CREATE TRIGGER applies_kept_del BEFORE DELETE ON applies
 BEGIN SELECT RAISE(ABORT, 'applies are kept as recorded'); END;
 `
 
+// migrations bring an older store up to schemaVersion, one step each.
+var migrations = map[int]string{
+	// 0041: checks keep the UCI they checked, secrets blanked.
+	1: `ALTER TABLE checks ADD COLUMN uci TEXT NOT NULL DEFAULT ''`,
+}
+
 // Results of a render check (0039).
 const (
 	OK      = "ok"
@@ -86,13 +93,15 @@ type Seen struct {
 	RunningAt *time.Time `json:"running_at,omitempty"`
 }
 
-// Check is one render check.
+// Check is one render check. UCI is what the AP sent, secrets blanked; it is
+// empty for a stale check, which will never run.
 type Check struct {
 	At       time.Time `json:"at"`
 	Version  int64     `json:"version"`
 	Hash     string    `json:"hash"`
 	Result   string    `json:"result"`
 	Problems []string  `json:"problems"`
+	UCI      string    `json:"uci,omitempty"`
 }
 
 // Apply is one apply attempt. Checked says whether an ok render check covers
@@ -158,24 +167,32 @@ func (s *Store) migrate() error {
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		return err
 	}
-	switch v {
-	case schemaVersion:
+	if v > schemaVersion {
+		return fmt.Errorf("conditions schema version %d is newer than this manager (%d)", v, schemaVersion)
+	}
+	if v == schemaVersion {
 		return nil
-	case 0:
-		tx, err := s.db.Begin()
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback()
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if v == 0 {
 		if _, err := tx.Exec(schema); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
-			return err
-		}
-		return tx.Commit()
+		v = 1
 	}
-	return fmt.Errorf("conditions schema version %d is newer than this manager (%d)", v, schemaVersion)
+	for ; v < schemaVersion; v++ {
+		if _, err := tx.Exec(migrations[v]); err != nil {
+			return fmt.Errorf("conditions migration %d: %w", v, err)
+		}
+	}
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Close closes the database.
@@ -209,8 +226,8 @@ func (s *Store) RecordCheck(ap hierarchy.NodeID, c Check) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO checks (ap, at, version, hash, result, problems) VALUES (?, ?, ?, ?, ?, ?)`,
-		string(ap), stamp(s.now()), c.Version, c.Hash, c.Result, string(problems))
+	_, err = s.db.Exec(`INSERT INTO checks (ap, at, version, hash, result, problems, uci) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		string(ap), stamp(s.now()), c.Version, c.Hash, c.Result, string(problems), c.UCI)
 	return err
 }
 
@@ -302,14 +319,14 @@ func (s *Store) seen(ap hierarchy.NodeID) (*Seen, error) {
 // History returns an AP's newest records of each kind, up to limit each.
 func (s *Store) History(ap hierarchy.NodeID, limit int) (History, error) {
 	h := History{Checks: []Check{}, Applies: []Apply{}, States: []State{}}
-	rows, err := s.db.Query(`SELECT at, version, hash, result, problems FROM checks WHERE ap = ? ORDER BY id DESC LIMIT ?`, string(ap), limit)
+	rows, err := s.db.Query(`SELECT at, version, hash, result, problems, uci FROM checks WHERE ap = ? ORDER BY id DESC LIMIT ?`, string(ap), limit)
 	if err != nil {
 		return h, err
 	}
 	for rows.Next() {
 		var c Check
 		var at, problems string
-		if err := rows.Scan(&at, &c.Version, &c.Hash, &c.Result, &problems); err != nil {
+		if err := rows.Scan(&at, &c.Version, &c.Hash, &c.Result, &problems, &c.UCI); err != nil {
 			rows.Close()
 			return h, err
 		}

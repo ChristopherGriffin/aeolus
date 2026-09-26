@@ -68,3 +68,4 @@ Its network is a VLAN-filtering bridge. `br-lan` has `bridge-vlan` entries, mana
 
 - SSH keys, rate limits and the management interface: rendered when the agent takes them on, with the ports decision.
 - Health checks for VXLAN, and the VLAN detection method (0020): M5 part 2.
+- Finding the manager by name (0033). OpenWrt's dnsmasq drops DNS answers pointing to private addresses (rebind protection, on by default), so PumphouseAP cannot resolve `aeolus.symtus.com`. The lab uses the manager's IP address, which its certificate covers.
