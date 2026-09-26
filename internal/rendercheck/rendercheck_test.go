@@ -114,6 +114,13 @@ config system
 config timeserver 'ntp'
 	list server '1.pool.ntp.org'
 	list server '0.pool.ntp.org'
+
+package aeolus
+
+config agent 'agent'
+	option url 'https://aeolus.symtus.com:8443'
+	option uplink 'wan'
+	option poll '60'
 `
 
 func check(t *testing.T, text string) []string {
@@ -163,6 +170,8 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"syslog", "option log_port '514'", "option log_port '515'", "log_port is \"515\""},
 		{"no wireless", "package wireless", "package wifi", "package wireless is missing"},
 		{"no network", "package network", "package net", "package network is missing"},
+		{"poll", "option poll '60'", "option poll '30'", "aeolus.agent: poll is \"30\""},
+		{"no agent", "config agent 'agent'", "config agent 'other'", "aeolus: no agent section"},
 	}
 	for _, c := range cases {
 		if !strings.Contains(rendered, c.old) {

@@ -1,6 +1,7 @@
 package conditions
 
 import (
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -98,6 +99,42 @@ func TestReopen(t *testing.T) {
 	if l, _ := s.Latest("ap-1"); l.Seen == nil {
 		t.Fatal("lost on reopen")
 	}
+}
+
+// A store made before 0041 gains the uci column and keeps its checks.
+func TestMigrateFromVersion1(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conditions.db")
+	must(t, writeV1(path))
+	s, err := Open(path, nil)
+	must(t, err)
+	defer s.Close()
+	h, err := s.History("ap-1", 10)
+	must(t, err)
+	if len(h.Checks) != 1 || h.Checks[0].Hash != "aa" || h.Checks[0].UCI != "" {
+		t.Fatalf("after migration: %+v", h.Checks)
+	}
+	must(t, s.RecordCheck("ap-1", Check{Version: 2, Hash: "bb", Result: OK, UCI: "package wireless\n"}))
+	h, _ = s.History("ap-1", 1)
+	if h.Checks[0].UCI != "package wireless\n" {
+		t.Fatalf("uci = %q", h.Checks[0].UCI)
+	}
+}
+
+// writeV1 makes a store at path as schema version 1 made it: the base schema
+// without the uci column, holding one check.
+func writeV1(path string) error {
+	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	for _, q := range []string{schema, `PRAGMA user_version = 1`,
+		`INSERT INTO checks (ap, at, version, hash, result, problems) VALUES ('ap-1', '2026-09-26T12:00:00Z', 1, 'aa', 'ok', '[]')`} {
+		if _, err := db.Exec(q); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func must(t *testing.T, err error) {

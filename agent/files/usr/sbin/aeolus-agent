@@ -1,0 +1,434 @@
+#!/usr/bin/ucode -S
+// aeolus-agent: the Aeolus agent on an OpenWrt AP (0040).
+//
+// It enrolls, polls for its config, renders it into UCI, has the manager
+// check that, applies it with an automatic revert, and reports what it did
+// and how it is. procd runs it (/etc/init.d/aeolus) and restarts it.
+//
+//	aeolus-agent          run
+//	aeolus-agent facts    print what it would enroll with
+//	aeolus-agent ping     check it can reach the manager
+
+'use strict';
+
+import * as fs from 'fs';
+import * as uloop from 'uloop';
+import * as uclient from 'uclient';
+import * as math from 'math';
+import { sha256 } from 'digest';
+import { cursor } from 'uci';
+import { connect } from 'ubus';
+import { render, PACKAGES } from 'aeolus.render';
+import { text, file } from 'aeolus.uciexport';
+
+const AGENT = 'aeolus-agent/1';
+const DIR = '/etc/aeolus';
+const TOKEN = DIR + '/token';
+const CERT = DIR + '/manager.crt';
+const RUNNING = DIR + '/version';
+const PENDING = DIR + '/pending';
+const BACKUP = DIR + '/backup';
+const CONFIRM = 90;        // seconds to reach the manager again after an apply
+const STATE_EVERY = 300;   // seconds between state reports
+
+let bus = connect();
+
+function log(fmt, ...args) {
+	warn(sprintf('aeolus: ' + fmt + '\n', ...args));
+}
+
+function read(path) {
+	let v = fs.readfile(path);
+	return v == null ? null : trim(v);
+}
+
+// store writes a file whole, through a temporary one, so it is never half
+// written. mode is set before it takes the file's place.
+function store(path, data, mode) {
+	let tmp = path + '.new';
+	if (fs.writefile(tmp, data) == null)
+		return false;
+	if (mode != null)
+		fs.chmod(tmp, mode);
+	return fs.rename(tmp, path);
+}
+
+function run(cmd) {
+	let p = fs.popen(cmd, 'r');
+	if (!p)
+		return '';
+	let out = p.read('all') ?? '';
+	p.close();
+	return trim(out);
+}
+
+function settings() {
+	let a = cursor().get_all('aeolus', 'agent') ?? {};
+	return { url: rtrim(a.url ?? '', '/'), uplink: a.uplink, poll: int(a.poll ?? '60') || 60 };
+}
+
+// http makes one request to the manager, trusting only its pinned
+// certificate (0033).
+function http(method, path, body, token, extra) {
+	let base = settings().url;
+	if (!base)
+		return { status: 0, error: 'no manager URL (aeolus.agent.url)' };
+	let res = { status: 0, body: '' };
+	let uc;
+	uc = uclient.new(base + path, null, {
+		header_done: function() {
+			res.status = uc.status().status;
+		},
+		data_read: function() {
+			let chunk;
+			while (length(chunk = uc.read() ?? ''))
+				res.body += chunk;
+		},
+		data_eof: function() {
+			uloop.end();
+		},
+		error: function(cb, code) {
+			res.error = 'connection error ' + code;
+			uloop.end();
+		},
+	});
+	if (!uc)
+		return { status: 0, error: 'bad manager URL' };
+	if (!uc.ssl_init({ ca_files: [CERT], verify: true })) {
+		uc.free();
+		return { status: 0, error: 'cannot set up TLS' };
+	}
+	uc.set_timeout(20000);
+	if (!uc.connect()) {
+		uc.free();
+		return { status: 0, error: 'cannot connect to ' + base };
+	}
+	let headers = { 'User-Agent': AGENT, ...(extra ?? {}) };
+	if (token)
+		headers['Authorization'] = 'Bearer ' + token;
+	let args = { headers: headers };
+	if (body != null) {
+		headers['Content-Type'] = 'application/json';
+		args.post_data = sprintf('%J', body);
+	}
+	if (!uc.request(method, args)) {
+		uc.free();
+		return { status: 0, error: 'cannot send the request' };
+	}
+	uloop.run();
+	uc.disconnect();
+	uc.free();
+	if (length(res.body)) {
+		try {
+			res.json = json(res.body);
+		}
+		catch (e) {}
+	}
+	return res;
+}
+
+function describe(r) {
+	return r.error ?? sprintf('HTTP %d %s', r.status, r.json?.error ?? '');
+}
+
+// mgmt_device is the device that holds the default route: the one the AP
+// reaches the manager through, and the MAC the DHCP server sees (0040).
+function mgmt_device() {
+	for (let i in bus.call('network.interface', 'dump')?.interface ?? [])
+		for (let r in i.route ?? [])
+			if (r.target == '0.0.0.0' && r.mask == 0 && i.l3_device)
+				return i.l3_device;
+	return 'br-lan';
+}
+
+function macs() {
+	let out = [];
+	for (let n in sort(fs.lsdir('/sys/class/net') ?? [])) {
+		let m = read(`/sys/class/net/${n}/address`);
+		if (m && match(m, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/) && m != '00:00:00:00:00:00' &&
+		    !(int(substr(m, 0, 2), 16) & 1) && index(out, m) < 0)
+			push(out, m);
+	}
+	return slice(out, 0, 32);
+}
+
+function radio_list() {
+	let out = [];
+	cursor().foreach('wireless', 'wifi-device', s => {
+		let phy = run(`iwinfo nl80211 phyname ${s['.name']}`);
+		let info = match(phy, /^phy[0-9]+$/) ? bus.call('iwinfo', 'info', { device: phy }) : null;
+		push(out, { radio: s['.name'], band: s.band, htmodes: info?.htmodes ?? [] });
+	});
+	return out;
+}
+
+// facts is what the AP enrolls with (0033, 0040).
+function facts() {
+	let b = bus.call('system', 'board') ?? {};
+	return {
+		mac: read(`/sys/class/net/${mgmt_device()}/address`),
+		macs: macs(),
+		hostname: read('/proc/sys/kernel/hostname'),
+		model: b.model,
+		board: b.board_name,
+		openwrt: b.release?.version,
+		radios: radio_list(),
+	};
+}
+
+// posix_tz finds a time zone's POSIX string in LuCI's table, if it is there.
+function posix_tz(zone) {
+	if (!zone)
+		return null;
+	for (let line in split(fs.readfile('/usr/share/ucode/luci/zoneinfo.uc') ?? '', '\n')) {
+		let m = match(line, /^[ \t]*'([^']+)': '([^']*)',?$/);
+		if (m && m[1] == zone)
+			return m[2];
+	}
+	return null;
+}
+
+function render_facts(intent) {
+	let radios = {};
+	for (let r in radio_list())
+		radios[r.radio] = { htmodes: r.htmodes };
+	return { uplink: settings().uplink, radios: radios, timezone: posix_tz(intent.system?.tz) };
+}
+
+function current() {
+	let c = cursor();
+	let out = {};
+	for (let p in PACKAGES)
+		out[p] = c.get_all(p) ?? {};
+	return out;
+}
+
+function running_version() {
+	let v = read(RUNNING);
+	return v != null && match(v, /^[0-9]+$/) ? int(v) : null;
+}
+
+function enroll() {
+	let r = http('POST', '/v1/enroll', facts());
+	if (r.status == 201 && r.json?.token) {
+		store(TOKEN, r.json.token, 384);   // 0600: only root reads the token
+		log('enrolled as %s; it waits in Landing Zone until a person adopts it', r.json.ap);
+		return 0;
+	}
+	log('enrollment: %s', describe(r));
+	if (r.status == 409)
+		return 3600;   // a person must remove the old entry (0038)
+	if (r.status == 503)
+		return 600;    // Landing Zone is full
+	return 60;
+}
+
+// confirm waits until the manager answers again, or gives up (0008).
+function confirm() {
+	let deadline = time() + CONFIRM;
+	sleep(5000);
+	while (time() < deadline) {
+		if (http('GET', '/healthz').status == 200)
+			return true;
+		sleep(10000);
+	}
+	return false;
+}
+
+function revert(pending) {
+	for (let p in pending.packages ?? []) {
+		let b = fs.readfile(`${BACKUP}/${p}`);
+		if (b != null)
+			store('/etc/config/' + p, b);
+	}
+	system('reload_config');
+	fs.unlink(PENDING);
+	log('reverted to the config before version %s', pending.version);
+}
+
+function report_applied(version, hash, ok, error, token) {
+	let r = http('POST', '/v1/ap/applied', { version: version, hash: hash, ok: ok, error: error ?? '' }, token);
+	if (r.status != 200)
+		log('reporting the apply: %s', describe(r));
+}
+
+// apply writes the checked packages, reloads, and keeps them only if the
+// manager can still be reached (0008, 0040).
+function apply(out, version, hash) {
+	if (!length(out.changed))
+		return { ok: true };
+	fs.mkdir(BACKUP);
+	for (let p in out.changed) {
+		let cur = fs.readfile('/etc/config/' + p);
+		if (cur != null)
+			store(`${BACKUP}/${p}`, cur);
+	}
+	let pending = { version: version, hash: hash, packages: out.changed };
+	store(PENDING, sprintf('%J', pending));
+	for (let p in out.changed)
+		store('/etc/config/' + p, file(out.config[p]));
+	log('applying version %d: %s', version, join(', ', out.changed));
+	system('reload_config');
+	if (confirm()) {
+		fs.unlink(PENDING);
+		return { ok: true };
+	}
+	revert(pending);
+	return { ok: false, error: sprintf('lost the manager within %d seconds of applying; reverted', CONFIRM) };
+}
+
+// recover finishes an apply that was cut short, by a crash or a reboot.
+function recover(token) {
+	let p = read(PENDING);
+	if (p == null)
+		return;
+	let pending = json(p);
+	log('an apply of version %s did not finish; confirming it', pending.version);
+	if (confirm()) {
+		fs.unlink(PENDING);
+		store(RUNNING, '' + pending.version);
+		report_applied(pending.version, pending.hash, true, null, token);
+		return;
+	}
+	revert(pending);
+	report_applied(pending.version, pending.hash, false, 'lost the manager after applying; reverted', token);
+}
+
+// Each exact render is checked and applied at most once per run, so a
+// refused or reverted config is not retried every poll.
+let attempted = {};
+
+function converge(poll, token) {
+	let version = poll.version;
+	let intent = poll.config;
+	let out = render(intent, current(), render_facts(intent));
+	for (let e in out.errors)
+		log('render: %s', e);
+	let uci = join('\n', map(PACKAGES, p => text(p, out.config[p]))) + '\n';
+	let key = version + ':' + sha256(uci);
+	if (attempted[key])
+		return;
+	let check = http('POST', '/v1/ap/render', { version: version, uci: uci }, token);
+	if (check.status != 200) {
+		log('render check: %s', describe(check));
+		return;
+	}
+	if (check.json.result == 'stale')
+		return;
+	attempted[key] = true;
+	if (check.json.result != 'ok') {
+		log('version %d was refused:', version);
+		for (let p in check.json.problems ?? [])
+			log('  %s', p);
+		return;
+	}
+	let result = apply(out, version, check.json.hash);
+	report_applied(version, check.json.hash, result.ok, result.error, token);
+	if (result.ok) {
+		store(RUNNING, '' + version);
+		log('running version %d', version);
+	}
+}
+
+function report_state(running, token) {
+	let b = bus.call('system', 'board') ?? {};
+	let radios = [];
+	let status = bus.call('network.wireless', 'status') ?? {};
+	for (let name in sort(keys(status))) {
+		let band = status[name].config?.band;
+		if (!(band in { '2g': 1, '5g': 1, '6g': 1 }))
+			continue;
+		let r = { radio: name, band: band, channel: 0, width: 0, clients: 0 };
+		for (let i in status[name].interfaces ?? []) {
+			if (!i.ifname)
+				continue;
+			let info = bus.call('iwinfo', 'info', { device: i.ifname });
+			if (info?.channel)
+				r.channel = info.channel;
+			let w = match(info?.htmode ?? '', /([0-9]+)/);
+			if (w)
+				r.width = int(w[1]);
+			r.clients += length(keys(bus.call(`hostapd.${i.ifname}`, 'get_clients')?.clients ?? {}));
+		}
+		push(radios, r);
+	}
+	let res = http('POST', '/v1/ap/state', {
+		version: running ?? 0,
+		uptime: int(split(read('/proc/uptime') ?? '0', ' ')[0]),
+		openwrt: b.release?.version ?? '',
+		radios: slice(radios, 0, 8),
+	}, token);
+	if (res.status != 200)
+		log('state report: %s', describe(res));
+}
+
+function main() {
+	uloop.init();
+	recover(read(TOKEN));
+	let running = running_version();
+	let assigned = false;
+	let held = null;
+	let last_state = 0;
+	while (true) {
+		let token = read(TOKEN);
+		if (!token) {
+			let wait = enroll();
+			if (wait > 0) {
+				sleep(wait * 1000);
+				continue;
+			}
+			token = read(TOKEN);
+		}
+		let extra = running != null ? { 'If-None-Match': `"${running}"` } : null;
+		let r = http('GET', '/v1/ap/config', null, token, extra);
+		if (r.status == 401) {
+			log('the manager no longer knows this AP; enrolling again');
+			fs.unlink(TOKEN);
+			assigned = false;
+			continue;
+		}
+		if (r.status == 304) {
+			assigned = true;
+		}
+		else if (r.status == 200) {
+			let state = r.json?.state;
+			assigned = state != 'unassigned';
+			if (state == 'ready') {
+				converge(r.json, token);
+				let now = running_version();
+				if (now != running) {
+					running = now;
+					last_state = 0;
+				}
+			}
+			else if (state == 'held' && held != r.json.version) {
+				held = r.json.version;
+				log('version %d is held by the manager; keeping what runs:', held);
+				for (let p in r.json.problems ?? [])
+					log('  %s', p);
+			}
+		}
+		else {
+			log('poll: %s', describe(r));
+		}
+		if (assigned && time() - last_state >= STATE_EVERY) {
+			report_state(running, token);
+			last_state = time();
+		}
+		let poll = settings().poll;
+		sleep(poll * 1000 * (90 + math.rand() % 21) / 100);
+	}
+}
+
+switch (ARGV[0]) {
+case 'facts':
+	print(sprintf('%.J\n', facts()));
+	break;
+case 'ping': {
+	let r = http('GET', '/healthz');
+	print(r.status == 200 ? sprintf('manager reachable: %s\n', r.body) : sprintf('cannot reach the manager: %s\n', describe(r)));
+	exit(r.status == 200 ? 0 : 1);
+}
+default:
+	main();
+}

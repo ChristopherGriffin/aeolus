@@ -95,3 +95,21 @@ func TestParseRefuses(t *testing.T) {
 		}
 	}
 }
+
+func TestRedact(t *testing.T) {
+	in := "package wireless\n\nconfig wifi-iface 'a'\n\toption ssid 'Sweet Spot'\n\toption key 'it'\\''s-a-secret'\n\toption note 'hunter2-pass'\n\tlist extra 'hunter2-pass'\n\toption broken 'hunter2-pass\n"
+	out := Redact(in, map[string]bool{"key": true}, []string{"hunter2-pass", ""})
+	for _, gone := range []string{"it'", "hunter2"} {
+		if strings.Contains(out, gone) {
+			t.Fatalf("secret %q left in:\n%s", gone, out)
+		}
+	}
+	for _, kept := range []string{"package wireless\n", "\toption ssid 'Sweet Spot'\n", "\toption key '<secret>'\n", "\tlist extra '<secret>'\n"} {
+		if !strings.Contains(out, kept) {
+			t.Fatalf("missing %q in:\n%s", kept, out)
+		}
+	}
+	if _, err := Parse(strings.Replace(out, "# <secret>\n", "", 1)); err != nil {
+		t.Fatalf("redacted copy does not parse: %v", err)
+	}
+}

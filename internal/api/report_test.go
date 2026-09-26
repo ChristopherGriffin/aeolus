@@ -43,6 +43,11 @@ config device
 	option type '8021q'
 	option ifname 'lan'
 	option vid '20'
+
+package aeolus
+
+config agent 'agent'
+	option poll '60'
 `
 
 func sha(s string) string {
@@ -131,11 +136,24 @@ func TestRenderCheck(t *testing.T) {
 		t.Fatalf("condition = %v", cond)
 	}
 	_, hist := f.do("GET", "/v1/aps/"+ap+"/history", "griff", nil)
-	if n := len(hist["checks"].([]any)); n != 4 {
+	checks := hist["checks"].([]any)
+	if n := len(checks); n != 4 {
 		t.Fatalf("%d checks recorded, want 4: %v", n, hist)
 	}
 	if strings.Contains(jsonText(hist), passphrase) {
 		t.Fatal("the history holds a passphrase")
+	}
+	// The kept UCI is what was sent, secrets blanked (0041); a stale one is
+	// not kept.
+	kept, _ := checks[0].(map[string]any)["uci"].(string)
+	if kept != strings.ReplaceAll(goodUCI, passphrase, "<secret>") {
+		t.Fatalf("kept UCI:\n%s", kept)
+	}
+	if stale := checks[3].(map[string]any); stale["result"] != "stale" || stale["uci"] != nil {
+		t.Fatalf("stale check = %v", stale)
+	}
+	if strings.Contains(jsonText(cond["check"]), "package wireless") {
+		t.Fatal("the summary carries the whole UCI")
 	}
 
 	// A change that breaks the config: the check refuses, and the AP is out

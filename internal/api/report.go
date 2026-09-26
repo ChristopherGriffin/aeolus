@@ -32,6 +32,37 @@ var (
 	networkIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 )
 
+// secretOptions are the UCI options that hold keys and passwords (0041).
+var secretOptions = map[string]bool{
+	"key": true, "sae_password": true, "password": true,
+	"auth_secret": true, "private_key": true, "preshared_key": true,
+}
+
+// secretsIn lists the secret values in a composed config (0027), so a kept
+// copy of rendered UCI can blank them wherever they appear (0041).
+func (s *Server) secretsIn(doc map[string]any) []string {
+	var out []string
+	var walk func(v any, path string)
+	walk = func(v any, path string) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, e := range x {
+				if path == "" {
+					walk(e, k)
+				} else {
+					walk(e, path+"."+k)
+				}
+			}
+		case string:
+			if f, err := s.schema.Field(hierarchy.Path(path)); err == nil && f.Secret {
+				out = append(out, x)
+			}
+		}
+	}
+	walk(doc, "")
+	return out
+}
+
 // unadopted refuses a check or report from an AP in Landing Zone: it has no
 // config, and nobody has vouched for it yet (0039). Nothing is recorded.
 func unadopted(state *change.State, ap hierarchy.NodeID) error {
@@ -74,6 +105,9 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c apCall) error 
 		if err != nil {
 			return err
 		}
+		// Kept for the record, secrets blanked (0041). A stale render is
+		// not kept: it will never run.
+		check.UCI = uci.Redact(req.UCI, secretOptions, s.secretsIn(res.Doc))
 		switch parsed, err := uci.Parse(req.UCI); {
 		case len(res.Problems) > 0:
 			check.Result, check.Problems = conditions.Refused, append([]string{"the config itself is held (0029)"}, res.Problems...)
@@ -266,6 +300,9 @@ func (s *Server) condition(ap hierarchy.NodeID, version int64) (map[string]any, 
 	l, err := s.conds.Latest(ap)
 	if err != nil {
 		return nil, err
+	}
+	if l.Check != nil {
+		l.Check.UCI = "" // in the history; too long for a summary
 	}
 	out := map[string]any{"seen": l.Seen, "check": l.Check, "apply": l.Apply, "state": l.State, "in_sync": nil}
 	if l.Seen != nil && l.Seen.Running != nil {

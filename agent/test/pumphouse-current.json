@@ -1,0 +1,28 @@
+{
+	"wireless": {
+		"radio0": { ".anonymous": false, ".type": "wifi-device", ".name": "radio0", ".index": 0, "type": "mac80211", "path": "soc/1b500000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0", "band": "5g", "channel": "149", "htmode": "VHT80", "disabled": "0", "ucentral_path": "/radios/1", "txantenna": "15", "rxantenna": "15", "noscan": "1", "country": "US", "legacy_rates": "0", "maxassoc_ignore_probe": "0", "reconf": "1", "acs_exclude_dfs": "0" },
+		"radio1": { ".anonymous": false, ".type": "wifi-device", ".name": "radio1", ".index": 1, "type": "mac80211", "path": "soc/1b700000.pcie/pci0001:00/0001:00:00.0/0001:01:00.0", "band": "2g", "channel": "6", "htmode": "HT20", "disabled": "0", "ucentral_path": "/radios/0", "txantenna": "15", "rxantenna": "15", "noscan": "1", "country": "US", "legacy_rates": "0", "maxassoc_ignore_probe": "0", "reconf": "1", "acs_exclude_dfs": "0" },
+		"iot24": { ".anonymous": false, ".type": "wifi-iface", ".name": "iot24", ".index": 2, "device": "radio1", "network": "iot", "mode": "ap", "ssid": "Sweet_Spot_IoT", "encryption": "psk2", "key": "fixture-key-iot24" },
+		"trusted_radio0": { ".anonymous": false, ".type": "wifi-iface", ".name": "trusted_radio0", ".index": 3, "device": "radio0", "network": "trusted", "mode": "ap", "ssid": "Sweet Spot", "encryption": "psk2", "key": "fixture-key-trusted_radio0", "ieee80211r": "1", "ft_over_ds": "0", "ft_psk_generate_local": "1" },
+		"trusted_radio1": { ".anonymous": false, ".type": "wifi-iface", ".name": "trusted_radio1", ".index": 4, "device": "radio1", "network": "trusted", "mode": "ap", "ssid": "Sweet Spot", "encryption": "psk2", "key": "fixture-key-trusted_radio1", "ieee80211r": "1", "ft_over_ds": "0", "ft_psk_generate_local": "1" }
+	},
+	"network": {
+		"loopback": { ".anonymous": false, ".type": "interface", ".name": "loopback", ".index": 0, "device": "lo", "proto": "static", "ipaddr": "127.0.0.1", "ifname": "lo", "netmask": "255.0.0.0" },
+		"globals": { ".anonymous": false, ".type": "globals", ".name": "globals", ".index": 1, "dhcp_default_duid": "0004fixture", "ula_prefix": "fd59:2068:3844::/48", "packet_steering": "1" },
+		"cfg030f15": { ".anonymous": true, ".type": "device", ".name": "cfg030f15", ".index": 2, "name": "br-lan", "type": "bridge", "ports": ["lan1", "lan2", "lan3", "lan4", "wan"], "ipv6": "0" },
+		"lan": { ".anonymous": false, ".type": "interface", ".name": "lan", ".index": 3, "device": "br-lan.1", "proto": "dhcp", "multipath": "off" },
+		"vlan1": { ".anonymous": false, ".type": "bridge-vlan", ".name": "vlan1", ".index": 4, "device": "br-lan", "vlan": "1", "ports": ["wan:u*", "lan1:u*", "lan2:u*", "lan3:u*", "lan4:u*"] },
+		"vlan10": { ".anonymous": false, ".type": "bridge-vlan", ".name": "vlan10", ".index": 5, "device": "br-lan", "vlan": "10", "ports": ["wan:t"] },
+		"iot": { ".anonymous": false, ".type": "interface", ".name": "iot", ".index": 6, "proto": "none", "device": "br-lan.10" },
+		"vlan20": { ".anonymous": false, ".type": "bridge-vlan", ".name": "vlan20", ".index": 7, "device": "br-lan", "vlan": "20", "ports": ["wan:t"] },
+		"trusted": { ".anonymous": false, ".type": "interface", ".name": "trusted", ".index": 8, "proto": "none", "device": "br-lan.20" }
+	},
+	"system": {
+		"cfg01e48a": { ".anonymous": true, ".type": "system", ".name": "cfg01e48a", ".index": 0, "hostname": "OpenWrtnight", "timezone": "GMT0", "zonename": "UTC", "ttylogin": "0", "log_size": "128", "urandom_seed": "0", "compat_version": "1.1", "log_proto": "udp", "conloglevel": "8", "cronloglevel": "7" },
+		"ntp": { ".anonymous": false, ".type": "timeserver", ".name": "ntp", ".index": 1, "server": ["0.openwrt.pool.ntp.org", "1.openwrt.pool.ntp.org", "2.openwrt.pool.ntp.org", "3.openwrt.pool.ntp.org"] },
+		"led_wan": { ".anonymous": false, ".type": "led", ".name": "led_wan", ".index": 2, "name": "WAN", "sysfs": "white:wan", "trigger": "netdev", "mode": "link tx rx", "dev": "wan" }
+	},
+	"aeolus": {
+		"agent": { ".anonymous": false, ".type": "agent", ".name": "agent", ".index": 0, "url": "https://aeolus.symtus.com:8443", "uplink": "wan" }
+	}
+}

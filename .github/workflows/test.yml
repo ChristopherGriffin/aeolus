@@ -18,7 +18,28 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
+      # The agent's renderer is tested against the manager's check (0040):
+      # build ucode as OpenWrt 25.12 ships it (the version on PumphouseAP),
+      # with only the modules the renderer and its test use.
+      - name: ucode
+        run: |
+          sudo apt-get install -y --no-install-recommends cmake libjson-c-dev
+          git clone --filter=blob:none https://github.com/jow-/ucode.git /tmp/ucode
+          git -C /tmp/ucode checkout 85922056
+          cmake -S /tmp/ucode -B /tmp/ucode/build -DCMAKE_BUILD_TYPE=Release \
+            -DFS_SUPPORT=ON -DMATH_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF \
+            -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF \
+            -DULOOP_SUPPORT=OFF -DLOG_SUPPORT=OFF -DSOCKET_SUPPORT=OFF -DZLIB_SUPPORT=OFF \
+            -DDIGEST_SUPPORT=OFF -DDEBUG_SUPPORT=OFF
+          cmake --build /tmp/ucode/build -j
+          sudo cmake --install /tmp/ucode/build
+          sudo ldconfig
+          ucode -e 'print("ucode works\n")'
       - run: go test -race -cover ./...
+      - name: the agent renders its expected output
+        run: go test -count=1 -v -run 'Agent' ./internal/rendercheck/ | tee /dev/stderr | grep -q -- '--- PASS: TestAgentRendersItsOutput'
+      - name: the agent's shell scripts parse
+        run: for f in agent/install.sh agent/files/etc/init.d/aeolus; do sh -n "$f"; done
 
   # Keep the later port to APs possible (0019): the manager must still build for AP hardware.
   build-ap-targets:
