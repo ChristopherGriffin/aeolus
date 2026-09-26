@@ -10,8 +10,8 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
+	"github.com/ChristopherGriffin/aeolus/internal/compose"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
-	"github.com/ChristopherGriffin/aeolus/internal/schema"
 )
 
 type grantView struct {
@@ -107,17 +107,10 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request, c call) error {
 
 	resolved := t.ResolveAll(id)
 	fields := make(map[hierarchy.Path]resolvedView, len(resolved))
-	values := map[string]any{}
 	for p, res := range resolved {
 		fields[p] = viewResolved(res)
-		if p != hierarchy.ServicesPath {
-			values[string(p)] = res.Value
-		}
 	}
-	problems, err := s.problems(values)
-	if err != nil {
-		return err
-	}
+	problems := compose.Node(c.state, s.schema, name, t, id, s.reveal)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tree":        name,
 		"node":        viewNode(n),
@@ -131,29 +124,13 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request, c call) error {
 	return nil
 }
 
-// problems checks resolved values as a partial config, with secrets opened.
-func (s *Server) problems(values map[string]any) ([]string, error) {
-	doc, err := schema.Assemble(values, s.reveal)
-	if err != nil {
-		return []string{err.Error()}, nil
-	}
-	if p := s.schema.Problems(doc); p != nil {
-		return p, nil
-	}
-	return []string{}, nil
-}
-
-// apProblems checks an AP's whole resolved config.
+// apProblems composes an AP's config and returns the rules it breaks (0029).
 func (s *Server) apProblems(state *change.State, ap hierarchy.NodeID) []string {
-	cfg, err := state.Org.ResolveAP(ap)
+	res, err := compose.AP(state, s.schema, ap, s.reveal)
 	if err != nil {
 		return []string{err.Error()}
 	}
-	doc, err := schema.Document(cfg, s.reveal)
-	if err != nil {
-		return []string{err.Error()}
-	}
-	return s.schema.Problems(doc)
+	return res.Problems
 }
 
 func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error {
@@ -179,21 +156,28 @@ func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error 
 		networks[nid] = map[string]any{"from": net.From, "fields": fields}
 	}
 	version, _ := s.log.Version(id)
-	problems := s.apProblems(c.state, id)
-	if problems == nil {
-		problems = []string{}
+	checked, err := compose.AP(c.state, s.schema, id, s.reveal)
+	if err != nil {
+		return err
 	}
+	shown, err := compose.AP(c.state, s.schema, id, nil)
+	if err != nil {
+		return err
+	}
+	problems := checked.Problems
 	services := cfg.Services
 	if services == nil {
 		services = []hierarchy.NodeID{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ap":       id,
-		"version":  version,
-		"services": services,
-		"location": location,
-		"networks": networks,
-		"check":    map[string]any{"ok": len(problems) == 0, "problems": problems},
+		"ap":         id,
+		"version":    version,
+		"services":   services,
+		"location":   location,
+		"networks":   networks,
+		"unassigned": checked.Unassigned,
+		"document":   mask(anyMap(shown.Doc)),
+		"check":      map[string]any{"ok": len(problems) == 0 && !checked.Unassigned, "problems": problems},
 	})
 	return nil
 }
@@ -256,6 +240,21 @@ func (s *Server) changes(w http.ResponseWriter, r *http.Request, c call) error {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"changes": out})
 	return nil
+}
+
+// library lists the concentrators and their VNIs. Any account may read it: it
+// is what the transport pull-downs offer (0023).
+func (s *Server) library(w http.ResponseWriter, _ *http.Request, c call) error {
+	writeJSON(w, http.StatusOK, map[string]any{"concentrators": c.state.Library.All()})
+	return nil
+}
+
+// anyMap turns a nil document into an empty one for display.
+func anyMap(m map[string]any) any {
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
 }
 
 // reversioned lists the APs whose version is seq, sorted.

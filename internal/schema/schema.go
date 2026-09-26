@@ -199,6 +199,9 @@ func (s *Schema) Prepare(p hierarchy.Path, raw json.RawMessage, box *secret.Box)
 // exist in the tree it targets, set values must be valid, and secret values
 // must arrive sealed. It is not applied on replay.
 func (s *Schema) CheckOp(op change.Op) error {
+	if op.Kind == change.SetConcentrator {
+		return s.checkConcentrator(op.Value)
+	}
 	switch op.Kind {
 	case change.Set, change.Unset, change.Lock, change.Unlock:
 	default:
@@ -230,6 +233,22 @@ func (s *Schema) CheckOp(op change.Op) error {
 	return s.checkLeaf(f, v)
 }
 
+// checkConcentrator validates a library concentrator's definition (0023).
+func (s *Schema) checkConcentrator(raw json.RawMessage) error {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return &FieldError{Path: "concentrator", Err: err}
+	}
+	sch, err := s.leaf("/$defs/libraryConcentrator")
+	if err != nil {
+		return err
+	}
+	if err := sch.Validate(v); err != nil {
+		return &FieldError{Path: "concentrator", Err: tidy(err)}
+	}
+	return nil
+}
+
 // CheckDocument validates an AP's whole assembled config.
 func (s *Schema) CheckDocument(doc map[string]any) error {
 	if err := s.whole.Validate(doc); err != nil {
@@ -251,21 +270,6 @@ func (s *Schema) Problems(doc map[string]any) []string {
 		return problems(ve)
 	}
 	return []string{err.Error()}
-}
-
-// Document assembles the nested config an AP receives from its resolved
-// fields. reveal opens sealed secrets; with a nil reveal they stay sealed.
-func Document(cfg hierarchy.APConfig, reveal func(path string, v any) (any, error)) (map[string]any, error) {
-	fields := map[string]any{}
-	for p, r := range cfg.Location {
-		fields[string(p)] = r.Value
-	}
-	for id, n := range cfg.Networks {
-		for f, r := range n.Fields {
-			fields["network."+id+"."+f] = r.Value
-		}
-	}
-	return Assemble(fields, reveal)
 }
 
 // Assemble nests flat field values ("radio.5g.width") into a config document.

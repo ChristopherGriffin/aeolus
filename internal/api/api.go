@@ -22,6 +22,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/library"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
 )
@@ -46,7 +47,10 @@ func Check(sch *schema.Schema) func(*change.State, string, change.Op) error {
 		if err := change.Authorize(state, actor, op); err != nil {
 			return err
 		}
-		return sch.CheckOp(op)
+		if err := sch.CheckOp(op); err != nil {
+			return err
+		}
+		return change.CheckReferences(state, op)
 	}
 }
 
@@ -60,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/trees/{tree}/nodes/{node}", s.auth(s.node))
 	mux.Handle("GET /v1/aps/{ap}/config", s.auth(s.apConfig))
 	mux.Handle("GET /v1/changes", s.auth(s.changes))
+	mux.Handle("GET /v1/library", s.auth(s.library))
 	mux.Handle("POST /v1/changes", s.auth(s.commit))
 	mux.Handle("POST /v1/preview", s.auth(s.preview))
 	mux.Handle("POST /v1/tokens", s.auth(s.issueToken))
@@ -120,22 +125,29 @@ func status(err error) int {
 	var be *changelog.APBreakError
 	var fe *schema.FieldError
 	var ce *hierarchy.NetworkConflictError
+	var re *change.RefError
 	switch {
 	case errors.As(err, &ae):
 		return ae.code
+	case errors.As(err, &re):
+		return http.StatusBadRequest
 	case errors.Is(err, change.ErrForbidden), errors.Is(err, change.ErrUnknownActor):
 		return http.StatusForbidden
 	case errors.Is(err, hierarchy.ErrNotFound), errors.Is(err, access.ErrNoAccount),
 		errors.Is(err, access.ErrNoToken), errors.Is(err, access.ErrNoGrant):
 		return http.StatusNotFound
-	case errors.As(err, &le), errors.As(err, &be), errors.As(err, &ce),
+	case errors.Is(err, library.ErrNoConcentrator), errors.Is(err, library.ErrNoVNI):
+		return http.StatusNotFound
+	case errors.As(err, &le), errors.As(err, &be), errors.As(err, &ce), errors.Is(err, change.ErrInUse),
 		errors.Is(err, hierarchy.ErrExists), errors.Is(err, access.ErrExists), errors.Is(err, access.ErrRevoked):
 		return http.StatusConflict
 	case errors.As(err, &fe),
 		errors.Is(err, change.ErrUnknownKind), errors.Is(err, change.ErrUnknownTree),
 		errors.Is(err, change.ErrNoValue), errors.Is(err, change.ErrNoNode), errors.Is(err, change.ErrNoPath),
 		errors.Is(err, change.ErrNoAccount), errors.Is(err, change.ErrNoTokenID), errors.Is(err, change.ErrUseAssign),
-		errors.Is(err, change.ErrNotAFolder), errors.Is(err, access.ErrBadRole),
+		errors.Is(err, change.ErrNotAFolder), errors.Is(err, access.ErrBadRole), errors.Is(err, change.ErrNoConcID),
+		errors.Is(err, library.ErrBadVNI), errors.Is(err, library.ErrNoLabel), errors.Is(err, change.ErrBuiltins),
+		errors.Is(err, change.ErrReserved), errors.Is(err, hierarchy.ErrIsolated),
 		errors.Is(err, hierarchy.ErrBadParent), errors.Is(err, hierarchy.ErrAPsNotHere), errors.Is(err, hierarchy.ErrMoveRoot),
 		errors.Is(err, hierarchy.ErrCycle), errors.Is(err, hierarchy.ErrBreakRoot), errors.Is(err, hierarchy.ErrBroken),
 		errors.Is(err, hierarchy.ErrNotSetHere), errors.Is(err, hierarchy.ErrLockOnValue), errors.Is(err, hierarchy.ErrNotLocked):
