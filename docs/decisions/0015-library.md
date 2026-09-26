@@ -13,4 +13,4 @@
 
 ## Open
 
-- Which folders offer the VXLAN drop-down: Services folders, Locations folders, or both.
+- ~~Which folders offer the VXLAN drop-down.~~ Resolved by 0018: transport is part of the network config in the Services tree.

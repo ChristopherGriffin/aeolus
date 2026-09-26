@@ -2,7 +2,18 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: architecture.** There is no code yet. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: M1, the resolution engine.** Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+
+## Build order
+
+Each milestone ends in something checkable before the next starts.
+
+1. **Resolution engine** ([`internal/hierarchy`](internal/hierarchy)): both trees, field-level inheritance, locks, Break Hierarchy, service assignment, per-AP resolution.
+2. **Change log and versions**: append-only log in SQLite, Org-wide sequence, per-AP version numbers.
+3. **Admin API and identities**: every actor has its own identity; CLI and MCP are clients of the API.
+4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
+5. **ucode agent on a lab AP**: the full loop, with drift shown.
+6. **Key channel** (0014).
 
 ## Decisions
 
@@ -24,12 +35,20 @@ Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP s
 | [0014](docs/decisions/0014-per-user-keys.md) | Per-user keys have their own channel |
 | [0015](docs/decisions/0015-library.md) | A global library of named definitions |
 | [0016](docs/decisions/0016-open-for-extension.md) | Built open for later features |
+| [0017](docs/decisions/0017-locks-remove-hidden-overrides.md) | A lock removes the overrides it hides (proposed) |
+| [0018](docs/decisions/0018-network-transport.md) | Network transport: primary and fallback |
+| [0019](docs/decisions/0019-server-tier-first.md) | Server tier first; election later |
+| [0020](docs/decisions/0020-aps-act-on-their-own.md) | APs act on their own: transport choice and VLAN detection |
+| [0021](docs/decisions/0021-concentrators-and-vni-labels.md) | ~~Concentrators in the library, labeled VNIs~~ (superseded by 0023) |
+| [0022](docs/decisions/0022-transport-ha-mode.md) | Transport HA mode and failback |
+| [0023](docs/decisions/0023-library-concentrators-and-vnis.md) | The library holds concentrators and their VNIs, scoped to locations |
 
 ## Open questions
 
 - Intent model contents: the full field list for each object type.
 - UI for assigning services to locations (mockup first).
-- Which folders offer the VXLAN library drop-down (0015).
+- VLAN detection method and VXLAN health check (0020).
+- How concentrator scoping meets service assignment: pull-down, per-AP filtering, check (0023).
 - Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
 - AP identity and enrollment; how config is signed.
@@ -37,4 +56,4 @@ Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP s
 - Human hold on the OK step: keep or drop.
 - MSPs working across several Orgs (proposed as permissions, not a level above Org).
 - Rejoining a broken folder to its parent's inheritance.
-- Election consensus details.
+- Election: set aside until the port to APs (0019).

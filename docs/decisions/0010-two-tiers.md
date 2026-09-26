@@ -1,6 +1,6 @@
 # 0010. One codebase, two tiers
 
-- Status: Accepted
+- Status: Accepted, partly superseded by 0019 (server tier first; election set aside)
 - Date: 2026-09-25
 - Decided by: Griff
 
