@@ -37,6 +37,7 @@ Each milestone ends in something checkable before the next starts.
 | [0016](docs/decisions/0016-open-for-extension.md) | Built open for later features |
 | [0017](docs/decisions/0017-locks-remove-hidden-overrides.md) | A lock removes the overrides it hides (proposed) |
 | [0018](docs/decisions/0018-network-transport.md) | Network transport: primary and fallback |
+| [0019](docs/decisions/0019-server-tier-first.md) | Server tier first; election later |
 
 ## Open questions
 
@@ -50,4 +51,4 @@ Each milestone ends in something checkable before the next starts.
 - Human hold on the OK step: keep or drop.
 - MSPs working across several Orgs (proposed as permissions, not a level above Org).
 - Rejoining a broken folder to its parent's inheritance.
-- Election consensus details.
+- Election: set aside until the port to APs (0019).
