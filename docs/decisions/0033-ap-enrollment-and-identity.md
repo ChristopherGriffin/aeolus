@@ -1,8 +1,8 @@
 # 0033. AP enrollment and identity without a CA
 
-- Status: Proposed (awaiting Griff)
+- Status: Accepted
 - Date: 2026-09-26
-- Proposed by: Claude, after 0032 set aside the CA
+- Proposed by: Claude, after 0032 set aside the CA; accepted by Griff
 - Refines: 0007
 
 ## Decision
@@ -26,5 +26,5 @@
 
 - How APs find the manager: a DNS name first, with a DHCP option as an override for sites that need one.
 - **Constraint (verified 2026-09-26):** Aeolus discovery must never use DHCP options 43, 60, 138 or 224. OpenWiFi (uCentral) APs request those by default and find their gateway through 224, so reusing any of them could send an OpenWiFi AP to Aeolus or confuse its discovery. A DNS name cannot affect them.
-- Detecting unconfigured OpenWiFi APs, which run no Aeolus agent and so never enroll.
+- ~~Detecting unconfigured OpenWiFi APs.~~ Resolved by 0034.
 - Limiting enrollment requests, and clearing Landing Zone of devices that never get adopted.

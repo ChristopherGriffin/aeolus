@@ -1,6 +1,6 @@
 # 0032. Landing Zone and Sandbox
 
-- Status: Accepted (details marked proposed await Griff)
+- Status: Accepted
 - Date: 2026-09-26
 - Decided by: Griff
 
@@ -10,7 +10,7 @@
 - **Landing Zone.** New APs arrive in a folder called Landing Zone. The folder remains unconfigured.
 - **Sandbox.** A folder for testing configs.
 
-## Proposed details
+## Details (proposed by Claude, accepted by Griff)
 
 **Landing Zone**
 - It is a built-in folder in the Locations tree that every Org has and nobody can delete.

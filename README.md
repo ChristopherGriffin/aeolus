@@ -54,8 +54,9 @@ Each milestone ends in something checkable before the next starts.
 | [0029](docs/decisions/0029-field-checks-and-config-checks.md) | Field checks refuse changes; config checks report them |
 | [0030](docs/decisions/0030-who-may-change-what.md) | Who may make which change |
 | [0031](docs/decisions/0031-mcp-pass-through.md) | The MCP adapter holds no credentials |
-| [0032](docs/decisions/0032-landing-zone-and-sandbox.md) | Landing Zone and Sandbox (details proposed) |
-| [0033](docs/decisions/0033-ap-enrollment-and-identity.md) | AP enrollment and identity without a CA (proposed) |
+| [0032](docs/decisions/0032-landing-zone-and-sandbox.md) | Landing Zone and Sandbox |
+| [0033](docs/decisions/0033-ap-enrollment-and-identity.md) | AP enrollment and identity without a CA |
+| [0034](docs/decisions/0034-detecting-openwifi-aps.md) | Detecting unconfigured OpenWiFi APs |
 
 ## Open questions
 
@@ -64,7 +65,7 @@ Each milestone ends in something checkable before the next starts.
 - VLAN detection method and VXLAN health check (0020).
 - Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
-- AP identity and enrollment (0033, proposed); config signing and an Org CA are set aside (0032).
+- Config signing and an Org CA are set aside (0032).
 - Time-series engine for the server-hosted manager.
 - Human hold on the OK step: keep or drop.
 - MSPs working across several Orgs (proposed as permissions, not a level above Org).
