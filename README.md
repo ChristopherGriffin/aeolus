@@ -2,7 +2,7 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: v0.1.0 running on Aeolus** (`https://aeolus.symtus.com:8443`). M1, M2 and M3 parts 1–3 are done; the MCP adapter (M3 part 4) is next. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: v0.2.0 running on Aeolus** (`https://aeolus.symtus.com:8443`). M1–M3 are done: the first change through the MCP adapter is logged under `claude`. M4 (the AP contract) is next, with PumphouseAP as the lab AP. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
 
 ## Build order
 
