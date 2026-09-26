@@ -53,7 +53,7 @@ Each milestone ends in something checkable before the next starts.
 | [0028](docs/decisions/0028-mcp-adapter.md) | The MCP adapter |
 | [0029](docs/decisions/0029-field-checks-and-config-checks.md) | Field checks refuse changes; config checks report them |
 | [0030](docs/decisions/0030-who-may-change-what.md) | Who may make which change |
-| [0031](docs/decisions/0031-mcp-pass-through.md) | The MCP adapter holds no credentials (proposed) |
+| [0031](docs/decisions/0031-mcp-pass-through.md) | The MCP adapter holds no credentials |
 
 ## Open questions
 
