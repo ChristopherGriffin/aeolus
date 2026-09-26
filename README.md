@@ -56,7 +56,8 @@ Each milestone ends in something checkable before the next starts.
 | [0031](docs/decisions/0031-mcp-pass-through.md) | The MCP adapter holds no credentials |
 | [0032](docs/decisions/0032-landing-zone-and-sandbox.md) | Landing Zone and Sandbox |
 | [0033](docs/decisions/0033-ap-enrollment-and-identity.md) | AP enrollment and identity without a CA |
-| [0034](docs/decisions/0034-detecting-openwifi-aps.md) | Detecting unconfigured OpenWiFi APs |
+| [0034](docs/decisions/0034-detecting-openwifi-aps.md) | Detecting unconfigured OpenWiFi APs (partly superseded by 0035) |
+| [0035](docs/decisions/0035-dhcp-observation.md) | DHCP observation: vendor-neutral detection and network watch |
 
 ## Open questions
 

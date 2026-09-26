@@ -1,6 +1,6 @@
 # 0034. Detecting unconfigured OpenWiFi APs
 
-- Status: Accepted
+- Status: Accepted, partly superseded by 0035 (DHCP observation replaces the lease method)
 - Date: 2026-09-26
 - Decided by: Griff
 
