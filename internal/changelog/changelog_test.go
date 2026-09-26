@@ -229,7 +229,7 @@ func open(t *testing.T) *Log {
 func openAt(t *testing.T, path string) *Log {
 	t.Helper()
 	clock := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
-	l, err := Open(path, func() time.Time { clock = clock.Add(time.Second); return clock })
+	l, err := Open(path, Options{Now: func() time.Time { clock = clock.Add(time.Second); return clock }})
 	must(t, err)
 	t.Cleanup(func() { l.Close() })
 	return l
