@@ -23,6 +23,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
+	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 	"github.com/ChristopherGriffin/aeolus/internal/library"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
@@ -34,12 +35,13 @@ type Server struct {
 	log    *changelog.Log
 	schema *schema.Schema
 	box    *secret.Box
+	conds  *conditions.Store
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
-// commit check.
-func New(log *changelog.Log, sch *schema.Schema, box *secret.Box) *Server {
-	return &Server{log: log, schema: sch, box: box}
+// commit check. conds records what APs say and do (0039).
+func New(log *changelog.Log, sch *schema.Schema, box *secret.Box, conds *conditions.Store) *Server {
+	return &Server{log: log, schema: sch, box: box, conds: conds}
 }
 
 // Check is the commit check every change passes: permissions against the
@@ -65,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/trees/{tree}", s.auth(s.tree))
 	mux.Handle("GET /v1/trees/{tree}/nodes/{node}", s.auth(s.node))
 	mux.Handle("GET /v1/aps/{ap}/config", s.auth(s.apConfig))
+	mux.Handle("GET /v1/aps/{ap}/history", s.auth(s.apHistory))
 	mux.Handle("GET /v1/changes", s.auth(s.changes))
 	mux.Handle("GET /v1/library", s.auth(s.library))
 	mux.Handle("POST /v1/changes", s.auth(s.commit))
@@ -75,6 +78,9 @@ func (s *Server) Handler() http.Handler {
 	// The routes APs use (0033, 0038).
 	mux.HandleFunc("POST /v1/enroll", s.enroll)
 	mux.Handle("GET /v1/ap/config", s.apAuth(s.apPoll))
+	mux.Handle("POST /v1/ap/render", s.apAuth(s.render))
+	mux.Handle("POST /v1/ap/applied", s.apAuth(s.applied))
+	mux.Handle("POST /v1/ap/state", s.apAuth(s.state))
 	return mux
 }
 

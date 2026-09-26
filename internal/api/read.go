@@ -173,6 +173,10 @@ func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error 
 	if services == nil {
 		services = []hierarchy.NodeID{}
 	}
+	cond, err := s.condition(id, version)
+	if err != nil {
+		return err
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ap":         id,
 		"version":    version,
@@ -182,6 +186,7 @@ func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error 
 		"unassigned": checked.Unassigned,
 		"document":   mask(anyMap(shown.Doc)),
 		"check":      map[string]any{"ok": len(problems) == 0 && !checked.Unassigned, "problems": problems},
+		"condition":  cond,
 	})
 	return nil
 }

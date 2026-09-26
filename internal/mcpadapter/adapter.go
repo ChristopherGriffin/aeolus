@@ -161,9 +161,14 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", "/v1/trees/"+url.PathEscape(in.Tree)+"/nodes/"+url.PathEscape(in.Node), nil)
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "get_ap_config", Description: "An AP's fully resolved config: Location fields, networks from its service folders, its version, and whether the whole config passes its check.", Annotations: readOnly},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_ap_config", Description: "An AP's fully resolved config: Location fields, networks from its service folders, its version, and whether the whole config passes its check. Its condition says when it was last seen and from where, the version it last reported running and whether that is current (in_sync), and its latest render check, apply and state report.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in apIn) (*mcp.CallToolResult, any, error) {
 			out, err := c.call(ctx, "GET", "/v1/aps/"+url.PathEscape(in.AP)+"/config", nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_ap_history", Description: "An AP's recent render checks (with their problems), apply attempts (and whether a passing check covered them) and state reports, newest first.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in apIn) (*mcp.CallToolResult, any, error) {
+			out, err := c.call(ctx, "GET", "/v1/aps/"+url.PathEscape(in.AP)+"/history", nil)
 			return nil, out, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_library", Description: "The Org's library: concentrators (address, port, MTU, the Location folders they may be used at) and their labeled VNIs. Network transports pick a concentrator and a VNI from here.", Annotations: readOnly},

@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -311,6 +312,39 @@ func insert(m map[string]any, segs []string, v any) error {
 	}
 	m[last] = v
 	return nil
+}
+
+// Leaves lists every field of an AP's config, sorted, with "*" where a name
+// is chosen (a network or port ID): "network.*.ssid". Parts filled in by the
+// manager are included.
+func (s *Schema) Leaves() []string {
+	var out []string
+	var walk func(node map[string]any, prefix string)
+	walk = func(node map[string]any, prefix string) {
+		node, _ = s.deref(node, "")
+		if node["type"] != "object" {
+			out = append(out, prefix)
+			return
+		}
+		join := func(seg string) string {
+			if prefix == "" {
+				return seg
+			}
+			return prefix + "." + seg
+		}
+		props, _ := node["properties"].(map[string]any)
+		for name, child := range props {
+			if m, ok := child.(map[string]any); ok {
+				walk(m, join(name))
+			}
+		}
+		if extra, ok := node["additionalProperties"].(map[string]any); ok {
+			walk(extra, join("*"))
+		}
+	}
+	walk(s.raw, "")
+	sort.Strings(out)
+	return out
 }
 
 // deref follows local $refs, returning the node and its JSON pointer.

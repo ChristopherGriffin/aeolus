@@ -14,6 +14,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/api"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
+	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -58,7 +59,10 @@ func newFixture(t *testing.T) *fixture {
 		}
 		tokens[who] = plain
 	}
-	apiHandler := api.New(log, sch, box).Handler()
+	conds, err := conditions.Open(filepath.Join(dir, "conditions.db"), nil)
+	must(t, err)
+	t.Cleanup(func() { conds.Close() })
+	apiHandler := api.New(log, sch, box, conds).Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", New(apiHandler, "test"))
 	mux.Handle("/", apiHandler)
@@ -122,7 +126,7 @@ func TestToolsActAsTheCaller(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := "get_ap_config get_library get_node list_changes list_tree make_change preview_change whoami"
+	want := "get_ap_config get_ap_history get_library get_node list_changes list_tree make_change preview_change whoami"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("tools = %v", names)
 	}
