@@ -17,4 +17,4 @@
 
 - How APs detect VLANs. Candidates: LLDP from the switch where it advertises VLANs; an active probe per expected VLAN (a DHCP discover, or ARP to the gateway); tagged traffic seen on the uplink as supporting evidence. A quiet VLAN shows no traffic, so absence of traffic alone does not prove a VLAN is missing.
 - How an AP judges a VXLAN transport healthy (a reachability check to the concentrator).
-- Switching back to the primary: a hold-down, meaning the primary must stay healthy for a set time first, so a flapping link does not flap the network.
+- ~~Switching back to the primary.~~ Resolved by 0022: HA mode, with revertive (hold-down) or equal-weight failback.

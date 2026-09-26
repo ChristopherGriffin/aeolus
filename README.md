@@ -40,12 +40,13 @@ Each milestone ends in something checkable before the next starts.
 | [0019](docs/decisions/0019-server-tier-first.md) | Server tier first; election later |
 | [0020](docs/decisions/0020-aps-act-on-their-own.md) | APs act on their own: transport choice and VLAN detection |
 | [0021](docs/decisions/0021-concentrators-and-vni-labels.md) | Concentrators in the library, labeled VNIs |
+| [0022](docs/decisions/0022-transport-ha-mode.md) | Transport HA mode and failback |
 
 ## Open questions
 
 - Intent model contents: the full field list for each object type.
 - UI for assigning services to locations (mockup first).
-- VLAN detection method, VXLAN health check and hold-down for switching back (0020).
+- VLAN detection method and VXLAN health check (0020).
 - Scope of VNI labels: per concentrator or per folder (0021).
 - Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
