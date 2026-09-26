@@ -10,7 +10,11 @@ Each milestone ends in something checkable before the next starts.
 
 1. **Resolution engine** ([`internal/hierarchy`](internal/hierarchy)): both trees, field-level inheritance, locks, Break Hierarchy, service assignment, per-AP resolution.
 2. **Change log and versions** ([`internal/change`](internal/change), [`internal/changelog`](internal/changelog)): append-only log in SQLite, Org-wide sequence, per-AP version numbers.
-3. **Admin API and identities**: every actor has its own identity; CLI and MCP are clients of the API.
+3. **Admin API and identities** (0024–0028), in four parts:
+   1. Field schema, validation and encrypted secrets.
+   2. Accounts, tokens and roles.
+   3. The HTTP API with preview, running on Aeolus.
+   4. The MCP adapter. Done when a change made through it shows up in the log under Claude's name.
 4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
 5. **ucode agent on a lab AP**: the full loop, with drift shown.
 6. **Key channel** (0014).
@@ -42,6 +46,11 @@ Each milestone ends in something checkable before the next starts.
 | [0021](docs/decisions/0021-concentrators-and-vni-labels.md) | ~~Concentrators in the library, labeled VNIs~~ (superseded by 0023) |
 | [0022](docs/decisions/0022-transport-ha-mode.md) | Transport HA mode and failback |
 | [0023](docs/decisions/0023-library-concentrators-and-vnis.md) | The library holds concentrators and their VNIs, scoped to locations |
+| [0024](docs/decisions/0024-identities-and-sign-in.md) | Identities and sign-in |
+| [0025](docs/decisions/0025-permissions.md) | Permissions: roles on folders |
+| [0026](docs/decisions/0026-api-shape.md) | API shape |
+| [0027](docs/decisions/0027-field-schema-and-secrets.md) | Field schema and secrets |
+| [0028](docs/decisions/0028-mcp-adapter.md) | The MCP adapter |
 
 ## Open questions
 
