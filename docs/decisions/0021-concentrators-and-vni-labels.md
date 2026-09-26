@@ -1,6 +1,6 @@
 # 0021. Concentrators in the library, labeled VNIs
 
-- Status: Accepted (open point below)
+- Status: Superseded by 0023 (VNIs live in the library under each concentrator)
 - Date: 2026-09-25
 - Decided by: Griff
 - Resolves: the second open question in 0018 (library shape)

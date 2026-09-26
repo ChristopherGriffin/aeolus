@@ -39,15 +39,16 @@ Each milestone ends in something checkable before the next starts.
 | [0018](docs/decisions/0018-network-transport.md) | Network transport: primary and fallback |
 | [0019](docs/decisions/0019-server-tier-first.md) | Server tier first; election later |
 | [0020](docs/decisions/0020-aps-act-on-their-own.md) | APs act on their own: transport choice and VLAN detection |
-| [0021](docs/decisions/0021-concentrators-and-vni-labels.md) | Concentrators in the library, labeled VNIs |
+| [0021](docs/decisions/0021-concentrators-and-vni-labels.md) | ~~Concentrators in the library, labeled VNIs~~ (superseded by 0023) |
 | [0022](docs/decisions/0022-transport-ha-mode.md) | Transport HA mode and failback |
+| [0023](docs/decisions/0023-library-concentrators-and-vnis.md) | The library holds concentrators and their VNIs, scoped to locations |
 
 ## Open questions
 
 - Intent model contents: the full field list for each object type.
 - UI for assigning services to locations (mockup first).
 - VLAN detection method and VXLAN health check (0020).
-- Scope of VNI labels: per concentrator or per folder (0021).
+- How concentrator scoping meets service assignment: pull-down, per-AP filtering, check (0023).
 - Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
 - AP identity and enrollment; how config is signed.
