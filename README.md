@@ -15,7 +15,11 @@ Each milestone ends in something checkable before the next starts.
    2. Accounts, tokens and roles ([`internal/access`](internal/access), [`internal/change`](internal/change) `Authorize`).
    3. The HTTP API with preview ([`internal/api`](internal/api), [`cmd/aeolus`](cmd/aeolus), [API reference](docs/api.md)), running on Aeolus and updated with [`aeolus-update`](deploy/update.sh).
    4. The MCP adapter ([`internal/mcpadapter`](internal/mcpadapter), served at `/mcp`). Done when a change made through it shows up in the log under Claude's name.
-4. **AP contract**: poll, rendered-UCI report, check, OK, apply result; AP identity and enrollment.
+4. **AP contract** (0032–0036), in four parts:
+   1. Landing Zone and Sandbox built in; adoption; the manager as an actor.
+   2. The concentrator library (0023) and per-AP filtering.
+   3. AP endpoints: enroll, config poll, render check, state reports.
+   4. The manager side of DHCP observation (0035): relay listener and option 224 listener.
 5. **ucode agent on a lab AP**: the full loop, with drift shown.
 6. **Key channel** (0014).
 
@@ -58,6 +62,7 @@ Each milestone ends in something checkable before the next starts.
 | [0033](docs/decisions/0033-ap-enrollment-and-identity.md) | AP enrollment and identity without a CA |
 | [0034](docs/decisions/0034-detecting-openwifi-aps.md) | Detecting unconfigured OpenWiFi APs (partly superseded by 0035) |
 | [0035](docs/decisions/0035-dhcp-observation.md) | DHCP observation: vendor-neutral detection and network watch |
+| [0036](docs/decisions/0036-the-manager-as-an-actor.md) | The manager as an actor (proposed) |
 
 ## Open questions
 

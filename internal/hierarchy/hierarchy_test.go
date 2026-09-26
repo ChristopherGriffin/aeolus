@@ -368,6 +368,61 @@ func TestAncestryIgnoresBreaks(t *testing.T) {
 	}
 }
 
+func TestIsolatedFolderGivesNothingAndTakesNothing(t *testing.T) {
+	o := symtus(t)
+	L := o.Locations
+	must(t, L.AddIsolated("landing", "Landing Zone", "symtus"))
+	must(t, L.AddAP("new-ap", "NewAP", "landing"))
+
+	cfg, err := o.ResolveAP("new-ap")
+	must(t, err)
+	if !cfg.Unassigned || len(cfg.Location) != 0 || len(cfg.Networks) != 0 || cfg.Services != nil {
+		t.Fatalf("AP in Landing Zone resolved to %+v", cfg)
+	}
+	if _, ok := L.Resolve("new-ap", "system.poll"); ok {
+		t.Fatal("a locked Org value reached an AP in Landing Zone")
+	}
+	for name, err := range map[string]error{
+		"set on the folder":        L.Set("landing", "radio.5g.width", "40"),
+		"set on an AP inside":      L.Set("new-ap", "radio.5g.width", "40"),
+		"assign services inside":   o.AssignServices("new-ap", []NodeID{"household"}),
+		"break it":                 L.BreakHierarchy("landing"),
+		"folder inside":            L.AddFolder("sub", "Sub", "landing"),
+		"move a folder into it":    moveErr(L, "office", "landing"),
+		"move the isolated folder": moveErr(L, "landing", "house"),
+	} {
+		if !errors.Is(err, ErrIsolated) {
+			t.Errorf("%s: got %v, want ErrIsolated", name, err)
+		}
+	}
+}
+
+func TestAdoptionMovesAnAPOutOfIsolation(t *testing.T) {
+	o := symtus(t)
+	L := o.Locations
+	must(t, L.AddIsolated("landing", "Landing Zone", "symtus"))
+	must(t, L.AddAP("new-ap", "NewAP", "landing"))
+	if _, err := L.Move("new-ap", "house"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := o.ResolveAP("new-ap")
+	must(t, err)
+	if cfg.Unassigned || cfg.Location["radio.5g.width"].Value != "40" || len(cfg.Networks) == 0 {
+		t.Fatalf("adopted AP resolved to %+v", cfg)
+	}
+	if _, err := L.Move("new-ap", "landing"); err != nil {
+		t.Fatalf("returning an AP to Landing Zone: %v", err)
+	}
+	if cfg, _ := o.ResolveAP("new-ap"); !cfg.Unassigned {
+		t.Fatal("AP returned to Landing Zone still gets config")
+	}
+}
+
+func moveErr(t *Tree, id, parent NodeID) error {
+	_, err := t.Move(id, parent)
+	return err
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

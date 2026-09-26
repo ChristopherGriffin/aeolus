@@ -40,6 +40,10 @@ type Node struct {
 	Kind   Kind
 	Parent NodeID // empty for the Org root
 	Broken bool   // Break Hierarchy (0005)
+	// Isolated marks a folder outside inheritance, such as Landing Zone
+	// (0032): nothing inherits into it, nothing can be set in it, and it
+	// holds only APs, which resolve to no config.
+	Isolated bool
 }
 
 var (
@@ -53,6 +57,7 @@ var (
 	ErrBroken      = errors.New("node already breaks hierarchy")
 	ErrNotSetHere  = errors.New("field is not set at this node")
 	ErrLockOnValue = errors.New("a lock needs a value set at the same node")
+	ErrIsolated    = errors.New("inside an isolated folder: nothing can be set there, and it holds only APs")
 )
 
 // Tree is one hierarchy under the Org: Locations or Services (0013).
@@ -98,6 +103,15 @@ func (t *Tree) AddFolder(id NodeID, name string, parent NodeID) error {
 	return t.add(id, name, KindFolder, parent)
 }
 
+// AddIsolated adds a folder outside inheritance, such as Landing Zone (0032).
+func (t *Tree) AddIsolated(id NodeID, name string, parent NodeID) error {
+	if err := t.add(id, name, KindFolder, parent); err != nil {
+		return err
+	}
+	t.nodes[id].Isolated = true
+	return nil
+}
+
 // AddAP places an AP in a folder (or directly under the Org).
 func (t *Tree) AddAP(id NodeID, name string, parent NodeID) error {
 	if !t.allowAPs {
@@ -116,6 +130,9 @@ func (t *Tree) add(id NodeID, name string, kind Kind, parent NodeID) error {
 	}
 	if p.Kind == KindAP {
 		return ErrBadParent
+	}
+	if kind != KindAP && t.InIsolated(parent) {
+		return ErrIsolated
 	}
 	t.nodes[id] = &Node{ID: id, Name: name, Kind: kind, Parent: parent}
 	t.children[parent] = append(t.children[parent], id)
@@ -138,6 +155,9 @@ func (t *Tree) move(id, newParent NodeID) error {
 	if p.Kind == KindAP {
 		return ErrBadParent
 	}
+	if n.Isolated || (n.Kind != KindAP && t.InIsolated(newParent)) {
+		return ErrIsolated
+	}
 	for c := newParent; c != ""; c = t.nodes[c].Parent {
 		if c == id {
 			return ErrCycle
@@ -153,6 +173,21 @@ func (t *Tree) move(id, newParent NodeID) error {
 	n.Parent = newParent
 	t.children[newParent] = append(t.children[newParent], id)
 	return nil
+}
+
+// InIsolated reports whether a node is an isolated folder or sits inside one.
+func (t *Tree) InIsolated(id NodeID) bool {
+	for c := id; c != ""; {
+		n, ok := t.nodes[c]
+		if !ok {
+			return false
+		}
+		if n.Isolated {
+			return true
+		}
+		c = n.Parent
+	}
+	return false
 }
 
 // Ancestry returns the chain from the Org root down to id, ignoring breaks:

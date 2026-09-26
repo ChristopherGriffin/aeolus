@@ -40,6 +40,9 @@ func (t *Tree) Set(id NodeID, p Path, v Value) error {
 	if _, ok := t.nodes[id]; !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
+	if t.InIsolated(id) {
+		return ErrIsolated
+	}
 	if by, ok := t.lockAbove(id, p); ok {
 		return &LockedError{Path: p, By: by}
 	}
@@ -136,6 +139,9 @@ func (t *Tree) BreakHierarchy(id NodeID) error {
 	}
 	if n.Broken {
 		return ErrBroken
+	}
+	if t.InIsolated(id) {
+		return ErrIsolated
 	}
 	copied := map[Path]Value{}
 	for _, p := range t.EffectivePaths(id) {

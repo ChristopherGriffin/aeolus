@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/api"
+	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/mcpadapter"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
@@ -83,6 +84,12 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 	if log.Snapshot() == nil {
 		log.Close()
 		return nil, nil, errors.New("the change log holds no Org yet; run aeolus init first")
+	}
+	// Every Org has Landing Zone and Sandbox (0032); the manager adds any
+	// that are missing, in its own name (0036).
+	if _, err := log.Commit(change.SystemActor, "built-in folders (0032)", change.Op{Kind: change.AddBuiltins}); err != nil && !errors.Is(err, change.ErrBuiltins) {
+		log.Close()
+		return nil, nil, fmt.Errorf("adding built-in folders: %w", err)
 	}
 	slog.Info("aeolus loaded", "seq", log.Seq())
 	apiHandler := api.New(log, sch, box).Handler()

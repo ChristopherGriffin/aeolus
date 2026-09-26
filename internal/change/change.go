@@ -32,6 +32,7 @@ const (
 	Unlock         Kind = "unlock"
 	BreakHierarchy Kind = "break-hierarchy"
 	AssignServices Kind = "assign-services"
+	AddBuiltins    Kind = "add-builtins"
 
 	// Access (0024, 0025).
 	AddAccount  Kind = "add-account"
@@ -39,6 +40,14 @@ const (
 	RevokeToken Kind = "revoke-token"
 	GrantRole   Kind = "grant"
 	RevokeRole  Kind = "revoke"
+)
+
+// Built-in folders every Org has (0032), and the manager's own actor name for
+// the changes it makes itself (0036).
+const (
+	LandingZone hierarchy.NodeID = "landing-zone"
+	Sandbox     hierarchy.NodeID = "sandbox"
+	SystemActor                  = "aeolus"
 )
 
 // TreeName picks one of the Org's two trees (0013).
@@ -100,6 +109,8 @@ var (
 	ErrNoTokenID   = errors.New("change needs a token ID")
 	ErrUseAssign   = errors.New("service folders are set with assign-services")
 	ErrNotAFolder  = errors.New("roles are granted on folders, not APs")
+	ErrBuiltins    = errors.New("the built-in folders already exist")
+	ErrReserved    = errors.New("that account name is reserved for the manager itself")
 )
 
 // Apply applies op to s and reports its effect. It returns the state to use
@@ -121,6 +132,8 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 	var eff Effect
 	var err error
 	switch op.Kind {
+	case AddBuiltins:
+		eff, err = addBuiltins(s.Org)
 	case AddAccount, IssueToken, RevokeToken, GrantRole, RevokeRole:
 		eff, err = applyAccess(s, op)
 	default:
@@ -131,6 +144,8 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 
 func validate(op Op) error {
 	switch op.Kind {
+	case AddBuiltins:
+		return nil
 	case CreateOrg:
 		if op.Account == "" {
 			return ErrNoAccount
@@ -179,6 +194,43 @@ func createOrg(op Op) (*State, Effect, error) {
 		}
 	}
 	return s, Effect{After: map[string]string{"node": string(op.Node), "name": op.Name, "admin": string(op.Account)}}, nil
+}
+
+// addBuiltins creates whichever built-in folders are missing: Landing Zone
+// (isolated) in Locations, and Sandbox in both trees (0032).
+func addBuiltins(o *hierarchy.Org) (Effect, error) {
+	var created []string
+	add := func(t *hierarchy.Tree, tree TreeName, id hierarchy.NodeID, name string, isolated bool) error {
+		if n, ok := t.Node(id); ok {
+			if n.Isolated != isolated || n.Parent != t.Root() {
+				return fmt.Errorf("%w: %s/%s exists but is not the built-in folder", hierarchy.ErrExists, tree, id)
+			}
+			return nil
+		}
+		var err error
+		if isolated {
+			err = t.AddIsolated(id, name, t.Root())
+		} else {
+			err = t.AddFolder(id, name, t.Root())
+		}
+		if err == nil {
+			created = append(created, string(tree)+"/"+string(id))
+		}
+		return err
+	}
+	if err := add(o.Locations, Locations, LandingZone, "Landing Zone", true); err != nil {
+		return Effect{}, err
+	}
+	if err := add(o.Locations, Locations, Sandbox, "Sandbox", false); err != nil {
+		return Effect{}, err
+	}
+	if err := add(o.Services, Services, Sandbox, "Sandbox", false); err != nil {
+		return Effect{}, err
+	}
+	if len(created) == 0 {
+		return Effect{}, ErrBuiltins
+	}
+	return Effect{After: created}, nil
 }
 
 func apply(o *hierarchy.Org, op Op) (Effect, error) {
@@ -234,6 +286,9 @@ func applyAccess(s *State, op Op) (Effect, error) {
 	a := s.Access
 	switch op.Kind {
 	case AddAccount:
+		if op.Account == SystemActor {
+			return Effect{}, ErrReserved
+		}
 		return Effect{After: map[string]string{"account": string(op.Account), "name": op.Name}}, a.AddAccount(op.Account, op.Name)
 	case IssueToken:
 		return Effect{After: map[string]string{"account": string(op.Account), "token": op.TokenID}}, a.AddToken(op.TokenID, op.Account, op.TokenHash)

@@ -168,6 +168,35 @@ func TestServeOverTLS(t *testing.T) {
 	}
 }
 
+func TestServeAddsBuiltInFoldersOnce(t *testing.T) {
+	p := newPaths(t)
+	runInitOK(t, p)
+	args := []string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}
+	for i := 0; i < 2; i++ {
+		_, closeLog, err := newServer(args, &bytes.Buffer{})
+		must(t, err)
+		must(t, closeLog())
+	}
+	log, err := changelog.Open(p.db, changelog.Options{})
+	must(t, err)
+	defer log.Close()
+	entries, err := log.Entries(0, 0)
+	must(t, err)
+	var builtins []changelog.Entry
+	for _, e := range entries {
+		if e.Op.Kind == "add-builtins" {
+			builtins = append(builtins, e)
+		}
+	}
+	if len(builtins) != 1 || builtins[0].Actor != "aeolus" {
+		t.Fatalf("add-builtins entries = %+v", builtins)
+	}
+	lz, ok := log.Snapshot().Org.Locations.Node("landing-zone")
+	if !ok || !lz.Isolated {
+		t.Fatalf("Landing Zone = %+v, %v", lz, ok)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

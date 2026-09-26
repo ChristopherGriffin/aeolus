@@ -44,6 +44,9 @@ func Authorize(s *State, actor string, op Op) error {
 	if s == nil {
 		return ErrNoOrg
 	}
+	if actor == SystemActor {
+		return authorizeSystem(op)
+	}
 	who := access.AccountID(actor)
 	if _, ok := s.Access.Account(who); !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownActor, actor)
@@ -77,6 +80,15 @@ func Authorize(s *State, actor string, op Op) error {
 	case Set, Unset:
 		return need(access.Operator, op.Tree, op.Node)
 	case Move:
+		if t, err := tree(s.Org, op.Tree); err == nil && op.Tree == Locations {
+			if n, ok := t.Node(op.Node); ok && n.Kind == hierarchy.KindAP && t.InIsolated(n.Parent) && !t.InIsolated(op.Parent) {
+				// Adoption out of Landing Zone (0032): the destination decides.
+				if err := need(access.Viewer, op.Tree, n.Parent); err != nil {
+					return err
+				}
+				return need(access.Operator, op.Tree, op.Parent)
+			}
+		}
 		if err := need(access.Operator, op.Tree, op.Node); err != nil {
 			return err
 		}
@@ -107,6 +119,12 @@ func Authorize(s *State, actor string, op Op) error {
 			}
 		}
 		return nil
+	case AddBuiltins:
+		root := s.Org.Locations.Root()
+		if err := need(access.Admin, Locations, root); err != nil {
+			return err
+		}
+		return need(access.Admin, Services, root)
 	case AddAccount:
 		if !s.Access.AdminAnywhere(who) {
 			return &ForbiddenError{Actor: actor, Need: access.Admin}
@@ -126,4 +144,16 @@ func Authorize(s *State, actor string, op Op) error {
 		return orgAdmin()
 	}
 	return fmt.Errorf("%w: %q", ErrUnknownKind, op.Kind)
+}
+
+// authorizeSystem limits what the manager may do in its own name (0036):
+// create the built-in folders, and record an enrolling AP in Landing Zone.
+func authorizeSystem(op Op) error {
+	switch {
+	case op.Kind == AddBuiltins:
+		return nil
+	case op.Kind == AddAP && op.Tree == Locations && op.Parent == LandingZone:
+		return nil
+	}
+	return fmt.Errorf("%w: the manager itself may only add built-in folders and enroll APs into Landing Zone", ErrForbidden)
 }

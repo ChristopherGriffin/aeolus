@@ -30,7 +30,7 @@ An `op` is one change, as the change log records it:
 {"kind": "set", "tree": "services", "node": "household", "path": "network.sweet.ssid", "value": "Sweet Spot"}
 ```
 
-Kinds: `add-folder`, `add-ap`, `move`, `set`, `unset`, `lock`, `unlock`, `break-hierarchy`, `assign-services`, `add-account`, `grant`, `revoke`, `revoke-token`. `create-org` happens only through `aeolus init` on the manager host, and tokens are issued through `/v1/tokens`. Set values are checked against the field schema (`internal/schema/v1.json`), and secret values are sealed before they are logged (0027). Who may make which change is 0030.
+Kinds: `add-folder`, `add-ap`, `move`, `set`, `unset`, `lock`, `unlock`, `break-hierarchy`, `assign-services`, `add-builtins`, `add-account`, `grant`, `revoke`, `revoke-token`. Moving an AP out of Landing Zone (a node with `"isolated": true`) is adoption: it needs viewer on Landing Zone and operator on the destination (0032). `create-org` happens only through `aeolus init` on the manager host, and tokens are issued through `/v1/tokens`. Set values are checked against the field schema (`internal/schema/v1.json`), and secret values are sealed before they are logged (0027). Who may make which change is 0030.
 
 ## MCP
 

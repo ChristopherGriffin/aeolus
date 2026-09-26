@@ -25,7 +25,7 @@ func (t *Tree) chain(id NodeID) []NodeID {
 	var out []NodeID
 	for c := id; c != ""; c = t.nodes[c].Parent {
 		out = append(out, c)
-		if t.nodes[c].Broken {
+		if t.nodes[c].Broken || t.nodes[c].Isolated {
 			break
 		}
 	}

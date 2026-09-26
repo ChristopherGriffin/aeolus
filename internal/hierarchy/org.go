@@ -57,10 +57,13 @@ func (e *NetworkConflictError) Error() string {
 // APConfig is everything an AP resolves to, with where each value came from.
 // The manager keeps the origins for the UI; an AP only receives the values.
 type APConfig struct {
-	AP       NodeID
-	Location map[Path]Resolved
-	Services []NodeID
-	Networks map[string]Network
+	AP NodeID
+	// Unassigned: the AP sits in an isolated folder such as Landing Zone and
+	// gets no config (0032).
+	Unassigned bool
+	Location   map[Path]Resolved
+	Services   []NodeID
+	Networks   map[string]Network
 }
 
 // Network is one network's fields as resolved at the service folder that
@@ -78,6 +81,10 @@ func (o *Org) ResolveAP(ap NodeID) (APConfig, error) {
 		return APConfig{}, fmt.Errorf("%w: AP %s", ErrNotFound, ap)
 	}
 	cfg := APConfig{AP: ap, Location: o.Locations.ResolveAll(ap), Networks: map[string]Network{}}
+	if o.Locations.InIsolated(ap) {
+		cfg.Unassigned = true
+		return cfg, nil
+	}
 	delete(cfg.Location, ServicesPath)
 
 	if r, ok := o.Locations.Resolve(ap, ServicesPath); ok {
