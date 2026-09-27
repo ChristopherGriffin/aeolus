@@ -24,6 +24,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/mcpadapter"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
+	"github.com/ChristopherGriffin/aeolus/internal/ui"
 )
 
 // runServe serves the API over HTTPS until SIGINT or SIGTERM.
@@ -116,7 +117,8 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 	apiHandler := api.New(log, sch, box, conds).Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpadapter.New(apiHandler, version))
-	mux.Handle("/", apiHandler)
+	// The UI answers browsers at / and serves its files; the API gets the rest (0042).
+	mux.Handle("/", ui.Handler(apiHandler))
 	return &http.Server{
 		Addr:              *listen,
 		Handler:           mux,

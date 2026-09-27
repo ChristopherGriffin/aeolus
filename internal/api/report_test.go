@@ -208,3 +208,31 @@ func TestStateReports(t *testing.T) {
 		t.Fatalf("condition = %v", cond)
 	}
 }
+
+func TestFleetView(t *testing.T) {
+	f := newFixture(t)
+	ap, token, version := f.adopted()
+	if code, _, body := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60}, nil); code != 200 {
+		t.Fatalf("state: %d %v", code, body)
+	}
+	code, body := f.do("GET", "/v1/aps", "griff", nil)
+	if code != 200 {
+		t.Fatalf("%d %v", code, body)
+	}
+	byID := map[string]map[string]any{}
+	for _, a := range body["aps"].([]any) {
+		m := a.(map[string]any)
+		byID[m["id"].(string)] = m
+	}
+	got := byID[ap]
+	if got == nil || got["config"] != "ready" || got["in_sync"] != true || got["name"] != "PumphouseAP" || got["seen"] == nil {
+		t.Fatalf("adopted AP = %v", got)
+	}
+	if office := byID["office-ap"]; office == nil || office["seen"] != nil || office["in_sync"] != nil {
+		t.Fatalf("office-ap = %v", office)
+	}
+	// office has no role in Locations, so it sees no APs.
+	if _, body := f.do("GET", "/v1/aps", "office", nil); len(body["aps"].([]any)) != 0 {
+		t.Fatalf("office sees %v", body["aps"])
+	}
+}

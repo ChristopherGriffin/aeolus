@@ -23,7 +23,9 @@ Each milestone ends in something checkable before the next starts.
 5. **The AP agent** (0040), on PumphouseAP, in two parts:
    1. The full loop in Sandbox: install, enroll, poll, render, check, apply with automatic revert, reports; VLAN transports. The renderer is tested against the manager's check in CI.
    2. On the AP itself: VXLAN, switching between transports and HA (0020, 0022), and VLAN detection on the uplink.
-6. **Web UI**, from the mockup: read-only first (both trees, AP pages with their condition and sync, the change log), then editing with the page guard (0029).
+6. **Web UI** (0042, [`internal/ui`](internal/ui)), from the mockup, served by Aeolus at `/`:
+   1. Read-only: both trees with values and where they come from, overrides, locks and problems; each AP's sync, reports and history; Landing Zone; all APs; the library; the change log.
+   2. Editing, each change previewed and made with a reason, and the page guard (0029).
 7. **Key channel** (0014).
 
 ## Decisions
@@ -71,6 +73,7 @@ Each milestone ends in something checkable before the next starts.
 | [0039](docs/decisions/0039-render-check-and-reports.md) | The render check, AP reports and the conditions store |
 | [0040](docs/decisions/0040-the-ap-agent.md) | The AP agent, v1 |
 | [0041](docs/decisions/0041-keeping-rendered-uci.md) | Keeping rendered UCI without its secrets |
+| [0042](docs/decisions/0042-the-web-ui.md) | The web UI (proposed) |
 
 ## Open questions
 

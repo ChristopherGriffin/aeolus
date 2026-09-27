@@ -1,6 +1,6 @@
 # Aeolus API, v1
 
-JSON over HTTPS (0026). Every request except `/healthz` and `/v1/enroll` carries `Authorization: Bearer <token>`: an account's token, or on the AP routes an AP's. A node you cannot view answers `404`.
+JSON over HTTPS (0026). A browser opening `/` gets the web UI (0042), which uses this same API with the person's own token; `/` asked for as JSON returns pointers. Every request except `/healthz` and `/v1/enroll` carries `Authorization: Bearer <token>`: an account's token, or on the AP routes an AP's. A node you cannot view answers `404`.
 
 ## Reads
 
@@ -10,6 +10,7 @@ JSON over HTTPS (0026). Every request except `/healthz` and `/v1/enroll` carries
 | `GET /v1/whoami` | your account and grants | a token |
 | `GET /v1/trees/{locations\|services}` | the nodes you can view, root first | viewer on each node |
 | `GET /v1/trees/{tree}/nodes/{id}` | the node, its ancestry, your role there, every field with its value, `from` and `origin` (`self`, `inherited`, `locked`, `baseline`), the overrides menu (`in_effect`, `below`), `locks_above`, `problems`: the rules its config breaks (0029), and for an enrolled AP the `facts` it sent (0038) | viewer |
+| `GET /v1/aps` | every AP you can view: `id`, `name`, `ancestry`, `version`, `config` (`ready`, `held` or `unassigned`), `problems` (how many), `seen` (when, from where, the version it runs) and `in_sync` (0042) | viewer on each AP |
 | `GET /v1/aps/{id}/config` | the AP's resolved Location fields and networks with origins, its service folders, its `version`, whether it is `unassigned` (in Landing Zone), the composed `document` it will receive (secrets sealed), `check: {ok, problems}`, and `condition`: when it was last `seen` and from where, the version it runs, `in_sync` (whether that is its current version), and its latest render `check`, `apply` and `state` report (0039) | viewer on the AP |
 | `GET /v1/aps/{id}/history?limit=N` | the AP's recent render `checks` (each with the `uci` it sent, secrets shown as `<secret>`, 0041), `applies` and `states`, newest first (limit 1 to 200, default 20) | viewer on the AP |
 | `GET /v1/library` | the concentrators, with their labeled VNIs and the Location folders they may be used at (0023) | a token |
