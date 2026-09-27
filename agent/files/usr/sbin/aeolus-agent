@@ -16,6 +16,7 @@ import * as uloop from 'uloop';
 import * as uclient from 'uclient';
 import * as math from 'math';
 import { sha256 } from 'digest';
+import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING, LOG_ERR } from 'log';
 import { cursor } from 'uci';
 import { connect } from 'ubus';
 import { render, PACKAGES } from 'aeolus.render';
@@ -33,8 +34,20 @@ const STATE_EVERY = 300;   // seconds between state reports
 
 let bus = connect();
 
+// The log goes to syslog as "aeolus": what happens at info, a held config at
+// warning, and what went wrong at error. logread -e aeolus shows it.
+openlog('aeolus', LOG_PID, LOG_DAEMON);
+
 function log(fmt, ...args) {
-	warn(sprintf('aeolus: ' + fmt + '\n', ...args));
+	syslog(LOG_INFO, fmt, ...args);
+}
+
+function note(fmt, ...args) {
+	syslog(LOG_WARNING, fmt, ...args);
+}
+
+function fail(fmt, ...args) {
+	syslog(LOG_ERR, fmt, ...args);
 }
 
 function read(path) {
@@ -215,7 +228,7 @@ function enroll() {
 		log('enrolled as %s; it waits in Landing Zone until a person adopts it', r.json.ap);
 		return 0;
 	}
-	log('enrollment: %s', describe(r));
+	fail('enrollment: %s', describe(r));
 	if (r.status == 409)
 		return 3600;   // a person must remove the old entry (0038)
 	if (r.status == 503)
@@ -243,13 +256,13 @@ function revert(pending) {
 	}
 	system('reload_config');
 	fs.unlink(PENDING);
-	log('reverted to the config before version %s', pending.version);
+	fail('reverted to the config before version %s', pending.version);
 }
 
 function report_applied(version, hash, ok, error, token) {
 	let r = http('POST', '/v1/ap/applied', { version: version, hash: hash, ok: ok, error: error ?? '' }, token);
 	if (r.status != 200)
-		log('reporting the apply: %s', describe(r));
+		fail('reporting the apply: %s', describe(r));
 }
 
 // apply writes the checked packages, reloads, and keeps them only if the
@@ -303,23 +316,23 @@ function converge(poll, token) {
 	let intent = poll.config;
 	let out = render(intent, current(), render_facts(intent));
 	for (let e in out.errors)
-		log('render: %s', e);
+		fail('render: %s', e);
 	let uci = join('\n', map(PACKAGES, p => text(p, out.config[p]))) + '\n';
 	let key = version + ':' + sha256(uci);
 	if (attempted[key])
 		return;
 	let check = http('POST', '/v1/ap/render', { version: version, uci: uci }, token);
 	if (check.status != 200) {
-		log('render check: %s', describe(check));
+		fail('render check: %s', describe(check));
 		return;
 	}
 	if (check.json.result == 'stale')
 		return;
 	attempted[key] = true;
 	if (check.json.result != 'ok') {
-		log('version %d was refused:', version);
+		fail('version %d was refused:', version);
 		for (let p in check.json.problems ?? [])
-			log('  %s', p);
+			fail('  %s', p);
 		return;
 	}
 	let result = apply(out, version, check.json.hash);
@@ -359,11 +372,16 @@ function report_state(running, token) {
 		radios: slice(radios, 0, 8),
 	}, token);
 	if (res.status != 200)
-		log('state report: %s', describe(res));
+		fail('state report: %s', describe(res));
 }
 
 function main() {
 	uloop.init();
+	// uloop's own handlers only act inside uloop.run(), and the agent spends
+	// its time asleep, so stop on these ourselves. Stopping during an apply
+	// is safe: the pending marker makes the next start finish or revert it.
+	signal('SIGTERM', () => exit(0));
+	signal('SIGINT', () => exit(0));
 	recover(read(TOKEN));
 	let running = running_version();
 	let assigned = false;
@@ -403,13 +421,13 @@ function main() {
 			}
 			else if (state == 'held' && held != r.json.version) {
 				held = r.json.version;
-				log('version %d is held by the manager; keeping what runs:', held);
+				note('version %d is held by the manager; keeping what runs:', held);
 				for (let p in r.json.problems ?? [])
-					log('  %s', p);
+					note('  %s', p);
 			}
 		}
 		else {
-			log('poll: %s', describe(r));
+			fail('poll: %s', describe(r));
 		}
 		if (assigned && time() - last_state >= STATE_EVERY) {
 			report_state(running, token);
