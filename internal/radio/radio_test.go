@@ -40,3 +40,41 @@ func TestFits(t *testing.T) {
 		}
 	}
 }
+
+func TestMoveTo(t *testing.T) {
+	for _, c := range []struct {
+		band string
+		w    int
+		want int
+	}{{"5g", 160, 36}, {"5g", 80, 36}, {"5g", 40, 36}, {"5g", 20, 0}, {"2g", 40, 0}} {
+		if got := MoveTo(c.band, c.w); got != c.want {
+			t.Errorf("MoveTo(%s, %d) = %d, want %d", c.band, c.w, got, c.want)
+		}
+		if to := MoveTo(c.band, c.w); to != 0 {
+			if ok, why := Fits(c.band, to, c.w); !ok {
+				t.Errorf("MoveTo(%s, %d) = %d, which does not fit: %s", c.band, c.w, to, why)
+			}
+		}
+	}
+}
+
+func TestRadar(t *testing.T) {
+	for _, c := range []struct {
+		band       string
+		channel, w int
+		want       bool
+	}{
+		{"5g", 36, 160, true}, // 36–64 includes 52–64
+		{"5g", 36, 80, false},
+		{"5g", 52, 20, true},
+		{"5g", 48, 40, false},
+		{"5g", 100, 80, true},
+		{"5g", 149, 80, false},
+		{"5g", 0, 160, false},
+		{"2g", 6, 40, false},
+	} {
+		if got := Radar(c.band, c.channel, c.w); got != c.want {
+			t.Errorf("Radar(%s, %d, %d) = %v, want %v", c.band, c.channel, c.w, got, c.want)
+		}
+	}
+}

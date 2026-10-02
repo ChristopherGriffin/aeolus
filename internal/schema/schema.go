@@ -204,30 +204,40 @@ func (s *Schema) CheckOp(op change.Op) error {
 		return s.checkConcentrator(op.Value)
 	}
 	switch op.Kind {
-	case change.Set, change.Unset, change.Lock, change.Unlock:
-	default:
-		return nil
+	case change.Set:
+		for _, f := range op.Fields() {
+			if err := s.checkField(op.Tree, f.Path, f.Value, true); err != nil {
+				return err
+			}
+		}
+	case change.Unset, change.Lock, change.Unlock:
+		return s.checkField(op.Tree, op.Path, nil, false)
 	}
-	if op.Tree == change.Locations && op.Path == hierarchy.ServicesPath {
+	return nil
+}
+
+// checkField checks one field a change touches, and for a set, its value.
+func (s *Schema) checkField(tree change.TreeName, p hierarchy.Path, raw json.RawMessage, set bool) error {
+	if tree == change.Locations && p == hierarchy.ServicesPath {
 		return nil // assign-services is validated by the engine; unset/lock/unlock are fine
 	}
-	f, err := s.Field(op.Path)
+	f, err := s.Field(p)
 	if err != nil {
 		return err
 	}
-	if f.Tree != op.Tree {
-		return &FieldError{Path: op.Path, Err: fmt.Errorf("%w: it is set in %s", ErrWrongTree, f.Tree)}
+	if f.Tree != tree {
+		return &FieldError{Path: p, Err: fmt.Errorf("%w: it is set in %s", ErrWrongTree, f.Tree)}
 	}
-	if op.Kind != change.Set {
+	if !set {
 		return nil
 	}
 	var v any
-	if err := json.Unmarshal(op.Value, &v); err != nil {
-		return &FieldError{Path: op.Path, Err: err}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return &FieldError{Path: p, Err: err}
 	}
 	if f.Secret {
 		if !secret.IsSealed(v) {
-			return &FieldError{Path: op.Path, Err: ErrPlainSecret}
+			return &FieldError{Path: p, Err: ErrPlainSecret}
 		}
 		return nil
 	}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -58,6 +59,24 @@ func (f *fixture) hardwareOf(node string) (map[string]map[float64]string, map[st
 	return out, hw
 }
 
+// widthOf finds one width's offer on a band.
+func widthOf(t *testing.T, hw map[string]any, band string, width float64) map[string]any {
+	t.Helper()
+	for _, b := range hw["bands"].([]any) {
+		bv := b.(map[string]any)
+		if bv["band"] != band {
+			continue
+		}
+		for _, w := range bv["widths"].([]any) {
+			if wv := w.(map[string]any); wv["width"] == width {
+				return wv
+			}
+		}
+	}
+	t.Fatalf("no %v MHz on %s in %v", width, band, hw)
+	return nil
+}
+
 func TestFolderOffersWhatEveryAPCanDo(t *testing.T) {
 	f := newFixture(t)
 	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {
@@ -88,10 +107,15 @@ func TestFolderOffersWhatEveryAPCanDo(t *testing.T) {
 	if wideAP["5g"][160] != "" || wideAP["2g"][40] != "" {
 		t.Fatalf("WideAP = %v", wideAP)
 	}
-	// Its channel limits it too: 160 MHz does not fit channel 149.
+	// On channel 149, which cannot carry 160 MHz, it is still offered, with
+	// the channel to move to (0045).
 	f.report(a[1], map[string]int{"5g": 149})
-	if wideAP, _ := f.hardwareOf(a[0]); wideAP["5g"][160] != "not on channel 149" || wideAP["5g"][80] != "" {
-		t.Fatalf("WideAP on 149 = %v", wideAP)
+	_, hw = f.hardwareOf(a[0])
+	if w := widthOf(t, hw, "5g", 160); w["ok"] != true || w["channel"] != 36.0 || len(w["moves"].([]any)) != 1 {
+		t.Fatalf("WideAP 160 MHz on 149 = %v", w)
+	}
+	if w := widthOf(t, hw, "5g", 80); w["ok"] != true || w["channel"] != nil || w["radar"] != nil {
+		t.Fatalf("WideAP 80 MHz on 149 = %v", w)
 	}
 
 	// A folder's setting does not reach past a break, so those APs do not
@@ -101,5 +125,101 @@ func TestFolderOffersWhatEveryAPCanDo(t *testing.T) {
 	}
 	if _, hw := f.hardwareOf("house"); len(hw["unknown"].([]any)) != 0 {
 		t.Fatalf("office-ap still counted past the break: %v", hw["unknown"])
+	}
+}
+
+func TestWidthMovesTheChannel(t *testing.T) {
+	f := newFixture(t)
+	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	wide := []any{map[string]any{"radio": "radio0", "band": "5g", "htmodes": []string{"HT20", "HT40", "VHT80", "VHT160"}}}
+	a := strings.Split(f.enrollAt("LowAP", "02:00:00:00:00:0a", "house", wide, map[string]int{"5g": 36}), "|")[0]
+	b := strings.Split(f.enrollAt("HighAP", "02:00:00:00:00:0b", "house", wide, map[string]int{"5g": 149}), "|")[0]
+
+	// House offers 160 MHz, moving the band to 36. Only HighAP moves, and
+	// 36–64 includes radar channels. 80 MHz fits both where they are.
+	_, hw := f.hardwareOf("house")
+	w := widthOf(t, hw, "5g", 160)
+	moves, _ := w["moves"].([]any)
+	if w["ok"] != true || w["channel"] != 36.0 || w["radar"] != true || len(moves) != 1 {
+		t.Fatalf("160 MHz = %v", w)
+	}
+	if m := moves[0].(map[string]any); m["id"] != b || m["name"] != "HighAP" || m["from"] != 149.0 {
+		t.Fatalf("moves = %v", moves)
+	}
+	if w := widthOf(t, hw, "5g", 80); w["ok"] != true || w["channel"] != nil || w["moves"] != nil || w["radar"] != nil {
+		t.Fatalf("80 MHz = %v", w)
+	}
+
+	// Width and channel go in one change: one log entry, one new version
+	// for each AP, and no problems.
+	code, res := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house",
+		"values": map[string]any{"radio.5g.width": 160, "radio.5g.channel": 36}})
+	if code != 200 || len(res["reversioned"].([]any)) != 3 || len(res["checks"].(map[string]any)) != 0 {
+		t.Fatalf("%d %v", code, res)
+	}
+	eff := res["change"].(map[string]any)["effect"].(map[string]any)
+	if before := eff["before"].(map[string]any); before["radio.5g.width"] != 40.0 || len(before) != 1 {
+		t.Fatalf("effect = %v", eff)
+	}
+	if after := eff["after"].(map[string]any); after["radio.5g.width"] != 160.0 || after["radio.5g.channel"] != 36.0 {
+		t.Fatalf("effect = %v", eff)
+	}
+	for _, ap := range []string{a, b} {
+		_, page := f.do("GET", "/v1/trees/locations/nodes/"+ap, "griff", nil)
+		ch := page["fields"].(map[string]any)["radio.5g.channel"].(map[string]any)
+		if ch["value"] != 36.0 || ch["from"] != "house" {
+			t.Fatalf("%s channel = %v", ap, ch)
+		}
+	}
+
+	// If one field cannot be set, neither is.
+	if code, res := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house",
+		"values": map[string]any{"radio.5g.width": 80, "radio.5g.channel": 50}}); code != 400 {
+		t.Fatalf("channel 50: %d %v", code, res)
+	}
+	if code, res := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house",
+		"path": "radio.5g.width", "value": 80, "values": map[string]any{"radio.5g.channel": 36}}); code != 400 {
+		t.Fatalf("both forms: %d %v", code, res)
+	}
+
+	// A channel HighAP sets for itself that cannot carry the width is held,
+	// and House no longer offers 160 MHz: its channel would not reach.
+	code, res = f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": b, "path": "radio.5g.channel", "value": 149})
+	if code != 200 || !strings.Contains(fmt.Sprint(res["checks"]), "channel 149 cannot use a 160 MHz width") {
+		t.Fatalf("%d %v", code, res)
+	}
+	if house, _ := f.hardwareOf("house"); house["5g"][160] != "HighAP sets its own channel 149" || house["5g"][80] != "" {
+		t.Fatalf("house = %v", house)
+	}
+
+	// So does a channel a folder between sets for it.
+	for _, op := range []map[string]any{
+		{"kind": "unset", "tree": "locations", "node": b, "path": "radio.5g.channel"},
+		{"kind": "add-folder", "tree": "locations", "node": "attic", "name": "Attic", "parent": "house"},
+		{"kind": "move", "tree": "locations", "node": b, "parent": "attic"},
+		{"kind": "set", "tree": "locations", "node": "attic", "path": "radio.5g.channel", "value": 149},
+	} {
+		if code, res := f.change("griff", op); code != 200 {
+			t.Fatalf("%v: %d %v", op, code, res)
+		}
+	}
+	if house, _ := f.hardwareOf("house"); house["5g"][160] != "Attic sets channel 149 for HighAP" {
+		t.Fatalf("house = %v", house)
+	}
+
+	// A lock above holds the channel, so it cannot move.
+	for _, op := range []map[string]any{
+		{"kind": "set", "tree": "locations", "node": "symtus", "path": "radio.5g.channel", "value": 149},
+		{"kind": "lock", "tree": "locations", "node": "symtus", "path": "radio.5g.channel"},
+		{"kind": "unset", "tree": "locations", "node": "house", "path": "radio.5g.width"},
+	} {
+		if code, res := f.change("griff", op); code != 200 {
+			t.Fatalf("%v: %d %v", op, code, res)
+		}
+	}
+	if house, _ := f.hardwareOf("house"); house["5g"][160] != "the channel is locked at Symtus" || house["5g"][80] != "" {
+		t.Fatalf("house = %v", house)
 	}
 }

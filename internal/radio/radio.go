@@ -77,3 +77,35 @@ func Fits(band string, channel, width int) (bool, string) {
 	}
 	return false, fmt.Sprintf("channel %d cannot use a %d MHz width", channel, width)
 }
+
+// MoveTo is the channel a band moves to when its channel cannot carry a
+// width (0045): the lowest that can. On 5 GHz every width's first group
+// starts at 36, which is allowed indoors in the US and EU. It is 0 when no
+// channel needs to move or none can carry the width.
+func MoveTo(band string, width int) int {
+	if band != "5g" {
+		return 0
+	}
+	if groups, ok := groups5g[width]; ok {
+		return groups[0][0]
+	}
+	return 0
+}
+
+// Radar says whether a radio on a channel, at a width, uses any of the 5 GHz
+// channels shared with radar in the US and EU (DFS), 52–144. Such a radio
+// listens for radar before it transmits and moves off if it hears any (0045).
+// Channel 0 means automatic, which is not known in advance.
+func Radar(band string, channel, width int) bool {
+	if band != "5g" || channel == 0 {
+		return false
+	}
+	lo, hi := channel, channel
+	for _, g := range groups5g[width] {
+		if channel >= g[0] && channel <= g[1] {
+			lo, hi = g[0], g[1]
+			break
+		}
+	}
+	return lo <= 144 && hi >= 52
+}

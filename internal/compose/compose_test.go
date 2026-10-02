@@ -158,6 +158,32 @@ func TestWidthTheRadioCannotDoIsAProblem(t *testing.T) {
 	}
 }
 
+func TestChannelThatCannotCarryTheWidthIsAProblem(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("radio.5g.width", 160)
+	set("radio.5g.channel", 36)
+	if res, _ := AP(s, sch, "gate-ap", nil); contains(res.Problems, "radio.5g.channel") {
+		t.Fatalf("36 carries 160 MHz: %v", res.Problems)
+	}
+	set("radio.5g.channel", 149)
+	res, err := AP(s, sch, "gate-ap", nil)
+	must(t, err)
+	if !contains(res.Problems, "radio.5g.channel: channel 149 cannot use a 160 MHz width") {
+		t.Fatalf("problems = %v", res.Problems)
+	}
+	// A channel the AP picks itself is not known here.
+	set("radio.5g.channel", "auto")
+	if res, _ := AP(s, sch, "gate-ap", nil); contains(res.Problems, "radio.5g.channel") {
+		t.Fatalf("auto: %v", res.Problems)
+	}
+}
+
 func contains(list []string, sub string) bool {
 	return strings.Contains(strings.Join(list, "\n"), sub)
 }

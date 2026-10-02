@@ -164,7 +164,7 @@ func status(err error) int {
 		return http.StatusConflict
 	case errors.As(err, &fe),
 		errors.Is(err, change.ErrUnknownKind), errors.Is(err, change.ErrUnknownTree),
-		errors.Is(err, change.ErrNoValue), errors.Is(err, change.ErrNoNode), errors.Is(err, change.ErrNoPath),
+		errors.Is(err, change.ErrNoValue), errors.Is(err, change.ErrNoNode), errors.Is(err, change.ErrNoPath), errors.Is(err, change.ErrTwoForms),
 		errors.Is(err, change.ErrNoAccount), errors.Is(err, change.ErrNoTokenID), errors.Is(err, change.ErrUseAssign),
 		errors.Is(err, change.ErrNotAFolder), errors.Is(err, access.ErrBadRole), errors.Is(err, change.ErrNoConcID),
 		errors.Is(err, library.ErrBadVNI), errors.Is(err, library.ErrNoLabel), errors.Is(err, change.ErrBuiltins),

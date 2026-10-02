@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
@@ -84,6 +85,9 @@ type Op struct {
 	Path     hierarchy.Path     `json:"path,omitempty"`
 	Value    json.RawMessage    `json:"value,omitempty"`
 	Services []hierarchy.NodeID `json:"services,omitempty"`
+	// Values sets several fields of one node together, in place of Path and
+	// Value: all of them or none (0045).
+	Values map[hierarchy.Path]json.RawMessage `json:"values,omitempty"`
 
 	Account   access.AccountID `json:"account,omitempty"`
 	Role      string           `json:"role,omitempty"`
@@ -92,6 +96,26 @@ type Op struct {
 
 	Concentrator string `json:"concentrator,omitempty"`
 	VNI          int    `json:"vni,omitempty"`
+}
+
+// Field is one field a set changes.
+type Field struct {
+	Path  hierarchy.Path
+	Value json.RawMessage
+}
+
+// Fields lists the fields a set changes: its path and value, or its values
+// in path order.
+func (op Op) Fields() []Field {
+	if len(op.Values) == 0 {
+		return []Field{{op.Path, op.Value}}
+	}
+	out := make([]Field, 0, len(op.Values))
+	for p, v := range op.Values {
+		out = append(out, Field{p, v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
 }
 
 // Effect records what a change did, for the change log: the state before and
@@ -132,6 +156,7 @@ var (
 	ErrNoValue     = errors.New("set needs a value")
 	ErrNoNode      = errors.New("change needs a node")
 	ErrNoPath      = errors.New("change needs a field path")
+	ErrTwoForms    = errors.New("set takes a path and value, or values, not both")
 	ErrNoAccount   = errors.New("change needs an account")
 	ErrNoTokenID   = errors.New("change needs a token ID")
 	ErrUseAssign   = errors.New("service folders are set with assign-services")
@@ -202,7 +227,16 @@ func validate(op Op) error {
 			return ErrNoAccount
 		}
 	case AddFolder, AddAP, Move, BreakHierarchy, AssignServices:
-	case Set, Unset, Lock, Unlock:
+	case Set:
+		if len(op.Values) > 0 && (op.Path != "" || len(op.Value) > 0) {
+			return ErrTwoForms
+		}
+		for _, f := range op.Fields() {
+			if f.Path == "" {
+				return ErrNoPath
+			}
+		}
+	case Unset, Lock, Unlock:
 		if op.Path == "" {
 			return ErrNoPath
 		}
@@ -315,15 +349,7 @@ func apply(o *hierarchy.Org, op Op) (Effect, error) {
 		removed, err := t.Move(op.Node, op.Parent)
 		return Effect{Before: n.Parent, After: op.Parent, Removed: removed}, err
 	case Set:
-		if op.Tree == Locations && op.Path == hierarchy.ServicesPath {
-			return Effect{}, ErrUseAssign
-		}
-		v, err := decode(op.Value)
-		if err != nil {
-			return Effect{}, err
-		}
-		before, _ := t.Own(op.Node, op.Path)
-		return Effect{Before: before, After: v}, t.Set(op.Node, op.Path, v)
+		return set(t, op)
 	case Unset:
 		before, _ := t.Own(op.Node, op.Path)
 		return Effect{Before: before}, t.Unset(op.Node, op.Path)
@@ -336,6 +362,48 @@ func apply(o *hierarchy.Org, op Op) (Effect, error) {
 		return Effect{Before: false, After: true}, t.BreakHierarchy(op.Node)
 	}
 	return Effect{}, fmt.Errorf("%w: %q", ErrUnknownKind, op.Kind)
+}
+
+// set sets one field, or several together (0045). If any of them cannot be
+// set, those already set are put back, so none of them change.
+func set(t *hierarchy.Tree, op Op) (Effect, error) {
+	fields := op.Fields()
+	values := make([]hierarchy.Value, len(fields))
+	for i, f := range fields {
+		if op.Tree == Locations && f.Path == hierarchy.ServicesPath {
+			return Effect{}, ErrUseAssign
+		}
+		v, err := decode(f.Value)
+		if err != nil {
+			return Effect{}, err
+		}
+		values[i] = v
+	}
+	if len(op.Values) == 0 {
+		before, _ := t.Own(op.Node, op.Path)
+		return Effect{Before: before, After: values[0]}, t.Set(op.Node, op.Path, values[0])
+	}
+	before, after := map[string]any{}, map[string]any{} // string keys, as read back from the log
+	for i, f := range fields {
+		if v, ok := t.Own(op.Node, f.Path); ok {
+			before[string(f.Path)] = v
+		}
+		if err := t.Set(op.Node, f.Path, values[i]); err != nil {
+			for _, done := range fields[:i] {
+				if v, ok := before[string(done.Path)]; ok {
+					t.Set(op.Node, done.Path, v)
+				} else {
+					t.Unset(op.Node, done.Path)
+				}
+			}
+			return Effect{}, err
+		}
+		after[string(f.Path)] = values[i]
+	}
+	if len(before) == 0 {
+		return Effect{After: after}, nil
+	}
+	return Effect{Before: before, After: after}, nil
 }
 
 func applyAccess(s *State, op Op) (Effect, error) {
