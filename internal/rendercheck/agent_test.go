@@ -127,7 +127,13 @@ func TestAgentRendersItsOutput(t *testing.T) {
 	if err != nil {
 		t.Skip("ucode is not installed; CI builds it (0040)")
 	}
-	modules := filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc")
+	// Absolute, because ucode resolves a relative search path from the
+	// directory of the file doing the import, which breaks the agent's own
+	// imports between its modules.
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range agentCases(t) {
 		cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "render.uc"),
 			filepath.Join(agentDir, "test", "cases", c.name+".json"))
