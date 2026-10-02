@@ -41,6 +41,7 @@ mv -f "$BIN/aeolus.new" "$BIN/aeolus"
 
 install -m 0644 deploy/aeolus.service /etc/systemd/system/aeolus.service
 install -m 0755 deploy/update.sh /usr/local/sbin/aeolus-update
+install -m 0755 deploy/aeolus.sh /usr/local/bin/aeolus
 if [ ! -f /etc/aeolus/serve.env ]; then
 	printf 'AEOLUS_HOSTS=%s,%s\n' "$(hostname -f)" "$(hostname -I | awk '{print $1}')" >/etc/aeolus/serve.env
 fi

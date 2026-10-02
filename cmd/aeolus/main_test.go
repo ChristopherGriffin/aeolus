@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -220,5 +221,64 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A lost token is replaced on the host, and the old one revoked (0043).
+func TestToken(t *testing.T) {
+	p := newPaths(t)
+	lost := runInitOK(t, p)
+
+	var out, errOut bytes.Buffer
+	if err := run([]string{"token", "-db", p.db, "-account", "griff", "-revoke-others"}, &out, &errOut); err != nil {
+		t.Fatalf("token: %v\n%s", err, errOut.String())
+	}
+	fresh := tokenRE.FindString(out.String())
+	if fresh == "" || fresh == lost || !strings.Contains(out.String(), "Revoked 1 other token(s)") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+	log, err := changelog.Open(p.db, changelog.Options{})
+	must(t, err)
+	defer log.Close()
+	state := log.Snapshot()
+	if who, err := state.Access.Authenticate(fresh); err != nil || who != "griff" {
+		t.Fatalf("new token: %q, %v", who, err)
+	}
+	if _, err := state.Access.Authenticate(lost); err == nil {
+		t.Fatal("the lost token still works")
+	}
+	entries, err := log.Entries(0, 0)
+	must(t, err)
+	last := entries[len(entries)-1]
+	if last.Actor != "griff" || !strings.Contains(last.Reason, "manager host") {
+		t.Fatalf("logged as %q: %q", last.Actor, last.Reason)
+	}
+	// claude's token is untouched.
+	mcp, _ := os.ReadFile(p.mcp)
+	if _, err := state.Access.Authenticate(strings.TrimSpace(string(mcp))); err != nil {
+		t.Fatalf("another account's token was revoked: %v", err)
+	}
+	must(t, log.Close())
+
+	for name, args := range map[string][]string{
+		"no account":      {"token", "-db", p.db},
+		"unknown account": {"token", "-db", p.db, "-account", "mallory"},
+	} {
+		if err := run(args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
+// While the service has the change log open, nothing else may write it.
+func TestTokenWaitsForTheServiceToStop(t *testing.T) {
+	p := newPaths(t)
+	runInitOK(t, p)
+	_, closeAll, err := newServer([]string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}, &bytes.Buffer{})
+	must(t, err)
+	defer closeAll()
+	err = run([]string{"token", "-db", p.db, "-account", "griff"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if !errors.Is(err, changelog.ErrInUse) {
+		t.Fatalf("token while serving: %v", err)
 	}
 }

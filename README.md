@@ -28,6 +28,17 @@ Each milestone ends in something checkable before the next starts.
    2. Editing, each change previewed and made with a reason, and the page guard (0029).
 7. **Key channel** (0014).
 
+## On the manager host
+
+- `aeolus-update` builds and installs the newest release, and restarts the service.
+- `journalctl -u aeolus -f` follows the manager's log.
+- A lost token (0043):
+  ```sh
+  systemctl stop aeolus
+  aeolus token -account griff -revoke-others
+  systemctl start aeolus
+  ```
+
 ## Decisions
 
 | # | Decision |
@@ -74,6 +85,7 @@ Each milestone ends in something checkable before the next starts.
 | [0040](docs/decisions/0040-the-ap-agent.md) | The AP agent, v1 |
 | [0041](docs/decisions/0041-keeping-rendered-uci.md) | Keeping rendered UCI without its secrets |
 | [0042](docs/decisions/0042-the-web-ui.md) | The web UI |
+| [0043](docs/decisions/0043-getting-back-in.md) | Getting back in when a token is lost (proposed) |
 
 ## Open questions
 

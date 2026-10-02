@@ -171,6 +171,20 @@ func (a *Access) Token(id string) (Token, bool) {
 	return *tok, true
 }
 
+// TokensOf lists an account's tokens, revoked ones included, by ID.
+func (a *Access) TokensOf(account AccountID) []Token {
+	var out []Token
+	for _, tok := range a.tokens {
+		if tok.Account == account {
+			cp := *tok
+			cp.Hash = append([]byte(nil), tok.Hash...)
+			out = append(out, cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
 // RevokeToken revokes a token for good.
 func (a *Access) RevokeToken(id string) error {
 	tok, ok := a.tokens[id]

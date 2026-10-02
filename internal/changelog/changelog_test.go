@@ -314,7 +314,7 @@ func TestPreviewRecordsNothing(t *testing.T) {
 }
 
 func TestDSN(t *testing.T) {
-	const q = "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_txlock=immediate"
+	const q = "?_pragma=busy_timeout(5000)&_pragma=locking_mode(exclusive)&_pragma=journal_mode(wal)&_txlock=immediate"
 	for in, want := range map[string]string{
 		"/var/lib/aeolus/aeolus.db": "file:/var/lib/aeolus/aeolus.db" + q,
 		"/tmp/a b/c#d.db":           "file:/tmp/a%20b/c%23d.db" + q,
