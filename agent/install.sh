@@ -33,5 +33,7 @@ uci commit aeolus
 
 /usr/sbin/aeolus-agent ping
 /etc/init.d/aeolus enable
-/etc/init.d/aeolus restart
+# Stopping a service that is not running yet only complains; say nothing.
+/etc/init.d/aeolus stop 2>/dev/null || true
+/etc/init.d/aeolus start
 echo "The agent is running. Its log: logread -e aeolus"
