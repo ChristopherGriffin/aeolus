@@ -2,6 +2,7 @@
 
 import { h } from './dom.js';
 import { get, token, signOut, APIError } from './api.js';
+import { setRedraw, isEditing, interval, stopAllEditing, currentFlash } from './refresh.js';
 import { signinPage } from './views/signin.js';
 import { treePage } from './views/tree.js';
 import { apPage } from './views/ap.js';
@@ -51,6 +52,7 @@ async function render(quiet) {
 		app.replaceChildren(signinPage(() => { location.hash = '#/locations'; render(); }));
 		return;
 	}
+	if (!quiet) stopAllEditing(); // a new page: nothing is being edited
 	const mine = ++rendering;
 	const old = app.querySelector('main');
 	const scroll = quiet && old ? old.scrollTop : 0;
@@ -69,13 +71,24 @@ async function render(quiet) {
 		page = { main: [h('div', { class: 'error' }, e.message || String(e))] };
 	}
 	if (mine !== rendering || !page) return; // a newer render took over
-	const main = h('main', null, page.main);
+	const note = currentFlash();
+	const main = h('main', null, note && h('div', { class: 'banner done' }, note), page.main);
 	app.replaceChildren(
 		header(ctx, r),
 		h('div', { class: 'body' }, page.aside || null, main),
 	);
 	main.scrollTop = scroll;
-	if (page.refresh) timer = setTimeout(() => render(true), page.refresh * 1000);
+	schedule(interval(page.refresh), page.refresh);
+}
+
+// schedule redraws the page after a while, but not while someone is
+// editing on it.
+function schedule(seconds, own) {
+	if (!seconds) return;
+	timer = setTimeout(() => {
+		if (isEditing()) schedule(interval(own), own);
+		else render(true);
+	}, seconds * 1000);
 }
 
 function header(ctx, r) {
@@ -90,5 +103,6 @@ function header(ctx, r) {
 	);
 }
 
+setRedraw(render);
 window.addEventListener('hashchange', () => render());
 render();

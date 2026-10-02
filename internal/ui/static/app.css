@@ -157,6 +157,22 @@ details ul.problems { margin: 0; padding: 4px 20px 12px 38px; color: #6B1A13; fo
 .more { padding: 12px 20px; border-top: 1px solid var(--line-2); }
 .more button, .button { border: 1px solid #C9CEC6; background: var(--panel); border-radius: 8px; padding: 7px 14px; cursor: pointer; color: var(--ink); }
 
+/* Editing (M6 part 2) */
+.radio { border-top: 1px solid var(--line-2); }
+.radio-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 20px 2px; }
+.radio .row { border-top: 0; }
+.controls { display: flex; gap: 8px; align-items: center; }
+select { height: 34px; padding: 0 8px; border: 1px solid #C9CEC6; border-radius: 8px; background: var(--panel); font: inherit; font-size: 14px; color: var(--ink); }
+.button.primary { background: var(--accent); border-color: var(--accent); color: #FFFFFF; font-weight: 600; }
+.button:disabled { opacity: 0.5; cursor: default; }
+.edit:empty { display: none; }
+.edit { padding: 0 20px 16px; }
+.preview { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-bg); }
+.preview .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.preview input.reason { flex-grow: 1; min-width: 260px; height: 36px; padding: 0 10px; border: 1px solid #C9CEC6; border-radius: 8px; font: inherit; }
+.sub.warn { color: var(--warn); }
+.banner.done { background: var(--ok-bg); border: 1px solid #B9DFC7; color: #14532F; }
+
 /* Sign-in */
 .signin { max-width: 520px; margin: 80px auto; padding: 32px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 16px; }
 .signin h1 { margin: 0; font-size: 24px; }

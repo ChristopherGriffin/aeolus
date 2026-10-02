@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ChristopherGriffin/aeolus/internal/radio"
 	"github.com/ChristopherGriffin/aeolus/internal/uci"
 )
 
@@ -85,8 +86,8 @@ var encryption = map[string]string{
 var needsKey = map[string]bool{"wpa2-psk": true, "wpa3-sae": true, "wpa2-wpa3": true}
 
 // IfaceName is the wifi-iface Aeolus renders for a network on a radio.
-func IfaceName(network, radio string) string {
-	return "aeolus_" + strings.ReplaceAll(network, "-", "_") + "_" + radio
+func IfaceName(network, dev string) string {
+	return "aeolus_" + strings.ReplaceAll(network, "-", "_") + "_" + dev
 }
 
 type checker struct {
@@ -115,14 +116,14 @@ func Check(doc map[string]any, c *uci.Config) []string {
 	return k.problems
 }
 
-type radio struct {
+type device struct {
 	band string
 	s    *uci.Section
 }
 
 // radios lists the AP's radios in name order, and checks that the wireless
 // package is there if anything needs it.
-func (k *checker) radios(doc map[string]any) []radio {
+func (k *checker) radios(doc map[string]any) []device {
 	w := k.c.Package("wireless")
 	if w == nil {
 		if doc["radio"] != nil || doc["network"] != nil {
@@ -130,14 +131,14 @@ func (k *checker) radios(doc map[string]any) []radio {
 		}
 		return nil
 	}
-	var out []radio
+	var out []device
 	for _, d := range w.OfType("wifi-device") {
 		band, _ := d.Option("band")
 		if d.Name == "" {
 			k.add("wireless: the wifi-device at line %d has no name", d.Line)
 			continue
 		}
-		out = append(out, radio{band: band, s: d})
+		out = append(out, device{band: band, s: d})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].s.Name < out[j].s.Name })
 	return out
@@ -145,7 +146,7 @@ func (k *checker) radios(doc map[string]any) []radio {
 
 var htmodeRE = regexp.MustCompile(`^(NOHT|HT|VHT|HE|EHT)([0-9]*)$`)
 
-func (k *checker) radioSettings(doc map[string]any, radios []radio) {
+func (k *checker) radioSettings(doc map[string]any, radios []device) {
 	country, hasCountry := obj(doc, "system")["country"].(string)
 	for _, r := range radios {
 		where := "wireless." + r.s.Name
@@ -180,10 +181,35 @@ func (k *checker) radioSettings(doc map[string]any, radios []radio) {
 		case float64:
 			k.option(where, r.s, "txpower", text(v))
 		}
+		if r.band == "5g" {
+			if msg := bonding(value(r.s, "channel"), value(r.s, "htmode")); msg != "" {
+				k.add("%s: %s", where, msg)
+			}
+		}
 	}
 }
 
-func (k *checker) networks(doc map[string]any, radios []radio) {
+// bonding checks that a 5 GHz radio's channel can carry its width, whoever
+// set the channel: a width the channel cannot carry would leave the radio
+// off the air while the AP still reaches the manager, so no revert would
+// catch it.
+func bonding(channel, htmode string) string {
+	ch, err := strconv.Atoi(channel)
+	if err != nil {
+		return "" // auto, or not set: the radio picks a channel that fits
+	}
+	m := htmodeRE.FindStringSubmatch(htmode)
+	if m == nil || m[1] == "NOHT" {
+		return ""
+	}
+	w, _ := strconv.Atoi(m[2])
+	if ok, why := radio.Fits("5g", ch, w); !ok {
+		return why
+	}
+	return ""
+}
+
+func (k *checker) networks(doc map[string]any, radios []device) {
 	w := k.c.Package("wireless")
 	nets := obj(doc, "network")
 	expected := map[string]bool{}
@@ -218,7 +244,7 @@ func (k *checker) networks(doc map[string]any, radios []radio) {
 	}
 }
 
-func (k *checker) iface(id string, n map[string]any, r radio, s *uci.Section) {
+func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 	where := "wireless." + s.Name
 	k.option(where, s, "device", r.s.Name)
 	k.option(where, s, "mode", "ap")

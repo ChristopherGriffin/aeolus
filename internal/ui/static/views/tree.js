@@ -8,6 +8,7 @@ import { group, value, ago } from '../format.js';
 import { treeAside, crumbs, fleetMap } from '../layout.js';
 import { fieldPanels } from './fields.js';
 import { apPage } from './ap.js';
+import { hardwarePanel } from './hardware.js';
 
 export async function treePage(ctx, tree, id) {
 	const t = ctx.trees[tree];
@@ -41,7 +42,7 @@ export async function treePage(ctx, tree, id) {
 			h('ul', null, page.problems.map((p) => h('li', null, p)))),
 	];
 	if (n.isolated) main.push(await landingZone(ctx, t, id, fleet));
-	else main.push(fieldPanels(ctx, tree, id, page.fields));
+	else main.push(hardwarePanel(ctx, id, n.name, page), fieldPanels(ctx, tree, id, page.fields));
 	main.push(inside(ctx, tree, t, id, status));
 	return { aside: treeAside(ctx, tree, id, status), main, refresh: n.isolated ? 30 : 0 };
 }

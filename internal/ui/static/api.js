@@ -64,3 +64,27 @@ export async function health() {
 	const res = await fetch('/healthz', { headers: { Accept: 'application/json' } });
 	return res.json();
 }
+
+// post sends one write. A refused change comes back as an APIError carrying
+// the manager's reason, which the page shows as it is.
+export async function post(path, body) {
+	const t = token();
+	if (!t) throw new APIError(401, 'not signed in');
+	let res;
+	try {
+		res = await fetch(path, {
+			method: 'POST',
+			headers: { Authorization: 'Bearer ' + t, Accept: 'application/json', 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+	} catch {
+		throw new APIError(0, 'Cannot reach the manager.');
+	}
+	const out = await res.json().catch(() => ({}));
+	if (res.status === 401) {
+		signOut();
+		throw new APIError(401, out.error || 'signed out');
+	}
+	if (!res.ok) throw new APIError(res.status, out.error || res.statusText);
+	return out;
+}

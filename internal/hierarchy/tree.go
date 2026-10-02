@@ -236,6 +236,11 @@ func (t *Tree) Ancestry(id NodeID) []NodeID {
 	return out
 }
 
+// Children returns the nodes directly below id, in the order they were added.
+func (t *Tree) Children(id NodeID) []NodeID {
+	return append([]NodeID(nil), t.children[id]...)
+}
+
 // Descendants returns every node below id, depth first.
 func (t *Tree) Descendants(id NodeID) []NodeID {
 	var out []NodeID
