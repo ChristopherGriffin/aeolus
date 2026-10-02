@@ -1,8 +1,8 @@
 # 0042. The web UI
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-27
-- Proposed by: Claude, to start M6 from the mockup
+- Proposed by: Claude, to start M6 from the mockup; accepted by Griff
 - Refines: 0003, 0024, 0026, 0029
 
 ## Decision

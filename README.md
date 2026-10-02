@@ -73,7 +73,7 @@ Each milestone ends in something checkable before the next starts.
 | [0039](docs/decisions/0039-render-check-and-reports.md) | The render check, AP reports and the conditions store |
 | [0040](docs/decisions/0040-the-ap-agent.md) | The AP agent, v1 |
 | [0041](docs/decisions/0041-keeping-rendered-uci.md) | Keeping rendered UCI without its secrets |
-| [0042](docs/decisions/0042-the-web-ui.md) | The web UI (proposed) |
+| [0042](docs/decisions/0042-the-web-ui.md) | The web UI |
 
 ## Open questions
 
