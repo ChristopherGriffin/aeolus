@@ -11,6 +11,7 @@ import (
 
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/radio"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 )
 
@@ -40,6 +41,8 @@ var slots = []string{"primary", "fallback"}
 //     does not have.
 //   - The concentrators the AP's transports use are attached, with what the
 //     AP needs to reach them.
+//   - A radio width the AP's radio cannot do, by what it reported when it
+//     enrolled, is a problem (0008).
 func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal) (Result, error) {
 	cfg, err := s.Org.ResolveAP(ap)
 	if err != nil {
@@ -124,10 +127,62 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	doc = jsonShape(doc)
 	sort.Strings(problems)
 	problems = append(problems, sch.Problems(doc)...)
+	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
 	if problems == nil {
 		problems = []string{}
 	}
 	return Result{Doc: doc, Problems: problems}, nil
+}
+
+// radioProblems refuses a width a radio cannot do, by the modes the AP
+// reported for it when it enrolled (0008). A band the AP did not report, or
+// reported without modes, is not checked.
+func radioProblems(doc map[string]any, facts json.RawMessage) []string {
+	var f struct {
+		Radios []struct {
+			Band    string   `json:"band"`
+			HTModes []string `json:"htmodes"`
+		} `json:"radios"`
+	}
+	if len(facts) == 0 || json.Unmarshal(facts, &f) != nil {
+		return nil
+	}
+	widths := map[string]map[int]bool{} // band -> widths some radio of it can do
+	for _, r := range f.Radios {
+		if widths[r.Band] == nil {
+			widths[r.Band] = map[int]bool{}
+		}
+		for w := range radio.Can(r.HTModes) {
+			widths[r.Band][w] = true
+		}
+	}
+	radios, _ := doc["radio"].(map[string]any)
+	var out []string
+	for _, band := range sortedKeys(radios) {
+		set, _ := radios[band].(map[string]any)
+		w, ok := set["width"].(float64)
+		can := widths[band]
+		if !ok || len(can) == 0 || can[int(w)] {
+			continue
+		}
+		var list []string
+		for _, x := range []int{20, 40, 80, 160, 320} {
+			if can[x] {
+				list = append(list, fmt.Sprint(x))
+			}
+		}
+		out = append(out, fmt.Sprintf("radio.%s.width: this AP's radio cannot use %d MHz; it can use %s MHz", band, int(w), strings.Join(list, ", ")))
+	}
+	return out
+}
+
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Node checks what is resolved at one node as a partial config: the schema's

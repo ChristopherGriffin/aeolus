@@ -124,6 +124,13 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request, c call) error {
 	if f, ok := c.state.Facts[id]; ok && name == change.Locations {
 		page["facts"] = f // what it sent when it enrolled (0033)
 	}
+	if name == change.Locations && !n.Isolated {
+		hw, err := s.hardware(c.state, id)
+		if err != nil {
+			return err
+		}
+		page["hardware"] = hw // what its radios can be set to (0044)
+	}
 	writeJSON(w, http.StatusOK, page)
 	return nil
 }

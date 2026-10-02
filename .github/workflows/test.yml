@@ -45,7 +45,7 @@ jobs:
         working-directory: internal/ui/static
         run: |
           node --check app.js
-          for f in api.js dom.js format.js layout.js views/*.js; do
+          for f in api.js dom.js format.js layout.js refresh.js views/*.js; do
             node --input-type=module -e "await import('./$f')"
           done
       - name: the agent's shell scripts parse

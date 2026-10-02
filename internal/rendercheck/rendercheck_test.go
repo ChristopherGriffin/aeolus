@@ -194,6 +194,49 @@ func TestAWrongKeyIsNeverQuoted(t *testing.T) {
 	}
 }
 
+// A 5 GHz width must fit the channel, even one Aeolus did not set.
+func TestWidthMustFitTheChannel(t *testing.T) {
+	c, err := uci.Parse(`package wireless
+config wifi-device 'a'
+	option band '5g'
+	option channel '149'
+	option htmode 'VHT160'
+config wifi-device 'b'
+	option band '5g'
+	option channel '36'
+	option htmode 'HE160'
+config wifi-device 'c'
+	option band '5g'
+	option channel '165'
+	option htmode 'VHT40'
+config wifi-device 'd'
+	option band '5g'
+	option channel 'auto'
+	option htmode 'VHT160'
+config wifi-device 'e'
+	option band '2g'
+	option channel '13'
+	option htmode 'HT40'
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(Check(map[string]any{}, c), "\n")
+	for _, want := range []string{
+		"wireless.a: channel 149 cannot use a 160 MHz width; that needs a channel from 36–64 or 100–128",
+		"wireless.c: channel 165 cannot use a 40 MHz width",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %s", want, got)
+		}
+	}
+	for _, ok := range []string{"wireless.b:", "wireless.d:", "wireless.e:"} {
+		if strings.Contains(got, ok) {
+			t.Errorf("%s should pass: %s", ok, got)
+		}
+	}
+}
+
 func TestPowerAutoMeansNoTxpower(t *testing.T) {
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(`{"radio": {"5g": {"power": "auto"}}}`), &doc); err != nil {

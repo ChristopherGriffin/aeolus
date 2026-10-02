@@ -6,6 +6,7 @@ import { get } from '../api.js';
 import { security, bandName, when, ago } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap } from '../layout.js';
 import { fieldPanels } from './fields.js';
+import { hardwarePanel } from './hardware.js';
 
 export async function apPage(ctx, id) {
 	const enc = encodeURIComponent(id);
@@ -30,7 +31,7 @@ export async function apPage(ctx, id) {
 			h('strong', null, 'Its config breaks these rules, so it is not sent'),
 			h('ul', null, cfg.check.problems.map((p) => h('li', null, p)))),
 		h('div', { class: 'grid2' },
-			h('div', { class: 'col' }, networks(ctx, cfg), radios(cond)),
+			h('div', { class: 'col' }, hardwarePanel(ctx, id, page.node.name, page, cfg.condition?.state), networks(ctx, cfg)),
 			h('div', { class: 'col' }, latest(cond), enrollment(facts))),
 		h('section', { class: 'panel' },
 			h('h2', null, 'Location settings', h('span', { class: 'note' }, 'what it inherits, and from where'))),
@@ -75,23 +76,6 @@ function networks(ctx, cfg) {
 					h('td', null, security(f(n, 'security')) || '—'),
 					h('td', { class: 'mono' }, transport(n, 'primary') || '—', transport(n, 'fallback') && h('div', null, 'then ', transport(n, 'fallback'))),
 					h('td', null, link(`/services/${encodeURIComponent(n.from)}`, ctx.name('services', n.from)))))));
-}
-
-// radios is what the AP last reported about its radios.
-function radios(cond) {
-	const report = cond.state?.report;
-	return h('section', { class: 'panel' },
-		h('h2', null, 'Radios now', report && h('span', { class: 'note' }, 'reported ' + ago(cond.state.at))),
-		!report?.radios?.length
-			? h('div', { class: 'empty' }, 'No state report yet.')
-			: h('table', { class: 'list' },
-				h('tr', null, ['Radio', 'Band', 'Channel', 'Width', 'Clients'].map((c) => h('th', null, c))),
-				report.radios.map((r) => h('tr', null,
-					h('td', { class: 'mono' }, r.radio),
-					h('td', null, bandName(r.band)),
-					h('td', null, r.channel || '—'),
-					h('td', null, r.width ? r.width + ' MHz' : '—'),
-					h('td', null, String(r.clients))))));
 }
 
 function latest(cond) {

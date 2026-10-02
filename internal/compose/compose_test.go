@@ -131,6 +131,33 @@ func TestLandingZoneAPGetsNothing(t *testing.T) {
 	}
 }
 
+func TestWidthTheRadioCannotDoIsAProblem(t *testing.T) {
+	s, sch := site(t)
+	s.Facts["gate-ap"] = json.RawMessage(`{"radios":[{"radio":"radio0","band":"5g","htmodes":["HT20","HT40","VHT20","VHT40","VHT80","VHT80+80"]},{"radio":"radio1","band":"2g","htmodes":["HT20","HT40"]}]}`)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("radio.5g.width", 80)
+	set("radio.2g.width", 40)
+	if res, _ := AP(s, sch, "gate-ap", nil); len(res.Problems) != 0 {
+		t.Fatalf("widths it can do: %v", res.Problems)
+	}
+	set("radio.5g.width", 160)
+	res, err := AP(s, sch, "gate-ap", nil)
+	must(t, err)
+	if !contains(res.Problems, "radio.5g.width: this AP's radio cannot use 160 MHz; it can use 20, 40, 80 MHz") {
+		t.Fatalf("problems = %v", res.Problems)
+	}
+	// An AP that reported nothing about its radios is not judged.
+	s.Facts["gate-ap"] = nil
+	if res, _ := AP(s, sch, "gate-ap", nil); len(res.Problems) != 0 {
+		t.Fatalf("without facts: %v", res.Problems)
+	}
+}
+
 func contains(list []string, sub string) bool {
 	return strings.Contains(strings.Join(list, "\n"), sub)
 }
