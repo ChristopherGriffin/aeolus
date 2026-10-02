@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,7 +44,12 @@ CREATE TRIGGER changes_no_delete BEFORE DELETE ON changes
 BEGIN SELECT RAISE(ABORT, 'the change log is append-only'); END;
 `
 
-var ErrNoActor = errors.New("every change needs an actor")
+var (
+	ErrNoActor = errors.New("every change needs an actor")
+	// ErrInUse: another process has the change log open. Only one may, since
+	// each keeps the state in memory (0043).
+	ErrInUse = errors.New("the change log is in use by another process; stop the aeolus service first")
+)
 
 // APBreakError reports a change refused because an AP that resolved before
 // the change would no longer resolve after it.
@@ -101,9 +107,13 @@ func Open(path string, opts Options) (*Log, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 	l := &Log{db: db, now: opts.Now, check: opts.Check, versions: map[hierarchy.NodeID]int64{}}
 	if err := l.migrate(); err != nil {
 		db.Close()
+		if strings.Contains(err.Error(), "database is locked") {
+			return nil, fmt.Errorf("%w (%s)", ErrInUse, path)
+		}
 		return nil, err
 	}
 	if err := l.replay(); err != nil {
@@ -115,9 +125,12 @@ func Open(path string, opts Options) (*Log, error) {
 
 // dsn builds a file: URI without an authority part ("file:/var/lib/..." or
 // "file:C:/..."), because the driver hands the path to Go's os package as is.
+// Exclusive locking keeps a second process out while one has the log open:
+// each keeps the state in memory, so two would drift apart (0043). With it,
+// the log uses a single connection.
 func dsn(path string) string {
 	p := (&url.URL{Path: filepath.ToSlash(path)}).EscapedPath()
-	return "file:" + p + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_txlock=immediate"
+	return "file:" + p + "?_pragma=busy_timeout(5000)&_pragma=locking_mode(exclusive)&_pragma=journal_mode(wal)&_txlock=immediate"
 }
 
 func (l *Log) migrate() error {

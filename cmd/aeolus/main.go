@@ -3,6 +3,8 @@
 //	aeolus init     create the Org, its first admin and optionally the MCP
 //	                adapter's account, on the manager host (once)
 //	aeolus serve    serve the API over HTTPS
+//	aeolus token    issue a new token for an account, on the manager host,
+//	                with the service stopped (0043)
 //	aeolus version  print the version
 package main
 
@@ -31,6 +33,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runInit(args[1:], stdout, stderr)
 	case "serve":
 		return runServe(args[1:], stderr)
+	case "token":
+		return runToken(args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -39,6 +43,6 @@ func run(args []string, stdout, stderr io.Writer) error {
 }
 
 func usage(w io.Writer) error {
-	fmt.Fprintln(w, "usage: aeolus init|serve|version [flags]")
+	fmt.Fprintln(w, "usage: aeolus init|serve|token|version [flags]")
 	return fmt.Errorf("unknown or missing command")
 }
