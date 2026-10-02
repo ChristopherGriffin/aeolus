@@ -38,6 +38,16 @@ jobs:
       - run: go test -race -cover ./...
       - name: the agent renders its expected output
         run: go test -count=1 -v -run 'Agent' ./internal/rendercheck/ | tee /dev/stderr | grep -q -- '--- PASS: TestAgentRendersItsOutput'
+      # The UI has no build step (0042); check every module parses and its
+      # imports link. app.js touches the page when it loads, so it is only
+      # parsed.
+      - name: the UI's modules link
+        working-directory: internal/ui/static
+        run: |
+          node --check app.js
+          for f in api.js dom.js format.js layout.js views/*.js; do
+            node --input-type=module -e "await import('./$f')"
+          done
       - name: the agent's shell scripts parse
         run: for f in agent/install.sh agent/files/etc/init.d/aeolus; do sh -n "$f"; done
 

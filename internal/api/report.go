@@ -293,6 +293,46 @@ func (s *Server) apHistory(w http.ResponseWriter, r *http.Request, c call) error
 	return nil
 }
 
+// aps lists every AP the caller can view, with what the fleet view needs
+// (0042): where it is, its version, whether its config is ready, held or
+// unassigned, and when it was last seen and what it runs.
+func (s *Server) aps(w http.ResponseWriter, _ *http.Request, c call) error {
+	t := c.state.Org.Locations
+	out := []map[string]any{}
+	for _, id := range t.APs() {
+		if roleOn(c, change.Locations, t, id) < access.Viewer {
+			continue
+		}
+		n, _ := t.Node(id)
+		version, _ := s.log.Version(id)
+		res, err := compose.AP(c.state, s.schema, id, s.reveal)
+		if err != nil {
+			return err
+		}
+		config := "ready"
+		switch {
+		case res.Unassigned:
+			config = "unassigned"
+		case len(res.Problems) > 0:
+			config = "held"
+		}
+		l, err := s.conds.Latest(id)
+		if err != nil {
+			return err
+		}
+		var inSync any
+		if l.Seen != nil && l.Seen.Running != nil {
+			inSync = *l.Seen.Running == version
+		}
+		out = append(out, map[string]any{
+			"id": id, "name": n.Name, "ancestry": t.Ancestry(id), "version": version,
+			"config": config, "problems": len(res.Problems), "seen": l.Seen, "in_sync": inSync,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"aps": out})
+	return nil
+}
+
 // condition is what the manager knows of an AP's own account of itself, for
 // the AP's config view: last seen, what it runs, and whether that is its
 // current version.
