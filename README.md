@@ -86,7 +86,7 @@ Each milestone ends in something checkable before the next starts.
 | [0041](docs/decisions/0041-keeping-rendered-uci.md) | Keeping rendered UCI without its secrets |
 | [0042](docs/decisions/0042-the-web-ui.md) | The web UI |
 | [0043](docs/decisions/0043-getting-back-in.md) | Getting back in when a token is lost |
-| [0044](docs/decisions/0044-hardware-by-folder.md) | Radio hardware is set by folder, within what every AP can do (proposed) |
+| [0044](docs/decisions/0044-hardware-by-folder.md) | Radio hardware is set by folder, within what every AP can do |
 
 ## Open questions
 

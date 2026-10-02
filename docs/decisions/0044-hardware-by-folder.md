@@ -1,8 +1,8 @@
 # 0044. Radio hardware is set by folder, within what every AP can do
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
-- Proposed by: Griff, while starting to edit PumphouseAP's channel width
+- Proposed by: Griff, while starting to edit PumphouseAP's channel width; written up by Claude and accepted with the merge
 - Refines: 0008, 0012, 0029, 0042
 
 ## Decision
