@@ -1,8 +1,8 @@
 # 0043. Getting back in when a token is lost
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
-- Proposed by: Claude, when Griff needed a token for the UI
+- Proposed by: Claude, when Griff needed a token for the UI; accepted by Griff
 - Refines: 0024, 0030
 
 ## Decision

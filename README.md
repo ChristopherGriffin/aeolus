@@ -85,7 +85,7 @@ Each milestone ends in something checkable before the next starts.
 | [0040](docs/decisions/0040-the-ap-agent.md) | The AP agent, v1 |
 | [0041](docs/decisions/0041-keeping-rendered-uci.md) | Keeping rendered UCI without its secrets |
 | [0042](docs/decisions/0042-the-web-ui.md) | The web UI |
-| [0043](docs/decisions/0043-getting-back-in.md) | Getting back in when a token is lost (proposed) |
+| [0043](docs/decisions/0043-getting-back-in.md) | Getting back in when a token is lost |
 
 ## Open questions
 
