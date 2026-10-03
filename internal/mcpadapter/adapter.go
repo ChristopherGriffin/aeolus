@@ -105,6 +105,7 @@ type Op struct {
 	Path     string         `json:"path,omitempty" jsonschema:"field path, e.g. radio.5g.width or network.sweet.transport.primary.vlan"`
 	Value    any            `json:"value,omitempty" jsonschema:"the field's new value, for set; for set-concentrator the definition {name, address, port, mtu, scope}"`
 	Values   map[string]any `json:"values,omitempty" jsonschema:"several fields of one node to set together, for set, in place of path and value: {path: value}; all or none are set"`
+	Paths    []string       `json:"paths,omitempty" jsonschema:"several fields of one node to unset together, for unset, in place of path; all or none are unset"`
 	Services []string       `json:"services,omitempty" jsonschema:"service folder IDs, for assign-services on a Locations node"`
 	Account  string         `json:"account,omitempty" jsonschema:"account ID, for add-account, grant and revoke"`
 	Role     string         `json:"role,omitempty" jsonschema:"viewer, operator or admin, for grant and revoke"`

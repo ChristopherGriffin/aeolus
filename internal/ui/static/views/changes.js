@@ -49,7 +49,7 @@ function summary(ctx, op) {
 	case 'set': return `${op.tree} › ${node(op.node)}: ` + (op.values
 		? Object.keys(op.values).sort().map((p) => `${p} = ${val(op.values[p])}`).join(', ')
 		: `${op.path} = ${val(op.value)}`);
-	case 'unset': return `${op.tree} › ${node(op.node)}: unset ${op.path}`;
+	case 'unset': return `${op.tree} › ${node(op.node)}: unset ${op.paths ? op.paths.join(', ') : op.path}`;
 	case 'lock': return `${op.tree} › ${node(op.node)}: lock ${op.path}`;
 	case 'unlock': return `${op.tree} › ${node(op.node)}: unlock ${op.path}`;
 	case 'add-folder': return `${op.tree}: add folder ${op.name} under ${node(op.parent)}`;

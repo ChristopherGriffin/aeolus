@@ -2,6 +2,7 @@
 
 import { h } from '../dom.js';
 import { group, value, origin } from '../format.js';
+import { followButton } from './follow.js';
 
 // The order fields appear in within a panel; others follow by path.
 const RANK = [
@@ -24,8 +25,9 @@ function rank(path) {
 }
 
 // fieldPanels shows fields ({path: {value, from, origin}}) as panels in two
-// columns.
-export function fieldPanels(ctx, tree, here, fields) {
+// columns. With edit ({nodeName, parentName}), for someone who may change
+// the node, each value set here can follow the folder above again (0046).
+export function fieldPanels(ctx, tree, here, fields, edit) {
 	const groups = new Map();
 	for (const [path, r] of Object.entries(fields || {})) {
 		const g = group(path);
@@ -42,13 +44,26 @@ export function fieldPanels(ctx, tree, here, fields) {
 				h('h2', null, ssid || g.title, g.network && h('span', { class: 'note' }, 'network ' + g.network)),
 				g.rows
 					.sort((a, b) => rank(a.path) - rank(b.path) || a.path.localeCompare(b.path))
-					.map(({ path, r, label }) => h('div', { class: 'row' },
-						h('div', { class: 'label' }, label),
-						h('div', { class: 'value' }, value(path, r.value, serviceName)),
-						origin(tree, here, r, nodeName))));
+					.map(({ path, r, label }) => {
+						const box = h('div', { class: 'edit' });
+						return [h('div', { class: 'row' },
+							h('div', { class: 'label' }, label),
+							h('div', { class: 'value' }, value(path, r.value, serviceName)),
+							origin(tree, here, r, nodeName),
+							edit && r.origin === 'self' && followButton(ctx, tree, here, edit.nodeName, edit.parentName, [path], box)),
+						box];
+					}));
 		});
 	if (!panels.length) return h('div', { class: 'banner info' }, 'Nothing is set here or in the folders above.');
 	const cols = [[], []];
 	panels.forEach((p, i) => cols[i % 2].push(p));
 	return h('div', { class: 'grid2' }, cols.map((c) => h('div', { class: 'col' }, c)));
+}
+
+// editing is what field panels need to let someone who may change a node
+// have it follow the folder above again (0046), or null for a viewer.
+export function editing(ctx, tree, page) {
+	if (page.role !== 'operator' && page.role !== 'admin') return null;
+	const n = page.node;
+	return { nodeName: n.name, parentName: n.parent ? ctx.name(tree, n.parent) : null };
 }

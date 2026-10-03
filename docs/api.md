@@ -23,7 +23,7 @@ Secrets are never returned: a secret value appears as `{"sealed": true}`, and to
 | Request | Body | Returns |
 |---|---|---|
 | `POST /v1/changes` | `{op, reason}` | the logged `change`, the APs it `reversioned`, and `checks` for any of them whose config now fails |
-| `POST /v1/preview` | `{op}` | the `effect` (before, after, overrides a lock or move would remove), the APs it would re-version, and their `checks`; nothing is recorded |
+| `POST /v1/preview` | `{op}` | the `effect` (before, after, overrides a lock or move would remove), the APs it would re-version, their `checks`, and for a set or unset, how each field it touches would resolve at its node (`resolved`) afterwards (`value`, `from`, `origin`, or null if nothing would set it; 0046); nothing is recorded |
 | `POST /v1/tokens` | `{account?, reason?}` | a new token for you or, as Org admin, for another account, shown once |
 | `DELETE /v1/tokens/{id}` | | the logged revocation |
 
@@ -37,6 +37,12 @@ A `set` can instead carry `values`, several fields of one node set together, all
 
 ```json
 {"kind": "set", "tree": "locations", "node": "sandbox", "values": {"radio.5g.width": 160, "radio.5g.channel": "auto"}}
+```
+
+An `unset` can likewise carry `paths`, several fields of one node unset together. Each must be set there, or none is unset (0046):
+
+```json
+{"kind": "unset", "tree": "locations", "node": "ap-a0046021365e", "paths": ["radio.5g.channel", "radio.5g.width"]}
 ```
 
 Kinds: `add-folder`, `add-ap`, `remove-ap` (0038), `move`, `set`, `unset`, `lock`, `unlock`, `break-hierarchy`, `assign-services`, `add-builtins`, `add-account`, `grant`, `revoke`, `revoke-token`, and for the library `set-concentrator` (`concentrator`, `value: {name, address, port, mtu, scope}`), `remove-concentrator`, `set-vni` (`concentrator`, `vni`, label in `name`) and `remove-vni` (0037). Moving an AP out of Landing Zone (a node with `"isolated": true`) is adoption: it needs viewer on Landing Zone and operator on the destination (0032). `create-org` happens only through `aeolus init` on the manager host, and tokens are issued through `/v1/tokens`. Set values are checked against the field schema (`internal/schema/v1.json`), and secret values are sealed before they are logged (0027). Who may make which change is 0030.

@@ -108,8 +108,39 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request, c call) error {
 		"effect":      eff,
 		"reversioned": changed,
 		"checks":      s.checks(state, changed),
+		"resolved":    resolvedAfter(state, op),
 	})
 	return nil
+}
+
+// resolvedAfter shows how the fields a set or unset touches would resolve
+// at its node once it is made, so a preview can say what a field becomes;
+// a field nothing would set any more is null (0046).
+func resolvedAfter(state *change.State, op change.Op) map[hierarchy.Path]*resolvedView {
+	var paths []hierarchy.Path
+	switch op.Kind {
+	case change.Set:
+		for _, f := range op.Fields() {
+			paths = append(paths, f.Path)
+		}
+	case change.Unset:
+		paths = op.Unsets()
+	default:
+		return nil
+	}
+	_, t, err := treeOf(state, string(op.Tree))
+	if err != nil {
+		return nil
+	}
+	out := make(map[hierarchy.Path]*resolvedView, len(paths))
+	for _, p := range paths {
+		out[p] = nil
+		if r, ok := t.Resolve(op.Node, p); ok {
+			v := viewResolved(r)
+			out[p] = &v
+		}
+	}
+	return out
 }
 
 // issueToken issues a token for an account and returns it once. Only its ID
