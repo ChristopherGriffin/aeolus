@@ -1,8 +1,8 @@
 # 0050. Band steering through usteer, installed with the agent
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
-- Proposed by: Griff: band steering on the Networks tab, with usteer installed "at the outset"; written up by Claude
+- Proposed by: Griff: band steering on the Networks tab, with usteer installed "at the outset"; written up by Claude and accepted with the merge
 - Refines: 0040, 0039, 0048
 
 ## Decision

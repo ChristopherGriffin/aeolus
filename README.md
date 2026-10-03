@@ -91,8 +91,8 @@ Each milestone ends in something checkable before the next starts.
 | [0046](docs/decisions/0046-following-the-folder-again.md) | Following the folder again |
 | [0047](docs/decisions/0047-folder-tabs.md) | A Locations page in tabs: Hardware, Networks, System |
 | [0048](docs/decisions/0048-editing-networks-where-they-are-shown.md) | Editing networks where they are shown |
-| [0049](docs/decisions/0049-multicast-to-unicast.md) | Multicast to unicast, per network (proposed) |
-| [0050](docs/decisions/0050-band-steering.md) | Band steering through usteer, installed with the agent (proposed) |
+| [0049](docs/decisions/0049-multicast-to-unicast.md) | Multicast to unicast, per network |
+| [0050](docs/decisions/0050-band-steering.md) | Band steering through usteer, installed with the agent |
 
 ## Open questions
 

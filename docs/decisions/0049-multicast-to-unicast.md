@@ -1,8 +1,8 @@
 # 0049. Multicast to unicast, per network
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
-- Proposed by: Griff, among the network settings for the Networks tab (0047); written up by Claude
+- Proposed by: Griff, among the network settings for the Networks tab (0047); written up by Claude and accepted with the merge
 - Refines: 0006, 0039, 0048
 
 ## Decision
