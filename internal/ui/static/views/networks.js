@@ -2,13 +2,15 @@
 // that apply there and each network they offer, on the radios here. A
 // network is edited where it is shown (0048), but it lives in its service
 // folder (0013): an edit changes it there, for every location that uses that
-// folder, and the preview names every AP it reaches.
+// folder, and the preview names every AP it reaches. Band steering and
+// multicast-to-unicast are switched right on each network, and what usteer
+// does on each AP is shown below them (0051).
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
-import { bandName, security, group, value } from '../format.js';
+import { bandName, security, group, value, ago } from '../format.js';
 import { fieldPanels, editing } from './fields.js';
-import { only } from './sections.js';
+import { only, configs } from './sections.js';
 import { describe, input } from './edit.js';
 import { ask, confirm } from './confirm.js';
 
@@ -24,18 +26,21 @@ const SECTIONS = [
 ];
 
 export async function networksTab(ctx, id, page) {
-	const [d, at] = await Promise.all([schema(), networksAt(page)]);
+	const [d, at, reports] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || [])]);
 	const bandsHere = new Set((page.hardware?.bands || []).map((b) => b.band));
 	const writable = at.folders.filter((f) => f.canEdit);
 	const addBox = h('div', { class: 'edit flush' });
+	// The APs that say they have no usteer, which would refuse band steering.
+	const noUsteer = new Set(reports.filter((r) => r.cfg?.condition?.state?.report?.steering?.installed === false).map((r) => r.ap.id));
 	return [
 		fieldPanels(ctx, 'locations', id, only(page.fields, (p) => p === 'services'), editing(ctx, 'locations', page)),
 		at.nets.length === 0
 			? h('div', { class: 'banner info' }, 'No network reaches here: no service folder that applies offers one.')
-			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere))),
+			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, noUsteer))),
 		writable.length > 0 && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox) }, 'Add a network')),
 		addBox,
+		steeringStatus(ctx, reports),
 	];
 }
 
@@ -63,17 +68,20 @@ async function networksAt(page) {
 	return { folders, nets: [...nets.values()] };
 }
 
-function networkCard(ctx, d, n, bandsHere) {
-	const body = h('div', null, view(n, bandsHere));
-	const close = () => body.replaceChildren(view(n, bandsHere));
+function networkCard(ctx, d, n, bandsHere, noUsteer) {
+	const box = h('div', { class: 'edit' });
+	const shown = () => view(ctx, n, bandsHere, box, noUsteer);
+	const body = h('div', null, shown());
+	const close = () => body.replaceChildren(shown());
 	return h('section', { class: 'panel' },
 		h('h2', null, n.fields.ssid?.value || n.id, n.fields.enabled?.value === false && h('span', { class: 'chip idle' }, 'off'),
 			h('span', { class: 'note' }, 'from ', link(`/services/${encodeURIComponent(n.from)}`, ctx.name('services', n.from))),
-			n.canEdit && h('button', { type: 'button', class: 'button small', onclick: () => body.replaceChildren(editForm(ctx, d, n, close)) }, 'Edit')),
-		body);
+			n.canEdit && h('button', { type: 'button', class: 'button small', onclick: () => { box.replaceChildren(); body.replaceChildren(editForm(ctx, d, n, close)); } }, 'Edit')),
+		body,
+		box);
 }
 
-function view(n, bandsHere) {
+function view(ctx, n, bandsHere, box, noUsteer) {
 	const f = (k) => n.fields?.[k]?.value;
 	const asks = f('bands') || BANDS;
 	const row = (label, v) => v != null && v !== '' && h('div', { class: 'row' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, v));
@@ -84,7 +92,7 @@ function view(n, bandsHere) {
 			? `VXLAN ${f(`transport.${slot}.concentrator`)} · VNI ${f(`transport.${slot}.vni`)}`
 			: `VLAN ${f(`transport.${slot}.vlan`)}`;
 	};
-	const roaming = [f('roaming.ft') && '11r', f('roaming.rrm') && '11k', f('roaming.btm') && '11v', f('band_steering') && 'band steering'].filter(Boolean);
+	const roaming = [f('roaming.ft') && '11r', f('roaming.rrm') && '11k', f('roaming.btm') && '11v'].filter(Boolean);
 	const limits = [f('rate_limit.down_kbps') && `down ${f('rate_limit.down_kbps')} kbps`, f('rate_limit.up_kbps') && `up ${f('rate_limit.up_kbps')} kbps`].filter(Boolean);
 	return [
 		h('div', { class: 'row' },
@@ -95,11 +103,135 @@ function view(n, bandsHere) {
 		row('Security', security(f('security'))),
 		row('Travels over', transport('primary') && [transport('primary'), transport('fallback') && `, then ${transport('fallback')}`]),
 		row('Roaming', roaming.length ? roaming.join(', ') : 'off'),
+		steeringRow(ctx, n, box, noUsteer),
+		multicastRow(ctx, n, box),
 		f('hidden') && row('Hidden', 'yes'),
 		f('isolation') && row('Client isolation', 'on'),
-		f('multicast_to_unicast') != null && row('Multicast to unicast', f('multicast_to_unicast') ? 'all multicast' : 'off'),
 		limits.length > 0 && row('Rate limit', limits.join(', ')),
 	];
+}
+
+const ssidOf = (n) => n.fields.ssid?.value || n.id;
+
+// lockedAbove says whether a network's field is locked above its folder,
+// so it cannot be changed there.
+const lockedAbove = (n, k) => n.fields[k]?.origin === 'locked' && n.fields[k].from !== n.from;
+
+// whence says where a value in force comes from, when it is not the
+// network's own folder.
+function whence(ctx, n, r) {
+	return r && r.from !== n.from ? h('span', { class: 'sub' }, `from ${ctx.name('services', r.from)}`) : null;
+}
+
+const RESTART = 'Applying restarts the Wi-Fi on each AP listed; its clients drop for a few seconds and reconnect.';
+
+// steeringRow switches band steering for a network in its service folder
+// (0050, 0051). The switch shows what is in force; a change is previewed
+// first, and only then recorded.
+function steeringRow(ctx, n, box, noUsteer) {
+	const k = 'band_steering';
+	const path = `network.${n.id}.${k}`;
+	const field = n.fields[k];
+	const on = field?.value === true;
+	// Off: unset what this folder set, so it follows what is above; or, when
+	// the value comes from above, set it off here.
+	const op = on
+		? (field.origin === 'self' ? { kind: 'unset', tree: 'services', node: n.from, path } : { kind: 'set', tree: 'services', node: n.from, path, value: false })
+		: { kind: 'set', tree: 'services', node: n.from, path, value: true };
+	const flip = async () => {
+		const p = await ask(box, op);
+		if (!p) return;
+		const after = p.resolved?.[path];
+		const missing = (p.reversioned || []).filter((ap) => noUsteer.has(ap)).map((ap) => ctx.name('locations', ap));
+		confirm(ctx, box, op, p, [
+			h('div', null, h('strong', null, `Band steering for ${ssidOf(n)}: `), on ? 'on' : 'off', ' → ', after?.value === true ? 'on' : 'off',
+				after && after.from !== n.from ? ` (from ${ctx.name('services', after.from)})` : ''),
+			h('div', { class: 'sub' }, `This changes the network in Services › ${ctx.name('services', n.from)}, for every location that uses it.`,
+				!on ? ' Steering also turns on 802.11k and 802.11v for it.' : ''),
+			missing.length > 0 && h('div', { class: 'banner problems' },
+				`${missing.join(', ')} ${missing.length === 1 ? 'has' : 'have'} no usteer, so ${missing.length === 1 ? 'it' : 'they'} would refuse this until it is installed (apk add usteer).`),
+		], [h('div', { class: 'sub warn' }, RESTART)]);
+	};
+	return h('div', { class: 'row' },
+		h('div', { class: 'label' }, 'Band steering'),
+		h('div', { class: 'value' },
+			h('button', {
+				type: 'button', class: 'switch' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(on),
+				title: on ? 'Turn band steering off' : 'Turn band steering on', disabled: !n.canEdit || lockedAbove(n, k), onclick: flip,
+			}, h('span', { class: 'knob' }), on ? 'On' : 'Off'),
+			whence(ctx, n, field)));
+}
+
+const MULTICAST = [
+	['default', 'OpenWrt default', 'Only the groups clients joined (IGMP/MLD snooping)'],
+	['all', 'All', 'All multicast (ARP, IPv4, IPv6), to each client as unicast'],
+	['none', 'None', 'No multicast is sent as unicast'],
+];
+
+// multicastRow picks multicast-to-unicast for a network in its service
+// folder (0049, 0051): OpenWrt's default (unset), all, or none.
+function multicastRow(ctx, n, box) {
+	const k = 'multicast_to_unicast';
+	const path = `network.${n.id}.${k}`;
+	const field = n.fields[k];
+	const now = field?.value === true ? 'all' : field?.value === false ? 'none' : 'default';
+	const about = (key) => MULTICAST.find(([x]) => x === key);
+	const choose = async (want) => {
+		const op = want === 'default'
+			? { kind: 'unset', tree: 'services', node: n.from, path }
+			: { kind: 'set', tree: 'services', node: n.from, path, value: want === 'all' };
+		const p = await ask(box, op);
+		if (!p) return;
+		confirm(ctx, box, op, p, [
+			h('div', null, h('strong', null, `Multicast to unicast for ${ssidOf(n)}: `), about(now)[1], ' → ', about(want)[1]),
+			h('div', { class: 'sub' }, about(want)[2] + '.'),
+			h('div', { class: 'sub' }, `This changes the network in Services › ${ctx.name('services', n.from)}, for every location that uses it.`),
+		], [h('div', { class: 'sub warn' }, RESTART)]);
+	};
+	const fixed = !n.canEdit || lockedAbove(n, k);
+	return h('div', { class: 'row' },
+		h('div', { class: 'label' }, 'Multicast to unicast'),
+		h('div', { class: 'value' },
+			h('span', { class: 'segmented', role: 'group', 'aria-label': 'Multicast to unicast' }, MULTICAST.map(([key, text, help]) => h('button', {
+				type: 'button', class: key === now ? 'on' : null, 'aria-pressed': String(key === now), title: help,
+				// The default is unset here; a value set above cannot be unset here.
+				disabled: key === now || fixed || (key === 'default' && field?.origin !== 'self'),
+				onclick: () => choose(key),
+			}, text))),
+			whence(ctx, n, field)));
+}
+
+// steeringStatus shows what usteer is doing on each AP here, as each last
+// reported (0051): whether it runs, which SSIDs it steers, and for those,
+// the clients on each band and the clients it moved.
+function steeringStatus(ctx, reports) {
+	if (!reports.length) return null;
+	const rows = reports.map(({ ap, cfg }) => {
+		const st = cfg?.condition?.state;
+		const g = st?.report?.steering;
+		let usteer;
+		if (!st) usteer = 'no report yet';
+		else if (!g) usteer = 'its agent does not say';
+		else if (!g.installed) usteer = 'not installed';
+		else if (!g.running) usteer = 'installed, not running';
+		else usteer = 'running';
+		const steered = g?.running && g.interval > 0 ? g.ssids || [] : [];
+		const bands = steered.map((ssid) => h('div', null, h('strong', null, ssid + ': '),
+			(g.bss || []).filter((b) => b.ssid === ssid).map((b) =>
+				`${bandName(b.band)} ${b.clients} client${b.clients === 1 ? '' : 's'}` +
+				(b.steered_away ? `, ${b.steered_away} moved off` : '') + (b.steered_in ? `, ${b.steered_in} moved on` : '')).join(' · ')));
+		return h('tr', null,
+			h('td', null, link(`/aps/${encodeURIComponent(ap.id)}`, ap.name)),
+			h('td', null, h('span', { class: 'chip ' + (usteer === 'running' ? 'ok' : g && !g.installed ? 'warn' : 'idle') }, usteer)),
+			h('td', null, !g?.running ? '—' : g.interval > 0 ? `on for ${steered.join(', ')}` : 'off'),
+			h('td', null, bands.length ? bands : '—'),
+			h('td', null, st ? ago(st.at) : '—'));
+	});
+	return h('section', { class: 'panel' },
+		h('h2', null, 'Band steering on each AP', h('span', { class: 'note' }, 'as each last reported; moves are counted since usteer started')),
+		h('table', { class: 'list' },
+			h('tr', null, ['AP', 'usteer', 'Steering', 'Steered networks now', 'Reported'].map((c) => h('th', null, c))),
+			rows));
 }
 
 // form lays out an input for every network field the schema has, with the

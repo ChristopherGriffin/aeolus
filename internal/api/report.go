@@ -176,6 +176,27 @@ type stateReport struct {
 	Radios     []radioState              `json:"radios,omitempty"`
 	VLANs      []int                     `json:"vlans,omitempty"`
 	Transports map[string]transportState `json:"transports,omitempty"`
+	Steering   *steeringState            `json:"steering,omitempty"`
+}
+
+// steeringState is what usteer is doing on the AP (0050, 0051), so a person
+// can see whether band steering works.
+type steeringState struct {
+	Installed bool       `json:"installed"`
+	Running   bool       `json:"running"`
+	Interval  int        `json:"interval"`        // band_steering_interval, ms; 0 is off
+	SSIDs     []string   `json:"ssids,omitempty"` // the SSIDs it steers
+	BSS       []bssState `json:"bss,omitempty"`
+}
+
+// bssState is one SSID on one band: its clients now, and the clients usteer
+// has moved off it and onto it since usteer started.
+type bssState struct {
+	SSID        string `json:"ssid"`
+	Band        string `json:"band"`
+	Clients     int    `json:"clients"`
+	SteeredAway int    `json:"steered_away"`
+	SteeredIn   int    `json:"steered_in"`
 }
 
 type radioState struct {
@@ -230,6 +251,21 @@ func (st *stateReport) check() error {
 	}
 	if len(st.Transports) > 64 {
 		return badRequest("at most 64 networks")
+	}
+	if g := st.Steering; g != nil {
+		if g.Interval < 0 || len(g.SSIDs) > 64 || len(g.BSS) > 64 {
+			return badRequest("steering: interval cannot be negative; at most 64 SSIDs and 64 BSSes")
+		}
+		for _, ssid := range g.SSIDs {
+			if len(ssid) > 32 {
+				return badRequest("steering: an SSID is at most 32 bytes")
+			}
+		}
+		for _, b := range g.BSS {
+			if !bands[b.Band] || len(b.SSID) > 32 || b.Clients < 0 || b.SteeredAway < 0 || b.SteeredIn < 0 {
+				return badRequest("steering: each BSS has a band (2g, 5g or 6g), an SSID of at most 32 bytes, and counts that are not negative")
+			}
+		}
 	}
 	for id, t := range st.Transports {
 		if !networkIDRE.MatchString(id) {

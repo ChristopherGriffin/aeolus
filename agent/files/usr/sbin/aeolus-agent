@@ -343,6 +343,36 @@ function converge(poll, token) {
 	}
 }
 
+// steering_state says what usteer is doing (0050, 0051): whether it is
+// installed and running, its band steering settings, and for each SSID on
+// each band, its clients and the clients usteer moved off it and onto it.
+function steering_state() {
+	if (!fs.stat('/sbin/usteerd'))
+		return { installed: false, running: false, interval: 0 };
+	let cfg = bus.call('usteer', 'get_config');
+	if (!cfg)
+		return { installed: true, running: false, interval: 0 };
+	let bss = [];
+	let info = bus.call('usteer', 'local_info') ?? {};
+	for (let name in sort(keys(info))) {
+		let n = info[name];
+		push(bss, {
+			ssid: n.ssid ?? '',
+			band: n.freq > 5925 ? '6g' : n.freq > 3000 ? '5g' : '2g',
+			clients: n.n_assoc ?? 0,
+			steered_away: n.roam_events?.source ?? 0,
+			steered_in: n.roam_events?.target ?? 0,
+		});
+	}
+	return {
+		installed: true,
+		running: true,
+		interval: cfg.band_steering_interval ?? 0,
+		ssids: slice(cfg.ssid_list ?? [], 0, 64),
+		bss: slice(bss, 0, 64),
+	};
+}
+
 function report_state(running, token) {
 	let b = bus.call('system', 'board') ?? {};
 	let radios = [];
@@ -370,6 +400,7 @@ function report_state(running, token) {
 		uptime: int(split(read('/proc/uptime') ?? '0', ' ')[0]),
 		openwrt: b.release?.version ?? '',
 		radios: slice(radios, 0, 8),
+		steering: steering_state(),
 	}, token);
 	if (res.status != 200)
 		fail('state report: %s', describe(res));

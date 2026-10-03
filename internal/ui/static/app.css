@@ -187,6 +187,16 @@ label.field input[type=text], label.field input[type=password], label.field inpu
 .choices label { display: inline-flex; gap: 5px; align-items: center; }
 .below { margin: 0 0 16px; }
 .button.danger { border-color: var(--bad); color: var(--bad); }
+button.switch { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px 0 4px; border: 1px solid #C9CEC6; border-radius: 14px; background: var(--panel); font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
+button.switch .knob { width: 20px; height: 20px; border-radius: 50%; background: var(--line); }
+button.switch.on { background: var(--accent-bg); border-color: var(--accent); color: var(--ink); }
+button.switch.on .knob { background: var(--accent); }
+button.switch:disabled { opacity: 0.5; cursor: default; }
+.segmented { display: inline-flex; border: 1px solid #C9CEC6; border-radius: 8px; overflow: hidden; }
+.segmented button { border: 0; border-left: 1px solid #C9CEC6; background: var(--panel); padding: 5px 10px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
+.segmented button:first-child { border-left: 0; }
+.segmented button.on { background: var(--accent-bg); color: var(--ink); font-weight: 600; }
+.segmented button:disabled:not(.on) { opacity: 0.45; cursor: default; }
 .button.small { padding: 4px 10px; font-size: 13px; }
 .edit.flush { padding: 0; }
 .preview ul.becomes { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
