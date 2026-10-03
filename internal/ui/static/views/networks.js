@@ -76,9 +76,29 @@ function networkCard(ctx, d, n, bandsHere, noUsteer) {
 	return h('section', { class: 'panel' },
 		h('h2', null, n.fields.ssid?.value || n.id, n.fields.enabled?.value === false && h('span', { class: 'chip idle' }, 'off'),
 			h('span', { class: 'note' }, 'from ', link(`/services/${encodeURIComponent(n.from)}`, ctx.name('services', n.from))),
-			n.canEdit && h('button', { type: 'button', class: 'button small', onclick: () => { box.replaceChildren(); body.replaceChildren(editForm(ctx, d, n, close)); } }, 'Edit')),
+			n.canEdit && h('span', { class: 'controls' },
+				h('button', { type: 'button', class: 'button small', onclick: () => { box.replaceChildren(); body.replaceChildren(editForm(ctx, d, n, close)); } }, 'Edit'),
+				n.fields.ssid?.origin === 'self' && h('button', { type: 'button', class: 'button small danger', onclick: () => { close(); deleteNetwork(ctx, n, box); } }, 'Delete'))),
 		body,
 		box);
+}
+
+// deleteNetwork deletes a network where it is defined: what its service
+// folder sets for it is unset, in one change (0046, 0048). Every location
+// that uses the folder stops offering it, and each AP removes the
+// interfaces Aeolus made for it.
+async function deleteNetwork(ctx, n, box) {
+	const folderName = ctx.name('services', n.from);
+	const own = Object.keys(n.fields).filter((k) => n.fields[k].origin === 'self').map((k) => `network.${n.id}.${k}`).sort();
+	const op = { kind: 'unset', tree: 'services', node: n.from, paths: own };
+	const p = await ask(box, op);
+	if (!p) return;
+	confirm(ctx, box, op, p, [
+		h('div', null, h('strong', null, `Delete ${ssidOf(n)}`)),
+		h('div', { class: 'sub' }, `It is removed from Services › ${folderName}, so every location that uses that folder stops offering it, and each AP listed removes its interfaces for it.`),
+	], [
+		h('div', { class: 'sub warn' }, 'Its clients on each AP listed are disconnected, and the other networks on those APs drop for a few seconds while the Wi-Fi restarts.'),
+	]);
 }
 
 function view(ctx, n, bandsHere, box, noUsteer) {
@@ -325,27 +345,12 @@ function editForm(ctx, d, n, close) {
 			h('div', { class: 'sub warn' }, 'Applying restarts the Wi-Fi on each AP listed; its clients drop for a few seconds and reconnect.'),
 		]);
 	};
-	// The network can be removed where it is defined: what is set in this
-	// service folder is unset, in one change (0046).
-	const own = Object.keys(n.fields).filter((k) => n.fields[k].origin === 'self').map((k) => `network.${n.id}.${k}`).sort();
-	const remove = async () => {
-		const op = { kind: 'unset', tree: 'services', node: n.from, paths: own };
-		const p = await ask(box, op);
-		if (!p) return;
-		confirm(ctx, box, op, p, [
-			h('div', null, h('strong', null, `Remove ${n.fields.ssid?.value || n.id} from Services › ${folderName}`)),
-			h('div', { class: 'sub' }, `Every location that uses Services › ${folderName} stops offering it.`),
-		], [
-			h('div', { class: 'sub warn' }, 'Its clients on each AP listed are disconnected.'),
-		]);
-	};
 	return h('div', { class: 'netform', 'data-editing': true },
 		body,
 		msg,
 		h('div', { class: 'actions' },
 			h('button', { type: 'button', class: 'button primary', onclick: review }, 'Review changes'),
-			h('button', { type: 'button', class: 'button', onclick: close }, 'Cancel'),
-			n.fields.ssid?.origin === 'self' && h('button', { type: 'button', class: 'button danger', onclick: remove }, 'Remove network')),
+			h('button', { type: 'button', class: 'button', onclick: close }, 'Cancel')),
 		box);
 }
 
