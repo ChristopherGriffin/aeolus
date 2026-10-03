@@ -1,8 +1,8 @@
 # 0046. Following the folder again
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
-- Proposed by: Griff, after customizing OpenWrtnight's width: "we need a way to revert back to the upper folder's configuration after customizing the AP individually"; written up by Claude
+- Proposed by: Griff, after customizing OpenWrtnight's width: "we need a way to revert back to the upper folder's configuration after customizing the AP individually"; written up by Claude and accepted with the merge
 - Refines: 0012, 0026, 0042, 0044
 
 ## Decision
