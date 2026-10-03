@@ -5,8 +5,9 @@ import { h, link } from '../dom.js';
 import { get } from '../api.js';
 import { security, bandName, when, ago } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap } from '../layout.js';
-import { fieldPanels } from './fields.js';
+import { fieldPanels, editing } from './fields.js';
 import { hardwarePanel } from './hardware.js';
+import { followButton } from './follow.js';
 
 export async function apPage(ctx, id) {
 	const enc = encodeURIComponent(id);
@@ -20,12 +21,20 @@ export async function apPage(ctx, id) {
 	const st = me ? apStatus(me) : { chip: 'idle', label: 'Unknown', detail: '' };
 	const cond = cfg.condition || {};
 	const facts = page.facts || {};
+	const edit = editing(ctx, 'locations', page);
+	// Everything the AP sets for itself can go back to its folder in one
+	// change (0046).
+	const own = Object.keys(page.fields || {}).filter((p) => page.fields[p].origin === 'self').sort();
+	const revertBox = h('div', { class: 'edit flush' });
 	const main = [
 		crumbs(ctx, 'locations', page.ancestry),
 		h('div', { class: 'head' },
 			h('div', null,
 				h('h1', null, page.node.name),
-				h('div', { class: 'sub' }, ['AP', facts.model, cond.seen?.source].filter(Boolean).join(' · ')))),
+				h('div', { class: 'sub' }, ['AP', facts.model, cond.seen?.source].filter(Boolean).join(' · '))),
+			edit && own.length > 0 && followButton(ctx, 'locations', id, page.node.name, edit.parentName, own, revertBox,
+				`Revert to ${edit.parentName} (${own.length} custom setting${own.length === 1 ? '' : 's'})`)),
+		revertBox,
 		statusPanel(st, cfg, cond),
 		cfg.check?.problems?.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Its config breaks these rules, so it is not sent'),
@@ -35,7 +44,7 @@ export async function apPage(ctx, id) {
 			h('div', { class: 'col' }, latest(cond), enrollment(facts))),
 		h('section', { class: 'panel' },
 			h('h2', null, 'Location settings', h('span', { class: 'note' }, 'what it inherits, and from where'))),
-		fieldPanels(ctx, 'locations', id, page.fields),
+		fieldPanels(ctx, 'locations', id, page.fields, edit),
 		history(hist),
 	];
 	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps)), main, refresh: 30 };

@@ -69,6 +69,35 @@ func TestSetValuesAllOrNone(t *testing.T) {
 	}
 }
 
+func TestUnsetPathsAllOrNone(t *testing.T) {
+	o := org(t)
+	mustApply(t, o, Op{Kind: Set, Tree: Locations, Node: "house", Values: map[hierarchy.Path]json.RawMessage{
+		"radio.5g.width": json.RawMessage(`160`), "radio.5g.channel": json.RawMessage(`"auto"`)}})
+
+	// One path not set here: nothing is unset.
+	_, _, err := Apply(o, Op{Kind: Unset, Tree: Locations, Node: "house", Paths: []hierarchy.Path{"radio.5g.width", "radio.2g.width"}})
+	if !errors.Is(err, hierarchy.ErrNotSetHere) {
+		t.Fatalf("got %v, want ErrNotSetHere", err)
+	}
+	if _, ok := o.Org.Locations.Own("house", "radio.5g.width"); !ok {
+		t.Fatal("width was unset although the change failed")
+	}
+
+	_, eff, err := Apply(o, Op{Kind: Unset, Tree: Locations, Node: "house", Paths: []hierarchy.Path{"radio.5g.width", "radio.5g.channel"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Effect{Before: map[string]any{"radio.5g.width": float64(160), "radio.5g.channel": "auto"}}); !reflect.DeepEqual(eff, want) {
+		t.Fatalf("effect = %+v", eff)
+	}
+	if _, ok := o.Org.Locations.Own("house", "radio.5g.channel"); ok {
+		t.Fatal("channel still set")
+	}
+	if _, _, err := Apply(o, Op{Kind: Unset, Tree: Locations, Node: "house", Path: "radio.5g.width", Paths: []hierarchy.Path{"radio.5g.channel"}}); !errors.Is(err, ErrTwoForms) {
+		t.Fatalf("both forms: %v", err)
+	}
+}
+
 func TestLockReportsRemovedOverrides(t *testing.T) {
 	o := org(t)
 	mustApply(t, o, Op{Kind: Set, Tree: Locations, Node: "symtus", Path: "system.tz", Value: json.RawMessage(`"America/Chicago"`)})

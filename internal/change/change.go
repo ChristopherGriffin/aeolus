@@ -88,6 +88,9 @@ type Op struct {
 	// Values sets several fields of one node together, in place of Path and
 	// Value: all of them or none (0045).
 	Values map[hierarchy.Path]json.RawMessage `json:"values,omitempty"`
+	// Paths unsets several fields of one node together, in place of Path
+	// (0046).
+	Paths []hierarchy.Path `json:"paths,omitempty"`
 
 	Account   access.AccountID `json:"account,omitempty"`
 	Role      string           `json:"role,omitempty"`
@@ -116,6 +119,14 @@ func (op Op) Fields() []Field {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// Unsets lists the fields an unset removes: its path, or its paths.
+func (op Op) Unsets() []hierarchy.Path {
+	if len(op.Paths) == 0 {
+		return []hierarchy.Path{op.Path}
+	}
+	return op.Paths
 }
 
 // Effect records what a change did, for the change log: the state before and
@@ -156,7 +167,7 @@ var (
 	ErrNoValue     = errors.New("set needs a value")
 	ErrNoNode      = errors.New("change needs a node")
 	ErrNoPath      = errors.New("change needs a field path")
-	ErrTwoForms    = errors.New("set takes a path and value, or values, not both")
+	ErrTwoForms    = errors.New("a set or unset takes one field (path) or several (values, paths), not both")
 	ErrNoAccount   = errors.New("change needs an account")
 	ErrNoTokenID   = errors.New("change needs a token ID")
 	ErrUseAssign   = errors.New("service folders are set with assign-services")
@@ -236,7 +247,16 @@ func validate(op Op) error {
 				return ErrNoPath
 			}
 		}
-	case Unset, Lock, Unlock:
+	case Unset:
+		if len(op.Paths) > 0 && op.Path != "" {
+			return ErrTwoForms
+		}
+		for _, p := range op.Unsets() {
+			if p == "" {
+				return ErrNoPath
+			}
+		}
+	case Lock, Unlock:
 		if op.Path == "" {
 			return ErrNoPath
 		}
@@ -351,8 +371,7 @@ func apply(o *hierarchy.Org, op Op) (Effect, error) {
 	case Set:
 		return set(t, op)
 	case Unset:
-		before, _ := t.Own(op.Node, op.Path)
-		return Effect{Before: before}, t.Unset(op.Node, op.Path)
+		return unset(t, op)
 	case Lock:
 		removed, err := t.Lock(op.Node, op.Path)
 		return Effect{Before: false, After: true, Removed: removed}, err
@@ -404,6 +423,27 @@ func set(t *hierarchy.Tree, op Op) (Effect, error) {
 		return Effect{After: after}, nil
 	}
 	return Effect{Before: before, After: after}, nil
+}
+
+// unset unsets one field, or several together (0046). Each must be set at
+// the node; if one is not, none is unset.
+func unset(t *hierarchy.Tree, op Op) (Effect, error) {
+	if len(op.Paths) == 0 {
+		before, _ := t.Own(op.Node, op.Path)
+		return Effect{Before: before}, t.Unset(op.Node, op.Path)
+	}
+	before := map[string]any{} // string keys, as read back from the log
+	for _, p := range op.Paths {
+		v, ok := t.Own(op.Node, p)
+		if !ok {
+			return Effect{}, fmt.Errorf("%w: %s", hierarchy.ErrNotSetHere, p)
+		}
+		before[string(p)] = v
+	}
+	for _, p := range op.Paths {
+		t.Unset(op.Node, p) // each is set here, so none fails
+	}
+	return Effect{Before: before}, nil
 }
 
 func applyAccess(s *State, op Op) (Effect, error) {

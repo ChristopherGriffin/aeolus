@@ -210,7 +210,13 @@ func (s *Schema) CheckOp(op change.Op) error {
 				return err
 			}
 		}
-	case change.Unset, change.Lock, change.Unlock:
+	case change.Unset:
+		for _, p := range op.Unsets() {
+			if err := s.checkField(op.Tree, p, nil, false); err != nil {
+				return err
+			}
+		}
+	case change.Lock, change.Unlock:
 		return s.checkField(op.Tree, op.Path, nil, false)
 	}
 	return nil
