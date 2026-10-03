@@ -1,16 +1,18 @@
 # The Aeolus agent
 
-The program that runs on each AP (0040). It's written in ucode and needs nothing beyond OpenWrt's default image. Its installer also adds usteer, for band steering (0050), and snmpd, for SNMP (0052). It was built against OpenWrt 25.12.5 on PumphouseAP.
+The program that runs on each AP (0040). It's written in ucode and needs nothing beyond OpenWrt's default image. Its installer also adds usteer, for band steering (0050), snmpd, for SNMP (0052), vxlan and kmod-nft-bridge, for tunnels (0054), and ucode-mod-socket, for the prober (0059). It was built against OpenWrt 25.12.5 on PumphouseAP.
 
 | Path | What it is |
 |---|---|
 | `files/usr/sbin/aeolus-agent` | The agent. It enrolls, polls, renders, has the manager check the result, applies it with an automatic revert, and reports. |
 | `files/usr/share/ucode/aeolus/render.uc` | The renderer: intent plus the current UCI in, new UCI out. It's a pure function, so it can be tested anywhere. |
 | `files/usr/share/ucode/aeolus/uciexport.uc` | Writes packages as `uci export` text. The same text is checked and then applied. |
-| `files/etc/init.d/aeolus` | procd service. |
+| `files/usr/sbin/aeolus-prober` | The prober (0059): it probes each tunnel's segment and its concentrator, which keeps the tunnel open too, and guards tunnel ports against loops. Its plan is the agent's UCI package, as the renderer made it. |
+| `files/usr/share/ucode/aeolus/probe.uc` | The prober's frames, kernel filters and verdicts: pure, so they are tested anywhere. |
+| `files/etc/init.d/aeolus` | procd service: the agent, and the prober where ucode-mod-socket is installed. |
 | `files/lib/upgrade/keep.d/aeolus` | Keeps the token, the certificate and the settings across a sysupgrade. |
 | `install.sh` | Installs everything on an AP. |
-| `test/` | Test cases for the renderer: an intent, the config it starts from, and the UCI it must produce (`cases/*.uci`). |
+| `test/` | Test cases for the renderer: an intent, the config it starts from, and the UCI it must produce (`cases/*.uci`); and `probe.uc`, which prints the prober's frames and verdicts, with `probe.out`, what it must print. |
 
 ## Install
 
@@ -28,7 +30,7 @@ Use the manager's IP address, not its name. OpenWrt's dnsmasq has rebind protect
 
 `internal/rendercheck` in the manager holds both halves of the contract:
 - Each `cases/*.uci` must pass the render check and leave every section Aeolus doesn't own unchanged.
-- Where ucode is installed, the renderer must produce exactly that output. CI builds ucode to run this.
+- Where ucode is installed, the renderer must produce exactly that output, and `test/probe.uc` must print `test/probe.out`. CI builds ucode to run this.
 
 To run one case by hand:
 

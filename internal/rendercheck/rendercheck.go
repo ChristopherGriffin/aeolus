@@ -50,6 +50,7 @@ var Coverage = map[string]string{
 
 	"ports.*.vxlan.*.tunnel": "",
 	"ports.*.vxlan.*.vni":    "",
+	"ports.*.vxlan.*.probe":  "",
 
 	"network.*.enabled":                  "",
 	"network.*.ssid":                     "",
@@ -76,13 +77,15 @@ var Coverage = map[string]string{
 	"network.*.transport.*.vlan":         "",
 	"network.*.transport.*.concentrator": "",
 	"network.*.transport.*.vni":          "",
+	"network.*.transport.*.probe":        "", // a VLAN transport's is not used until switching (0059)
 	"network.*.transport.ha":             "the agent's own behavior (0022); checked with the agent in M5",
 	"network.*.transport.failback":       "the agent's own behavior (0022); checked with the agent in M5",
 	"network.*.transport.holddown":       "the agent's own behavior (0022); checked with the agent in M5",
 
-	"concentrators.*.address": "",
-	"concentrators.*.port":    "",
-	"concentrators.*.mtu":     "",
+	"concentrators.*.address":        "",
+	"concentrators.*.port":           "",
+	"concentrators.*.mtu":            "",
+	"concentrators.*.probe_interval": "",
 }
 
 const layout = "depends on the device's port layout; checked with the agent in M5"
@@ -143,6 +146,7 @@ func Check(doc map[string]any, c *uci.Config) []string {
 	k.steering(obj(doc, "network"))
 	k.snmp(obj(obj(doc, "system"), "snmp"))
 	k.ports(obj(doc, "ports"), obj(doc, "concentrators"))
+	k.probes(doc)
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -827,6 +831,141 @@ func (k *checker) tunnel(where, slot string, t, conc map[string]any) string {
 		}
 	}
 	return bridge
+}
+
+// The tunnels Aeolus makes and their bridges, by name (0054).
+var (
+	tunnelSection = regexp.MustCompile(`^aeolus_([0-9]+)$`)
+	bridgeSection = regexp.MustCompile(`^aeolus_[0-9]+_br$`)
+)
+
+// probes checks the prober's plan (0059), in the agent's own package: for
+// each tunnel Aeolus made, a probe section named for it, with its tunnel's
+// probe interval and every probe address set for its VNI, by a network or a
+// tunnel port; and for each port on a tunnel, a guard section naming the
+// port, and the devices the loop guard sends on: the port itself, and its
+// 802.1Q devices on tunnels. Like the renderer, it takes the tunnels and the
+// ports on them from the network config as rendered, which the other checks
+// hold to the intent.
+func (k *checker) probes(doc map[string]any) {
+	net := k.c.Package("network")
+	if net == nil {
+		return
+	}
+	type use struct {
+		interval string
+		address  []string
+	}
+	uses := map[string]*use{}
+	concs := obj(doc, "concentrators")
+	add := func(vni, tunnel string, probe any) {
+		u := uses[vni]
+		if u == nil {
+			u = &use{}
+			uses[vni] = u
+		}
+		if iv, ok := obj(concs, tunnel)["probe_interval"]; ok && u.interval == "" {
+			u.interval = text(iv)
+		}
+		if a, ok := probe.(string); ok && !slices.Contains(u.address, a) {
+			u.address = append(u.address, a)
+		}
+	}
+	for _, id := range keys(obj(doc, "network")) {
+		n := obj(obj(doc, "network"), id)
+		if n["enabled"] == false {
+			continue
+		}
+		for _, slot := range []string{"primary", "fallback"} {
+			if t := obj(obj(n, "transport"), slot); t["type"] == "vxlan" {
+				add(text(t["vni"]), text(t["concentrator"]), t["probe"])
+			}
+		}
+	}
+	for _, p := range keys(obj(doc, "ports")) {
+		set := obj(obj(doc, "ports"), p)
+		if set["mode"] != "tunnel" {
+			continue
+		}
+		for _, vlan := range keys(obj(set, "vxlan")) {
+			m := obj(obj(set, "vxlan"), vlan)
+			add(text(m["vni"]), text(m["tunnel"]), m["probe"])
+		}
+	}
+
+	a := k.c.Package("aeolus")
+	expected := map[string]bool{}
+	for _, s := range net.OfType("interface") {
+		m := tunnelSection.FindStringSubmatch(s.Name)
+		if p := value(s, "proto"); m == nil || p != "vxlan" && p != "vxlan6" {
+			continue
+		}
+		expected[s.Name] = true
+		interval, address := "30", []string(nil)
+		if u := uses[m[1]]; u != nil {
+			if u.interval != "" {
+				interval = u.interval
+			}
+			address = u.address
+		}
+		where := "aeolus." + s.Name
+		p := a.Named(s.Name)
+		if p == nil || p.Type != "probe" {
+			k.add("%s: no probe section for the tunnel, which the prober needs (0059)", where)
+			continue
+		}
+		k.option(where, p, "vni", m[1])
+		k.option(where, p, "interval", interval)
+		if got := p.List("address"); !sameSet(got, address) {
+			k.add("%s: probe addresses are %v, want %v", where, got, address)
+		}
+	}
+
+	ports := map[string]string{} // an 802.1Q device Aeolus made -> the port under it
+	for _, d := range net.OfType("device") {
+		if strings.HasPrefix(d.Name, "aeolus_") && value(d, "type") == "8021q" && value(d, "name") != "" {
+			ports[value(d, "name")] = value(d, "ifname")
+		}
+	}
+	guards := map[string][]string{}
+	for _, b := range net.OfType("device") {
+		if !bridgeSection.MatchString(b.Name) {
+			continue
+		}
+		for _, e := range b.List("ports") {
+			if strings.HasPrefix(e, "aeolus_") {
+				continue // the tunnel itself
+			}
+			p := e
+			if q, ok := ports[e]; ok {
+				p = q
+			}
+			if !slices.Contains(guards[p], e) {
+				guards[p] = append(guards[p], e)
+			}
+		}
+	}
+	for _, p := range slices.Sorted(maps.Keys(guards)) {
+		name := "aeolus_guard_" + sectionSafe.ReplaceAllString(p, "_")
+		expected[name] = true
+		where := "aeolus." + name
+		g := a.Named(name)
+		if g == nil || g.Type != "guard" {
+			k.add("%s: no loop guard for %s, which is on a tunnel (0059)", where, p)
+			continue
+		}
+		k.option(where, g, "port", p)
+		if got := g.List("device"); !sameSet(got, guards[p]) {
+			k.add("%s: guards %v, want %v", where, got, guards[p])
+		}
+	}
+	if a != nil {
+		for _, s := range a.Sections {
+			if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {
+				k.add("aeolus.%s: no tunnel or tunnel port calls for it", s.Name)
+			}
+		}
+	}
 }
 
 func (k *checker) system(sys map[string]any) {

@@ -8,8 +8,9 @@
 // Aeolus only touches what it owns (0040): the radio options intent names,
 // the bridge-vlan entries and enabled of the ports intent names (0053),
 // usteer's band_steering_interval and ssid_list (0050), all of snmpd's
-// config (0052), sections named aeolus_ (in the firewall too, 0054), and the
-// time zone, NTP and syslog settings. A section it did not create is never
+// config (0052), sections named aeolus_ (in the firewall, 0054, and in its
+// own package, the prober's plan, 0059), and the time zone, NTP and syslog
+// settings. A section it did not create is never
 // otherwise edited, or removed.
 
 'use strict';
@@ -390,6 +391,73 @@ function ports(cfg, intent, facts, errors, keep) {
 	}
 }
 
+// probes renders the prober's plan (0059) into the agent's own package: for
+// each tunnel Aeolus made, a probe section named for it, aeolus_<VNI>, with
+// its tunnel's probe interval and the addresses on its segment to ask, from
+// every network and port that uses the VNI; and for each port on a tunnel,
+// a guard section, aeolus_guard_<port>, naming the devices the loop guard
+// sends on: the port itself, and its 802.1Q devices. Both come from the
+// network config as rendered, so a port left on a tunnel is guarded too.
+function probes(cfg, intent, keep) {
+	let n = cfg.network, a = cfg.aeolus;
+	let uses = {};
+	let use = (vni, conc, address) => {
+		let u = uses['' + vni] ??= { interval: null, address: [] };
+		u.interval ??= conc?.probe_interval;
+		if (address != null && index(u.address, '' + address) < 0)
+			push(u.address, '' + address);
+	};
+	for (let id in sort(keys(intent.network ?? {}))) {
+		let net = intent.network[id];
+		if (net.enabled === false)
+			continue;
+		for (let slot in ['primary', 'fallback']) {
+			let t = net.transport?.[slot];
+			if (t?.type == 'vxlan')
+				use(t.vni, intent.concentrators?.[t.concentrator], t.probe);
+		}
+	}
+	for (let p in sort(keys(intent.ports ?? {}))) {
+		let set = intent.ports[p];
+		if (set.mode != 'tunnel')
+			continue;
+		for (let vlan in sort(keys(set.vxlan ?? {})))
+			use(set.vxlan[vlan].vni, intent.concentrators?.[set.vxlan[vlan].tunnel], set.vxlan[vlan].probe);
+	}
+	for (let s in of_type(n, 'interface')) {
+		let vni = match(s['.name'], /^aeolus_([0-9]+)$/)?.[1];
+		if (!vni || !(s.proto in { vxlan: 1, vxlan6: 1 }))
+			continue;
+		let u = uses[vni] ?? { address: [] };
+		put(a, s['.name'], 'probe', {
+			vni: vni, interval: u.interval ?? 30, address: length(u.address) ? sort(u.address) : null,
+		});
+		keep[s['.name']] = true;
+	}
+	let vlans = {};
+	for (let d in of_type(n, 'device'))
+		if (owned(d['.name']) && d.type == '8021q' && d.name && d.ifname)
+			vlans[d.name] = d.ifname;
+	let guards = {};
+	for (let b in of_type(n, 'device')) {
+		if (!match(b['.name'], /^aeolus_[0-9]+_br$/))
+			continue;
+		for (let e in list(b.ports)) {
+			if (owned(e))
+				continue;   // the tunnel itself
+			let p = vlans[e] ?? e;
+			guards[p] ??= [];
+			if (index(guards[p], e) < 0)
+				push(guards[p], e);
+		}
+	}
+	for (let p in sort(keys(guards))) {
+		let name = 'aeolus_guard_' + replace(p, /[^a-z0-9_]/g, '_');
+		put(a, name, 'guard', { port: p, device: sort(guards[p]) });
+		keep[name] = true;
+	}
+}
+
 // host_port splits "host", "host:port", "[v6]" or "[v6]:port".
 function host_port(s) {
 	let m = match(s, /^\[([^\]]+)\](:([0-9]+))?$/);
@@ -540,11 +608,16 @@ function render(intent, current, facts) {
 	radios(cfg.wireless, intent, facts ?? {});
 	networks(cfg, intent, facts ?? {}, errors, keep);
 	ports(cfg, intent, facts ?? {}, errors, keep);
-	// What Aeolus made earlier and no longer needs goes.
+	// What Aeolus made earlier and no longer needs goes. The prober's plan
+	// follows what is left, and then goes the same way.
 	for (let pkg in [cfg.wireless, cfg.network, cfg.firewall])
 		for (let k in keys(pkg))
 			if (owned(k) && !keep[k])
 				delete pkg[k];
+	probes(cfg, intent, keep);
+	for (let k in keys(cfg.aeolus))
+		if (owned(k) && !keep[k])
+			delete cfg.aeolus[k];
 	system(cfg.system, intent, facts ?? {});
 	agent(cfg.aeolus, intent);
 	steering(cfg.usteer, intent, errors);

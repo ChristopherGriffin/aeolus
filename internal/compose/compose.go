@@ -123,10 +123,15 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 			}
 		}
 	}
+	// What a tunnel leaves unset is its default, written out, so the AP and
+	// the render check need not know the defaults (0056, 0059).
 	for cid := range used {
 		if _, set := fields["concentrators."+cid+".mtu"]; !set {
 			addr, _ := fields["concentrators."+cid+".address"].(string)
 			fields["concentrators."+cid+".mtu"] = float64(DefaultMTU(addr))
+		}
+		if _, set := fields["concentrators."+cid+".probe_interval"]; !set {
+			fields["concentrators."+cid+".probe_interval"] = float64(DefaultProbeInterval)
 		}
 	}
 
@@ -469,6 +474,11 @@ func ReportedProblems(doc map[string]any, r Reported) []string {
 	}
 	return out
 }
+
+// DefaultProbeInterval is the seconds between a tunnel's probes when none
+// is set (0059): well inside the five minutes a concentrator keeps a quiet
+// tunnel end it learned.
+const DefaultProbeInterval = 30
 
 // DefaultMTU is a tunnel's MTU when none is set (0056): what a 1500-byte
 // path carries once VXLAN's headers are added, 50 bytes over IPv4 and 70

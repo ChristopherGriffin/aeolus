@@ -9,7 +9,7 @@
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
-import { bandName, security, group, value, ago } from '../format.js';
+import { bandName, security, group, value, ago, probeOnly, PROBE_ONLY } from '../format.js';
 import { fieldPanels, editing } from './fields.js';
 import { only, configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -24,7 +24,7 @@ const MORE = 'More settings';
 const SECTIONS = [
 	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation', 'multicast_to_unicast']],
 	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
-	['Traffic', ['transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni']],
+	['Traffic', ['transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni', 'transport.primary.probe']],
 ];
 
 export async function networksTab(ctx, id, page) {
@@ -125,7 +125,7 @@ function view(ctx, n, bandsHere, box, noUsteer, lib) {
 		const type = f(`transport.${slot}.type`);
 		if (!type) return null;
 		return type === 'vxlan'
-			? `VXLAN over ${tunnelName(lib, f(`transport.${slot}.concentrator`))} · VNI ${f(`transport.${slot}.vni`)}`
+			? `VXLAN over ${tunnelName(lib, f(`transport.${slot}.concentrator`))} · VNI ${f(`transport.${slot}.vni`)}${f(`transport.${slot}.probe`) ? ` · asks ${f(`transport.${slot}.probe`)}` : ''}`
 			: `VLAN ${f(`transport.${slot}.vlan`)}`;
 	};
 	const roaming = [f('roaming.ft') && '11r', f('roaming.rrm') && '11k', f('roaming.btm') && '11v'].filter(Boolean);
@@ -277,8 +277,9 @@ function steeringStatus(ctx, reports) {
 }
 
 // The fields a transport's type shows: a VLAN's ID, or a VXLAN's
-// concentrator and VNI. The others stay hidden, and are not sent.
-const FOR_TYPE = { vlan: ['vlan'], vxlan: ['concentrator', 'vni'] };
+// concentrator, VNI and probe address (0059). The others stay hidden, and
+// are not sent.
+const FOR_TYPE = { vlan: ['vlan'], vxlan: ['concentrator', 'vni', 'probe'] };
 
 // What only means something once there is a fallback transport (0022).
 const WITH_FALLBACK = ['transport.ha', 'transport.failback', 'transport.holddown'];
@@ -377,7 +378,7 @@ function editForm(ctx, d, n, close, lib) {
 					? [value(path, n.fields[path.split('.').slice(2).join('.')].value), ' → '] : '', shown(path, v)))),
 			h('div', { class: 'sub' }, `This changes the network in Services › ${folderName}, for every location that uses it.`),
 		], [
-			h('div', { class: 'sub warn' }, 'Applying restarts the Wi-Fi on each AP listed; its clients drop for a few seconds and reconnect.'),
+			h('div', { class: 'sub warn' }, probeOnly(Object.keys(values)) ? PROBE_ONLY : 'Applying restarts the Wi-Fi on each AP listed; its clients drop for a few seconds and reconnect.'),
 		]);
 	};
 	return h('div', { class: 'fieldform', 'data-editing': true },

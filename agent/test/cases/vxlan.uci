@@ -215,6 +215,15 @@ config agent 'agent'
 	option uplink 'wan'
 	option poll '60'
 
+config probe 'aeolus_50'
+	option vni '50'
+	option interval '20'
+	list address '192.168.50.1'
+
+config probe 'aeolus_10'
+	option vni '10'
+	option interval '20'
+
 package usteer
 
 config usteer

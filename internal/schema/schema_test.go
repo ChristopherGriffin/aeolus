@@ -191,20 +191,23 @@ func TestLeaves(t *testing.T) {
 func TestFieldPaths(t *testing.T) {
 	s := v1(t)
 	ok := map[hierarchy.Path]change.TreeName{
-		"radio.2g.channel":                     change.Locations,
-		"radio.6g.width":                       change.Locations,
-		"system.management.vlan":               change.Locations,
-		"ports.eth0.tagged":                    change.Locations,
-		"ports.lan1.bond":                      change.Locations,
-		"network.sweet.ssid":                   change.Services,
-		"network.sweet.transport.primary.vni":  change.Services,
-		"network.sweet.roaming.ft":             change.Services,
-		"network.guest-2.rate_limit.down_kbps": change.Services,
-		"concentrators.homelab.address":        change.Locations,
-		"network.vlan-guests.ssid":             change.Services,
-		"ports.lan3.vxlan.50.vni":              change.Locations,
-		"ports.lan3.vxlan.untagged.tunnel":     change.Locations,
-		"network.vlan2go.ssid":                 change.Services,
+		"radio.2g.channel":                      change.Locations,
+		"radio.6g.width":                        change.Locations,
+		"system.management.vlan":                change.Locations,
+		"ports.eth0.tagged":                     change.Locations,
+		"ports.lan1.bond":                       change.Locations,
+		"network.sweet.ssid":                    change.Services,
+		"network.sweet.transport.primary.vni":   change.Services,
+		"network.sweet.roaming.ft":              change.Services,
+		"network.guest-2.rate_limit.down_kbps":  change.Services,
+		"concentrators.homelab.address":         change.Locations,
+		"network.vlan-guests.ssid":              change.Services,
+		"ports.lan3.vxlan.50.vni":               change.Locations,
+		"ports.lan3.vxlan.untagged.tunnel":      change.Locations,
+		"network.vlan2go.ssid":                  change.Services,
+		"concentrators.arista.probe_interval":   change.Locations,
+		"network.sweet.transport.primary.probe": change.Services,
+		"ports.lan3.vxlan.30.probe":             change.Locations,
 	}
 	for p, tree := range ok {
 		f, err := s.Field(p)

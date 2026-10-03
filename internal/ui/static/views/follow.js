@@ -3,7 +3,7 @@
 // each field becomes and where that comes from.
 
 import { h } from '../dom.js';
-import { group, value } from '../format.js';
+import { group, value, probeOnly, PROBE_ONLY } from '../format.js';
 import { ask, confirm } from './confirm.js';
 
 // followButton offers to unset paths at node, previewing in box. parentName
@@ -23,9 +23,11 @@ async function follow(ctx, tree, node, nodeName, parentName, paths, box, heading
 	const names = (id) => ctx.name('services', id);
 	const before = paths.length === 1 ? { [paths[0]]: p.effect?.before } : (p.effect?.before || {});
 	const radios = paths.some((x) => x.startsWith('radio.'));
-	const vnis = paths.some((x) => /^ports\.[^.]+\.vxlan\./.test(x));
-	const ports = !vnis && paths.some((x) => x.startsWith('ports.'));
-	const tunnels = paths.some((x) => x.startsWith('concentrators.'));
+	// What the prober asks, and how often, reloads nothing (0059).
+	const probes = probeOnly(paths);
+	const vnis = !probes && paths.some((x) => /^ports\.[^.]+\.vxlan\./.test(x));
+	const ports = !probes && !vnis && paths.some((x) => x.startsWith('ports.'));
+	const tunnels = !probes && paths.some((x) => x.startsWith('concentrators.'));
 	confirm(ctx, box, op, p, [
 		h('div', null, h('strong', null, heading ?? (parentName ? `${nodeName} follows ${parentName} again` : `${nodeName} stops setting ${paths.length === 1 ? 'this' : 'these'}`))),
 		h('ul', { class: 'becomes' }, paths.map((path) => {
@@ -38,6 +40,7 @@ async function follow(ctx, tree, node, nodeName, parentName, paths, box, heading
 		})),
 	], [
 		radios && h('div', { class: 'sub warn' }, 'Applying restarts each radio whose settings change; its clients drop briefly and reconnect.'),
+		probes && h('div', { class: 'sub warn' }, PROBE_ONLY),
 		ports && h('div', { class: 'sub warn' }, "Applying reloads each AP's network; wired clients on the port drop briefly. Each AP leaves a port Aeolus no longer sets as it is."),
 		// A tunnel port carries only the VNIs in force, so one removed comes off (0058).
 		vnis && h('div', { class: 'sub warn' }, "Applying reloads each AP's network; wired clients on the port drop briefly. Each AP takes the port off a VNI it no longer carries; the port stays a tunnel port."),

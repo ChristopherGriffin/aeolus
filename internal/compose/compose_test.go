@@ -123,10 +123,12 @@ func TestTunnelsAreLocationSettings(t *testing.T) {
 	set("symtus", "concentrators.homelab.port", 4789)
 	set("symtus", "concentrators.homelab.mtu", 1400)
 	set("office-ap", "concentrators.homelab.address", "1.1.1.10")
+	set("office-ap", "concentrators.homelab.probe_interval", 10)
 	set("symtus", "concentrators.spare.address", "1.1.1.11") // no port or MTU, and unused
+	// What a tunnel leaves unset comes as its default (0056, 0059).
 	for ap, want := range map[string]map[string]any{
-		"office-ap": {"address": "1.1.1.10", "port": float64(4789), "mtu": float64(1400)},
-		"gate-ap":   {"address": "1.1.1.2", "port": float64(4789), "mtu": float64(1450)},
+		"office-ap": {"address": "1.1.1.10", "port": float64(4789), "mtu": float64(1400), "probe_interval": float64(10)},
+		"gate-ap":   {"address": "1.1.1.2", "port": float64(4789), "mtu": float64(1450), "probe_interval": float64(30)},
 	} {
 		res, err := AP(s, sch, hierarchy.NodeID(ap), nil)
 		must(t, err)

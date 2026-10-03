@@ -1,0 +1,32 @@
+arp probe ffffffffffffaa046021366008060001080006040001aa046021366000000000000000000000c0a83201000000000000000000000000000000000000
+arp answer { "from": "192.168.50.1", "key": "arp:192.168.50.1" }
+arp answer to another AP 
+arp request is no answer 
+echo6 333300000001aa046021366086dd6000000000103afffe80000000000000ac0460fffe213661ff0200000000000000000000000000018000b2f51234000161656f6c75733539
+echo6 answer { "from": "fe80::2ae7:1dff:feca:2913", "key": "echo:1" }
+echo6 answer to another id 
+echo4 08006a461234000761656f6c75733539
+echo4 answer { "from": "1.1.1.2", "seq": 7 }
+echo4 request is no answer 
+echo6 plain 800000001234000761656f6c75733539
+echo6 plain answer { "seq": 7 }
+checksum 220d
+ip6 2001:db8::2 -> 2001:db8::2
+ip6 fe80::ac04:60ff:fe21:3661 -> fe80::ac04:60ff:fe21:3661
+ip6 ff02::1 -> ff02::1
+ip6 :: -> ::
+ip6 1:0:0:2:0:0:0:3 -> 1:0:0:2::3
+ip6 2001:db8:0:1:1:1:1:1 -> 2001:db8:0:1:1:1:1:1
+guard 03ae01000059aa046021366388b561656f6c75732d6c6f6f701030303131323233336161626263636464046c616e33076c616e332e33300000000000
+guard seen { "port": "lan3", "device": "lan3.30" }
+guard of another run 
+not a guard frame 
+verdict answered 10 s ago: up
+verdict answered 100 s ago: down
+verdict just started: unknown
+verdict never answered, concentrator does: unverified
+verdict never answered, nor the concentrator: down
+verdict answered at 90, now 180: up
+verdict answered at 90, now 181: down
+filter overlay: 13 instructions, jumps land inside, ends returning
+filter guard: 6 instructions, jumps land inside, ends returning

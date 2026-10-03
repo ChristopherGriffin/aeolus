@@ -32,6 +32,8 @@ var (
 	networkIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 	portNameRE  = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,15}$`) // as the schema names ports
 	speedRE     = regexp.MustCompile(`^([0-9]{1,6}[FH])?$`)
+	// deviceRE is a Linux device's name, as the loop guard reports one (0059).
+	deviceRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$`)
 )
 
 // secretOptions are the UCI options that hold keys and passwords (0041).
@@ -186,24 +188,55 @@ type stateReport struct {
 
 // vxlanState is what the AP's VXLAN tunnels are doing (0054): whether the
 // packages they need are installed (vxlan, and kmod-nft-bridge for the
-// clamp), and each tunnel Aeolus made.
+// clamp), each tunnel Aeolus made, and whether the prober can run and which
+// tunnel ports its loop guard took off their tunnels (0059).
 type vxlanState struct {
 	Installed bool          `json:"installed"`
 	Loaded    *bool         `json:"loaded,omitempty"` // whether netifd has loaded vxlan (0057)
 	Clamp     bool          `json:"clamp"`
+	Prober    *bool         `json:"prober,omitempty"`     // whether ucode-mod-socket, which the prober needs, is installed (0059)
 	UplinkMTU int           `json:"uplink_mtu,omitempty"` // what the AP's uplink carries now (0056)
 	Tunnels   []tunnelState `json:"tunnels,omitempty"`
+	Loops     []loopState   `json:"loops,omitempty"`
 }
 
 // tunnelState is one tunnel: its VNI, the concentrator's address and port,
-// its MTU, and whether it is up, or standing by as a fallback.
+// its MTU, whether it is up, or standing by as a fallback, and what the
+// prober found.
 type tunnelState struct {
-	VNI     int    `json:"vni"`
-	Peer    string `json:"peer"`
-	Port    int    `json:"port"`
-	MTU     int    `json:"mtu"`
-	Up      bool   `json:"up"`
-	Standby bool   `json:"standby,omitempty"`
+	VNI     int         `json:"vni"`
+	Peer    string      `json:"peer"`
+	Port    int         `json:"port"`
+	MTU     int         `json:"mtu"`
+	Up      bool        `json:"up"`
+	Standby bool        `json:"standby,omitempty"`
+	Probe   *probeState `json:"probe,omitempty"`
+}
+
+// probeState is what the prober found for a tunnel (0059): its verdict, how
+// often it probes and what it asks, whether the concentrator answers a ping
+// over the underlay and how fast, and what on the segment last answered,
+// how fast, and how many seconds ago. What is not known yet is null.
+type probeState struct {
+	Verdict     string   `json:"verdict"`
+	Interval    int      `json:"interval"`
+	Asks        []string `json:"asks,omitempty"`
+	Underlay    *bool    `json:"underlay"`
+	UnderlayMS  *float64 `json:"underlay_ms"`
+	From        string   `json:"from,omitempty"`
+	RTTMS       *float64 `json:"rtt_ms"`
+	AnsweredAgo *int64   `json:"answered_ago"`
+}
+
+// loopState is a tunnel port the loop guard took off its tunnels (0059):
+// the device whose frame came back, the VNI it carries, the device the frame
+// came back in on, and how many seconds ago.
+type loopState struct {
+	Port   string `json:"port"`
+	Device string `json:"device"`
+	VNI    int    `json:"vni,omitempty"`
+	CameIn string `json:"came_in,omitempty"`
+	Ago    int64  `json:"ago"`
 }
 
 // portState is one Ethernet port in the bridge the AP's uplink is in
@@ -257,9 +290,10 @@ type transportState struct {
 }
 
 var (
-	bands   = map[string]bool{"2g": true, "5g": true, "6g": true}
-	actives = map[string]bool{"primary": true, "fallback": true, "none": true}
-	healths = map[string]bool{"": true, "up": true, "down": true, "unknown": true}
+	verdicts = map[string]bool{"up": true, "down": true, "unverified": true, "unknown": true, "off": true}
+	bands    = map[string]bool{"2g": true, "5g": true, "6g": true}
+	actives  = map[string]bool{"primary": true, "fallback": true, "none": true}
+	healths  = map[string]bool{"": true, "up": true, "down": true, "unknown": true}
 )
 
 func (st *stateReport) check() error {
@@ -326,6 +360,18 @@ func (st *stateReport) check() error {
 			if t.VNI < 1 || t.VNI > 16777215 || t.Port < 1 || t.Port > 65535 || t.MTU < 0 || t.MTU > 9000 || net.ParseIP(t.Peer) == nil {
 				return badRequest("vxlan: each tunnel has a VNI from 1 to 16777215, its peer's IP address, a port and an MTU of at most 9000")
 			}
+			if err := t.Probe.check(); err != nil {
+				return err
+			}
+		}
+		if len(x.Loops) > 32 {
+			return badRequest("vxlan: at most 32 loops")
+		}
+		for _, l := range x.Loops {
+			if !portNameRE.MatchString(l.Port) || !deviceRE.MatchString(l.Device) || (l.CameIn != "" && !deviceRE.MatchString(l.CameIn)) ||
+				l.VNI < 0 || l.VNI > 16777215 || l.Ago < 0 {
+				return badRequest("vxlan: each loop has its port's name, the devices the frame went out and came in on, a VNI and seconds ago")
+			}
 		}
 	}
 	for id, t := range st.Transports {
@@ -334,6 +380,23 @@ func (st *stateReport) check() error {
 		}
 		if !actives[t.Active] || !healths[t.Primary] || !healths[t.Fallback] {
 			return badRequest("network %s: active is primary, fallback or none; health is up, down or unknown", id)
+		}
+	}
+	return nil
+}
+
+func (p *probeState) check() error {
+	if p == nil {
+		return nil
+	}
+	bad := func(f *float64) bool { return f != nil && (*f < 0 || *f > 1e6) }
+	if !verdicts[p.Verdict] || p.Interval < 0 || p.Interval > 300 || len(p.Asks) > 8 || bad(p.UnderlayMS) || bad(p.RTTMS) ||
+		(p.AnsweredAgo != nil && *p.AnsweredAgo < 0) || (p.From != "" && net.ParseIP(p.From) == nil) {
+		return badRequest("vxlan: a tunnel's probe has a verdict (up, down, unverified, unknown or off), an interval of at most 300 seconds, at most 8 addresses it asks, times that are not negative, and the IP address that answered")
+	}
+	for _, a := range p.Asks {
+		if net.ParseIP(a) == nil {
+			return badRequest("vxlan: a probe asks IP addresses")
 		}
 	}
 	return nil

@@ -1,7 +1,7 @@
 // One AP: whether it runs what it should, its settings in the same tabs as a
 // folder's (0047), what it reported, and its history (0039, 0041).
 
-import { h } from '../dom.js';
+import { h, link } from '../dom.js';
 import { get } from '../api.js';
 import { bandName, when, ago } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, SUBTABS } from '../layout.js';
@@ -46,6 +46,7 @@ export async function apPage(ctx, id, tab, sub) {
 		cfg.check?.problems?.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Its config breaks these rules, so it is not sent'),
 			h('ul', null, cfg.check.problems.map((p) => h('li', null, p)))),
+		tunnelTrouble(cond, base),
 		tabBar(base, TABS, tab),
 	];
 	if (tab === 'overview') {
@@ -58,6 +59,21 @@ export async function apPage(ctx, id, tab, sub) {
 	else main.push(await systemSection(ctx, id, page, edit));
 	const keep = tab === 'overview' ? '' : `/${tab}${SUBTABS.has(tab) && sub ? '/' + sub : ''}`;
 	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps), keep), main, refresh: 30 };
+}
+
+// tunnelTrouble warns of a tunnel the AP's prober finds down, and of a port
+// its loop guard took off its tunnels (0059). The Tunnels view says more.
+function tunnelTrouble(cond, base) {
+	const x = cond.state?.report?.vxlan;
+	const down = (x?.tunnels || []).filter((t) => t.probe?.verdict === 'down');
+	const loops = x?.loops || [];
+	if (!down.length && !loops.length) return null;
+	return h('div', { class: 'banner problems' },
+		h('strong', null, 'Its tunnels need a look'),
+		h('ul', null,
+			down.map((t) => h('li', null, `The tunnel to ${t.peer}, VNI ${t.vni}, is down: ${t.probe.underlay === false ? `${t.peer} cannot be reached` : `nothing on VNI ${t.vni} answers`}.`)),
+			loops.map((l) => h('li', null, `${l.port} is off its tunnels: VNI ${l.vni ?? '?'} loops.`))),
+		h('div', null, link(`${base}/interfaces/tunnels`, 'See Interfaces › Tunnels')));
 }
 
 function statusPanel(st, cfg, cond) {

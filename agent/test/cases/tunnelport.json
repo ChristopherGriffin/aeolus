@@ -1,5 +1,5 @@
 {
-	"about": "PumphouseAP with tunnel ports (0058): lan3 carries VNI 50 untagged, the segment Aeolus Lab's Wi-Fi is on, and VNI 30 tagged as VLAN 30. lan4 was on VNI 30 as VLAN 30 before, and is set back to an access port on VLAN 20: it leaves the tunnel, and its 802.1Q device goes, while VNI 30's tunnel stays for lan3.",
+	"about": "PumphouseAP with tunnel ports (0058): lan3 carries VNI 50 untagged, the segment Aeolus Lab's Wi-Fi is on, and VNI 30 tagged as VLAN 30. lan4 was on VNI 30 as VLAN 30 before, and is set back to an access port on VLAN 20: it leaves the tunnel, and its 802.1Q device goes, while VNI 30's tunnel stays for lan3. The prober (0059) asks both addresses set for VNI 50, the network's and the port's, and the loop guard sends on lan3 and lan3.30.",
 	"current": "pumphouse-current.json",
 	"extra": {
 		"network": {
@@ -24,10 +24,10 @@
 		"system": { "country": "US", "poll": 60 },
 		"network": {
 			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1",
-				"transport": { "primary": { "type": "vxlan", "concentrator": "arista", "vni": 50 } } }
+				"transport": { "primary": { "type": "vxlan", "concentrator": "arista", "vni": 50, "probe": "192.168.50.3" } } }
 		},
 		"ports": {
-			"lan3": { "mode": "tunnel", "vxlan": { "untagged": { "tunnel": "arista", "vni": 50 }, "30": { "tunnel": "arista", "vni": 30 } } },
+			"lan3": { "mode": "tunnel", "vxlan": { "untagged": { "tunnel": "arista", "vni": 50, "probe": "192.168.50.1" }, "30": { "tunnel": "arista", "vni": 30 } } },
 			"lan4": { "mode": "access", "untagged": 20 }
 		},
 		"concentrators": { "arista": { "address": "1.1.1.2", "port": 4789, "mtu": 1450 } }
