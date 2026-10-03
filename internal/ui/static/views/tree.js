@@ -9,7 +9,8 @@ import { group, value, ago } from '../format.js';
 import { treeAside, crumbs, fleetMap, tabBar, pick } from '../layout.js';
 import { fieldPanels, editing } from './fields.js';
 import { apPage } from './ap.js';
-import { hardwareTab, networksTab, systemSection } from './sections.js';
+import { hardwareTab, systemSection } from './sections.js';
+import { networksTab } from './networks.js';
 
 const TABS = [['hardware', 'Hardware'], ['networks', 'Networks'], ['system', 'System']];
 

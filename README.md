@@ -90,6 +90,7 @@ Each milestone ends in something checkable before the next starts.
 | [0045](docs/decisions/0045-aps-pick-their-channels.md) | APs pick their own channels, and a width never waits on one |
 | [0046](docs/decisions/0046-following-the-folder-again.md) | Following the folder again |
 | [0047](docs/decisions/0047-folder-tabs.md) | A Locations page in tabs: Hardware, Networks, System |
+| [0048](docs/decisions/0048-editing-networks-where-they-are-shown.md) | Editing networks where they are shown (proposed) |
 
 ## Open questions
 

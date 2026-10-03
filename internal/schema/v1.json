@@ -121,7 +121,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "description": "false turns off an inherited network in one place (0012)." },
+        "enabled": { "type": "boolean", "default": true, "description": "false turns off an inherited network in one place (0012); unset, it is on." },
         "ssid": { "type": "string", "minLength": 1, "maxLength": 32 },
         "hidden": { "type": "boolean" },
         "bands": { "type": "array", "items": { "enum": ["2g", "5g", "6g"] }, "minItems": 1, "uniqueItems": true },

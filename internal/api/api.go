@@ -71,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/aps/{ap}/history", s.auth(s.apHistory))
 	mux.Handle("GET /v1/changes", s.auth(s.changes))
 	mux.Handle("GET /v1/library", s.auth(s.library))
+	mux.Handle("GET /v1/schema", s.auth(s.describe))
 	mux.Handle("POST /v1/changes", s.auth(s.commit))
 	mux.Handle("POST /v1/preview", s.auth(s.preview))
 	mux.Handle("POST /v1/tokens", s.auth(s.issueToken))

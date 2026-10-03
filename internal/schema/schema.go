@@ -363,6 +363,64 @@ func (s *Schema) Leaves() []string {
 	return out
 }
 
+// Description is what a client needs to offer the schema's fields for
+// editing (0048): each settable field as its JSON Schema, with the tree it
+// is set in, and the pattern a name must match where a path takes any name.
+type Description struct {
+	Fields map[string]map[string]any `json:"fields"` // by path, "*" for any name; "x-aeolus-tree" says which tree
+	Names  map[string]string         `json:"names"`  // by the path before the "*"
+}
+
+// Describe lists every field that can be set. Fields the manager fills in
+// itself are left out.
+func (s *Schema) Describe() Description {
+	d := Description{Fields: map[string]map[string]any{}, Names: map[string]string{}}
+	var walk func(node map[string]any, prefix, tree string)
+	walk = func(node map[string]any, prefix, tree string) {
+		node, _ = s.deref(node, "")
+		if node["type"] != "object" {
+			f := make(map[string]any, len(node)+1)
+			for k, v := range node {
+				f[k] = v
+			}
+			f["x-aeolus-tree"] = tree
+			d.Fields[prefix] = f
+			return
+		}
+		join := func(seg string) string {
+			if prefix == "" {
+				return seg
+			}
+			return prefix + "." + seg
+		}
+		props, _ := node["properties"].(map[string]any)
+		for name, child := range props {
+			m, ok := child.(map[string]any)
+			if !ok {
+				continue
+			}
+			t := tree
+			if prefix == "" {
+				if m["readOnly"] == true {
+					continue
+				}
+				t, _ = m["x-aeolus-tree"].(string)
+			}
+			walk(m, join(name), t)
+		}
+		if extra, ok := node["additionalProperties"].(map[string]any); ok {
+			if pn, ok := node["propertyNames"].(map[string]any); ok {
+				if pn, _ = s.deref(pn, ""); pn["pattern"] != nil {
+					d.Names[prefix], _ = pn["pattern"].(string)
+				}
+			}
+			walk(extra, join("*"), tree)
+		}
+	}
+	walk(s.raw, "", "")
+	return d
+}
+
 // deref follows local $refs, returning the node and its JSON pointer.
 func (s *Schema) deref(node map[string]any, ptr string) (map[string]any, string) {
 	for {
