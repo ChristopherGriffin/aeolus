@@ -1,10 +1,10 @@
 // When the page redraws itself. Pages that show live AP state redraw every
 // 30 s; while a person is editing, they do not, so nothing they typed is
 // lost; and just after a change, they redraw every few seconds to show the
-// AP picking it up.
+// AP picking it up. Anything open for editing (a form, a preview) carries a
+// data-editing attribute: while one is on the page, it is not redrawn.
 
 let redraw = null;
-let editing = 0;
 let fastUntil = 0;
 
 // setRedraw is called once by the app with its render function.
@@ -15,11 +15,6 @@ export function setRedraw(fn) {
 // redrawNow redraws the current page, keeping its scroll position.
 export function redrawNow() {
 	redraw?.(true);
-}
-
-// stopAllEditing forgets any editing, when the person leaves the page.
-export function stopAllEditing() {
-	editing = 0;
 }
 
 let note = null;
@@ -33,16 +28,8 @@ export function currentFlash() {
 	return note && Date.now() < note.until ? note.text : null;
 }
 
-export function startEditing() {
-	editing++;
-}
-
-export function stopEditing() {
-	editing = Math.max(0, editing - 1);
-}
-
 export function isEditing() {
-	return editing > 0;
+	return document.querySelector('[data-editing]') !== null;
 }
 
 // hurry redraws often for a while, to watch a change land.

@@ -7,7 +7,8 @@ import { bandName, when, ago } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
-import { hardwareTab, networksTab, systemSection } from './sections.js';
+import { hardwareTab, systemSection } from './sections.js';
+import { networksTab } from './networks.js';
 
 const TABS = [['overview', 'Overview'], ['hardware', 'Hardware'], ['networks', 'Networks'], ['system', 'System']];
 
@@ -51,7 +52,7 @@ export async function apPage(ctx, id, tab, sub) {
 			h('div', { class: 'col' }, latest(cond)),
 			h('div', { class: 'col' }, enrollment(facts))), history(hist));
 	} else if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub, thisAP));
-	else if (tab === 'networks') main.push(await networksTab(ctx, id, page, thisAP));
+	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 	else main.push(systemSection(ctx, id, page, edit));
 	const keep = tab === 'overview' ? '' : `/${tab}${tab === 'hardware' && sub ? '/' + sub : ''}`;
 	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps), keep), main, refresh: 30 };

@@ -88,3 +88,15 @@ export async function post(path, body) {
 	if (!res.ok) throw new APIError(res.status, out.error || res.statusText);
 	return out;
 }
+
+let described = null;
+
+// schema reads which fields can be set and what each takes (0048), once a
+// page load: it is the same for everyone and changes only with a release.
+export function schema() {
+	described ??= get('/v1/schema').catch((e) => {
+		described = null;
+		throw e;
+	});
+	return described;
+}

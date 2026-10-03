@@ -5,17 +5,16 @@
 
 import { h } from '../dom.js';
 import { post } from '../api.js';
-import { startEditing, stopEditing, hurry, flash, redrawNow } from '../refresh.js';
+import { hurry, flash, redrawNow } from '../refresh.js';
 
 // ask previews op, showing progress and any error in box. It returns the
 // preview, or null if there is none.
 export async function ask(box, op) {
-	startEditing();
-	box.replaceChildren(h('div', { class: 'sub' }, 'Checking…'));
+	box.replaceChildren(h('div', { class: 'sub', 'data-editing': true }, 'Checking…'));
 	try {
 		return await post('/v1/preview', { op });
 	} catch (e) {
-		box.replaceChildren(h('div', { class: 'error' }, e.message), cancelButton(box));
+		box.replaceChildren(h('div', { 'data-editing': true }, h('div', { class: 'error' }, e.message), cancelButton(box)));
 		return null;
 	}
 }
@@ -33,7 +32,7 @@ export function confirm(ctx, box, op, p, lines, notes) {
 		apply.disabled = true;
 		try {
 			const res = await post('/v1/changes', { op, reason: reason.value.trim() });
-			stopEditing();
+			box.replaceChildren();
 			hurry(150);
 			const who = affected.length === 1 ? name(affected[0]) : `The ${affected.length} APs`;
 			flash(`Saved as change #${res.change.seq}. ${affected.length ? `${who} pick${affected.length === 1 ? 's' : ''} it up on the next poll, within about a minute.` : 'No AP\'s config changed.'}`);
@@ -44,7 +43,7 @@ export function confirm(ctx, box, op, p, lines, notes) {
 			box.append(h('div', { class: 'error' }, e.message));
 		}
 	});
-	box.replaceChildren(h('div', { class: 'preview' },
+	box.replaceChildren(h('div', { class: 'preview', 'data-editing': true },
 		lines,
 		h('div', { class: 'sub' }, affected.length
 			? `New config version for ${affected.length <= 5 ? affected.map(name).join(', ') : `${affected.length} APs`}.`
@@ -58,5 +57,5 @@ export function confirm(ctx, box, op, p, lines, notes) {
 }
 
 export function cancelButton(box) {
-	return h('button', { type: 'button', class: 'button', onclick: () => { box.replaceChildren(); stopEditing(); } }, 'Cancel');
+	return h('button', { type: 'button', class: 'button', onclick: () => box.replaceChildren() }, 'Cancel');
 }

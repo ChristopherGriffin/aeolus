@@ -129,6 +129,37 @@ func TestScenarioPassesTheGuardAndBuildsValidConfigs(t *testing.T) {
 	}
 }
 
+func TestDescribe(t *testing.T) {
+	sch, err := V1()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := sch.Describe()
+	ssid := d.Fields["network.*.ssid"]
+	if ssid["type"] != "string" || ssid["maxLength"] != json.Number("32") && ssid["maxLength"] != float64(32) || ssid["x-aeolus-tree"] != "services" {
+		t.Fatalf("network.*.ssid = %v", ssid)
+	}
+	if vlan := d.Fields["network.*.transport.primary.vlan"]; vlan["type"] != "integer" || vlan["x-aeolus-tree"] != "services" {
+		t.Fatalf("vlan = %v", vlan) // through two $refs
+	}
+	if pass := d.Fields["network.*.passphrase"]; pass["writeOnly"] != true {
+		t.Fatalf("passphrase = %v", pass)
+	}
+	if w := d.Fields["radio.5g.width"]; w["x-aeolus-tree"] != "locations" {
+		t.Fatalf("radio.5g.width = %v", w)
+	}
+	if d.Names["network"] != "^[a-z0-9][a-z0-9-]{0,31}$" || d.Names["ports"] == "" {
+		t.Fatalf("names = %v", d.Names)
+	}
+	// Every leaf but those the manager fills in.
+	for _, l := range sch.Leaves() {
+		_, described := d.Fields[l]
+		if described == strings.HasPrefix(l, "concentrators.") {
+			t.Errorf("%s described: %v", l, described)
+		}
+	}
+}
+
 func TestLeaves(t *testing.T) {
 	sch := v1(t)
 	leaves := sch.Leaves()

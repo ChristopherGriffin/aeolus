@@ -1,6 +1,10 @@
 package api
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 // An AP that set its own radio settings follows its folder again in one
 // change, and the preview says what each field becomes (0046).
@@ -46,5 +50,45 @@ func TestFollowTheFolderAgain(t *testing.T) {
 	// Nothing is left to unset: refused, and nothing changes.
 	if code, b := f.change("griff", op); code != 400 {
 		t.Fatalf("again: %d %v", code, b)
+	}
+}
+
+func TestSchemaDescribesItsFields(t *testing.T) {
+	f := newFixture(t)
+	if code, _ := f.do("GET", "/v1/schema", "", nil); code != 401 {
+		t.Fatalf("without a token: %d", code)
+	}
+	code, d := f.do("GET", "/v1/schema", "tenant", nil)
+	if code != 200 {
+		t.Fatalf("%d %v", code, d)
+	}
+	sec := d["fields"].(map[string]any)["network.*.security"].(map[string]any)
+	if len(sec["enum"].([]any)) != 5 || sec["x-aeolus-tree"] != "services" {
+		t.Fatalf("security = %v", sec)
+	}
+	if d["names"].(map[string]any)["network"] == nil {
+		t.Fatalf("names = %v", d["names"])
+	}
+}
+
+// A secret set with other fields in one change is sealed before it is
+// logged, like one set alone (0027, 0045).
+func TestValuesSealSecrets(t *testing.T) {
+	f := newFixture(t)
+	code, res := f.change("griff", map[string]any{"kind": "set", "tree": "services", "node": "household", "values": map[string]any{
+		"network.guest2.ssid": "Guest 2", "network.guest2.security": "wpa2-psk", "network.guest2.passphrase": "plain-text-passphrase",
+		"network.guest2.transport.primary.type": "vlan", "network.guest2.transport.primary.vlan": 30}})
+	if code != 200 {
+		t.Fatalf("%d %v", code, res)
+	}
+	_, log := f.do("GET", "/v1/changes", "griff", nil)
+	raw := fmt.Sprint(log)
+	if strings.Contains(raw, "plain-text-passphrase") {
+		t.Fatalf("the passphrase reached the log view: %s", raw)
+	}
+	changes := log["changes"].([]any)
+	op := changes[len(changes)-1].(map[string]any)["op"].(map[string]any)
+	if pass := op["values"].(map[string]any)["network.guest2.passphrase"]; fmt.Sprint(pass) != "map[sealed:true]" {
+		t.Fatalf("passphrase logged as %v", pass)
 	}
 }

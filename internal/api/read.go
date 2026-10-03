@@ -298,3 +298,10 @@ func (s *Server) reversioned(state *change.State, seq int64) []hierarchy.NodeID 
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
+
+// describe tells a client the fields it can set, so it can offer them for
+// editing (0048). Anyone signed in may read it: it is the same for everyone.
+func (s *Server) describe(w http.ResponseWriter, r *http.Request, c call) error {
+	writeJSON(w, http.StatusOK, s.schema.Describe())
+	return nil
+}

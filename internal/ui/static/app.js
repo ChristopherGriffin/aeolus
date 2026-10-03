@@ -2,7 +2,7 @@
 
 import { h } from './dom.js';
 import { get, token, signOut, APIError } from './api.js';
-import { setRedraw, isEditing, interval, stopAllEditing, currentFlash } from './refresh.js';
+import { setRedraw, isEditing, interval, currentFlash } from './refresh.js';
 import { signinPage } from './views/signin.js';
 import { treePage } from './views/tree.js';
 import { apPage } from './views/ap.js';
@@ -52,7 +52,6 @@ async function render(quiet) {
 		app.replaceChildren(signinPage(() => { location.hash = '#/locations'; render(); }));
 		return;
 	}
-	if (!quiet) stopAllEditing(); // a new page: nothing is being edited
 	const mine = ++rendering;
 	const old = app.querySelector('main');
 	const scroll = quiet && old ? old.scrollTop : 0;
