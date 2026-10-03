@@ -2,8 +2,8 @@
 // only what every AP it reaches can do, so the whole folder runs the same; an
 // AP offers what its own radios can do, as its own custom setting. The
 // manager works out what is offered (the page's "hardware"); this draws it.
-// A width some AP's channel cannot carry moves the channel in the same
-// change (0045).
+// A width some AP's channel cannot carry sets the channel to automatic in
+// the same change, so each AP picks one that fits (0045).
 //
 // Every change is previewed first, needs a reason, and is logged under the
 // person's name (0042).
@@ -43,7 +43,7 @@ function band(ctx, node, nodeName, page, b, now, isAP, canEdit, hw) {
 	const select = h('select', { 'aria-label': `${bandName(b.band)} width` },
 		h('option', { value: '' }, field ? `Keep ${field.value} MHz` : 'Choose a width'),
 		b.widths.map((w) => h('option', { value: String(w.width), disabled: !w.ok }, `${w.width} MHz`,
-			!w.ok ? ` (${w.why})` : w.channel ? ` (moves to channel ${w.channel})` : '')),
+			!w.ok ? ` (${w.why})` : w.auto ? ' (channel becomes automatic)' : '')),
 		field?.origin === 'self' && h('option', { value: 'unset' },
 			isAP ? 'Stop the custom setting; follow the folder' : 'Stop setting it here'));
 	const change = h('button', { type: 'button', class: 'button', disabled: true }, 'Change…');
@@ -74,7 +74,7 @@ async function preview(ctx, node, nodeName, isAP, b, now, path, field, choice, b
 	const w = b.widths.find((x) => String(x.width) === choice);
 	let op;
 	if (choice === 'unset') op = { kind: 'unset', tree: 'locations', node, path };
-	else if (w?.channel) op = { kind: 'set', tree: 'locations', node, values: { [path]: w.width, [`radio.${b.band}.channel`]: w.channel } };
+	else if (w?.auto) op = { kind: 'set', tree: 'locations', node, values: { [path]: w.width, [`radio.${b.band}.channel`]: 'auto' } };
 	else op = { kind: 'set', tree: 'locations', node, path, value: Number(choice) };
 	startEditing();
 	box.replaceChildren(h('div', { class: 'sub' }, 'Checking…'));
@@ -110,9 +110,9 @@ async function preview(ctx, node, nodeName, isAP, b, now, path, field, choice, b
 	});
 	box.replaceChildren(h('div', { class: 'preview' },
 		h('div', null, h('strong', null, `${bandName(b.band)} width on ${nodeName}: `), was, ' → ', becomes),
-		w?.channel && h('div', null, h('strong', null, 'Channel: '),
-			`set to ${w.channel} on ${nodeName}, so the width fits`,
-			w.moves?.length ? `. Moves ${w.moves.map((m) => `${m.name} from ${m.from || 'automatic'}`).join(', ')}.` : '.'),
+		w?.auto && h('div', null, h('strong', null, 'Channel: '),
+			`set to automatic on ${nodeName}, so each AP picks a free channel that fits the width`,
+			w.moves?.length ? `. ${w.moves.map((m) => `${m.name} leaves channel ${m.from}`).join(', ')}.` : '.'),
 		isAP && op.kind === 'set' && field && field.from !== node && h('div', { class: 'sub' },
 			`This becomes a custom setting on ${nodeName}, instead of following ${name(field.from)}.`),
 		h('div', { class: 'sub' }, affected.length

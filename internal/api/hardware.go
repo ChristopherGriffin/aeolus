@@ -13,8 +13,8 @@ import (
 // What a Locations node can offer for its radios (0044). A folder offers
 // only what every AP it reaches can do, so its setting is the same for all
 // of them; an AP offers what its own radios can do, as its own setting. A
-// width some AP's channel cannot carry comes with the channel to move to,
-// set in the same change (0045).
+// width some AP's channel cannot carry comes with setting the channel to
+// automatic in the same change, so each AP picks one that fits (0045).
 
 type apRef struct {
 	ID   hierarchy.NodeID `json:"id"`
@@ -22,16 +22,15 @@ type apRef struct {
 }
 
 type widthView struct {
-	Width   int        `json:"width"`
-	OK      bool       `json:"ok"`
-	Why     string     `json:"why,omitempty"`
-	Channel int        `json:"channel,omitempty"` // the channel to set with this width, when some AP's cannot carry it
-	Moves   []moveView `json:"moves,omitempty"`   // the APs that setting the channel moves
-	Radar   bool       `json:"radar,omitempty"`   // some AP would then be on radar (DFS) channels
+	Width int        `json:"width"`
+	OK    bool       `json:"ok"`
+	Why   string     `json:"why,omitempty"`
+	Auto  bool       `json:"auto,omitempty"`  // the channel is set to automatic with this width, as some AP's cannot carry it
+	Moves []moveView `json:"moves,omitempty"` // the APs that leave a fixed channel for an automatic one
+	Radar bool       `json:"radar,omitempty"` // some AP would then certainly be on radar (DFS) channels
 }
 
-// moveView is an AP whose channel a change moves, and the channel it is on
-// now: 0 for automatic or not known.
+// moveView is an AP that leaves a fixed channel, and that channel.
 type moveView struct {
 	apRef
 	From int `json:"from"`
@@ -144,8 +143,9 @@ func channelLock(t *hierarchy.Tree, node hierarchy.NodeID, band string) string {
 
 // judge says whether every AP can use a width on a band, and if not, the
 // first reason and how many more APs share the trouble. Where an AP's
-// channel cannot carry the width, the width comes with the channel to move
-// to, unless a channel set below or a lock above is in the way (0045).
+// channel cannot carry the width, the width comes with setting the channel
+// to automatic, unless a channel set below or a lock above is in the way
+// (0045).
 func judge(band string, w int, aps []apRadios, alone bool, lockedBy string) widthView {
 	var cannot []string
 	var stuck []apRadios
@@ -176,17 +176,14 @@ func judge(band string, w int, aps []apRadios, alone bool, lockedBy string) widt
 	case move && lockedBy != "":
 		return widthView{Width: w, Why: "the channel is locked at " + lockedBy}
 	}
-	v := widthView{Width: w, OK: true}
-	if move {
-		v.Channel = radio.MoveTo(band, w)
-	}
+	v := widthView{Width: w, OK: true, Auto: move}
 	for _, r := range aps {
 		ch := r.channels[band]
 		if move && r.setBelow[band].ID == "" {
-			if ch != v.Channel {
+			if ch != 0 {
 				v.Moves = append(v.Moves, moveView{r.ref, ch})
 			}
-			ch = v.Channel
+			ch = 0
 		}
 		v.Radar = v.Radar || radio.Radar(band, ch, w)
 	}

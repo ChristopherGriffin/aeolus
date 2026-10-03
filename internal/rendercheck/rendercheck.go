@@ -10,6 +10,7 @@ package rendercheck
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -144,6 +145,10 @@ func (k *checker) radios(doc map[string]any) []device {
 	return out
 }
 
+// auto2g are the channels an automatic 2.4 GHz radio picks from: the only
+// ones that do not overlap (0045).
+var auto2g = []string{"1", "6", "11"}
+
 var htmodeRE = regexp.MustCompile(`^(NOHT|HT|VHT|HE|EHT)([0-9]*)$`)
 
 func (k *checker) radioSettings(doc map[string]any, radios []device) {
@@ -159,6 +164,13 @@ func (k *checker) radioSettings(doc map[string]any, radios []device) {
 		}
 		if v, ok := set["channel"]; ok {
 			k.option(where, r.s, "channel", text(v))
+			var want []string
+			if v == "auto" && r.band == "2g" {
+				want = auto2g
+			}
+			if got := r.s.List("channels"); !slices.Equal(got, want) {
+				k.add("%s: channels is %q, want %q", where, got, want)
+			}
 		}
 		if v, ok := set["width"].(float64); ok {
 			m := htmodeRE.FindStringSubmatch(value(r.s, "htmode"))

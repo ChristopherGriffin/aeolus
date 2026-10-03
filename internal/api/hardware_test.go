@@ -108,13 +108,13 @@ func TestFolderOffersWhatEveryAPCanDo(t *testing.T) {
 		t.Fatalf("WideAP = %v", wideAP)
 	}
 	// On channel 149, which cannot carry 160 MHz, it is still offered, with
-	// the channel to move to (0045).
+	// the channel set to automatic (0045).
 	f.report(a[1], map[string]int{"5g": 149})
 	_, hw = f.hardwareOf(a[0])
-	if w := widthOf(t, hw, "5g", 160); w["ok"] != true || w["channel"] != 36.0 || len(w["moves"].([]any)) != 1 {
+	if w := widthOf(t, hw, "5g", 160); w["ok"] != true || w["auto"] != true || len(w["moves"].([]any)) != 1 {
 		t.Fatalf("WideAP 160 MHz on 149 = %v", w)
 	}
-	if w := widthOf(t, hw, "5g", 80); w["ok"] != true || w["channel"] != nil || w["radar"] != nil {
+	if w := widthOf(t, hw, "5g", 80); w["ok"] != true || w["auto"] != nil || w["radar"] != nil {
 		t.Fatalf("WideAP 80 MHz on 149 = %v", w)
 	}
 
@@ -137,25 +137,30 @@ func TestWidthMovesTheChannel(t *testing.T) {
 	a := strings.Split(f.enrollAt("LowAP", "02:00:00:00:00:0a", "house", wide, map[string]int{"5g": 36}), "|")[0]
 	b := strings.Split(f.enrollAt("HighAP", "02:00:00:00:00:0b", "house", wide, map[string]int{"5g": 149}), "|")[0]
 
-	// House offers 160 MHz, moving the band to 36. Only HighAP moves, and
-	// 36–64 includes radar channels. 80 MHz fits both where they are.
+	// House offers 160 MHz with the channel set to automatic: both APs
+	// leave their fixed channels, and every 160 MHz block has radar
+	// channels. 80 MHz fits both where they are.
 	_, hw := f.hardwareOf("house")
 	w := widthOf(t, hw, "5g", 160)
 	moves, _ := w["moves"].([]any)
-	if w["ok"] != true || w["channel"] != 36.0 || w["radar"] != true || len(moves) != 1 {
+	if w["ok"] != true || w["auto"] != true || w["radar"] != true || len(moves) != 2 {
 		t.Fatalf("160 MHz = %v", w)
 	}
-	if m := moves[0].(map[string]any); m["id"] != b || m["name"] != "HighAP" || m["from"] != 149.0 {
+	from := map[any]any{}
+	for _, m := range moves {
+		from[m.(map[string]any)["name"]] = m.(map[string]any)["from"]
+	}
+	if from["LowAP"] != 36.0 || from["HighAP"] != 149.0 {
 		t.Fatalf("moves = %v", moves)
 	}
-	if w := widthOf(t, hw, "5g", 80); w["ok"] != true || w["channel"] != nil || w["moves"] != nil || w["radar"] != nil {
+	if w := widthOf(t, hw, "5g", 80); w["ok"] != true || w["auto"] != nil || w["moves"] != nil || w["radar"] != nil {
 		t.Fatalf("80 MHz = %v", w)
 	}
 
 	// Width and channel go in one change: one log entry, one new version
 	// for each AP, and no problems.
 	code, res := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house",
-		"values": map[string]any{"radio.5g.width": 160, "radio.5g.channel": 36}})
+		"values": map[string]any{"radio.5g.width": 160, "radio.5g.channel": "auto"}})
 	if code != 200 || len(res["reversioned"].([]any)) != 3 || len(res["checks"].(map[string]any)) != 0 {
 		t.Fatalf("%d %v", code, res)
 	}
@@ -163,13 +168,13 @@ func TestWidthMovesTheChannel(t *testing.T) {
 	if before := eff["before"].(map[string]any); before["radio.5g.width"] != 40.0 || len(before) != 1 {
 		t.Fatalf("effect = %v", eff)
 	}
-	if after := eff["after"].(map[string]any); after["radio.5g.width"] != 160.0 || after["radio.5g.channel"] != 36.0 {
+	if after := eff["after"].(map[string]any); after["radio.5g.width"] != 160.0 || after["radio.5g.channel"] != "auto" {
 		t.Fatalf("effect = %v", eff)
 	}
 	for _, ap := range []string{a, b} {
 		_, page := f.do("GET", "/v1/trees/locations/nodes/"+ap, "griff", nil)
 		ch := page["fields"].(map[string]any)["radio.5g.channel"].(map[string]any)
-		if ch["value"] != 36.0 || ch["from"] != "house" {
+		if ch["value"] != "auto" || ch["from"] != "house" {
 			t.Fatalf("%s channel = %v", ap, ch)
 		}
 	}

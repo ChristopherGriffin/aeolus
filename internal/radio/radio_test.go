@@ -41,23 +41,6 @@ func TestFits(t *testing.T) {
 	}
 }
 
-func TestMoveTo(t *testing.T) {
-	for _, c := range []struct {
-		band string
-		w    int
-		want int
-	}{{"5g", 160, 36}, {"5g", 80, 36}, {"5g", 40, 36}, {"5g", 20, 0}, {"2g", 40, 0}} {
-		if got := MoveTo(c.band, c.w); got != c.want {
-			t.Errorf("MoveTo(%s, %d) = %d, want %d", c.band, c.w, got, c.want)
-		}
-		if to := MoveTo(c.band, c.w); to != 0 {
-			if ok, why := Fits(c.band, to, c.w); !ok {
-				t.Errorf("MoveTo(%s, %d) = %d, which does not fit: %s", c.band, c.w, to, why)
-			}
-		}
-	}
-}
-
 func TestRadar(t *testing.T) {
 	for _, c := range []struct {
 		band       string
@@ -70,7 +53,9 @@ func TestRadar(t *testing.T) {
 		{"5g", 48, 40, false},
 		{"5g", 100, 80, true},
 		{"5g", 149, 80, false},
-		{"5g", 0, 160, false},
+		{"5g", 0, 160, true}, // automatic: every 160 MHz block has radar channels
+		{"5g", 0, 80, false}, // 36–48 and 149–161 do not
+		{"5g", 0, 20, false},
 		{"2g", 6, 40, false},
 	} {
 		if got := Radar(c.band, c.channel, c.w); got != c.want {
