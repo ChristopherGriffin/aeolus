@@ -24,9 +24,16 @@ const FIELDS = ['enabled', 'mode', 'untagged', 'tagged'];
 
 const RELOAD = "Applying reloads each AP's network: wired clients on this port drop briefly. An AP that can no longer reach Aeolus puts its old settings back within 90 seconds.";
 
-// A tunnel's fields, in order, and where a new one starts (0055).
+// A tunnel's fields, in order, and where a new one starts (0055). Its MTU is
+// left to the default unless someone sets one (0056).
 const TUNNEL = ['address', 'port', 'mtu'];
-const TUNNEL_START = { port: 4789, mtu: 1450 };
+const TUNNEL_START = { port: 4789 };
+
+// defaultMTU is a tunnel's MTU when none is set: what a 1500-byte uplink
+// carries once VXLAN's headers are added (0056).
+function defaultMTU(address) {
+	return String(address ?? '').includes(':') ? 1430 : 1450;
+}
 const TUNNEL_RELOAD = "Applying reloads the network, and restarts the Wi-Fi, on each AP whose networks use this tunnel. An AP that can no longer reach Aeolus puts its old settings back within 90 seconds.";
 
 // interfacesTab draws the Interfaces tab of a Locations node whose page is
@@ -73,13 +80,23 @@ function tunnelCard(ctx, d, here, nodeName, name, fields, edit) {
 	const body = h('div', null);
 	const box = h('div', { class: 'edit' });
 	const names = (id) => ctx.name('locations', id);
-	const close = () => body.replaceChildren(h('div', null, paths.map((path) => {
-		const r = fields[path];
-		return h('div', { class: 'row' },
-			h('div', { class: 'label' }, group(path).label),
-			h('div', { class: 'value' }, value(path, r.value)),
-			origin('locations', here, r, names));
-	})));
+	const mtuPath = `concentrators.${name}.mtu`;
+	const close = () => body.replaceChildren(h('div', null,
+		paths.map((path) => {
+			const r = fields[path];
+			const rowBox = h('div', { class: 'edit' });
+			return [h('div', { class: 'row' },
+				h('div', { class: 'label' }, group(path).label),
+				h('div', { class: 'value' }, value(path, r.value)),
+				origin('locations', here, r, names),
+				edit && r.origin === 'self' && !onlyHere && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, [path], rowBox),
+				edit && path === mtuPath && r.origin === 'self' && onlyHere && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, [path], rowBox,
+					'Use the default', `Tunnel ${name} on ${nodeName} goes back to the default MTU`)),
+			rowBox];
+		}),
+		!fields[mtuPath] && h('div', { class: 'row' },
+			h('div', { class: 'label' }, 'MTU'),
+			h('div', { class: 'value' }, `default, ${defaultMTU(fields[`concentrators.${name}.address`]?.value)}`))));
 	close();
 	return h('section', { class: 'panel' },
 		h('h2', null, name,
@@ -131,6 +148,10 @@ function tunnelForm(ctx, d, here, nodeName, name, fields, fresh, close) {
 			const el = rows.get(prefix + k)?.it.el;
 			if (el) el.value = String(v);
 		}
+	// Left empty, the MTU is the default; a number is a custom MTU, which the
+	// AP's uplink must carry (0056).
+	const mtuEl = rows.get(prefix + 'mtu')?.it.el;
+	if (mtuEl) mtuEl.placeholder = 'default: 1450 (1430 over IPv6)';
 	const out = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
 	const review = async () => {
@@ -141,8 +162,8 @@ function tunnelForm(ctx, d, here, nodeName, name, fields, fresh, close) {
 			if (fresh)
 				for (const k of TUNNEL) {
 					const v = rows.get(prefix + k)?.it.read();
-					if (v === undefined) throw new Error(`${group(prefix + k).label}: set it`);
-					values[prefix + k] = v;
+					if (v === undefined && k !== 'mtu') throw new Error(`${group(prefix + k).label}: set it`);
+					if (v !== undefined) values[prefix + k] = v;
 				}
 		} catch (e) {
 			msg.replaceChildren(e.message);

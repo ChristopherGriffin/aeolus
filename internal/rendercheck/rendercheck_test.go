@@ -207,6 +207,7 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"tunnel proto", "option proto 'vxlan'", "option proto 'vxlan6'", "network.aeolus_20: proto is \"vxlan6\""},
 		{"tunnel vni", "option vid '20'\n\toption mtu", "option vid '21'\n\toption mtu", "network.aeolus_20: vid is \"21\""},
 		{"tunnel mtu", "option mtu '1450'", "option mtu '1500'", "aeolus_20: mtu is \"1500\""},
+		{"uplink mtu", "option device 'br-lan.1'", "option device 'br-lan.1'\n\toption mtu '1499'", "an MTU of 1450 needs 1500 on the AP's uplink, lan (br-lan.1), which carries 1499"},
 		{"tunnel port", "option port '4789'", "option port '8472'", "port is \"8472\""},
 		{"tunlink", "\toption tunlink 'lan'\n", "", "aeolus_20: tunlink is missing"},
 		{"tunlink names", "option tunlink 'lan'", "option tunlink 'wan'", "tunlink \"wan\" names no interface"},
@@ -483,8 +484,13 @@ func TestTunnelFallbackAndIPv6(t *testing.T) {
 	}
 	const good = `package wireless
 package network
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	option mtu '9000'
 config interface 'lan'
 	option proto 'dhcp'
+	option device 'br-lan.1'
 config interface 'aeolus_sweet'
 	option proto 'none'
 	option device 'br-lan.20'
@@ -510,9 +516,19 @@ config rule 'aeolus_vxlan_5000'
 	option dest_port '4789'
 	option target 'ACCEPT'
 `
-	// MTU 1500 needs no clamp, and an unset port is vxlan's default.
+	// MTU 1500 needs no clamp, and an unset port is vxlan's default. The
+	// jumbo bridge carries the tunnel's 1570-byte packets.
 	if got := check(good); got != "" {
 		t.Fatalf("problems with the right config: %s", got)
+	}
+	// Without it, the uplink is Linux's 1500 (0056).
+	if got := check(strings.Replace(good, "\toption mtu '9000'\n", "", 1)); !strings.Contains(got,
+		"network.sweet.transport.fallback: an MTU of 1500 needs 1570 on the AP's uplink, lan (br-lan.1), which carries 1500") {
+		t.Fatalf("a 1500 uplink: %s", got)
+	}
+	// The interface's own MTU counts first.
+	if got := check(strings.Replace(good, "\toption device 'br-lan.1'\n", "\toption device 'br-lan.1'\n\toption mtu '1500'\n", 1)); !strings.Contains(got, "which carries 1500") {
+		t.Fatalf("the interface's MTU: %s", got)
 	}
 	if got := check(strings.Replace(good, "\toption auto '0'\n", "", 1)); !strings.Contains(got, "the fallback's tunnel is started; it waits") {
 		t.Fatalf("a started fallback: %s", got)

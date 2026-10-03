@@ -98,6 +98,7 @@ Each milestone ends in something checkable before the next starts.
 | [0053](docs/decisions/0053-ethernet-ports.md) | Ethernet ports, and an Interfaces tab |
 | [0054](docs/decisions/0054-vxlan-transports.md) | VXLAN transports on the AP |
 | [0055](docs/decisions/0055-tunnels-in-locations.md) | Tunnels are set in Locations; the library is shelved |
+| [0056](docs/decisions/0056-tunnel-mtu.md) | A tunnel's MTU: default or custom, and only what the uplink carries (proposed) |
 
 ## Open questions
 

@@ -147,6 +147,43 @@ func TestTunnelsAreLocationSettings(t *testing.T) {
 	}
 }
 
+// A tunnel without an MTU gets the default for its far end's family (0056).
+func TestTunnelMTUDefault(t *testing.T) {
+	s, sch := site(t)
+	op := func(kind change.Kind, path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: kind, Tree: change.Locations, Node: "gate", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mtu := func() any {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		if len(res.Problems) != 0 {
+			t.Fatalf("problems: %v", res.Problems)
+		}
+		return res.Doc["concentrators"].(map[string]any)["homelab"].(map[string]any)["mtu"]
+	}
+	if got := mtu(); got != float64(1450) {
+		t.Fatalf("set: %v", got)
+	}
+	if _, _, err := change.Apply(s, change.Op{Kind: change.Unset, Tree: change.Locations, Node: "gate", Path: "concentrators.homelab.mtu"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := mtu(); got != float64(1450) {
+		t.Fatalf("IPv4 default: %v", got)
+	}
+	op(change.Set, "concentrators.homelab.address", "2001:db8::2")
+	if got := mtu(); got != float64(1430) {
+		t.Fatalf("IPv6 default: %v", got)
+	}
+	op(change.Set, "concentrators.homelab.mtu", 9000)
+	if got := mtu(); got != float64(9000) {
+		t.Fatalf("custom: %v", got)
+	}
+}
+
 func TestLandingZoneAPGetsNothing(t *testing.T) {
 	s, sch := site(t)
 	res, err := AP(s, sch, "new-ap", nil)

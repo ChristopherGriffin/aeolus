@@ -287,6 +287,24 @@ func (s *Store) Latest(ap hierarchy.NodeID) (Latest, error) {
 	return out, nil
 }
 
+// LatestState is an AP's newest state report, or nil if it has sent none.
+func (s *Store) LatestState(ap hierarchy.NodeID) (*State, error) {
+	var st State
+	var at, report string
+	err := s.db.QueryRow(`SELECT at, version, report FROM states WHERE ap = ? ORDER BY id DESC LIMIT 1`, string(ap)).Scan(&at, &st.Version, &report)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if st.At, err = time.Parse(time.RFC3339Nano, at); err != nil {
+		return nil, err
+	}
+	st.Report = json.RawMessage(report)
+	return &st, nil
+}
+
 func (s *Store) seen(ap hierarchy.NodeID) (*Seen, error) {
 	var at, source string
 	var running sql.NullInt64

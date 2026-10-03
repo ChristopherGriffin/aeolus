@@ -573,6 +573,38 @@ func (k *checker) ports(want map[string]any) {
 	}
 }
 
+// underlayMTU is the MTU of the interface a tunnel runs over, as the AP's
+// config sets it (0056): the interface's own mtu, or else its device's, or
+// else, for a VLAN on a device (br-lan.1), that device's. Where nothing
+// sets one, it is Linux's 1500. It returns the device too, to name it.
+func underlayMTU(net *uci.Package, iface *uci.Section) (int, string) {
+	dev := value(iface, "device")
+	set := func(v string) (int, bool) {
+		n, err := strconv.Atoi(v)
+		return n, err == nil && n > 0
+	}
+	if n, ok := set(value(iface, "mtu")); ok {
+		return n, dev
+	}
+	of := func(name string) string {
+		for _, d := range net.OfType("device") {
+			if value(d, "name") == name {
+				return value(d, "mtu")
+			}
+		}
+		return ""
+	}
+	if n, ok := set(of(dev)); ok {
+		return n, dev
+	}
+	if i := strings.LastIndex(dev, "."); i > 0 {
+		if n, ok := set(of(dev[:i])); ok {
+			return n, dev
+		}
+	}
+	return 1500, dev
+}
+
 // portEntry says what a bridge-vlan entry's flags make of the VLAN.
 func portEntry(flags string) string {
 	switch {
@@ -674,6 +706,22 @@ func (k *checker) tunnel(where, slot string, t, conc map[string]any) string {
 		k.add("%s: tunlink is missing, want the management interface", at)
 	} else if l := net.Named(link); l == nil || l.Type != "interface" {
 		k.add("%s: tunlink %q names no interface", at, link)
+	} else {
+		// The tunnel's packets are its MTU plus VXLAN's headers, and the
+		// AP's uplink must carry them whole: VXLAN endpoints seldom put
+		// fragments back together (0056).
+		overhead := 50
+		if strings.Contains(address, ":") {
+			overhead = 70
+		}
+		mtu, _ := conc["mtu"].(float64)
+		if under, dev := underlayMTU(net, l); int(mtu)+overhead > under {
+			if dev != "" {
+				link += " (" + dev + ")"
+			}
+			k.add("%s: an MTU of %d needs %d on the AP's uplink, %s, which carries %d; raise the uplink's MTU, or leave the tunnel's MTU at its default (0056)",
+				where, int(mtu), int(mtu)+overhead, link, under)
+		}
 	}
 	auto := value(s, "auto") != "0"
 	if slot == "primary" && !auto {

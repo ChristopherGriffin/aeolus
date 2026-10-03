@@ -13,7 +13,6 @@ import (
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
-	"github.com/ChristopherGriffin/aeolus/internal/compose"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
 
@@ -199,7 +198,7 @@ func (s *Server) apPoll(w http.ResponseWriter, r *http.Request, c apCall) error 
 		w.WriteHeader(http.StatusNotModified)
 		return nil
 	}
-	res, err := compose.AP(s.log.Snapshot(), s.schema, c.ap, s.reveal)
+	res, err := s.compose(s.log.Snapshot(), c.ap, s.reveal)
 	if err != nil {
 		return err
 	}

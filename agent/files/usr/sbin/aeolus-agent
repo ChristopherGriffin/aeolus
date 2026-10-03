@@ -439,8 +439,9 @@ function ports_state() {
 }
 
 // vxlan_state says what the AP's tunnels are doing (0054): whether the
-// packages they need are there, and for each tunnel Aeolus made, its VNI,
-// peer, port and MTU, and whether it is up, or standing by as a fallback.
+// packages they need are there, the MTU its uplink carries now, which the
+// tunnels run over (0056), and for each tunnel Aeolus made, its VNI, peer,
+// port and MTU, and whether it is up, or standing by as a fallback.
 function vxlan_state() {
 	let tunnels = [];
 	cursor().foreach('network', 'interface', s => {
@@ -453,7 +454,8 @@ function vxlan_state() {
 			mtu: int(s.mtu ?? '0'), up: up, standby: !up && s.auto == '0',
 		});
 	});
-	return { installed: has_vxlan(), clamp: has_nft_bridge(), tunnels: slice(tunnels, 0, 64) };
+	let uplink_mtu = int(read(`/sys/class/net/${mgmt_device()}/mtu`) ?? '0');
+	return { installed: has_vxlan(), clamp: has_nft_bridge(), uplink_mtu: uplink_mtu, tunnels: slice(tunnels, 0, 64) };
 }
 
 function report_state(running, token) {
