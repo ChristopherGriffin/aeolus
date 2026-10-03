@@ -19,37 +19,45 @@
 
 ### Probes
 
-- **The agent probes every transport the AP runs, every interval:** each VXLAN tunnel, each VNI on it, and a network's VLAN fallback. A tunnel's probes double as its keepalive.
+- **The agent probes every transport the AP runs, every interval:** each VXLAN tunnel, each VNI on it, and, once switching is built, a network's VLAN fallback. A tunnel's probes double as its keepalive.
 - **Two checks, reported separately,** so a failure says where it is:
   - **Underlay:** an ICMP echo to the concentrator's address, over the management interface. Says whether the AP can reach the concentrator at all.
   - **Overlay:** a probe inside the segment. Says whether traffic actually crosses the tunnel, or the VLAN, and comes back.
 - **The overlay probe goes only toward the far side:**
   - A VXLAN probe is sent straight on the tunnel device `aeolus_<VNI>`, not on its bridge, so no Wi-Fi client or tunnel port sees it.
-  - A VLAN probe is sent tagged straight on the uplink.
+  - A VLAN probe, with switching, is sent tagged straight on the uplink.
   - Only an answer that comes back in on that same device counts. A Wi-Fi client of this AP can't vouch for the tunnel.
 - **What the overlay probe asks:**
-  - **A probe address, if one is set:** an address on the segment, normally its gateway. It is asked by ARP from 0.0.0.0, as a host checks an address before using it, so the AP needs no address of its own on the segment.
+  - **A probe address, if one is set:** an IPv4 address on the segment, normally its gateway. It is asked by ARP from 0.0.0.0, as a host checks an address before using it, so the AP needs no address of its own on the segment.
     - On OpenWrtnight, the Arista's VLAN 50 address, 192.168.50.1, answers such a probe, and so does a host on that VLAN.
     - The first probe after a long silence went unanswered, while the Arista was still learning the AP; every probe after it was answered. That is one reason a single miss is not `down`.
-  - **Otherwise, any IPv6 neighbor:** an echo to all-nodes (`ff02::1`) from a link-local address. Any host on the far side with IPv6 answers. Linux, macOS and phones answer by default (OpenWrtnight does too); an Arista SVI needs `ipv6 enable`.
+  - **Otherwise, any IPv6 neighbor:** an echo to all-nodes (`ff02::1`) from the bridge's link-local address. Any host on the far side with IPv6 answers. Linux, macOS and phones answer by default (OpenWrtnight does too); an Arista SVI needs `ipv6 enable`.
+    - On OpenWrtnight nothing on VNI 50 answers it: the Arista's VLAN 50 has no IPv6. Without a probe address, VNI 50 is `unverified`, which is why it has one, 192.168.50.1.
 - **The verdict for each transport:**
   - **`up`:** the overlay answered within the last three intervals.
-  - **`down`:** the underlay doesn't answer, or the overlay answered before and has now missed three probes in a row.
+  - **`unknown`:** for the first three intervals, unless it answered.
+  - **`down`:** the overlay answered before and has now missed three probes in a row; or neither the overlay nor the underlay has ever answered.
   - **`unverified`:** the underlay answers, but nothing on the segment has ever answered. The AP can't tell broken from quiet. This is reported with the hint to set a probe address, and it never triggers a switch.
 - **The fields:**
-  - **`concentrators.<name>.probe_interval`:** seconds, 5 to 300, default 30, settable per tunnel. A VLAN fallback is probed every 30 seconds.
+  - **`concentrators.<name>.probe_interval`:** seconds, 5 to 300, default 30, settable per tunnel. With switching, a VLAN fallback is probed every 30 seconds.
   - **`probe`:** the probe address, on a network's transport (`transport.primary.probe`, `transport.fallback.probe`) and on a tunnel port's VNI (`ports.<name>.vxlan.<vlan>.probe`). Where a network and a port use the same VNI, the AP asks every address set for it.
+- **The plan is config.** The renderer writes it into the agent's own UCI package:
+  - a `probe` section per tunnel, `aeolus_<VNI>`, with its interval and addresses;
+  - a `guard` section per tunnel port, `aeolus_guard_<port>`, naming the devices to send on.
+
+  Both are made from the network config as rendered, so a port left on a tunnel is still guarded. The render check holds them to the intent like everything else. A change to them reloads nothing on the AP: the prober reads its plan again within 10 seconds.
 - **How the agent does it:**
   - A small ucode process, the prober, runs under procd beside the agent, so probes keep their rhythm while the agent is applying a config.
   - It sends raw frames through ucode's socket module, `ucode-mod-socket`, which the installer adds, as it added `kmod-nft-bridge` (0054). OpenWrtnight has `ping` but no `arping`.
   - A packet socket bound to `aeolus_50` sends a frame straight into the tunnel, and sees only what comes back in on it. The answer comes in addressed to the bridge, not to the tunnel device, and it still counts. Checked on OpenWrtnight.
-  - It writes its latest results to `/var/run/aeolus/`, and the agent puts them in each state report.
+  - A kernel filter on that socket keeps only ARP replies and ICMPv6 echo replies. The tunnel's other traffic, clients' included, never reaches the prober.
+  - It writes its latest results to `/var/run/aeolus/probes.json`. The agent puts them in each state report, and sends a report at once when a tunnel's verdict changes or a loop is found.
 
 ### The loop guard
 
 - **On each tunnel port, every 2 seconds,** the prober sends a small frame of its own: a locally administered multicast address, IEEE's local experimental EtherType `0x88B5`, and a nonce of its own.
 - **If that frame comes back in on any other device** (the tunnel, the uplink, or another port), the segment loops.
-- **Then the agent turns that tunnel port off** and reports which VNI looped and where the frame came back.
+- **Then the prober takes that port off its tunnels,** through netifd (`set_state`, deferred), and the agent reports which VNI looped and where the frame came back.
 - **The port stays off until its settings change or the agent restarts.** Turning it back on by itself would restart the storm. The Interfaces view says so.
 - **Wi-Fi networks get no guard.** A client can't bridge two SSIDs together in normal use.
 
@@ -91,11 +99,11 @@
 - **APs need the new agent files, and `ucode-mod-socket`.**
 - **A network with a fallback changes how it is rendered** (a bridge of its own), and so needs one network reload on each AP.
 - **Built in two steps:**
-  1. Probes, keepalive, the loop guard and the reporting.
-  2. Switching.
+  1. Probes of the tunnels, keepalive, the loop guard and the reporting.
+  2. Switching, with the VLAN fallback's probe.
 
   Step 1 is useful on its own, and step 2 needs step 1's verdicts.
 
 ## Open
 
-- Whether the Arista's VLAN 50 interface has IPv6 on, so it answers the all-nodes echo when no probe address is set. Checked while building step 1; until then, VNI 50's probe address is 192.168.50.1.
+- **The loop guard has not met a real loop yet.** Its frames, its kernel filter and its reading of what comes back are tested in CI, and on OpenWrtnight it sent its frames on lan1 without trouble. Taking a port off its tunnels waits for a controlled test in the lab: two ports cabled together, before tunnel ports are used in earnest.

@@ -6,11 +6,12 @@
 // A port in tunnel mode carries VNIs instead of VLANs, each untagged or on a
 // VLAN of its own (0058).
 // Tunnels is where tunnels are set, by name, for every AP below (0055), and
-// shows each AP's VXLAN tunnels live, beside what its networks ask for (0054).
+// shows each AP's VXLAN tunnels live, beside what its networks and ports ask
+// for (0054), with what the AP's prober found (0059).
 
 import { h, link } from '../dom.js';
 import { schema } from '../api.js';
-import { group, value, origin, ago } from '../format.js';
+import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY } from '../format.js';
 import { tabBar, pick } from '../layout.js';
 import { configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -26,10 +27,12 @@ const FIELDS = ['enabled', 'mode', 'untagged', 'tagged'];
 
 const RELOAD = "Applying reloads each AP's network: wired clients on this port drop briefly. An AP that can no longer reach Aeolus puts its old settings back within 90 seconds.";
 
-// A tunnel's fields, in order, and where a new one starts (0055). Its MTU is
-// left to the default unless someone sets one (0056).
-const TUNNEL = ['address', 'port', 'mtu'];
+// A tunnel's fields, in order, and where a new one starts (0055). Its MTU
+// and probe interval are left to their defaults unless someone sets them
+// (0056, 0059).
+const TUNNEL = ['address', 'port', 'mtu', 'probe_interval'];
 const TUNNEL_START = { port: 4789 };
+const DEFAULTED = new Set(['mtu', 'probe_interval']);
 
 // defaultMTU is a tunnel's MTU when none is set: what a 1500-byte uplink
 // carries once VXLAN's headers are added (0056).
@@ -56,6 +59,7 @@ async function tunnels(ctx, here, page, ap, edit) {
 	const addBox = h('div', { class: 'edit flush' });
 	const lines = rows.flatMap(({ ap, cfg }) => tunnelRows(ap, cfg));
 	return [
+		loopBanner(rows),
 		set.length
 			? h('div', { class: 'bands' }, set.map((t) => tunnelCard(ctx, d, here, page.node.name, t.id, fields, edit)))
 			: h('div', { class: 'banner info' }, 'No tunnel is set here. A tunnel set on a folder reaches every AP below it, and a network picks one in its VXLAN transport.'),
@@ -66,9 +70,9 @@ async function tunnels(ctx, here, page, ap, edit) {
 			? h('section', { class: 'panel' },
 				h('h2', null, 'Tunnels now', h('span', { class: 'note' }, 'as each AP last reported')),
 				h('table', { class: 'list' },
-					h('tr', null, ['AP', 'Network', 'As', 'Tunnel', 'VNI', 'MTU', 'State'].map((c) => h('th', null, c))),
+					h('tr', null, ['AP', 'Used by', 'As', 'Tunnel', 'VNI', 'MTU', 'State', 'Probes'].map((c) => h('th', null, c))),
 					lines))
-			: h('div', { class: 'banner info' }, 'No network here travels over VXLAN.'),
+			: h('div', { class: 'banner info' }, 'No network or port here travels over VXLAN.'),
 	];
 }
 
@@ -83,6 +87,7 @@ function tunnelCard(ctx, d, here, nodeName, name, fields, edit) {
 	const box = h('div', { class: 'edit' });
 	const names = (id) => ctx.name('locations', id);
 	const mtuPath = `concentrators.${name}.mtu`;
+	const ivPath = `concentrators.${name}.probe_interval`;
 	const close = () => body.replaceChildren(h('div', null,
 		paths.map((path) => {
 			const r = fields[path];
@@ -92,13 +97,16 @@ function tunnelCard(ctx, d, here, nodeName, name, fields, edit) {
 				h('div', { class: 'value' }, value(path, r.value)),
 				origin('locations', here, r, names),
 				edit && r.origin === 'self' && !onlyHere && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, [path], rowBox),
-				edit && path === mtuPath && r.origin === 'self' && onlyHere && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, [path], rowBox,
-					'Use the default', `Tunnel ${name} on ${nodeName} goes back to the default MTU`)),
+				edit && (path === mtuPath || path === ivPath) && r.origin === 'self' && onlyHere && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, [path], rowBox,
+					'Use the default', `Tunnel ${name} on ${nodeName} goes back to the default ${path === mtuPath ? 'MTU' : 'probe interval'}`)),
 			rowBox];
 		}),
 		!fields[mtuPath] && h('div', { class: 'row' },
 			h('div', { class: 'label' }, 'MTU'),
-			h('div', { class: 'value' }, `default, ${defaultMTU(fields[`concentrators.${name}.address`]?.value)}`))));
+			h('div', { class: 'value' }, `default, ${defaultMTU(fields[`concentrators.${name}.address`]?.value)}`)),
+		!fields[ivPath] && h('div', { class: 'row' },
+			h('div', { class: 'label' }, 'Probe interval'),
+			h('div', { class: 'value' }, 'default, 30 s'))));
 	close();
 	return h('section', { class: 'panel' },
 		h('h2', null, name,
@@ -161,11 +169,13 @@ function tunnelForm(ctx, d, here, nodeName, name, fields, fresh, close) {
 		let values;
 		try {
 			values = changedValues(inputs, rows);
+			// A new tunnel is set whole, but for what is left to its default.
 			if (fresh)
 				for (const k of TUNNEL) {
+					if (DEFAULTED.has(k)) continue;
 					const v = rows.get(prefix + k)?.it.read();
-					if (v === undefined && k !== 'mtu') throw new Error(`${group(prefix + k).label}: set it`);
-					if (v !== undefined) values[prefix + k] = v;
+					if (v === undefined) throw new Error(`${group(prefix + k).label}: set it`);
+					values[prefix + k] = v;
 				}
 		} catch (e) {
 			msg.replaceChildren(e.message);
@@ -189,7 +199,7 @@ function tunnelForm(ctx, d, here, nodeName, name, fields, fresh, close) {
 			h('div', { class: 'sub' }, fresh
 				? `Every AP here can use it once a network picks ${name} in its VXLAN transport.`
 				: 'APs below that set their own keep theirs.'),
-		], [h('div', { class: 'sub warn' }, TUNNEL_RELOAD)]);
+		], [h('div', { class: 'sub warn' }, probeOnly(paths) ? PROBE_ONLY : TUNNEL_RELOAD)]);
 	};
 	return h('div', { class: 'fieldform', 'data-editing': true },
 		body,
@@ -200,40 +210,89 @@ function tunnelForm(ctx, d, here, nodeName, name, fields, fresh, close) {
 		out);
 }
 
-// tunnelRows joins what an AP's config asks for with what it reported.
+// tunnelRows joins what an AP's config asks for, by its networks and its
+// tunnel ports (0058), with what it reported, and what its prober found.
 function tunnelRows(ap, cfg) {
 	if (!cfg) return [];
 	const doc = cfg.document || {};
 	const report = cfg.condition?.state?.report;
+	const at = cfg.condition?.state?.at;
 	const reported = new Map((report?.vxlan?.tunnels || []).map((t) => [t.vni, t]));
 	const want = [];
 	for (const [id, n] of Object.entries(doc.network || {}).sort()) {
 		if (n.enabled === false) continue;
 		for (const slot of ['primary', 'fallback']) {
 			const t = n.transport?.[slot];
-			if (t?.type === 'vxlan') want.push({ id, ssid: n.ssid || id, slot, t, conc: doc.concentrators?.[t.concentrator] });
+			if (t?.type === 'vxlan') want.push({ by: n.ssid || id, as: slot, t, conc: doc.concentrators?.[t.concentrator] });
 		}
+	}
+	for (const [p, set] of Object.entries(doc.ports || {}).sort()) {
+		if (set.mode !== 'tunnel') continue;
+		for (const [vlan, m] of Object.entries(set.vxlan || {}))
+			want.push({ by: `${p}, ${onWire(vlan)}`, as: 'port', t: { vni: m.vni, concentrator: m.tunnel }, conc: doc.concentrators?.[m.tunnel] });
 	}
 	const apLink = link(`/aps/${encodeURIComponent(ap.id)}`, ap.name);
 	const lines = want.map((w, i) => h('tr', null,
 		h('td', null, i === 0 && apLink),
-		h('td', null, w.ssid),
-		h('td', null, w.slot === 'primary' ? 'primary' : 'fallback'),
+		h('td', null, w.by),
+		h('td', null, w.as),
 		h('td', null, w.t.concentrator, w.conc && h('span', { class: 'sub' }, ` ${w.conc.address}:${w.conc.port}`)),
 		h('td', { class: 'mono' }, String(w.t.vni)),
 		h('td', null, w.conc ? String(w.conc.mtu) : '—'),
-		h('td', null, tunnelState(report, reported.get(w.t.vni)))));
+		h('td', null, tunnelState(report, reported.get(w.t.vni))),
+		h('td', null, probeState(report, reported.get(w.t.vni), at))));
 	// What the AP runs that nothing asks for any more, until it applies.
 	const asked = new Set(want.map((w) => w.t.vni));
 	for (const t of reported.values())
 		if (!asked.has(t.vni))
 			lines.push(h('tr', null,
 				h('td', null, lines.length === 0 && apLink),
-				h('td', { class: 'sub', colspan: 3 }, `to ${t.peer}:${t.port}; no network asks for it`),
+				h('td', { class: 'sub', colspan: 3 }, `to ${t.peer}:${t.port}; nothing asks for it`),
 				h('td', { class: 'mono' }, String(t.vni)),
 				h('td', null, String(t.mtu || '—')),
-				h('td', null, t.up ? h('span', { class: 'chip ok' }, 'up') : h('span', { class: 'chip idle' }, 'down'))));
+				h('td', null, t.up ? h('span', { class: 'chip ok' }, 'up') : h('span', { class: 'chip idle' }, 'down')),
+				h('td', null, probeState(report, t, at))));
 	return lines;
+}
+
+// probeState says what the AP's prober found for a tunnel (0059): whether
+// traffic gets across, and when it does not, which half is broken.
+function probeState(report, t, at) {
+	if (!report?.vxlan || !t) return null;
+	if (report.vxlan.prober === false) return h('span', { class: 'chip warn' }, 'not probed: the prober needs ucode-mod-socket');
+	const p = t.probe;
+	if (!p) return h('span', { class: 'sub' }, t.standby ? 'not probed while standing by' : 'no results; its agent may be older than this');
+	const under = p.underlay === true ? `${t.peer} answers pings${p.underlay_ms != null ? ` in ${p.underlay_ms} ms` : ''}`
+		: p.underlay === false ? `${t.peer} does not answer pings` : `${t.peer}`;
+	const last = p.from ? `${p.from} answered${p.rtt_ms != null ? ` in ${p.rtt_ms} ms` : ''}${p.answered_ago != null ? `, ${secondsAgo(p.answered_ago, at)}` : ''}` : '';
+	const show = (label, cls, ...notes) => [h('span', { class: 'chip ' + cls }, label), notes.filter(Boolean).map((n) => h('div', { class: 'sub' }, n))];
+	switch (p.verdict) {
+	case 'up':
+		return show('answering', 'ok', last);
+	case 'down':
+		if (p.underlay === false) return show('down', 'bad', `cannot reach ${t.peer}`);
+		return show('down', 'bad', p.from ? `stopped answering: ${last}` : `${under}, but nothing on VNI ${t.vni} answers: is the VNI mapped there?`);
+	case 'unverified':
+		return show('unverified', 'warn', `${under}, but nothing asked on VNI ${t.vni} (${(p.asks || []).join(', ')}) has answered`,
+			(p.asks || []).includes('ff02::1')
+				? 'Set a probe address, normally the segment\'s gateway.'
+				: 'Is the probe address on the segment, and does it answer ARP?');
+	case 'unknown':
+		return show('starting', 'idle', `probing every ${p.interval} s`);
+	}
+	return show('not running', 'idle');
+}
+
+// loopBanner names the tunnel ports the loop guard took off their tunnels on
+// the APs here (0059), and what puts one back.
+function loopBanner(rows) {
+	const loops = rows.flatMap(({ ap, cfg }) => (cfg?.condition?.state?.report?.vxlan?.loops || []).map((l) => ({ ap, l, at: cfg.condition.state.at })));
+	if (!loops.length) return null;
+	return h('div', { class: 'banner problems' },
+		h('strong', null, 'The loop guard took these ports off their tunnels'),
+		h('ul', null, loops.map(({ ap, l, at }) => h('li', null,
+			`${ap.name}: ${l.port}, ${secondsAgo(l.ago, at)}. A frame it sent on ${l.device} came back in on ${l.came_in || 'the AP'}, so VNI ${l.vni ?? '?'} loops. `,
+			'Find the second path to that segment; changing the port\'s settings, or restarting the agent, puts the port back.'))));
 }
 
 // tunnelState says what the AP reported for a tunnel its config asks for.
@@ -264,6 +323,7 @@ async function ethernet(ctx, here, page, ap, edit) {
 	const names = [...new Set([...seen.keys(), ...named])].sort(byPort);
 	const addBox = h('div', { class: 'edit flush' });
 	return [
+		loopBanner(rows),
 		names.length
 			? h('div', { class: 'bands' }, names.map((name) => portCard(ctx, d, here, page.node.name, name, fields, seen.get(name), edit, !ap)))
 			: h('div', { class: 'banner info' }, 'No AP here has reported its ports yet, and no port is set here.'),
@@ -321,12 +381,13 @@ function view(ctx, here, nodeName, name, fields, edit) {
 	return [
 		set.map((path) => row(group(path).label, path, value(path, fields[path].value), fields[path], [path])),
 		vnis.map((m) => row(onWire(m.vlan, true), vniPath(name, m.vlan, 'vni'), carried(m), m.tunnel ?? m.vni,
-			['tunnel', 'vni'].map((k) => vniPath(name, m.vlan, k)))),
+			VNI_FIELDS.map((k) => vniPath(name, m.vlan, k)))),
 	];
 }
 
-// vniPath is where a tunnel port sets one of a VNI's fields (0058).
+// vniPath is where a tunnel port sets one of a VNI's fields (0058, 0059).
 const vniPath = (name, vlan, k) => `ports.${name}.vxlan.${vlan}.${k}`;
+const VNI_FIELDS = ['tunnel', 'vni', 'probe'];
 
 // vnisOf reads a tunnel port's VNIs from the values in force (by path, each
 // {value, from, origin}) as [{vlan, tunnel, vni}], untagged first, then by
@@ -337,7 +398,7 @@ function vnisOf(fields, name) {
 	for (const [path, r] of Object.entries(fields || {})) {
 		if (!path.startsWith(prefix)) continue;
 		const [vlan, k] = path.slice(prefix.length).split('.');
-		if (k !== 'tunnel' && k !== 'vni') continue;
+		if (!VNI_FIELDS.includes(k)) continue;
 		if (!out.has(vlan)) out.set(vlan, { vlan });
 		out.get(vlan)[k] = r;
 	}
@@ -351,9 +412,16 @@ function onWire(vlan, capital) {
 	return `VLAN ${vlan}`;
 }
 
-// carried says where a VNI goes: "arista · VNI 50".
+// carried says where a VNI goes, and what the prober asks there: "arista ·
+// VNI 50 · asks 192.168.50.1".
 function carried(m) {
-	return `${m.tunnel?.value ?? '(no tunnel)'} · VNI ${m.vni?.value ?? '(none)'}`;
+	return `${m.tunnel?.value ?? '(no tunnel)'} · VNI ${m.vni?.value ?? '(none)'}${m.probe?.value ? ` · asks ${m.probe.value}` : ''}`;
+}
+
+// ipv4 says whether text is an IPv4 address, as a probe address must be.
+function ipv4(text) {
+	const parts = text.split('.');
+	return parts.length === 4 && parts.every((p) => /^[0-9]{1,3}$/.test(p) && Number(p) <= 255);
 }
 
 // portForm edits one port's settings on this node, in one change. Only what
@@ -383,11 +451,34 @@ function portForm(ctx, d, here, nodeName, name, fields, close, edit) {
 	const review = async () => {
 		msg.replaceChildren();
 		let values;
+		let unsets = [];
 		try {
 			values = changedValues(inputs, rows);
-			if (!vnis.el.hidden) Object.assign(values, vnis.read());
+			if (!vnis.el.hidden) {
+				const r = vnis.read();
+				Object.assign(values, r.values);
+				unsets = r.unsets;
+			}
 		} catch (e) {
 			msg.replaceChildren(e.message);
+			return;
+		}
+		// Clearing a probe address unsets it, a change of its own (0059).
+		if (unsets.length) {
+			if (Object.keys(values).length) {
+				msg.replaceChildren('Clearing a probe address is a change of its own: apply the other changes first, or put the address back.');
+				return;
+			}
+			const op = unsets.length === 1
+				? { kind: 'unset', tree: 'locations', node: here, path: unsets[0] }
+				: { kind: 'unset', tree: 'locations', node: here, paths: unsets };
+			const p = await ask(out, op);
+			if (!p) return;
+			confirm(ctx, out, op, p, [
+				h('div', null, h('strong', null, `Port ${name} on ${nodeName}`)),
+				h('ul', { class: 'becomes' }, unsets.map((path) => h('li', null, `${group(path).label}: ${fields[path].value} → `,
+					p.resolved?.[path] ? `${p.resolved[path].value} (from ${ctx.name('locations', p.resolved[path].from)})` : 'none: the AP asks any IPv6 host there'))),
+			], [h('div', { class: 'sub warn' }, PROBE_ONLY)]);
 			return;
 		}
 		const now = (k) => (prefix + k in values ? values[prefix + k] : fields[prefix + k]?.value);
@@ -417,7 +508,7 @@ function portForm(ctx, d, here, nodeName, name, fields, close, edit) {
 				`${group(path).label}: `,
 				fields[path] ? [value(path, fields[path].value), ' → '] : '', value(path, values[path])))),
 			h('div', { class: 'sub' }, `Every AP here with a port named ${name} uses it; APs below that set their own keep theirs.`),
-		], [h('div', { class: 'sub warn' }, RELOAD)]);
+		], [h('div', { class: 'sub warn' }, probeOnly(paths) ? PROBE_ONLY : RELOAD)]);
 	};
 	return h('div', { class: 'fieldform', 'data-editing': true },
 		body,
@@ -430,11 +521,12 @@ function portForm(ctx, d, here, nodeName, name, fields, close, edit) {
 }
 
 // vniTable edits a tunnel port's VNIs a row at a time (0058). A row in force
-// can take another tunnel or VNI, and one more row can be added, both with
-// the rest of the port's change; a row set here can be removed, which is a
-// change of its own, previewed in out. read() returns {path: value} to set,
-// or throws with what is wrong; count() says how many VNIs the port would
-// carry.
+// can take another tunnel, VNI or probe address (0059), and one more row can
+// be added, both with the rest of the port's change; a row set here can be
+// removed, which is a change of its own, previewed in out. read() returns
+// {values, unsets}: {path: value} to set, and the probe addresses cleared,
+// to unset; or throws with what is wrong. count() says how many VNIs the
+// port would carry.
 function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 	const lib = tunnelsAt(fields);
 	const names = (id) => ctx.name('locations', id);
@@ -449,18 +541,20 @@ function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 		if (!Number.isInteger(n) || n < 1 || n > 16777215) throw new Error(`${onWire(vlan, true)}: the VNI is a whole number from 1 to 16777215`);
 		return n;
 	};
+	const address = (cur) => h('input', { type: 'text', maxlength: 15, value: cur ?? '', placeholder: 'probe address' });
 	const have = vnisOf(fields, name);
 	const lines = have.map((m) => {
 		const tunnel = picker(m.tunnel?.value);
 		const vni = number(m.vni?.value);
-		tunnel.disabled = vni.disabled = [m.tunnel, m.vni].some((r) => r?.origin === 'locked' && r.from !== here);
-		const own = ['tunnel', 'vni'].map((k) => vniPath(name, m.vlan, k)).filter((p) => fields[p]?.origin === 'self');
+		const probe = address(m.probe?.value);
+		tunnel.disabled = vni.disabled = probe.disabled = [m.tunnel, m.vni, m.probe].some((r) => r?.origin === 'locked' && r.from !== here);
+		const own = VNI_FIELDS.map((k) => vniPath(name, m.vlan, k)).filter((p) => fields[p]?.origin === 'self');
 		const heading = `Port ${name} on ${nodeName}: ${onWire(m.vlan)} leaves VNI ${m.vni?.value}`;
 		return {
-			m, tunnel, vni,
+			m, tunnel, vni, probe,
 			row: h('div', { class: 'field' },
 				h('span', { class: 'label' }, onWire(m.vlan, true)),
-				tunnel, vni,
+				tunnel, vni, probe,
 				origin('locations', here, m.tunnel ?? m.vni, names),
 				own.length > 0 && followButton(ctx, 'locations', here, nodeName, edit?.parentName, own, out, 'Remove', heading)),
 		};
@@ -468,10 +562,23 @@ function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 	const vlanIn = h('input', { type: 'text', maxlength: 8, placeholder: 'untagged, or a VLAN' });
 	const newTunnel = picker(undefined);
 	const newVni = number(undefined);
+	const newProbe = address(undefined);
+	const probeIn = (el, vlan) => {
+		const v = el.value.trim();
+		if (v && !ipv4(v)) throw new Error(`${onWire(vlan, true)}: a probe address is an IPv4 address on the segment, such as its gateway`);
+		return v || undefined;
+	};
 	const read = () => {
 		const values = {};
+		const unsets = [];
 		for (const l of lines) {
 			if (l.tunnel.disabled) continue;
+			const pr = probeIn(l.probe, l.m.vlan);
+			if (pr !== undefined && pr !== l.m.probe?.value) values[vniPath(name, l.m.vlan, 'probe')] = pr;
+			if (pr === undefined && l.m.probe) {
+				if (l.m.probe.origin !== 'self') throw new Error(`${onWire(l.m.vlan, true)}: its probe address is set above; set another here, or leave it`);
+				unsets.push(vniPath(name, l.m.vlan, 'probe'));
+			}
 			const t = l.tunnel.value || undefined;
 			const v = vniIn(l.vni, l.m.vlan);
 			if (t !== l.m.tunnel?.value) {
@@ -484,7 +591,7 @@ function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 			}
 		}
 		const vlan = vlanIn.value.trim().toLowerCase();
-		if (!vlan && !newTunnel.value && newVni.value === '') return values;
+		if (!vlan && !newTunnel.value && newVni.value === '' && !newProbe.value.trim()) return { values, unsets };
 		if (!/^(untagged|[1-9][0-9]{0,3})$/.test(vlan) || (vlan !== 'untagged' && Number(vlan) > 4094))
 			throw new Error('The new VNI is carried untagged, or on a VLAN from 1 to 4094.');
 		if (have.some((m) => m.vlan === vlan)) throw new Error(`${onWire(vlan, true)} carries a VNI already; change that row instead.`);
@@ -493,14 +600,16 @@ function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 		if (v === undefined) throw new Error(`${onWire(vlan, true)}: set its VNI.`);
 		values[vniPath(name, vlan, 'tunnel')] = newTunnel.value;
 		values[vniPath(name, vlan, 'vni')] = v;
-		return values;
+		const pr = probeIn(newProbe, vlan);
+		if (pr !== undefined) values[vniPath(name, vlan, 'probe')] = pr;
+		return { values, unsets };
 	};
 	const el = h('div', { class: 'vnis' },
 		h('h3', null, 'VNIs'),
-		h('div', { class: 'sub' }, 'Each VNI is carried untagged, or tagged with a VLAN of its own, over a tunnel set here. The port leaves the uplink\'s bridge.'),
+		h('div', { class: 'sub' }, 'Each VNI is carried untagged, or tagged with a VLAN of its own, over a tunnel set here. The port leaves the uplink\'s bridge. A probe address, normally the segment\'s gateway, is what the AP asks to check the VNI works; without one it asks any IPv6 host there.'),
 		h('div', { class: 'fields' },
 			lines.map((l) => l.row),
-			h('div', { class: 'field' }, h('span', { class: 'label' }, have.length ? 'Add another' : 'Add one'), vlanIn, newTunnel, newVni)));
+			h('div', { class: 'field' }, h('span', { class: 'label' }, have.length ? 'Add another' : 'Add one'), vlanIn, newTunnel, newVni, newProbe)));
 	return { el, read, count: () => have.length + (vlanIn.value.trim() ? 1 : 0) };
 }
 
@@ -544,7 +653,8 @@ function portsNow(rows) {
 			h('td', null, i === 0 && apLink),
 			h('td', { class: 'mono' }, p.name, p.uplink && h('span', { class: 'chip from' }, 'uplink')),
 			h('td', null, linkState(p)),
-			h('td', null, settings(cfg.location || {}, p.name)),
+			h('td', null, settings(cfg.location || {}, p.name),
+				rep.report.vxlan?.loops?.some((l) => l.port === p.name) && [' ', h('span', { class: 'chip bad' }, 'off its tunnels: a loop')]),
 			h('td', null, i === 0 && ago(rep.at))));
 	});
 	return h('section', { class: 'panel' },

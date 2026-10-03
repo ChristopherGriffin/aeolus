@@ -37,9 +37,12 @@ const NETWORK = {
 	'transport.ha': 'HA mode', 'transport.failback': 'Failback', 'transport.holddown': 'Hold-down',
 };
 
-const SLOT = { type: 'type', vlan: 'VLAN', concentrator: 'tunnel', vni: 'VNI' };
+const SLOT = { type: 'type', vlan: 'VLAN', concentrator: 'tunnel', vni: 'VNI', probe: 'probe address' };
 
-const TUNNEL = { address: 'Far end (IP)', port: 'Port', mtu: 'MTU' };
+const TUNNEL = { address: 'Far end (IP)', port: 'Port', mtu: 'MTU', probe_interval: 'Probe interval' };
+
+// A tunnel port's VNI's fields (0058, 0059).
+const PORT_VNI = { tunnel: 'tunnel', vni: 'VNI', probe: 'probe address' };
 
 // group says which panel a field belongs in, and its label there.
 export function group(path) {
@@ -49,7 +52,7 @@ export function group(path) {
 	if (p[0] === 'system' && p[1] === 'management') return { key: 'management', title: 'Management', order: 3, label: SYSTEM[p.slice(1).join('.')] || p[2] };
 	if (p[0] === 'system') return { key: 'system', title: 'System', order: 2, label: SYSTEM[p[1]] || p[1] };
 	// A tunnel port's VNI, by how it is carried: "VLAN 50 tunnel" (0058).
-	if (p[0] === 'ports' && p[2] === 'vxlan') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: `${p[3] === 'untagged' ? 'Untagged' : 'VLAN ' + p[3]} ${p[4] === 'vni' ? 'VNI' : 'tunnel'}` };
+	if (p[0] === 'ports' && p[2] === 'vxlan') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: `${p[3] === 'untagged' ? 'Untagged' : 'VLAN ' + p[3]} ${PORT_VNI[p[4]] || p[4]}` };
 	if (p[0] === 'ports') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: PORT[p[2]] || p[2] };
 	if (p[0] === 'concentrators') return { key: 'concentrators.' + p[1], title: 'Tunnel ' + p[1], order: 4.5, label: TUNNEL[p[2]] || p[2] };
 	if (p[0] === 'services') return { key: 'services', title: 'Services', order: 5, label: 'Service folders' };
@@ -74,7 +77,7 @@ export function value(path, v, names) {
 	if (last === 'width' && typeof v === 'number') return v + ' MHz';
 	if (last === 'channel' && v === 'auto') return path.includes('.2g.') ? 'automatic (1, 6, 11)' : 'automatic';
 	if (last === 'power' && typeof v === 'number') return v + ' dBm';
-	if (last === 'poll' || last === 'holddown') return v + ' s';
+	if (last === 'poll' || last === 'holddown' || last === 'probe_interval') return v + ' s';
 	if (last.endsWith('_kbps')) return v === 0 ? 'no limit' : v + ' kbps';
 	if (last === 'type' && path.includes('.transport.')) return v === 'vxlan' ? 'VXLAN' : 'VLAN';
 	if (path.startsWith('ports.') && last === 'mode') return MODE[v] || v;
@@ -109,6 +112,22 @@ export function origin(tree, here, r, names) {
 export function when(t) {
 	if (!t) return 'never';
 	return new Date(t).toLocaleString();
+}
+
+// What changes only what the prober asks, and how often, reloads nothing: it is
+// the agent's own config, which the prober reads again within 10 seconds (0059).
+export const PROBE_ONLY = 'Nothing reloads on the APs: each one\'s prober picks this up within 10 seconds.';
+
+// probeOnly says whether paths change only what the prober asks and how
+// often.
+export function probeOnly(paths) {
+	return paths.length > 0 && paths.every((p) => /\.(probe|probe_interval)$/.test(p));
+}
+
+// secondsAgo writes as ago does the time s seconds before at, such as an
+// AP's report counting from when it was made.
+export function secondsAgo(s, at) {
+	return ago(new Date(at ?? Date.now()).getTime() - s * 1000);
 }
 
 export function ago(t) {

@@ -208,6 +208,21 @@ config agent 'agent'
 	option uplink 'wan'
 	option poll '60'
 
+config probe 'aeolus_30'
+	option vni '30'
+	option interval '30'
+
+config probe 'aeolus_50'
+	option vni '50'
+	option interval '30'
+	list address '192.168.50.1'
+	list address '192.168.50.3'
+
+config guard 'aeolus_guard_lan3'
+	option port 'lan3'
+	list device 'lan3'
+	list device 'lan3.30'
+
 package usteer
 
 config usteer

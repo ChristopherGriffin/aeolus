@@ -10,8 +10,10 @@
 #
 # It also installs usteer, for band steering (0050), with steering off until
 # Aeolus turns it on for a network; snmpd, for SNMP (0052), off until Aeolus
-# turns it on; and vxlan and kmod-nft-bridge, for VXLAN tunnels and their
-# MSS clamp (0054). That needs the AP to reach OpenWrt's package feeds;
+# turns it on; vxlan and kmod-nft-bridge, for VXLAN tunnels and their MSS
+# clamp (0054); and ucode-mod-socket, for the prober, which probes the
+# tunnels and guards tunnel ports against loops (0059). That needs the AP to
+# reach OpenWrt's package feeds;
 # without them, everything else works, and a setting that needs a missing
 # package is refused until it is installed. The agent's files and settings
 # are kept across a sysupgrade; the packages must be installed again.
@@ -25,7 +27,7 @@ here=$(dirname "$0")
 [ -d "/sys/class/net/$uplink" ] || { echo "no port named $uplink" >&2; exit 1; }
 
 cp -R "$here/files/." /
-chmod 0755 /usr/sbin/aeolus-agent /etc/init.d/aeolus
+chmod 0755 /usr/sbin/aeolus-agent /usr/sbin/aeolus-prober /etc/init.d/aeolus
 mkdir -p /etc/aeolus
 chmod 0700 /etc/aeolus
 cp "$cert" /etc/aeolus/manager.crt
@@ -76,6 +78,12 @@ for p in vxlan kmod-nft-bridge; do
 		echo "$p could not be installed: VXLAN tunnels will be refused on this AP until it is (apk add $p)" >&2
 	fi
 done
+
+# The prober (0059) needs ucode's socket module. Without it the agent runs
+# alone, and reports that its tunnels go unprobed.
+if ! apk info -e ucode-mod-socket >/dev/null 2>&1 && ! { apk update >/dev/null && apk add ucode-mod-socket; }; then
+	echo "ucode-mod-socket could not be installed: the tunnels go unprobed, and tunnel ports unguarded, until it is (apk add ucode-mod-socket)" >&2
+fi
 
 /usr/sbin/aeolus-agent ping
 /etc/init.d/aeolus enable

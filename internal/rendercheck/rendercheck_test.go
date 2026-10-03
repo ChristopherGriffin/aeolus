@@ -24,12 +24,12 @@ const intent = `{
 	"system": {"country": "US", "tz": "America/Chicago", "ntp": ["0.pool.ntp.org", "1.pool.ntp.org"], "syslog": "192.168.20.50:514", "poll": 60},
 	"network": {
 		"sweet": {"ssid": "Sweet Spot", "security": "wpa2-psk", "passphrase": "` + pass + `", "roaming": {"ft": true}, "multicast_to_unicast": true,
-			"transport": {"primary": {"type": "vxlan", "concentrator": "homelab", "vni": 20}, "fallback": {"type": "vlan", "vlan": 20}}},
+			"transport": {"primary": {"type": "vxlan", "concentrator": "homelab", "vni": 20, "probe": "192.168.20.1"}, "fallback": {"type": "vlan", "vlan": 20}}},
 		"sweet-iot": {"ssid": "Sweet_Spot_IoT", "security": "wpa2-psk", "passphrase": "` + pass + `", "bands": ["2g"], "hidden": true, "isolation": true,
 			"transport": {"primary": {"type": "vlan", "vlan": 30}}},
 		"old": {"enabled": false, "ssid": "Old", "security": "open", "transport": {"primary": {"type": "vlan", "vlan": 40}}}
 	},
-	"concentrators": {"homelab": {"address": "1.1.1.2", "port": 4789, "mtu": 1450}}
+	"concentrators": {"homelab": {"address": "1.1.1.2", "port": 4789, "mtu": 1450, "probe_interval": 20}}
 }`
 
 // rendered carries the intent, plus a section Aeolus did not make.
@@ -156,6 +156,11 @@ config agent 'agent'
 	option url 'https://aeolus.symtus.com:8443'
 	option uplink 'wan'
 	option poll '60'
+
+config probe 'aeolus_20'
+	option vni '20'
+	option interval '20'
+	list address '192.168.20.1'
 `
 
 func check(t *testing.T, text string) []string {
@@ -226,6 +231,10 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"no network", "package network", "package net", "package network is missing"},
 		{"poll", "option poll '60'", "option poll '30'", "aeolus.agent: poll is \"30\""},
 		{"no agent", "config agent 'agent'", "config agent 'other'", "aeolus: no agent section"},
+		{"no probe", "config probe 'aeolus_20'", "config probe 'other'", "aeolus.aeolus_20: no probe section for the tunnel"},
+		{"probe interval", "option interval '20'", "option interval '30'", "aeolus.aeolus_20: interval is \"30\", want \"20\""},
+		{"probe address", "list address '192.168.20.1'", "list address '192.168.20.2'", "aeolus.aeolus_20: probe addresses are [192.168.20.2], want [192.168.20.1]"},
+		{"stale probe", "config probe 'aeolus_20'", "config probe 'aeolus_99'\n\toption vni '99'\n\nconfig probe 'aeolus_20'", "aeolus.aeolus_99: no tunnel or tunnel port calls for it"},
 	}
 	for _, c := range cases {
 		if !strings.Contains(rendered, c.old) {
@@ -515,6 +524,10 @@ config rule 'aeolus_vxlan_5000'
 	option src_ip '2001:db8::2'
 	option dest_port '4789'
 	option target 'ACCEPT'
+package aeolus
+config probe 'aeolus_5000'
+	option vni '5000'
+	option interval '30'
 `
 	// MTU 1500 needs no clamp, and an unset port is vxlan's default. The
 	// jumbo bridge carries the tunnel's 1570-byte packets.
@@ -541,7 +554,7 @@ config rule 'aeolus_vxlan_5000'
 func TestTunnelPort(t *testing.T) {
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(`{"ports": {"lan3": {"mode": "tunnel", "vxlan": {
-		"untagged": {"tunnel": "arista", "vni": 50}, "10": {"tunnel": "arista", "vni": 10}}}},
+		"untagged": {"tunnel": "arista", "vni": 50, "probe": "192.168.50.1"}, "10": {"tunnel": "arista", "vni": 10}}}},
 		"concentrators": {"arista": {"address": "1.1.1.2", "port": 4789, "mtu": 1500}}}`), &doc); err != nil {
 		t.Fatal(err)
 	}
@@ -613,11 +626,26 @@ config rule 'aeolus_vxlan_10'
 package aeolus
 config agent 'agent'
 	option uplink 'wan'
+config probe 'aeolus_50'
+	option vni '50'
+	option interval '30'
+	list address '192.168.50.1'
+config probe 'aeolus_10'
+	option vni '10'
+	option interval '30'
+config guard 'aeolus_guard_lan3'
+	option port 'lan3'
+	list device 'lan3'
+	list device 'lan3.10'
 `
 	if got := check(good); got != "" {
 		t.Fatalf("problems with the right config: %s", got)
 	}
 	for _, c := range []struct{ name, old, new, want string }{
+		// The loop guard sends on the port and on its 802.1Q devices (0059).
+		{"no guard", "config guard 'aeolus_guard_lan3'", "config guard 'other'", "aeolus.aeolus_guard_lan3: no loop guard for lan3, which is on a tunnel"},
+		{"guard devices", "\tlist device 'lan3.10'\n", "", "aeolus.aeolus_guard_lan3: guards [lan3], want [lan3 lan3.10]"},
+		{"port probe", "list address '192.168.50.1'", "list address '192.168.50.9'", "aeolus.aeolus_50: probe addresses are [192.168.50.9], want [192.168.50.1]"},
 		{"still in br-lan", "list ports 'lan1'\n", "list ports 'lan1'\n\tlist ports 'lan3'\n", "ports.lan3: the port is still in the uplink's bridge br-lan"},
 		{"still on a VLAN", "list ports 'lan1:u*'", "list ports 'lan1:u*'\n\tlist ports 'lan3:u*'", "ports.lan3: VLAN 1 of the uplink's bridge still has the port"},
 		{"untagged not bridged", "list ports 'lan3'\n", "", "ports.lan3.vxlan.untagged: lan3 is not in the tunnel's bridge br-vx50"},

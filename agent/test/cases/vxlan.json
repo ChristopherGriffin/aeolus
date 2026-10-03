@@ -1,5 +1,5 @@
 {
-	"about": "PumphouseAP with VXLAN transports (0054) to the lab's Arista at 1.1.1.2: the lab network runs over VNI 50, with VLAN 20 as its fallback; the IoT network runs over VLAN 10, with VNI 10 as its fallback, rendered but not started. The MTU of 1450 needs the MSS clamp.",
+	"about": "PumphouseAP with VXLAN transports (0054) to the lab's Arista at 1.1.1.2: the lab network runs over VNI 50, with VLAN 20 as its fallback; the IoT network runs over VLAN 10, with VNI 10 as its fallback, rendered but not started. The MTU of 1450 needs the MSS clamp. The prober (0059) probes both tunnels every 20 seconds, asking 192.168.50.1 on VNI 50, and any IPv6 host on VNI 10.",
 	"current": "pumphouse-current.json",
 	"facts": {
 		"uplink": "wan",
@@ -15,10 +15,10 @@
 		"system": { "country": "US", "poll": 60 },
 		"network": {
 			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1",
-				"transport": { "primary": { "type": "vxlan", "concentrator": "arista", "vni": 50 }, "fallback": { "type": "vlan", "vlan": 20 } } },
+				"transport": { "primary": { "type": "vxlan", "concentrator": "arista", "vni": 50, "probe": "192.168.50.1" }, "fallback": { "type": "vlan", "vlan": 20 } } },
 			"things": { "ssid": "Aeolus Things", "security": "wpa2-psk", "passphrase": "fixture-passphrase-2", "bands": ["2g"],
 				"transport": { "primary": { "type": "vlan", "vlan": 10 }, "fallback": { "type": "vxlan", "concentrator": "arista", "vni": 10 } } }
 		},
-		"concentrators": { "arista": { "address": "1.1.1.2", "port": 4789, "mtu": 1450 } }
+		"concentrators": { "arista": { "address": "1.1.1.2", "port": 4789, "mtu": 1450, "probe_interval": 20 } }
 	}
 }

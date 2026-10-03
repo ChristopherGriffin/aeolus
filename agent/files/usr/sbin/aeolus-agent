@@ -32,6 +32,8 @@ const BACKUP = DIR + '/backup';
 const CONFIRM = 90;        // seconds to reach the manager again after an apply
 const WIFI_WAIT = 150;     // seconds for the Wi-Fi to come back after an apply, a radar check included
 const STATE_EVERY = 300;   // seconds between state reports
+const PROBES = '/var/run/aeolus/probes.json';   // what the prober found (0059)
+const PROBES_STALE = 60;   // seconds after which the prober's results are too old to report
 
 let bus = connect();
 
@@ -523,27 +525,68 @@ function ports_state() {
 	return slice(out, 0, 32);
 }
 
+// has_prober says whether the prober can run: it needs ucode's socket
+// module (0059), which the installer adds.
+function has_prober() {
+	return !!fs.stat('/usr/lib/ucode/socket.so');
+}
+
+// probes reads what the prober found (0059), if it is recent: by VNI, how
+// each tunnel is doing, and the ports the loop guard took off their tunnels.
+function probes() {
+	let p = null;
+	try {
+		p = json(read(PROBES) ?? 'null');
+	} catch (e) {
+	}
+	if (type(p?.at) != 'int' || time() - p.at > PROBES_STALE)
+		return null;
+	return p;
+}
+
 // vxlan_state says what the AP's tunnels are doing (0054): whether the
 // packages they need are there, the MTU its uplink carries now, which the
 // tunnels run over (0056), and for each tunnel Aeolus made, its VNI, peer,
-// port and MTU, and whether it is up, or standing by as a fallback.
+// port and MTU, whether it is up, or standing by as a fallback, and what
+// the prober found (0059); and the ports the loop guard took off.
 function vxlan_state() {
+	let found = probes();
 	let tunnels = [];
 	cursor().foreach('network', 'interface', s => {
 		let vni = match(s['.name'], /^aeolus_([0-9]+)$/)?.[1];
 		if (!vni || !(s.proto in { vxlan: 1, vxlan6: 1 }))
 			return;
 		let up = !!bus.call(`network.interface.${s['.name']}`, 'status')?.up;
-		push(tunnels, {
+		let t = {
 			vni: int(vni), peer: s.peeraddr ?? s.peer6addr ?? '', port: int(s.port ?? '4789'),
 			mtu: int(s.mtu ?? '0'), up: up, standby: !up && s.auto == '0',
-		});
+		};
+		let f = found?.tunnels?.[vni];
+		if (f)
+			t.probe = {
+				verdict: f.verdict, interval: f.interval, asks: slice(f.asks ?? [], 0, 8),
+				underlay: f.underlay, underlay_ms: f.underlay_ms, from: f.from, rtt_ms: f.rtt_ms,
+				answered_ago: f.answered_ago,
+			};
+		push(tunnels, t);
 	});
 	let uplink_mtu = int(read(`/sys/class/net/${mgmt_device()}/mtu`) ?? '0');
 	return {
 		installed: has_vxlan(), loaded: vxlan_loaded(), clamp: has_nft_bridge(),
-		uplink_mtu: uplink_mtu, tunnels: slice(tunnels, 0, 64),
+		prober: has_prober(), uplink_mtu: uplink_mtu, tunnels: slice(tunnels, 0, 64),
+		loops: slice(found?.loops ?? [], 0, 32),
 	};
+}
+
+// probe_news is what, of the prober's results, is worth a state report as
+// soon as it changes: each tunnel's verdict, and the loops it found.
+function probe_news() {
+	let p = probes();
+	if (!p)
+		return '';
+	let v = map(sort(keys(p.tunnels ?? {})), k => k + '=' + p.tunnels[k].verdict);
+	let l = map(p.loops ?? [], x => x.port);
+	return join(',', v) + ';' + join(',', l);
 }
 
 function report_state(running, token) {
@@ -596,6 +639,7 @@ function main() {
 	let assigned = false;
 	let held = null;
 	let last_state = 0;
+	let news = probe_news();
 	while (true) {
 		let token = read(TOKEN);
 		if (!token) {
@@ -637,6 +681,13 @@ function main() {
 		}
 		else {
 			fail('poll: %s', describe(r));
+		}
+		// A tunnel that went down or came back, or a loop, is reported at
+		// once rather than with the next state report (0059).
+		let now_news = probe_news();
+		if (now_news != news) {
+			news = now_news;
+			last_state = 0;
 		}
 		if (assigned && time() - last_state >= STATE_EVERY) {
 			report_state(running, token);

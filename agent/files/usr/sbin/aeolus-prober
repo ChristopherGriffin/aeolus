@@ -1,0 +1,488 @@
+#!/usr/bin/ucode -S
+// aeolus-prober: the Aeolus agent's prober (0059).
+//
+// For each tunnel Aeolus made, it probes the tunnel's segment every
+// interval, straight on the tunnel device: an ARP probe to each probe
+// address set, or else an echo to IPv6 all-nodes. Only answers that come
+// back in on that device count. The probes are the tunnel's keepalive too:
+// a concentrator that learns tunnel ends from traffic keeps this AP. It
+// pings each concentrator over the management interface as well, to tell an
+// unreachable concentrator from a VNI that does not answer.
+//
+// On each tunnel port it runs the loop guard: a frame of its own every 2
+// seconds on the port and on its 802.1Q devices. If one comes back in on the
+// AP, the segment loops, and the port is taken off its tunnels until its
+// settings change or the agent restarts.
+//
+// Its plan is the agent's own UCI package, as the renderer made it: probe
+// and guard sections. What it finds goes to /var/run/aeolus/probes.json,
+// which the agent reports. procd runs it beside the agent.
+//
+//	aeolus-prober [-c <UCI directory>] [-o <results file>] [-n]
+//
+// -n never takes a port off its tunnels: for trying it out.
+
+'use strict';
+
+import * as fs from 'fs';
+import * as socket from 'socket';
+import * as math from 'math';
+import { cursor } from 'uci';
+import { connect } from 'ubus';
+import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING, LOG_ERR } from 'log';
+import * as probe from 'aeolus.probe';
+
+let confdir = null, out = '/var/run/aeolus/probes.json', act = true;
+for (let i = 0; i < length(ARGV); i++) {
+	if (ARGV[i] == '-c')
+		confdir = ARGV[++i];
+	else if (ARGV[i] == '-o')
+		out = ARGV[++i];
+	else if (ARGV[i] == '-n')
+		act = false;
+}
+
+const SHUT = '/var/run/aeolus/shut.json';   // ports the loop guard took off their tunnels
+const GUARD_EVERY = 2;                       // seconds between loop guard frames
+const WRITE_EVERY = 5;                       // seconds between writes of the results
+const PLAN_EVERY = 10;                       // seconds between looks at the plan
+
+let bus = connect();
+openlog('aeolus-prober', LOG_PID, LOG_DAEMON);
+
+function log(fmt, ...args) {
+	syslog(LOG_INFO, fmt, ...args);
+}
+
+function note(fmt, ...args) {
+	syslog(LOG_WARNING, fmt, ...args);
+}
+
+function fail(fmt, ...args) {
+	syslog(LOG_ERR, fmt, ...args);
+}
+
+function read(path) {
+	let v = fs.readfile(path);
+	return v == null ? null : trim(v);
+}
+
+function store(path, data) {
+	let tmp = path + '.new';
+	if (fs.writefile(tmp, data) == null)
+		return false;
+	return fs.rename(tmp, path);
+}
+
+function list(v) {
+	return v == null ? [] : (type(v) == 'array' ? v : [v]);
+}
+
+// now is monotonic time in seconds, to the microsecond.
+function now() {
+	let c = clock(true);
+	return c[0] + c[1] / 1e9;
+}
+
+// What this run's echoes and loop guard frames carry, so their answers, and
+// only this run's frames, are known.
+math.srand(time() ^ int(now() * 1e6));
+const ID = math.rand() & 0xffff;
+let NONCE = '';
+{
+	let r = fs.open('/dev/urandom', 'r');
+	let b = r?.read(8) ?? '';
+	r?.close();
+	for (let i = 0; i < length(b); i++)
+		NONCE += sprintf('%02x', ord(b, i));
+	if (length(NONCE) < 16)
+		NONCE = sprintf('%04x%04x%08x', math.rand() & 0xffff, math.rand() & 0xffff, time());
+}
+
+function is_up(dev) {
+	let flags = read(`/sys/class/net/${dev}/flags`);
+	return flags != null && !!(hex(replace(flags, /^0x/, '')) & 1);
+}
+
+// linklocal is the IPv6 link-local address a device holds, or null.
+function linklocal(dev) {
+	for (let line in split(fs.readfile('/proc/net/if_inet6') ?? '', '\n')) {
+		let f = split(trim(line), /[ \t]+/);
+		if (length(f) >= 6 && f[5] == dev && f[3] == '20' && length(f[0]) == 32)
+			return join(':', map([0, 1, 2, 3, 4, 5, 6, 7], i => substr(f[0], 4 * i, 4)));
+	}
+	return null;
+}
+
+// plan reads what to probe and guard from the agent's UCI package, with the
+// tunnels' far ends from the network config.
+function plan() {
+	let c = confdir ? cursor(confdir) : cursor();
+	let tunnels = {}, guards = {}, vni_of = {};
+	c.foreach('aeolus', 'probe', s => {
+		let vni = s.vni ?? match(s['.name'], /^aeolus_([0-9]+)$/)?.[1];
+		let n = vni ? c.get_all('network', 'aeolus_' + vni) : null;
+		if (!n)
+			return;
+		let peer = n.peeraddr ?? n.peer6addr;
+		tunnels['' + vni] = {
+			device: 'aeolus_' + vni, bridge: 'br-vx' + vni,
+			peer: peer ? replace(peer, /^\[|\]$/g, '') : null, six: n.peer6addr != null,
+			interval: max(5, min(300, int(s.interval ?? '30') || 30)),
+			address: sort(list(s.address)),
+		};
+	});
+	c.foreach('network', 'device', d => {
+		let m = match(d['.name'], /^aeolus_([0-9]+)_br$/);
+		if (m)
+			for (let e in list(d.ports))
+				vni_of[e] = +m[1];
+	});
+	c.foreach('aeolus', 'guard', s => {
+		if (s.port)
+			guards[s.port] = { devices: sort(list(s.device)), vnis: map(sort(list(s.device)), d => vni_of[d]) };
+	});
+	return { tunnels: tunnels, guards: guards };
+}
+
+let tun = {};      // VNI -> { plan, sock, src, running, started, answered, from, rtt, sent, seq, next, said }
+let peers = {};    // concentrator address -> { six, interval, sent, seq, ok, rtt, since, next }
+let guards = {};   // port -> { plan, devices: [{ name, sock, mac }], next }
+let loops = {};    // port -> { port, device, vni, came_in, at }
+let raw4 = null, raw6 = null, guard_rx = null;
+
+function close(s) {
+	s?.close();
+}
+
+// tenth rounds a time in milliseconds to a tenth of one.
+function tenth(ms) {
+	return ms == null ? null : int(ms * 10 + 0.5) / 10.0;   // an int over an int would truncate
+}
+
+function filter_on(s, prog) {
+	return s.setopt(socket.SOL_SOCKET, socket.SO_ATTACH_FILTER, { len: length(prog), filter: prog });
+}
+
+// packet opens a packet socket on dev, or on every device with dev null,
+// that sees what prog keeps; with prog null, one that only sends.
+function packet(dev, prog) {
+	let s = socket.create(socket.AF_PACKET, socket.SOCK_RAW, 0);
+	if (!s)
+		return null;
+	let addr = { family: socket.AF_PACKET, protocol: prog ? 3 : 0, address: '00:00:00:00:00:00' };
+	if (dev)
+		addr.interface = dev;
+	if (!s.bind(addr) || (prog && !filter_on(s, prog))) {
+		fail('cannot open a packet socket on %s: %s', dev ?? 'every device', socket.error());
+		s.close();
+		return null;
+	}
+	// What arrived before the filter took hold goes.
+	while (prog && s.recv(2048, socket.MSG_DONTWAIT) != null)
+		;
+	return s;
+}
+
+// save_shut keeps the ports the loop guard took off their tunnels, so the
+// next run puts them back.
+function save_shut() {
+	if (act)
+		store(SHUT, sprintf('%J', keys(loops)));
+}
+
+function set_deferred(port, value) {
+	if (act)
+		bus.call('network.device', 'set_state', { name: port, defer: value });
+}
+
+function release(port) {
+	if (!loops[port])
+		return;
+	set_deferred(port, false);
+	log('loop guard: %s is back on its tunnels', port);
+	delete loops[port];
+	save_shut();
+}
+
+function apply_plan(p) {
+	for (let vni in keys(tun))
+		if (sprintf('%J', tun[vni].plan) != sprintf('%J', p.tunnels[vni])) {
+			close(tun[vni].sock);
+			delete tun[vni];
+		}
+	for (let vni, t in p.tunnels)
+		tun[vni] ??= { plan: t, sock: null, src: null, running: false, started: now(), answered: null,
+			from: null, rtt: null, sent: {}, seq: 0, next: now(), said: null };
+	let want = {};
+	for (let vni, t in p.tunnels)
+		if (t.peer)
+			want[t.peer] = min(want[t.peer] ?? 300, t.interval);
+	for (let a in keys(peers))
+		if (!(a in want))
+			delete peers[a];
+	for (let a, interval in want) {
+		peers[a] ??= { six: index(a, ':') >= 0, sent: {}, seq: 0, ok: null, rtt: null, since: now(), next: now() };
+		peers[a].interval = interval;
+	}
+	// A port whose settings changed, or that left its tunnels, gets a fresh
+	// start: the loop guard lets it go.
+	for (let port in keys(guards))
+		if (sprintf('%J', guards[port].plan) != sprintf('%J', p.guards[port])) {
+			for (let d in guards[port].devices)
+				close(d.sock);
+			delete guards[port];
+			release(port);
+		}
+	for (let port in keys(loops))
+		if (!p.guards[port])
+			release(port);
+	for (let port, g in p.guards)
+		guards[port] ??= { plan: g, devices: [], next: now() };
+	if (length(guards) && !guard_rx)
+		guard_rx = packet(null, probe.GUARD_FILTER);
+	else if (!length(guards) && guard_rx) {
+		close(guard_rx);
+		guard_rx = null;
+	}
+}
+
+function send_probes(t, at) {
+	let dev = t.plan.device;
+	if (!is_up(dev)) {
+		// A fallback's tunnel waits, stopped, until the AP switches to it.
+		close(t.sock);
+		t.sock = null;
+		t.running = false;
+		return;
+	}
+	t.sock ??= packet(dev, probe.OVERLAY_FILTER);
+	if (!t.sock)
+		return;
+	if (!t.running) {
+		t.running = true;
+		t.started = at;
+	}
+	t.src = read(`/sys/class/net/${t.plan.bridge}/address`);
+	if (!t.src)
+		return;
+	if (length(t.plan.address)) {
+		for (let a in t.plan.address)
+			if (t.sock.send(probe.arp_probe(t.src, a)) != null)
+				t.sent['arp:' + a] = now();
+	} else {
+		let ll = linklocal(t.plan.bridge);
+		t.seq = (t.seq + 1) & 0xffff;
+		if (ll && t.sock.send(probe.echo6(t.src, ll, ID, t.seq)) != null)
+			t.sent['echo:' + t.seq] = now();
+	}
+	for (let k in keys(t.sent))
+		if (at - t.sent[k] > 3 * t.plan.interval)
+			delete t.sent[k];
+}
+
+function on_tunnel(t) {
+	let pkt;
+	while ((pkt = t.sock.recv(2048, socket.MSG_DONTWAIT)) != null) {
+		let a = probe.answer(pkt, t.src, ID);
+		if (!a)
+			continue;
+		let at = now();
+		t.answered = at;
+		t.from = a.from;
+		if (t.sent[a.key] != null) {
+			t.rtt = (at - t.sent[a.key]) * 1000;
+			delete t.sent[a.key];
+		}
+	}
+}
+
+function ping(a, p, at) {
+	let s = p.six
+		? (raw6 ??= socket.create(socket.AF_INET6, socket.SOCK_RAW, 58))
+		: (raw4 ??= socket.create(socket.AF_INET, socket.SOCK_RAW, 1));
+	if (!s)
+		return;
+	p.seq = (p.seq + 1) & 0xffff;
+	let data = p.six ? probe.echo6_plain(ID, p.seq) : probe.echo4(ID, p.seq);
+	if (s.send(data, 0, { family: p.six ? socket.AF_INET6 : socket.AF_INET, address: a, port: 0 }) != null)
+		p.sent[p.seq] = now();
+	for (let k in keys(p.sent))
+		if (at - p.sent[k] > 3 * p.interval)
+			delete p.sent[k];
+}
+
+// same says whether two IPv6 addresses' texts name the same address.
+function same(a, b) {
+	return a == b || (index(a, ':') >= 0 && index(b ?? '', ':') >= 0 && probe.ip6(a) == probe.ip6(b));
+}
+
+function on_raw(s, six) {
+	let pkt, from = {};
+	while ((pkt = s.recv(2048, socket.MSG_DONTWAIT, from)) != null) {
+		let r = six ? probe.echo6_plain_answer(pkt, ID) : probe.echo4_answer(pkt, ID);
+		if (!r)
+			continue;
+		let addr = six ? from.address : r.from;
+		for (let a, p in peers)
+			if (same(a, addr) && p.sent[r.seq] != null) {
+				p.ok = now();
+				p.rtt = (p.ok - p.sent[r.seq]) * 1000;
+				delete p.sent[r.seq];
+			}
+	}
+}
+
+function send_guard(port, g, at) {
+	for (let i = 0; i < length(g.plan.devices); i++) {
+		let name = g.plan.devices[i];
+		let d = g.devices[i] ??= { name: name, sock: null, mac: null };
+		if (!d.sock && fs.stat(`/sys/class/net/${name}`))
+			d.sock = packet(name, null);
+		d.mac = read(`/sys/class/net/${name}/address`);
+		if (d.sock && d.mac)
+			d.sock.send(probe.guard_frame(d.mac, NONCE, port, name));
+	}
+}
+
+function on_guard() {
+	let pkt, from = {};
+	while ((pkt = guard_rx.recv(2048, socket.MSG_DONTWAIT, from)) != null) {
+		let g = probe.guard_seen(pkt, NONCE);
+		let port = g?.port;
+		if (!g || loops[port] || !guards[port])
+			continue;
+		let at = now();
+		let i = index(guards[port].plan.devices, g.device);
+		loops[port] = { port: port, device: g.device, vni: guards[port].plan.vnis[i], came_in: from.interface ?? '', at: at };
+		fail('loop guard: a frame sent on %s came back in on %s, so the segment loops; %s is off its tunnels until its settings change or the agent restarts%s',
+			g.device, from.interface ?? 'the AP', port, act ? '' : ' (not done: -n)');
+		set_deferred(port, true);
+		save_shut();
+	}
+}
+
+function results(at) {
+	let tunnels = {};
+	for (let vni, t in tun) {
+		let p = peers[t.plan.peer];
+		let span = 3 * t.plan.interval;
+		let v = t.running
+			? probe.verdict({ interval: t.plan.interval, started: t.started, answered: t.answered, underlay: p?.ok }, at)
+			: 'off';
+		if (v != t.said && t.said != null) {
+			let how = v == 'down' ? note : log;
+			how('tunnel %s (VNI %s): %s, was %s', t.plan.device, vni, v, t.said);
+		}
+		t.said = v;
+		tunnels[vni] = {
+			verdict: v,
+			interval: t.plan.interval,
+			asks: length(t.plan.address) ? t.plan.address : ['ff02::1'],
+			underlay: p == null ? null : p.ok != null && at - p.ok <= span ? true : at - p.since < span ? null : false,
+			underlay_ms: tenth(p?.rtt),
+			from: t.from,
+			rtt_ms: tenth(t.rtt),
+			answered_ago: t.answered != null ? int(at - t.answered) : null,
+		};
+	}
+	let lp = map(sort(keys(loops)), k => {
+		let l = loops[k];
+		return { port: l.port, device: l.device, vni: l.vni, came_in: l.came_in, ago: int(at - l.at) };
+	});
+	store(out, sprintf('%J\n', { at: time(), tunnels: tunnels, loops: lp }));
+}
+
+function main() {
+	signal('SIGTERM', () => exit(0));
+	signal('SIGINT', () => exit(0));
+	fs.mkdir('/var/run/aeolus');
+	// A run before this one may have taken ports off their tunnels: a restart
+	// puts them back (0059).
+	let shut = [];
+	try {
+		shut = json(read(SHUT) ?? '[]') ?? [];
+	} catch (e) {
+	}
+	if (act)
+		for (let port in shut)
+			bus.call('network.device', 'set_state', { name: port, defer: false });
+	fs.unlink(SHUT);
+	let p = plan(), sig = sprintf('%J', p);
+	apply_plan(p);
+	log('probing %d tunnels, guarding %d ports', length(keys(tun)), length(keys(guards)));
+	let next_plan = now() + PLAN_EVERY, next_write = now();
+	while (true) {
+		let at = now();
+		if (at >= next_plan) {
+			p = plan();
+			let s = sprintf('%J', p);
+			if (s != sig) {
+				apply_plan(p);
+				sig = s;
+				log('the plan changed: probing %d tunnels, guarding %d ports', length(keys(tun)), length(keys(guards)));
+			}
+			next_plan = at + PLAN_EVERY;
+		}
+		for (let vni, t in tun)
+			if (at >= t.next) {
+				send_probes(t, at);
+				t.next = at + t.plan.interval;
+			}
+		for (let a, pe in peers)
+			if (at >= pe.next) {
+				ping(a, pe, at);
+				pe.next = at + pe.interval;
+			}
+		for (let port, g in guards)
+			if (!loops[port] && at >= g.next) {
+				send_guard(port, g, at);
+				g.next = at + GUARD_EVERY;
+			}
+		if (at >= next_write) {
+			results(at);
+			next_write = at + WRITE_EVERY;
+		}
+		// Wait for answers until the next thing is due.
+		let due = min(next_plan, next_write);
+		for (let vni, t in tun)
+			due = min(due, t.next);
+		for (let a, pe in peers)
+			due = min(due, pe.next);
+		for (let port, g in guards)
+			if (!loops[port])
+				due = min(due, g.next);
+		let wait = max(10, min(1000, int((due - now()) * 1000)));
+		// What each socket is, by its descriptor: a tunnel, the underlay's
+		// pings, or the loop guard.
+		let by_fd = {};
+		let polls = [];
+		for (let vni in keys(tun))
+			if (tun[vni].sock) {
+				by_fd[tun[vni].sock.fileno()] = vni;
+				push(polls, [tun[vni].sock, socket.POLLIN]);
+			}
+		for (let s in [raw4, raw6, guard_rx])
+			if (s)
+				push(polls, [s, socket.POLLIN]);
+		if (!length(polls)) {
+			sleep(wait);
+			continue;
+		}
+		for (let r in socket.poll(wait, ...polls) ?? []) {
+			if (!(r[1] & socket.POLLIN))
+				continue;
+			let fd = r[0].fileno();
+			if (by_fd[fd] != null)   // "fd in by_fd" would miss: in does not make a number a key
+				on_tunnel(tun[by_fd[fd]]);
+			else if (raw4 && fd == raw4.fileno())
+				on_raw(raw4, false);
+			else if (raw6 && fd == raw6.fileno())
+				on_raw(raw6, true);
+			else if (guard_rx && fd == guard_rx.fileno())
+				on_guard();
+		}
+	}
+}
+
+main();

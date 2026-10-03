@@ -191,9 +191,16 @@ func TestStateReports(t *testing.T) {
 			"bss": []any{map[string]any{"ssid": "Sweet Spot", "band": "2g", "clients": 1, "steered_away": 4, "steered_in": 0}}},
 		"ports": []any{map[string]any{"name": "lan1", "up": true, "carrier": false},
 			map[string]any{"name": "wan", "up": true, "carrier": true, "speed": "1000F", "uplink": true}},
-		"vxlan": map[string]any{"installed": true, "clamp": true, "tunnels": []any{
-			map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "up": true},
-			map[string]any{"vni": 10, "peer": "2001:db8::2", "port": 4789, "mtu": 1450, "up": false, "standby": true}}},
+		"vxlan": map[string]any{"installed": true, "clamp": true, "prober": true, "tunnels": []any{
+			// What the prober found (0059); what it does not know yet is null.
+			map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "up": true, "probe": map[string]any{
+				"verdict": "up", "interval": 30, "asks": []string{"192.168.50.1"}, "underlay": true, "underlay_ms": 0.4,
+				"from": "192.168.50.1", "rtt_ms": 0.8, "answered_ago": 12}},
+			map[string]any{"vni": 60, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "up": true, "probe": map[string]any{
+				"verdict": "unknown", "interval": 30, "asks": []string{"ff02::1"}, "underlay": nil, "underlay_ms": nil,
+				"from": nil, "rtt_ms": nil, "answered_ago": nil}},
+			map[string]any{"vni": 10, "peer": "2001:db8::2", "port": 4789, "mtu": 1450, "up": false, "standby": true}},
+			"loops": []any{map[string]any{"port": "lan3", "device": "lan3.30", "vni": 30, "came_in": "aeolus_30", "ago": 4}}},
 	}
 	if code, _, body := f.apDo("POST", "/v1/ap/state", token, report, nil); code != 200 {
 		t.Fatalf("state: %d %v", code, body)
@@ -214,6 +221,14 @@ func TestStateReports(t *testing.T) {
 		"speed":   {"version": 1, "ports": []any{map[string]any{"name": "lan1", "speed": "fast"}}},
 		"vni":     {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 16777216, "peer": "1.1.1.2", "port": 4789}}}},
 		"peer":    {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "vtep.example.net", "port": 4789}}}},
+		"verdict": {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789,
+			"probe": map[string]any{"verdict": "fine", "interval": 30}}}}},
+		"answered by": {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789,
+			"probe": map[string]any{"verdict": "up", "interval": 30, "from": "gateway"}}}}},
+		"rtt": {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789,
+			"probe": map[string]any{"verdict": "up", "interval": 30, "rtt_ms": -1}}}}},
+		"loop port":   {"version": 1, "vxlan": map[string]any{"loops": []any{map[string]any{"port": "LAN 3", "device": "lan3", "ago": 1}}}},
+		"loop device": {"version": 1, "vxlan": map[string]any{"loops": []any{map[string]any{"port": "lan3", "device": "lan3; rm", "ago": 1}}}},
 	} {
 		if code, _, body := f.apDo("POST", "/v1/ap/state", token, bad, nil); code != 400 {
 			t.Errorf("%s: %d %v", name, code, body)
@@ -225,8 +240,12 @@ func TestStateReports(t *testing.T) {
 	steer, _ := state["steering"].(map[string]any)
 	ports, _ := state["ports"].([]any)
 	tunnels, _ := state["vxlan"].(map[string]any)["tunnels"].([]any)
-	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 2 {
+	loops, _ := state["vxlan"].(map[string]any)["loops"].([]any)
+	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 3 || len(loops) != 1 {
 		t.Fatalf("condition = %v", cond)
+	}
+	if p, _ := tunnels[0].(map[string]any)["probe"].(map[string]any); p["verdict"] != "up" || p["from"] != "192.168.50.1" || p["rtt_ms"] != 0.8 {
+		t.Fatalf("probe = %v", p)
 	}
 }
 

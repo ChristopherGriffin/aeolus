@@ -192,3 +192,31 @@ func TestAgentRendersItsOutput(t *testing.T) {
 		}
 	}
 }
+
+// The prober's frames, filters and verdicts (0059), as the agent's own ucode
+// builds and reads them: agent/test/probe.uc prints them, and probe.out is
+// what it must print. Its checksums were also worked out apart from ucode.
+func TestAgentProbeFrames(t *testing.T) {
+	ucode, err := exec.LookPath("ucode")
+	if err != nil {
+		t.Skip("ucode is not installed; CI builds it (0040)")
+	}
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", "probe.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "probe.uc"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Errorf("the prober's frames are not what probe.out says:\n%s", out)
+	}
+}
