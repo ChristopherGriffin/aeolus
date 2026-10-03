@@ -40,3 +40,26 @@ func TestFits(t *testing.T) {
 		}
 	}
 }
+
+func TestRadar(t *testing.T) {
+	for _, c := range []struct {
+		band       string
+		channel, w int
+		want       bool
+	}{
+		{"5g", 36, 160, true}, // 36–64 includes 52–64
+		{"5g", 36, 80, false},
+		{"5g", 52, 20, true},
+		{"5g", 48, 40, false},
+		{"5g", 100, 80, true},
+		{"5g", 149, 80, false},
+		{"5g", 0, 160, true}, // automatic: every 160 MHz block has radar channels
+		{"5g", 0, 80, false}, // 36–48 and 149–161 do not
+		{"5g", 0, 20, false},
+		{"2g", 6, 40, false},
+	} {
+		if got := Radar(c.band, c.channel, c.w); got != c.want {
+			t.Errorf("Radar(%s, %d, %d) = %v, want %v", c.band, c.channel, c.w, got, c.want)
+		}
+	}
+}

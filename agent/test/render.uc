@@ -21,4 +21,4 @@ for (let name in c.stale ?? [])
 let out = render(c.intent, current, c.facts);
 for (let e in out.errors)
 	warn('render: ' + e + '\n');
-print(join('\n', map(PACKAGES, p => text(p, out.config[p]))) + '\n');
+print(join('\n', map(PACKAGES, p => text(p, out.config[p]))));

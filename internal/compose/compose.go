@@ -42,7 +42,8 @@ var slots = []string{"primary", "fallback"}
 //   - The concentrators the AP's transports use are attached, with what the
 //     AP needs to reach them.
 //   - A radio width the AP's radio cannot do, by what it reported when it
-//     enrolled, is a problem (0008).
+//     enrolled, is a problem (0008), as is a 5 GHz channel Aeolus sets that
+//     cannot carry the width Aeolus sets (0045).
 func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal) (Result, error) {
 	cfg, err := s.Org.ResolveAP(ap)
 	if err != nil {
@@ -128,6 +129,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	sort.Strings(problems)
 	problems = append(problems, sch.Problems(doc)...)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
+	problems = append(problems, bondingProblems(doc)...)
 	if problems == nil {
 		problems = []string{}
 	}
@@ -172,6 +174,26 @@ func radioProblems(doc map[string]any, facts json.RawMessage) []string {
 			}
 		}
 		out = append(out, fmt.Sprintf("radio.%s.width: this AP's radio cannot use %d MHz; it can use %s MHz", band, int(w), strings.Join(list, ", ")))
+	}
+	return out
+}
+
+// bondingProblems refuses a channel and width, both set by Aeolus, that do
+// not fit together (0045). A channel the AP picks itself is left to the
+// render check (0044).
+func bondingProblems(doc map[string]any) []string {
+	radios, _ := doc["radio"].(map[string]any)
+	var out []string
+	for _, band := range sortedKeys(radios) {
+		set, _ := radios[band].(map[string]any)
+		ch, ok1 := set["channel"].(float64)
+		w, ok2 := set["width"].(float64)
+		if !ok1 || !ok2 {
+			continue
+		}
+		if ok, why := radio.Fits(band, int(ch), int(w)); !ok {
+			out = append(out, fmt.Sprintf("radio.%s.channel: %s", band, why))
+		}
 	}
 	return out
 }

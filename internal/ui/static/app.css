@@ -160,8 +160,9 @@ details ul.problems { margin: 0; padding: 4px 20px 12px 38px; color: #6B1A13; fo
 /* Editing (M6 part 2) */
 .radio { border-top: 1px solid var(--line-2); }
 .radio-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 20px 2px; }
-.radio .row { border-top: 0; }
-.controls { display: flex; gap: 8px; align-items: center; }
+.radio .row { border-top: 0; flex-wrap: wrap; }
+.radio .row .value { min-width: 7em; }
+.controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 select { height: 34px; padding: 0 8px; border: 1px solid #C9CEC6; border-radius: 8px; background: var(--panel); font: inherit; font-size: 14px; color: var(--ink); }
 .button.primary { background: var(--accent); border-color: var(--accent); color: #FFFFFF; font-weight: 600; }
 .button:disabled { opacity: 0.5; cursor: default; }

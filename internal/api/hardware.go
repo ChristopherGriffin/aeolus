@@ -12,7 +12,9 @@ import (
 
 // What a Locations node can offer for its radios (0044). A folder offers
 // only what every AP it reaches can do, so its setting is the same for all
-// of them; an AP offers what its own radios can do, as its own setting.
+// of them; an AP offers what its own radios can do, as its own setting. A
+// width some AP's channel cannot carry comes with setting the channel to
+// automatic in the same change, so each AP picks one that fits (0045).
 
 type apRef struct {
 	ID   hierarchy.NodeID `json:"id"`
@@ -20,9 +22,18 @@ type apRef struct {
 }
 
 type widthView struct {
-	Width int    `json:"width"`
-	OK    bool   `json:"ok"`
-	Why   string `json:"why,omitempty"`
+	Width int        `json:"width"`
+	OK    bool       `json:"ok"`
+	Why   string     `json:"why,omitempty"`
+	Auto  bool       `json:"auto,omitempty"`  // the channel is set to automatic with this width, as some AP's cannot carry it
+	Moves []moveView `json:"moves,omitempty"` // the APs that leave a fixed channel for an automatic one
+	Radar bool       `json:"radar,omitempty"` // some AP would then certainly be on radar (DFS) channels
+}
+
+// moveView is an AP that leaves a fixed channel, and that channel.
+type moveView struct {
+	apRef
+	From int `json:"from"`
 }
 
 type bandView struct {
@@ -44,6 +55,7 @@ type apRadios struct {
 	ref      apRef
 	can      map[string]map[int]bool // band -> widths every radio of that band can use
 	channels map[string]int          // band -> channel; 0 for automatic or unknown
+	setBelow map[string]apRef        // band -> the node below that sets its channel, out of the node's reach
 }
 
 // reach lists the APs a setting on node would apply to: node itself if it is
@@ -77,13 +89,17 @@ func reach(t *hierarchy.Tree, node hierarchy.NodeID) []hierarchy.NodeID {
 func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardwareView, error) {
 	t := state.Org.Locations
 	self, _ := t.Node(node)
+	above := map[hierarchy.NodeID]bool{}
+	for _, a := range t.Ancestry(node) {
+		above[a] = true
+	}
 	hw := &hardwareView{APs: []apRef{}, Unknown: []apRef{}, Bands: []bandView{}}
 	var known []apRadios
 	for _, id := range reach(t, node) {
 		n, _ := t.Node(id)
 		ref := apRef{ID: id, Name: n.Name}
 		hw.APs = append(hw.APs, ref)
-		r, err := s.apRadios(state, t, ref)
+		r, err := s.apRadios(state, t, ref, above)
 		if err != nil {
 			return nil, err
 		}
@@ -105,24 +121,44 @@ func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardware
 			continue
 		}
 		bv := bandView{Band: band, APs: len(have), Widths: []widthView{}}
+		lockedBy := channelLock(t, node, band)
 		for _, w := range radio.Widths[band] {
-			bv.Widths = append(bv.Widths, judge(band, w, have, alone))
+			bv.Widths = append(bv.Widths, judge(band, w, have, alone, lockedBy))
 		}
 		hw.Bands = append(hw.Bands, bv)
 	}
 	return hw, nil
 }
 
+// channelLock names the node whose lock on a band's channel stops node
+// setting it, or is empty.
+func channelLock(t *hierarchy.Tree, node hierarchy.NodeID, band string) string {
+	r, ok := t.Resolve(node, hierarchy.Path("radio."+band+".channel"))
+	if !ok || r.Origin != hierarchy.OriginLocked || r.From == node {
+		return ""
+	}
+	n, _ := t.Node(r.From)
+	return n.Name
+}
+
 // judge says whether every AP can use a width on a band, and if not, the
-// first reason and how many more APs share the trouble.
-func judge(band string, w int, aps []apRadios, alone bool) widthView {
+// first reason and how many more APs share the trouble. Where an AP's
+// channel cannot carry the width, the width comes with setting the channel
+// to automatic, unless a channel set below or a lock above is in the way
+// (0045).
+func judge(band string, w int, aps []apRadios, alone bool, lockedBy string) widthView {
 	var cannot []string
-	var onChannel []apRadios
+	var stuck []apRadios
+	move := false
 	for _, r := range aps {
-		if !r.can[band][w] {
+		switch {
+		case !r.can[band][w]:
 			cannot = append(cannot, r.ref.Name)
-		} else if ok, _ := radio.Fits(band, r.channels[band], w); !ok {
-			onChannel = append(onChannel, r)
+		case fits(band, r.channels[band], w):
+		case r.setBelow[band].ID != "":
+			stuck = append(stuck, r)
+		default:
+			move = true
 		}
 	}
 	switch {
@@ -130,13 +166,33 @@ func judge(band string, w int, aps []apRadios, alone bool) widthView {
 		return widthView{Width: w, Why: "its radio cannot do it"}
 	case len(cannot) > 0:
 		return widthView{Width: w, Why: names(cannot) + " cannot do it"}
-	case len(onChannel) > 0 && alone:
-		return widthView{Width: w, Why: fmt.Sprintf("not on channel %d", onChannel[0].channels[band])}
-	case len(onChannel) > 0:
-		first := onChannel[0]
-		return widthView{Width: w, Why: fmt.Sprintf("%s is on channel %d", first.ref.Name, first.channels[band]) + more(len(onChannel)-1)}
+	case len(stuck) > 0:
+		first, by := stuck[0], stuck[0].setBelow[band]
+		why := fmt.Sprintf("%s sets its own channel %d", first.ref.Name, first.channels[band])
+		if by.ID != first.ref.ID {
+			why = fmt.Sprintf("%s sets channel %d for %s", by.Name, first.channels[band], first.ref.Name)
+		}
+		return widthView{Width: w, Why: why + more(len(stuck)-1)}
+	case move && lockedBy != "":
+		return widthView{Width: w, Why: "the channel is locked at " + lockedBy}
 	}
-	return widthView{Width: w, OK: true}
+	v := widthView{Width: w, OK: true, Auto: move}
+	for _, r := range aps {
+		ch := r.channels[band]
+		if move && r.setBelow[band].ID == "" {
+			if ch != 0 {
+				v.Moves = append(v.Moves, moveView{r.ref, ch})
+			}
+			ch = 0
+		}
+		v.Radar = v.Radar || radio.Radar(band, ch, w)
+	}
+	return v
+}
+
+func fits(band string, channel, w int) bool {
+	ok, _ := radio.Fits(band, channel, w)
+	return ok
 }
 
 func names(list []string) string {
@@ -153,8 +209,10 @@ func more(n int) string {
 	return fmt.Sprintf(" (and %d more)", n)
 }
 
-func (s *Server) apRadios(state *change.State, t *hierarchy.Tree, ref apRef) (apRadios, error) {
-	r := apRadios{ref: ref, can: map[string]map[int]bool{}, channels: map[string]int{}}
+// apRadios reads one AP's radios. above holds the node the setting would be
+// made on and its ancestors: a channel set anywhere else is set below it.
+func (s *Server) apRadios(state *change.State, t *hierarchy.Tree, ref apRef, above map[hierarchy.NodeID]bool) (apRadios, error) {
+	r := apRadios{ref: ref, can: map[string]map[int]bool{}, channels: map[string]int{}, setBelow: map[string]apRef{}}
 	var facts struct {
 		Radios []struct {
 			Band    string   `json:"band"`
@@ -187,6 +245,10 @@ func (s *Server) apRadios(state *change.State, t *hierarchy.Tree, ref apRef) (ap
 	}
 	for band := range r.can {
 		if v, ok := t.Resolve(ref.ID, hierarchy.Path("radio."+band+".channel")); ok {
+			if !above[v.From] {
+				n, _ := t.Node(v.From)
+				r.setBelow[band] = apRef{ID: v.From, Name: n.Name}
+			}
 			if ch, ok := v.Value.(float64); ok {
 				r.channels[band] = int(ch)
 				continue

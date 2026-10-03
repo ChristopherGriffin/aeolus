@@ -77,3 +77,34 @@ func Fits(band string, channel, width int) (bool, string) {
 	}
 	return false, fmt.Sprintf("channel %d cannot use a %d MHz width", channel, width)
 }
+
+// Radar says whether a radio on a channel, at a width, uses any of the 5 GHz
+// channels shared with radar in the US and EU (DFS), 52–144. Such a radio
+// listens for radar before it transmits and moves off if it hears any (0045).
+// On channel 0, automatic, it says whether that holds whatever the radio
+// picks: every block that can carry the width includes radar channels.
+func Radar(band string, channel, width int) bool {
+	if band != "5g" {
+		return false
+	}
+	groups := groups5g[width]
+	if channel == 0 {
+		if len(groups) == 0 {
+			return false // 20 MHz: it may pick a channel without radar
+		}
+		for _, g := range groups {
+			if !radar(g[0], g[1]) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, g := range groups {
+		if channel >= g[0] && channel <= g[1] {
+			return radar(g[0], g[1])
+		}
+	}
+	return radar(channel, channel)
+}
+
+func radar(lo, hi int) bool { return lo <= 144 && hi >= 52 }

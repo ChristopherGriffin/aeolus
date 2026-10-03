@@ -46,7 +46,9 @@ function summary(ctx, op) {
 	const node = (id, t = tree) => ctx.name(t, id);
 	const val = (v) => (v && typeof v === 'object' && v.sealed ? '(sealed)' : JSON.stringify(v));
 	switch (op.kind) {
-	case 'set': return `${op.tree} › ${node(op.node)}: ${op.path} = ${val(op.value)}`;
+	case 'set': return `${op.tree} › ${node(op.node)}: ` + (op.values
+		? Object.keys(op.values).sort().map((p) => `${p} = ${val(op.values[p])}`).join(', ')
+		: `${op.path} = ${val(op.value)}`);
 	case 'unset': return `${op.tree} › ${node(op.node)}: unset ${op.path}`;
 	case 'lock': return `${op.tree} › ${node(op.node)}: lock ${op.path}`;
 	case 'unlock': return `${op.tree} › ${node(op.node)}: unlock ${op.path}`;

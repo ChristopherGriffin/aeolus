@@ -251,6 +251,33 @@ func TestPowerAutoMeansNoTxpower(t *testing.T) {
 	}
 }
 
+func TestAutomaticChannelLists(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(`{"radio": {"2g": {"channel": "auto"}, "5g": {"channel": "auto"}}}`), &doc); err != nil {
+		t.Fatal(err)
+	}
+	check := func(text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	// 2.4 GHz picks from 1, 6 and 11; 5 GHz from anything that fits.
+	ok := "package wireless\nconfig wifi-device 'radio1'\n\toption band '2g'\n\toption channel 'auto'\n\tlist channels '1'\n\tlist channels '6'\n\tlist channels '11'\n" +
+		"config wifi-device 'radio0'\n\toption band '5g'\n\toption channel 'auto'\n"
+	if got := check(ok); strings.Contains(got, "channels") {
+		t.Fatalf("problems: %s", got)
+	}
+	if got := check("package wireless\nconfig wifi-device 'radio1'\n\toption band '2g'\n\toption channel 'auto'\n"); !strings.Contains(got, `wireless.radio1: channels is [], want ["1" "6" "11"]`) {
+		t.Fatalf("2.4 GHz without the list: %s", got)
+	}
+	if got := check("package wireless\nconfig wifi-device 'radio0'\n\toption band '5g'\n\toption channel 'auto'\n\tlist channels '36'\n"); !strings.Contains(got, `wireless.radio0: channels is ["36"], want []`) {
+		t.Fatalf("5 GHz with a stale list: %s", got)
+	}
+}
+
 // Every schema field is either checked or deferred with a reason, and every
 // entry names a real field (0039).
 func TestCoverageMatchesTheSchema(t *testing.T) {

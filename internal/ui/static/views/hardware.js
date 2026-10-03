@@ -2,6 +2,8 @@
 // only what every AP it reaches can do, so the whole folder runs the same; an
 // AP offers what its own radios can do, as its own custom setting. The
 // manager works out what is offered (the page's "hardware"); this draws it.
+// A width some AP's channel cannot carry sets the channel to automatic in
+// the same change, so each AP picks one that fits (0045).
 //
 // Every change is previewed first, needs a reason, and is logged under the
 // person's name (0042).
@@ -40,7 +42,8 @@ function band(ctx, node, nodeName, page, b, now, isAP, canEdit, hw) {
 
 	const select = h('select', { 'aria-label': `${bandName(b.band)} width` },
 		h('option', { value: '' }, field ? `Keep ${field.value} MHz` : 'Choose a width'),
-		b.widths.map((w) => h('option', { value: String(w.width), disabled: !w.ok }, `${w.width} MHz`, w.ok ? '' : ` (${w.why})`)),
+		b.widths.map((w) => h('option', { value: String(w.width), disabled: !w.ok }, `${w.width} MHz`,
+			!w.ok ? ` (${w.why})` : w.auto ? ' (channel becomes automatic)' : '')),
 		field?.origin === 'self' && h('option', { value: 'unset' },
 			isAP ? 'Stop the custom setting; follow the folder' : 'Stop setting it here'));
 	const change = h('button', { type: 'button', class: 'button', disabled: true }, 'Change…');
@@ -68,9 +71,11 @@ function band(ctx, node, nodeName, page, b, now, isAP, canEdit, hw) {
 
 // preview shows what a change would do, before anything is recorded.
 async function preview(ctx, node, nodeName, isAP, b, now, path, field, choice, box, hw) {
-	const op = choice === 'unset'
-		? { kind: 'unset', tree: 'locations', node, path }
-		: { kind: 'set', tree: 'locations', node, path, value: Number(choice) };
+	const w = b.widths.find((x) => String(x.width) === choice);
+	let op;
+	if (choice === 'unset') op = { kind: 'unset', tree: 'locations', node, path };
+	else if (w?.auto) op = { kind: 'set', tree: 'locations', node, values: { [path]: w.width, [`radio.${b.band}.channel`]: 'auto' } };
+	else op = { kind: 'set', tree: 'locations', node, path, value: Number(choice) };
 	startEditing();
 	box.replaceChildren(h('div', { class: 'sub' }, 'Checking…'));
 	let p;
@@ -84,7 +89,7 @@ async function preview(ctx, node, nodeName, isAP, b, now, path, field, choice, b
 	const affected = p.reversioned || [];
 	const name = (id) => ctx.name('locations', id);
 	const was = field ? `${field.value} MHz${field.from !== node ? ` (from ${name(field.from)})` : ''}` : 'not set by Aeolus';
-	const becomes = op.kind === 'unset' ? 'not set here' : `${op.value} MHz`;
+	const becomes = op.kind === 'unset' ? 'not set here' : `${w.width} MHz`;
 	const reason = h('input', { type: 'text', class: 'reason', placeholder: 'Why? (logged with your name)', maxlength: 500 });
 	const apply = h('button', { type: 'button', class: 'button primary', disabled: true }, 'Apply');
 	reason.addEventListener('input', () => { apply.disabled = problems.length > 0 || !reason.value.trim(); });
@@ -105,6 +110,9 @@ async function preview(ctx, node, nodeName, isAP, b, now, path, field, choice, b
 	});
 	box.replaceChildren(h('div', { class: 'preview' },
 		h('div', null, h('strong', null, `${bandName(b.band)} width on ${nodeName}: `), was, ' → ', becomes),
+		w?.auto && h('div', null, h('strong', null, 'Channel: '),
+			`set to automatic on ${nodeName}, so each AP picks a free channel that fits the width`,
+			w.moves?.length ? `. ${w.moves.map((m) => `${m.name} leaves channel ${m.from}`).join(', ')}.` : '.'),
 		isAP && op.kind === 'set' && field && field.from !== node && h('div', { class: 'sub' },
 			`This becomes a custom setting on ${nodeName}, instead of following ${name(field.from)}.`),
 		h('div', { class: 'sub' }, affected.length
@@ -113,11 +121,13 @@ async function preview(ctx, node, nodeName, isAP, b, now, path, field, choice, b
 		problems.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Aeolus would hold these configs, so the APs would not apply them:'),
 			h('ul', null, problems.flatMap(([id, list]) => list.map((x) => h('li', null, `${name(id)}: ${x}`))))),
+		w?.radar && op.kind === 'set' && h('div', { class: 'sub warn' },
+			`${w.width} MHz here uses radar (DFS) channels: after the change the radio listens for radar for about a minute before it transmits, and moves to another channel by itself if it hears any.`),
 		problems.length === 0 && affected.length > 0 && h('div', { class: 'sub warn' },
 			`Applying restarts the ${bandName(b.band)} radio on ${affected.length === 1 ? 'that AP' : 'each of them'}`,
 			isAP && now?.clients === 0
 				? '; no clients are on it right now.'
-				: `; ${isAP && now ? `its ${now.clients} client${now.clients === 1 ? '' : 's'}` : 'clients on it'} drop for a few seconds and reconnect.`),
+				: `; ${isAP && now ? `its ${now.clients} client${now.clients === 1 ? '' : 's'}` : 'clients on it'} drop for ${w?.radar && op.kind === 'set' ? 'about a minute' : 'a few seconds'} and reconnect.`),
 		h('div', { class: 'actions' }, reason, apply, cancelButton(box))));
 	reason.focus();
 }

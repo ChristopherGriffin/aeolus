@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
@@ -23,16 +24,29 @@ func (s *Server) prepare(op change.Op) (change.Op, error) {
 	case change.IssueToken:
 		return op, badRequest("tokens are issued with POST /v1/tokens")
 	case change.Set:
-		if op.Tree == change.Locations && op.Path == hierarchy.ServicesPath {
-			return op, nil // refused by Apply: use assign-services
-		}
-		prepared, err := s.schema.Prepare(op.Path, op.Value, s.box)
-		if err != nil {
+		if len(op.Values) == 0 {
+			v, err := s.prepareValue(op.Tree, op.Path, op.Value)
+			op.Value = v
 			return op, err
 		}
-		op.Value = prepared
+		values := make(map[hierarchy.Path]json.RawMessage, len(op.Values))
+		for p, raw := range op.Values {
+			v, err := s.prepareValue(op.Tree, p, raw)
+			if err != nil {
+				return op, err
+			}
+			values[p] = v
+		}
+		op.Values = values
 	}
 	return op, nil
+}
+
+func (s *Server) prepareValue(tree change.TreeName, p hierarchy.Path, raw json.RawMessage) (json.RawMessage, error) {
+	if tree == change.Locations && p == hierarchy.ServicesPath {
+		return raw, nil // refused by Apply: use assign-services
+	}
+	return s.schema.Prepare(p, raw, s.box)
 }
 
 // checks runs the whole-config check for the given APs and returns the ones

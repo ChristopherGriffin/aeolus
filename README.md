@@ -25,7 +25,7 @@ Each milestone ends in something checkable before the next starts.
    2. On the AP itself: VXLAN, switching between transports and HA (0020, 0022), and VLAN detection on the uplink.
 6. **Web UI** (0042, [`internal/ui`](internal/ui)), from the mockup, served by Aeolus at `/`:
    1. Read-only: both trees with values and where they come from, overrides, locks and problems; each AP's sync, reports and history; Landing Zone; all APs; the library; the change log.
-   2. Editing, each change previewed and made with a reason, and the page guard (0029). Started with radio width, set by folder within what every AP can do, or per AP as a custom setting (0044).
+   2. Editing, each change previewed and made with a reason, and the page guard (0029). Started with radio width, set by folder within what every AP can do, or per AP as a custom setting (0044); APs pick their own channels, and a width their channel cannot carry sets it to automatic (0045).
 7. **Key channel** (0014).
 
 ## On the manager host
@@ -87,6 +87,7 @@ Each milestone ends in something checkable before the next starts.
 | [0042](docs/decisions/0042-the-web-ui.md) | The web UI |
 | [0043](docs/decisions/0043-getting-back-in.md) | Getting back in when a token is lost |
 | [0044](docs/decisions/0044-hardware-by-folder.md) | Radio hardware is set by folder, within what every AP can do |
+| [0045](docs/decisions/0045-aps-pick-their-channels.md) | APs pick their own channels, and a width never waits on one (proposed) |
 
 ## Open questions
 

@@ -82,8 +82,15 @@ function radios(w, intent, facts) {
 			s.country = country;
 		if (set.enabled != null)
 			s.disabled = set.enabled ? '0' : '1';
-		if (set.channel != null)
+		if (set.channel != null) {
 			s.channel = '' + set.channel;
+			// An automatic 2.4 GHz channel is one of 1, 6 and 11, the only
+			// ones that do not overlap (0045).
+			if (set.channel == 'auto' && s.band == '2g')
+				s.channels = ['1', '6', '11'];
+			else
+				delete s.channels;
+		}
 		if (set.width != null)
 			s.htmode = htmode(s.band, set.width, s.htmode, facts.radios?.[s['.name']]?.htmodes);
 		if (set.power == 'auto')

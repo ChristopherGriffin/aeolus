@@ -37,7 +37,8 @@ jobs:
           ucode -e 'print("ucode works\n")'
       - run: go test -race -cover ./...
       - name: the agent renders its expected output
-        run: go test -count=1 -v -run 'Agent' ./internal/rendercheck/ | tee /dev/stderr | grep -q -- '--- PASS: TestAgentRendersItsOutput'
+        run: |
+          go test -count=1 -v -run 'Agent' ./internal/rendercheck/ | tee /dev/stderr | grep -q -- '--- PASS: TestAgentRendersItsOutput'
       # The UI has no build step (0042); check every module parses and its
       # imports link. app.js touches the page when it loads, so it is only
       # parsed.

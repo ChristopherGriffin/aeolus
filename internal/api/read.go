@@ -212,15 +212,29 @@ func viewEntry(e changelog.Entry) entryView {
 	op := e.Op
 	op.TokenHash = nil
 	if len(op.Value) > 0 {
-		var v any
-		if json.Unmarshal(op.Value, &v) == nil {
-			op.Value, _ = json.Marshal(mask(v))
+		op.Value = maskRaw(op.Value)
+	}
+	if len(op.Values) > 0 {
+		values := make(map[hierarchy.Path]json.RawMessage, len(op.Values))
+		for p, raw := range op.Values {
+			values[p] = maskRaw(raw)
 		}
+		op.Values = values
 	}
 	eff := e.Effect
 	eff.Before, eff.After = mask(eff.Before), mask(eff.After)
 	eff.Removed = viewOverrides(eff.Removed)
 	return entryView{Seq: e.Seq, At: e.At, Actor: e.Actor, Reason: e.Reason, Op: op, Effect: eff}
+}
+
+// maskRaw masks secrets in a JSON value. A value that is not JSON is kept.
+func maskRaw(raw json.RawMessage) json.RawMessage {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return raw
+	}
+	out, _ := json.Marshal(mask(v))
+	return out
 }
 
 // changes reads the change log. It needs at least viewer at the Org root of

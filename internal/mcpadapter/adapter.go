@@ -97,17 +97,18 @@ func (c client) call(ctx context.Context, method, path string, body any) (any, e
 
 // Op is a change, as the model writes it.
 type Op struct {
-	Kind     string   `json:"kind" jsonschema:"one of: add-folder, add-ap, remove-ap, move, set, unset, lock, unlock, break-hierarchy, assign-services, add-account, grant, revoke, revoke-token, set-concentrator, remove-concentrator, set-vni, remove-vni"`
-	Tree     string   `json:"tree,omitempty" jsonschema:"locations or services"`
-	Node     string   `json:"node,omitempty" jsonschema:"the folder or AP the change targets; for add-folder and add-ap, the new node's ID"`
-	Parent   string   `json:"parent,omitempty" jsonschema:"parent folder, for add-folder, add-ap and move"`
-	Name     string   `json:"name,omitempty" jsonschema:"display name, for add-folder, add-ap and add-account"`
-	Path     string   `json:"path,omitempty" jsonschema:"field path, e.g. radio.5g.width or network.sweet.transport.primary.vlan"`
-	Value    any      `json:"value,omitempty" jsonschema:"the field's new value, for set; for set-concentrator the definition {name, address, port, mtu, scope}"`
-	Services []string `json:"services,omitempty" jsonschema:"service folder IDs, for assign-services on a Locations node"`
-	Account  string   `json:"account,omitempty" jsonschema:"account ID, for add-account, grant and revoke"`
-	Role     string   `json:"role,omitempty" jsonschema:"viewer, operator or admin, for grant and revoke"`
-	TokenID  string   `json:"token_id,omitempty" jsonschema:"token ID, for revoke-token"`
+	Kind     string         `json:"kind" jsonschema:"one of: add-folder, add-ap, remove-ap, move, set, unset, lock, unlock, break-hierarchy, assign-services, add-account, grant, revoke, revoke-token, set-concentrator, remove-concentrator, set-vni, remove-vni"`
+	Tree     string         `json:"tree,omitempty" jsonschema:"locations or services"`
+	Node     string         `json:"node,omitempty" jsonschema:"the folder or AP the change targets; for add-folder and add-ap, the new node's ID"`
+	Parent   string         `json:"parent,omitempty" jsonschema:"parent folder, for add-folder, add-ap and move"`
+	Name     string         `json:"name,omitempty" jsonschema:"display name, for add-folder, add-ap and add-account"`
+	Path     string         `json:"path,omitempty" jsonschema:"field path, e.g. radio.5g.width or network.sweet.transport.primary.vlan"`
+	Value    any            `json:"value,omitempty" jsonschema:"the field's new value, for set; for set-concentrator the definition {name, address, port, mtu, scope}"`
+	Values   map[string]any `json:"values,omitempty" jsonschema:"several fields of one node to set together, for set, in place of path and value: {path: value}; all or none are set"`
+	Services []string       `json:"services,omitempty" jsonschema:"service folder IDs, for assign-services on a Locations node"`
+	Account  string         `json:"account,omitempty" jsonschema:"account ID, for add-account, grant and revoke"`
+	Role     string         `json:"role,omitempty" jsonschema:"viewer, operator or admin, for grant and revoke"`
+	TokenID  string         `json:"token_id,omitempty" jsonschema:"token ID, for revoke-token"`
 
 	Concentrator string `json:"concentrator,omitempty" jsonschema:"library concentrator ID, for the concentrator and VNI kinds"`
 	VNI          int    `json:"vni,omitempty" jsonschema:"VNI number, for set-vni and remove-vni (its label goes in name)"`

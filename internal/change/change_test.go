@@ -37,6 +37,38 @@ func TestSetDecodesJSONAndRecordsBeforeAfter(t *testing.T) {
 	}
 }
 
+func TestSetValuesAllOrNone(t *testing.T) {
+	o := org(t)
+	mustApply(t, o, Op{Kind: Set, Tree: Locations, Node: "house", Path: "radio.5g.width", Value: json.RawMessage(`40`)})
+	_, eff, err := Apply(o, Op{Kind: Set, Tree: Locations, Node: "house", Values: map[hierarchy.Path]json.RawMessage{
+		"radio.5g.width": json.RawMessage(`160`), "radio.5g.channel": json.RawMessage(`36`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Effect{Before: map[string]any{"radio.5g.width": float64(40)}, After: map[string]any{"radio.5g.width": float64(160), "radio.5g.channel": float64(36)}}
+	if !reflect.DeepEqual(eff, want) {
+		t.Fatalf("effect = %+v", eff)
+	}
+
+	// With the width locked above, neither field changes: the channel,
+	// set first in path order, is put back.
+	mustApply(t, o, Op{Kind: Set, Tree: Locations, Node: "symtus", Path: "radio.5g.width", Value: json.RawMessage(`80`)})
+	mustApply(t, o, Op{Kind: Lock, Tree: Locations, Node: "symtus", Path: "radio.5g.width"})
+	_, _, err = Apply(o, Op{Kind: Set, Tree: Locations, Node: "house", Values: map[hierarchy.Path]json.RawMessage{
+		"radio.5g.width": json.RawMessage(`40`), "radio.5g.channel": json.RawMessage(`44`)}})
+	var locked *hierarchy.LockedError
+	if !errors.As(err, &locked) {
+		t.Fatalf("got %v, want a lock error", err)
+	}
+	if v, _ := o.Org.Locations.Own("house", "radio.5g.channel"); v != float64(36) {
+		t.Fatalf("channel = %v, want 36 put back", v)
+	}
+	if _, _, err := Apply(o, Op{Kind: Set, Tree: Locations, Node: "house", Path: "radio.5g.width", Value: json.RawMessage(`40`),
+		Values: map[hierarchy.Path]json.RawMessage{"radio.5g.channel": json.RawMessage(`44`)}}); !errors.Is(err, ErrTwoForms) {
+		t.Fatalf("both forms: %v", err)
+	}
+}
+
 func TestLockReportsRemovedOverrides(t *testing.T) {
 	o := org(t)
 	mustApply(t, o, Op{Kind: Set, Tree: Locations, Node: "symtus", Path: "system.tz", Value: json.RawMessage(`"America/Chicago"`)})

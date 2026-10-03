@@ -139,15 +139,17 @@ func CheckReferences(s *State, op Op) error {
 	if op.Kind != Set || op.Tree != Services || s == nil {
 		return nil
 	}
-	if _, _, field, ok := TransportField(op.Path); !ok || field != "concentrator" {
-		return nil
-	}
-	var id string
-	if err := json.Unmarshal(op.Value, &id); err != nil {
-		return nil // the schema check reports a wrong type
-	}
-	if _, ok := s.Library.Get(id); !ok {
-		return &RefError{Path: op.Path, Err: fmt.Errorf("%w: %s", library.ErrNoConcentrator, id)}
+	for _, f := range op.Fields() {
+		if _, _, field, ok := TransportField(f.Path); !ok || field != "concentrator" {
+			continue
+		}
+		var id string
+		if err := json.Unmarshal(f.Value, &id); err != nil {
+			continue // the schema check reports a wrong type
+		}
+		if _, ok := s.Library.Get(id); !ok {
+			return &RefError{Path: f.Path, Err: fmt.Errorf("%w: %s", library.ErrNoConcentrator, id)}
+		}
 	}
 	return nil
 }
