@@ -204,7 +204,7 @@
       "properties": {
         "type": { "enum": ["vlan", "vxlan"] },
         "vlan": { "$ref": "#/$defs/vlan" },
-        "concentrator": { "$ref": "#/$defs/id", "description": "A concentrator in the library (0023)." },
+        "concentrator": { "$ref": "#/$defs/id", "description": "The tunnel it travels over, by name, as set in Locations (0055)." },
         "vni": { "type": "integer", "minimum": 1, "maximum": 16777215 }
       },
       "required": ["type"],
@@ -220,9 +220,9 @@
       "properties": {
         "address": { "$ref": "#/$defs/ipAddress" },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "mtu": { "type": "integer", "minimum": 1280, "maximum": 9000 }
+        "mtu": { "type": "integer", "minimum": 1280, "maximum": 9000, "description": "The largest frame the tunnel carries. Unset, it is the default: 1450 over IPv4 and 1430 over IPv6, which a 1500-byte path carries (0056). Larger needs the AP's uplink to carry it plus 50 bytes, or 70 over IPv6." }
       },
-      "required": ["address", "port", "mtu"]
+      "required": ["address", "port"]
     },
     "libraryConcentrator": {
       "description": "A concentrator as the Org's library holds it (0023). Not part of an AP's config.",

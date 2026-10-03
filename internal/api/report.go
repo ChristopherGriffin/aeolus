@@ -13,7 +13,6 @@ import (
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
-	"github.com/ChristopherGriffin/aeolus/internal/compose"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 	"github.com/ChristopherGriffin/aeolus/internal/rendercheck"
@@ -105,7 +104,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c apCall) error 
 		check.Result = conditions.Stale
 		check.Problems = []string{fmt.Sprintf("version %d is not current (%d): poll again", req.Version, after)}
 	default:
-		res, err := compose.AP(state, s.schema, c.ap, s.reveal)
+		res, err := s.compose(state, c.ap, s.reveal)
 		if err != nil {
 			return err
 		}
@@ -191,6 +190,7 @@ type stateReport struct {
 type vxlanState struct {
 	Installed bool          `json:"installed"`
 	Clamp     bool          `json:"clamp"`
+	UplinkMTU int           `json:"uplink_mtu,omitempty"` // what the AP's uplink carries now (0056)
 	Tunnels   []tunnelState `json:"tunnels,omitempty"`
 }
 
@@ -315,8 +315,8 @@ func (st *stateReport) check() error {
 		names[p.Name] = true
 	}
 	if x := st.VXLAN; x != nil {
-		if len(x.Tunnels) > 64 {
-			return badRequest("vxlan: at most 64 tunnels")
+		if len(x.Tunnels) > 64 || x.UplinkMTU < 0 || x.UplinkMTU > 65535 {
+			return badRequest("vxlan: at most 64 tunnels, and an uplink MTU from 0 to 65535")
 		}
 		for _, t := range x.Tunnels {
 			if t.VNI < 1 || t.VNI > 16777215 || t.Port < 1 || t.Port > 65535 || t.MTU < 0 || t.MTU > 9000 || net.ParseIP(t.Peer) == nil {
@@ -398,7 +398,7 @@ func (s *Server) aps(w http.ResponseWriter, _ *http.Request, c call) error {
 		}
 		n, _ := t.Node(id)
 		version, _ := s.log.Version(id)
-		res, err := compose.AP(c.state, s.schema, id, s.reveal)
+		res, err := s.compose(c.state, id, s.reveal)
 		if err != nil {
 			return err
 		}

@@ -137,11 +137,36 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request, c call) error {
 
 // apProblems composes an AP's config and returns the rules it breaks (0029).
 func (s *Server) apProblems(state *change.State, ap hierarchy.NodeID) []string {
-	res, err := compose.AP(state, s.schema, ap, s.reveal)
+	res, err := s.compose(state, ap, s.reveal)
 	if err != nil {
 		return []string{err.Error()}
 	}
 	return res.Problems
+}
+
+// compose composes an AP's config, and holds a tunnel its uplink cannot
+// carry now, by what the AP last reported (0056). An AP that has not
+// reported its uplink's MTU is left to the render check, which judges by
+// the config it renders.
+func (s *Server) compose(state *change.State, ap hierarchy.NodeID, reveal compose.Reveal) (compose.Result, error) {
+	res, err := compose.AP(state, s.schema, ap, reveal)
+	if err != nil || res.Unassigned {
+		return res, err
+	}
+	st, err := s.conds.LatestState(ap)
+	if err != nil || st == nil {
+		return res, err
+	}
+	var report struct {
+		VXLAN *struct {
+			UplinkMTU int `json:"uplink_mtu"`
+		} `json:"vxlan"`
+	}
+	if json.Unmarshal(st.Report, &report) != nil || report.VXLAN == nil || report.VXLAN.UplinkMTU == 0 {
+		return res, nil
+	}
+	res.Problems = append(res.Problems, compose.UplinkProblems(res.Doc, report.VXLAN.UplinkMTU)...)
+	return res, nil
 }
 
 func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error {
@@ -167,7 +192,7 @@ func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error 
 		networks[nid] = map[string]any{"from": net.From, "fields": fields}
 	}
 	version, _ := s.log.Version(id)
-	checked, err := compose.AP(c.state, s.schema, id, s.reveal)
+	checked, err := s.compose(c.state, id, s.reveal)
 	if err != nil {
 		return err
 	}

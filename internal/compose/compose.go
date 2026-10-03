@@ -40,7 +40,8 @@ var slots = []string{"primary", "fallback"}
 //     place.
 //   - A network left with no transport is a problem.
 //   - The config carries only the tunnels its transports use, so an
-//     unfinished tunnel nothing uses holds no AP back.
+//     unfinished tunnel nothing uses holds no AP back. A tunnel without an
+//     MTU gets the default for its far end's address family (0056).
 //   - A radio width the AP's radio cannot do, by what it reported when it
 //     enrolled, is a problem (0008), as is a 5 GHz channel Aeolus sets that
 //     cannot carry the width Aeolus sets (0045).
@@ -106,6 +107,12 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 			if cid, _, _ := strings.Cut(rest, "."); !used[cid] {
 				delete(fields, p)
 			}
+		}
+	}
+	for cid := range used {
+		if _, set := fields["concentrators."+cid+".mtu"]; !set {
+			addr, _ := fields["concentrators."+cid+".address"].(string)
+			fields["concentrators."+cid+".mtu"] = float64(DefaultMTU(addr))
 		}
 	}
 
@@ -291,6 +298,52 @@ func tunnelProblems(doc map[string]any) []string {
 		}
 	}
 	return out
+}
+
+// UplinkProblems holds each tunnel an AP's networks use that its uplink
+// cannot carry now (0056): a tunnel's packets are its MTU plus VXLAN's
+// headers, 50 bytes over IPv4 and 70 over IPv6, and the uplink must carry
+// them whole, as VXLAN endpoints seldom put fragments back together.
+func UplinkProblems(doc map[string]any, uplinkMTU int) []string {
+	nets, _ := doc["network"].(map[string]any)
+	concs, _ := doc["concentrators"].(map[string]any)
+	var out []string
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		if n["enabled"] == false {
+			continue
+		}
+		transport, _ := n["transport"].(map[string]any)
+		for _, slot := range slots {
+			t, _ := transport[slot].(map[string]any)
+			if t["type"] != "vxlan" {
+				continue
+			}
+			cid, _ := t["concentrator"].(string)
+			c, _ := concs[cid].(map[string]any)
+			mtu, _ := c["mtu"].(float64)
+			addr, _ := c["address"].(string)
+			need := int(mtu) + 50
+			if strings.Contains(addr, ":") {
+				need = int(mtu) + 70
+			}
+			if need > uplinkMTU {
+				out = append(out, fmt.Sprintf("network.%s.transport.%s: tunnel %s's MTU of %d needs %d on the AP's uplink, which carries %d now; raise the uplink's MTU, or leave the tunnel's MTU at its default (0056)",
+					id, slot, cid, int(mtu), need, uplinkMTU))
+			}
+		}
+	}
+	return out
+}
+
+// DefaultMTU is a tunnel's MTU when none is set (0056): what a 1500-byte
+// path carries once VXLAN's headers are added, 50 bytes over IPv4 and 70
+// over IPv6.
+func DefaultMTU(address string) int {
+	if strings.Contains(address, ":") {
+		return 1430
+	}
+	return 1450
 }
 
 func sortedKeys(m map[string]any) []string {

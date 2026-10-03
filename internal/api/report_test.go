@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -227,6 +228,58 @@ func TestStateReports(t *testing.T) {
 	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 2 {
 		t.Fatalf("condition = %v", cond)
 	}
+}
+
+// A tunnel the AP's uplink cannot carry now, by what it last reported, is
+// held at once: in the preview, and when the AP polls (0056).
+func TestTunnelMustFitTheUplink(t *testing.T) {
+	f := newFixture(t)
+	ap, token, version := f.adopted()
+	report := func(mtu int) {
+		t.Helper()
+		if code, _, body := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60,
+			"vxlan": map[string]any{"installed": true, "clamp": true, "uplink_mtu": mtu}}, nil); code != 200 {
+			t.Fatalf("state: %d %v", code, body)
+		}
+	}
+	set := func(tree, node, path string, v any) map[string]any {
+		t.Helper()
+		code, body := f.change("griff", map[string]any{"kind": "set", "tree": tree, "node": node, "path": path, "value": v})
+		if code != 200 {
+			t.Fatalf("%s: %d %v", path, code, body)
+		}
+		return body
+	}
+	poll := func() map[string]any {
+		t.Helper()
+		_, _, body := f.apDo("GET", "/v1/ap/config", token, nil, nil)
+		return body
+	}
+	report(1500)
+	set("locations", "office", "concentrators.dc.address", "1.1.1.2")
+	set("locations", "office", "concentrators.dc.port", 4789)
+	set("services", "household", "network.sweet.transport.primary.concentrator", "dc")
+	set("services", "household", "network.sweet.transport.primary.vni", 20)
+	set("services", "household", "network.sweet.transport.primary.type", "vxlan")
+	// The default MTU, 1450, fits a 1500-byte uplink.
+	if body := poll(); body["state"] != "ready" {
+		t.Fatalf("default MTU: %v", body)
+	}
+	// 1500 does not, and the change that sets it says so.
+	body := set("locations", "office", "concentrators.dc.mtu", 1500)
+	want := "network.sweet.transport.primary: tunnel dc's MTU of 1500 needs 1550 on the AP's uplink, which carries 1500 now"
+	if !strings.Contains(fmt.Sprint(body["checks"]), want) {
+		t.Fatalf("checks = %v", body["checks"])
+	}
+	if body := poll(); body["state"] != "held" || !strings.Contains(fmt.Sprint(body["problems"]), want) {
+		t.Fatalf("1500 on a 1500 uplink: %v", body)
+	}
+	// Once the AP reports a jumbo uplink, it goes.
+	report(9000)
+	if body := poll(); body["state"] != "ready" {
+		t.Fatalf("1500 on a 9000 uplink: %v", body)
+	}
+	_ = ap
 }
 
 func TestFleetView(t *testing.T) {
