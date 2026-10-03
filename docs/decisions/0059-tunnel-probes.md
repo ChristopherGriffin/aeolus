@@ -9,6 +9,8 @@
 ## Context
 
 - **A quiet AP drops off the concentrator.** The Arista learns the AP's tunnel end only from traffic the AP sends (`vxlan flood vtep learned data-plane`), and forgets it when none comes. After that, nothing it floods reaches the AP. A client that is idle but still connected can't be reached from the wired side until it sends something itself.
+  - OpenWrtnight's `aeolus_50` had sent and received nothing since it came up.
+  - One 60-byte probe from the AP, and the Arista began flooding VNI 50 to it: 136 frames within seconds.
 - **"Up" says little.** A tunnel's interface is up as soon as it is configured. It doesn't show whether the concentrator answers, or whether the VNI is mapped there. Today a network whose tunnel is broken just goes quiet.
 - **Switching needs a verdict.** 0020 lets an AP move a network to its fallback on its own, and 0022 adds HA mode and failback, but nothing yet says a transport has failed, so nothing switches. A fallback is rendered, but never started (0054).
 - **A tunnel port can close a loop that nothing breaks** (0058): STP doesn't cross a tunnel.
@@ -27,6 +29,8 @@
   - Only an answer that comes back in on that same device counts. A Wi-Fi client of this AP can't vouch for the tunnel.
 - **What the overlay probe asks:**
   - **A probe address, if one is set:** an address on the segment, normally its gateway. It is asked by ARP from 0.0.0.0, as a host checks an address before using it, so the AP needs no address of its own on the segment.
+    - On OpenWrtnight, the Arista's VLAN 50 address, 192.168.50.1, answers such a probe, and so does a host on that VLAN.
+    - The first probe after a long silence went unanswered, while the Arista was still learning the AP; every probe after it was answered. That is one reason a single miss is not `down`.
   - **Otherwise, any IPv6 neighbor:** an echo to all-nodes (`ff02::1`) from a link-local address. Any host on the far side with IPv6 answers. Linux, macOS and phones answer by default (OpenWrtnight does too); an Arista SVI needs `ipv6 enable`.
 - **The verdict for each transport:**
   - **`up`:** the overlay answered within the last three intervals.
@@ -38,6 +42,7 @@
 - **How the agent does it:**
   - A small ucode process, the prober, runs under procd beside the agent, so probes keep their rhythm while the agent is applying a config.
   - It sends raw frames through ucode's socket module, `ucode-mod-socket`, which the installer adds, as it added `kmod-nft-bridge` (0054). OpenWrtnight has `ping` but no `arping`.
+  - A packet socket bound to `aeolus_50` sends a frame straight into the tunnel, and sees only what comes back in on it. The answer comes in addressed to the bridge, not to the tunnel device, and it still counts. Checked on OpenWrtnight.
   - It writes its latest results to `/var/run/aeolus/`, and the agent puts them in each state report.
 
 ### The loop guard
@@ -93,6 +98,4 @@
 
 ## Open
 
-- **Two things to check in the lab before step 1 is built:**
-  - Whether `ucode-mod-socket`'s packet sockets can send raw frames on a bridge port and see the answers come in on it. If not, the prober becomes a small C helper built with the agent.
-  - Whether the Arista answers an ARP probe from 0.0.0.0. If it doesn't, the probe address is asked by ICMP from a link-local IPv4 address instead.
+- Whether the Arista's VLAN 50 interface has IPv6 on, so it answers the all-nodes echo when no probe address is set. Checked while building step 1; until then, VNI 50's probe address is 192.168.50.1.
