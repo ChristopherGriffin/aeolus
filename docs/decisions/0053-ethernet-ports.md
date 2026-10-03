@@ -1,8 +1,8 @@
 # 0053. Ethernet ports, and an Interfaces tab
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Griff: a section to configure the Ethernet ports, in an Interfaces tab that will also hold VXLAN tunnels; with VLANs per port and on/off first; written up by Claude
+- Proposed by: Griff: a section to configure the Ethernet ports, in an Interfaces tab that will also hold VXLAN tunnels; with VLANs per port and on/off first; written up by Claude and accepted with the merge
 - Refines: 0006, 0039, 0040, 0047, 0048
 
 ## Decision
