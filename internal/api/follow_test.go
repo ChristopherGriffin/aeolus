@@ -69,6 +69,11 @@ func TestSchemaDescribesItsFields(t *testing.T) {
 	if d["names"].(map[string]any)["network"] == nil {
 		t.Fatalf("names = %v", d["names"])
 	}
+	// A list's items are described in place.
+	tagged := d["fields"].(map[string]any)["ports.*.tagged"].(map[string]any)
+	if items, _ := tagged["items"].(map[string]any); items["type"] != "integer" || items["maximum"] != 4094.0 {
+		t.Fatalf("ports.*.tagged = %v", tagged)
+	}
 }
 
 // A secret set with other fields in one change is sealed before it is

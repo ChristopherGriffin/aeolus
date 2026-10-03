@@ -4,13 +4,14 @@
 import { h } from '../dom.js';
 import { get } from '../api.js';
 import { bandName, when, ago } from '../format.js';
-import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick } from '../layout.js';
+import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, SUBTABS } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
 import { hardwareTab, systemSection } from './sections.js';
 import { networksTab } from './networks.js';
+import { interfacesTab } from './interfaces.js';
 
-const TABS = [['overview', 'Overview'], ['hardware', 'Hardware'], ['networks', 'Networks'], ['system', 'System']];
+const TABS = [['overview', 'Overview'], ['hardware', 'Hardware'], ['networks', 'Networks'], ['interfaces', 'Interfaces'], ['system', 'System']];
 
 export async function apPage(ctx, id, tab, sub) {
 	const enc = encodeURIComponent(id);
@@ -53,8 +54,9 @@ export async function apPage(ctx, id, tab, sub) {
 			h('div', { class: 'col' }, enrollment(facts))), history(hist));
 	} else if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub, thisAP));
 	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
+	else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, thisAP, edit));
 	else main.push(await systemSection(ctx, id, page, edit));
-	const keep = tab === 'overview' ? '' : `/${tab}${tab === 'hardware' && sub ? '/' + sub : ''}`;
+	const keep = tab === 'overview' ? '' : `/${tab}${SUBTABS.has(tab) && sub ? '/' + sub : ''}`;
 	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps), keep), main, refresh: 30 };
 }
 

@@ -1,0 +1,32 @@
+{
+	"about": "PumphouseAP with Ethernet ports set (0053): lan2 an access port on a VLAN the AP does not carry yet, lan3 a trunk turned off, and lan9, which this AP does not have. Aeolus made VLANs 40, 50 and 60 earlier: lan1, which nothing sets now, is still tagged on 60, so it stays; 50 has nothing left on it, and lan4 leaves 40 for 30, so both go.",
+	"current": "pumphouse-current.json",
+	"extra": {
+		"network": {
+			"aeolus_vlan40": { ".anonymous": false, ".type": "bridge-vlan", ".name": "aeolus_vlan40", ".index": 9, "device": "br-lan", "vlan": "40", "ports": ["wan:t", "lan4:t"] },
+			"aeolus_vlan50": { ".anonymous": false, ".type": "bridge-vlan", ".name": "aeolus_vlan50", ".index": 10, "device": "br-lan", "vlan": "50", "ports": ["wan:t"] },
+			"aeolus_vlan60": { ".anonymous": false, ".type": "bridge-vlan", ".name": "aeolus_vlan60", ".index": 11, "device": "br-lan", "vlan": "60", "ports": ["wan:t", "lan1:t"] }
+		}
+	},
+	"kept": ["network.aeolus_vlan60"],
+	"gone": ["network.aeolus_vlan40", "network.aeolus_vlan50"],
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		}
+	},
+	"intent": {
+		"system": { "country": "US", "poll": 60 },
+		"network": {
+			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1", "transport": { "primary": { "type": "vlan", "vlan": 20 } } }
+		},
+		"ports": {
+			"lan2": { "enabled": true, "mode": "access", "untagged": 30 },
+			"lan3": { "enabled": false, "mode": "trunk", "untagged": 0, "tagged": [10, 20] },
+			"lan4": { "mode": "access", "untagged": 30 },
+			"lan9": { "mode": "access", "untagged": 10 }
+		}
+	}
+}

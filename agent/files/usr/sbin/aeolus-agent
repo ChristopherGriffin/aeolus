@@ -373,6 +373,28 @@ function steering_state() {
 	};
 }
 
+// ports_state lists the Ethernet ports of the bridge the uplink is in
+// (0053), in the bridge's order: whether each is up, whether it has a link
+// and at what speed ("1000F"), and which is the uplink. The ports are those
+// the bridge's config lists, as the renderer reads them; the running bridge
+// holds the Wi-Fi interfaces too.
+function ports_state() {
+	let uplink = settings().uplink;
+	let members = [];
+	cursor().foreach('network', 'device', d => {
+		let ports = type(d.ports) == 'array' ? d.ports : d.ports ? [d.ports] : [];
+		if (d.type == 'bridge' && index(ports, uplink) >= 0)
+			members = ports;
+	});
+	let devs = bus.call('network.device', 'status') ?? {};
+	let out = [];
+	for (let p in members) {
+		let d = devs[p] ?? {};
+		push(out, { name: p, up: !!d.up, carrier: !!d.carrier, speed: d.carrier ? d.speed ?? '' : '', uplink: p == uplink });
+	}
+	return slice(out, 0, 32);
+}
+
 function report_state(running, token) {
 	let b = bus.call('system', 'board') ?? {};
 	let radios = [];
@@ -401,6 +423,7 @@ function report_state(running, token) {
 		openwrt: b.release?.version ?? '',
 		radios: slice(radios, 0, 8),
 		steering: steering_state(),
+		ports: ports_state(),
 	}, token);
 	if (res.status != 200)
 		fail('state report: %s', describe(res));

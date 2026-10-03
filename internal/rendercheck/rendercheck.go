@@ -9,6 +9,7 @@ package rendercheck
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -40,12 +41,12 @@ var Coverage = map[string]string{
 	"system.management.gateway":    layout,
 	"system.management.dns":        layout,
 
-	"ports.*.enabled":  layout,
-	"ports.*.uplink":   layout,
-	"ports.*.mode":     layout,
-	"ports.*.untagged": layout,
-	"ports.*.tagged":   layout,
-	"ports.*.bond":     layout,
+	"ports.*.enabled":  "",
+	"ports.*.uplink":   "the agent's own setting (0040), not the intent's",
+	"ports.*.mode":     "",
+	"ports.*.untagged": "",
+	"ports.*.tagged":   "",
+	"ports.*.bond":     "LACP is not applied yet; the config check holds it (0053)",
 
 	"network.*.enabled":                  "",
 	"network.*.ssid":                     "",
@@ -121,6 +122,7 @@ func Check(doc map[string]any, c *uci.Config) []string {
 	k.agent(obj(doc, "system"))
 	k.steering(obj(doc, "network"))
 	k.snmp(obj(obj(doc, "system"), "snmp"))
+	k.ports(obj(doc, "ports"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -448,6 +450,123 @@ func (k *checker) snmp(want map[string]any) {
 		}
 		k.option("snmpd."+systems[0].Name, systems[0], opt, v)
 	}
+}
+
+// ports checks the Ethernet ports the config sets (0053). Only ports in the
+// VLAN-filtering bridge the uplink is in count; one the AP does not have is
+// not judged. For each: whether it is on, its entries in the bridge's
+// bridge-vlan sections, exactly, and that the uplink carries each of its
+// VLANs tagged. The uplink itself is the AP's management, and is refused.
+func (k *checker) ports(want map[string]any) {
+	if len(want) == 0 {
+		return
+	}
+	net := k.c.Package("network")
+	if net == nil {
+		if !k.noNet {
+			k.add("package network is missing")
+			k.noNet = true
+		}
+		return
+	}
+	uplink := ""
+	if s := k.c.Package("aeolus").Named("agent"); s != nil {
+		uplink = value(s, "uplink")
+	}
+	var bridge *uci.Section
+	for _, d := range net.OfType("device") {
+		if value(d, "type") == "bridge" && slices.Contains(d.List("ports"), uplink) {
+			bridge = d
+			break
+		}
+	}
+	if bridge == nil {
+		k.add("ports: the uplink %q is in no bridge", uplink)
+		return
+	}
+	var vlans []*uci.Section
+	for _, bv := range net.OfType("bridge-vlan") {
+		if value(bv, "device") == value(bridge, "name") {
+			vlans = append(vlans, bv)
+		}
+	}
+	for _, p := range keys(want) {
+		set := obj(want, p)
+		where := "ports." + p
+		if !slices.Contains(bridge.List("ports"), p) {
+			continue
+		}
+		if p == uplink {
+			k.add("%s: the uplink carries the AP's management; Aeolus leaves it alone", where)
+			continue
+		}
+		if on, ok := set["enabled"].(bool); ok {
+			got := true
+			for _, d := range net.OfType("device") {
+				if value(d, "name") == p && value(d, "type") == "" {
+					if v, set := d.Option("enabled"); set {
+						got = !slices.Contains([]string{"0", "no", "off", "false", "disabled"}, v)
+					}
+				}
+			}
+			if got != on {
+				k.add("%s: the port is %s, want %s", where, onOff(got), onOff(on))
+			}
+		}
+		mode, _ := set["mode"].(string)
+		if mode != "access" && mode != "trunk" {
+			continue
+		}
+		entries := map[string]string{} // VLAN -> u* or t
+		if u := text(set["untagged"]); u != "" && u != "0" {
+			entries[u] = "u*"
+		}
+		if mode == "trunk" {
+			for _, v := range list(set["tagged"]) {
+				entries[v] = "t"
+			}
+		}
+		got := map[string]string{}
+		for _, bv := range vlans {
+			for _, e := range bv.List("ports") {
+				if port, flags, _ := strings.Cut(e, ":"); port == p {
+					got[value(bv, "vlan")] = flags
+				}
+			}
+		}
+		for _, vlan := range slices.Sorted(maps.Keys(entries)) {
+			if got[vlan] != entries[vlan] {
+				k.add("%s: VLAN %s is %s, want %s", where, vlan, portEntry(got[vlan]), portEntry(entries[vlan]))
+			}
+			carried := false
+			for _, bv := range vlans {
+				if value(bv, "vlan") == vlan && slices.Contains(bv.List("ports"), uplink+":t") {
+					carried = true
+				}
+			}
+			if !carried {
+				k.add("%s: the uplink %s does not carry VLAN %s tagged", where, uplink, vlan)
+			}
+		}
+		for _, vlan := range slices.Sorted(maps.Keys(got)) {
+			if _, ok := entries[vlan]; !ok {
+				k.add("%s: VLAN %s is %s, want not on the port", where, vlan, portEntry(got[vlan]))
+			}
+		}
+	}
+}
+
+// portEntry says what a bridge-vlan entry's flags make of the VLAN.
+func portEntry(flags string) string {
+	switch {
+	case flags == "u*":
+		return "untagged"
+	case flags == "t":
+		return "tagged"
+	case flags == "":
+		return "not on the port"
+	}
+	return fmt.Sprintf("%q", flags)
 }
 
 // transports checks that every transport a network keeps has its path in

@@ -27,6 +27,8 @@ type agentCase struct {
 	Intent  map[string]any `json:"intent"`
 	Current string         `json:"current"`
 	Stale   []string       `json:"stale"`
+	Kept    []string       `json:"kept"` // package.section
+	Gone    []string       `json:"gone"`
 	golden  string
 }
 
@@ -71,11 +73,22 @@ func TestAgentOutputPassesTheCheck(t *testing.T) {
 				t.Errorf("%s: stale %s was kept", c.name, name)
 			}
 		}
+		for _, ref := range c.Kept {
+			if pkg, name, _ := strings.Cut(ref, "."); cfg.Package(pkg).Named(name) == nil {
+				t.Errorf("%s: %s was removed", c.name, ref)
+			}
+		}
+		for _, ref := range c.Gone {
+			if pkg, name, _ := strings.Cut(ref, "."); cfg.Package(pkg).Named(name) != nil {
+				t.Errorf("%s: %s was kept", c.name, ref)
+			}
+		}
 	}
 }
 
 // untouched checks that every named wifi-iface, interface and bridge-vlan
-// Aeolus does not own comes out exactly as it went in (0040).
+// Aeolus does not own comes out exactly as it went in (0040), but for the
+// bridge-vlan entries of the ports the intent sets the VLANs of (0053).
 func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(agentDir, "test", c.Current))
@@ -87,6 +100,21 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 		t.Fatal(err)
 	}
 	kept := map[string]bool{"wifi-iface": true, "interface": true, "bridge-vlan": true}
+	ports, _ := c.Intent["ports"].(map[string]any)
+	others := func(entries any) any {
+		list, ok := entries.([]any)
+		if !ok {
+			return entries
+		}
+		out := []any{}
+		for _, e := range list {
+			port, _, _ := strings.Cut(e.(string), ":")
+			if set, _ := ports[port].(map[string]any); set["mode"] != "access" && set["mode"] != "trunk" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
 	for pkg, sections := range current {
 		for name, s := range sections {
 			if strings.HasPrefix(name, "aeolus_") || s[".anonymous"] == true || !kept[s[".type"].(string)] {
@@ -114,6 +142,9 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 					}
 					have[k] = list
 				}
+			}
+			if s[".type"] == "bridge-vlan" {
+				have["ports"], want["ports"] = others(have["ports"]), others(want["ports"])
 			}
 			if !reflect.DeepEqual(have, want) {
 				t.Errorf("%s: %s.%s changed:\n got %v\nwant %v", c.name, pkg, name, have, want)

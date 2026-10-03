@@ -22,6 +22,7 @@ async function follow(ctx, tree, node, nodeName, parentName, paths, box) {
 	const names = (id) => ctx.name('services', id);
 	const before = paths.length === 1 ? { [paths[0]]: p.effect?.before } : (p.effect?.before || {});
 	const radios = paths.some((x) => x.startsWith('radio.'));
+	const ports = paths.some((x) => x.startsWith('ports.'));
 	confirm(ctx, box, op, p, [
 		h('div', null, h('strong', null, parentName ? `${nodeName} follows ${parentName} again` : `${nodeName} stops setting ${paths.length === 1 ? 'this' : 'these'}`)),
 		h('ul', { class: 'becomes' }, paths.map((path) => {
@@ -34,5 +35,6 @@ async function follow(ctx, tree, node, nodeName, parentName, paths, box) {
 		})),
 	], [
 		radios && h('div', { class: 'sub warn' }, 'Applying restarts each radio whose settings change; its clients drop briefly and reconnect.'),
+		ports && h('div', { class: 'sub warn' }, "Applying reloads each AP's network; wired clients on the port drop briefly. Each AP leaves a port Aeolus no longer sets as it is."),
 	]);
 }

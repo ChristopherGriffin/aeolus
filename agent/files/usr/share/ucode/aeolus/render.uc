@@ -6,6 +6,7 @@
 // is fed to the manager's render check.
 //
 // Aeolus only touches what it owns (0040): the radio options intent names,
+// the bridge-vlan entries and enabled of the ports intent names (0053),
 // usteer's band_steering_interval and ssid_list (0050), all of snmpd's
 // config (0052), sections named aeolus_, and the time zone, NTP and syslog
 // settings. A section it did not create is never otherwise edited, or
@@ -122,14 +123,18 @@ function uplink_bridge(n, uplink, errors) {
 }
 
 // ensure_vlan makes sure the bridge carries a VLAN on the uplink, reusing a
-// bridge-vlan that already exists so a VLAN is never defined twice (0040).
+// bridge-vlan that already exists so a VLAN is never defined twice (0040),
+// and returns that section.
 function ensure_vlan(n, bridge, uplink, vlan, keep) {
 	let name = 'aeolus_vlan' + vlan;
 	for (let v in of_type(n, 'bridge-vlan'))
 		if (v.device == bridge && v.vlan == '' + vlan && v['.name'] != name)
-			return;
-	put(n, name, 'bridge-vlan', { device: bridge, vlan: vlan, ports: [uplink + ':t'] });
+			return v;
+	// Kept as it is, but for the uplink: ports() sets the ports' entries.
+	let ports = filter(list(n[name]?.ports), e => split(e, ':')[0] != uplink);
+	put(n, name, 'bridge-vlan', { device: bridge, vlan: vlan, ports: [uplink + ':t', ...ports] });
 	keep[name] = true;
+	return n[name];
 }
 
 function iface_options(net, radio, network) {
@@ -158,9 +163,8 @@ function iface_options(net, radio, network) {
 	return o;
 }
 
-function networks(cfg, intent, facts, errors) {
+function networks(cfg, intent, facts, errors, keep) {
 	let w = cfg.wireless, n = cfg.network;
-	let keep = {};
 	let bridge = null;
 	let nets = intent.network ?? {};
 	for (let id in sort(keys(nets))) {
@@ -195,10 +199,63 @@ function networks(cfg, intent, facts, errors) {
 			keep[name] = true;
 		}
 	}
-	for (let pkg in [w, n])
-		for (let k in keys(pkg))
-			if (owned(k) && !keep[k])
-				delete pkg[k];
+}
+
+// ports applies the intent's Ethernet port settings (0053): a port's VLANs,
+// as its entries in the bridge's bridge-vlan sections, and whether it is on.
+// Only ports in the uplink's bridge count; the uplink itself is the AP's
+// management and is left alone. Each VLAN a port uses is tagged on the
+// uplink as well. LACP is not applied yet; the manager holds it.
+//
+// A setting left unset leaves the port as it is, as with a radio, so a VLAN
+// Aeolus added stays while a port is still on it.
+function ports(n, intent, facts, errors, keep) {
+	let want = intent.ports ?? {};
+	let bridge = length(keys(want)) ? uplink_bridge(n, facts.uplink, errors) : null;
+	let members = list(filter(of_type(n, 'device'), d => d.name == bridge)[0]?.ports);
+	for (let p in (bridge ? sort(keys(want)) : [])) {
+		let set = want[p];
+		if (index(members, p) < 0)
+			continue;   // not on this AP
+		if (p == facts.uplink) {
+			push(errors, `ports.${p}: the uplink carries the AP's management; Aeolus leaves it alone`);
+			continue;
+		}
+		// On or off goes on the port's own device section, or on one Aeolus
+		// adds to turn it off; a port with neither is on.
+		if (set.enabled != null) {
+			let own = 'aeolus_port_' + replace(p, /[^a-z0-9_]/g, '_');
+			let d = filter(of_type(n, 'device'), x => x.name == p && x.type == null && x['.name'] != own)[0];
+			if (d)
+				d.enabled = set.enabled ? '1' : '0';
+			if (d || set.enabled)
+				delete n[own];
+			else
+				put(n, own, 'device', { name: p, enabled: 0 });
+		}
+		if (set.mode != 'access' && set.mode != 'trunk')
+			continue;
+		for (let v in of_type(n, 'bridge-vlan'))
+			if (v.device == bridge)
+				v.ports = filter(list(v.ports), e => split(e, ':')[0] != p);
+		let untagged = set.untagged ?? 0;
+		if (untagged) {
+			let v = ensure_vlan(n, bridge, facts.uplink, untagged, keep);
+			v.ports = [...list(v.ports), p + ':u*'];
+		}
+		for (let vlan in (set.mode == 'trunk' ? set.tagged ?? [] : [])) {
+			let v = ensure_vlan(n, bridge, facts.uplink, vlan, keep);
+			v.ports = [...list(v.ports), p + ':t'];
+		}
+	}
+	// What Aeolus added that a port is still on stays, and so does a port
+	// Aeolus turned off.
+	for (let v in of_type(n, 'bridge-vlan'))
+		if (owned(v['.name']) && length(filter(list(v.ports), e => split(e, ':')[0] != facts.uplink)))
+			keep[v['.name']] = true;
+	for (let d in of_type(n, 'device'))
+		if (substr(d['.name'], 0, 12) == 'aeolus_port_')
+			keep[d['.name']] = true;
 }
 
 // host_port splits "host", "host:port", "[v6]" or "[v6]:port".
@@ -314,8 +371,15 @@ function render(intent, current, facts) {
 	for (let p in PACKAGES)
 		cfg[p] = clone(current[p] ?? {});
 	let errors = [];
+	let keep = {};
 	radios(cfg.wireless, intent, facts ?? {});
-	networks(cfg, intent, facts ?? {}, errors);
+	networks(cfg, intent, facts ?? {}, errors, keep);
+	ports(cfg.network, intent, facts ?? {}, errors, keep);
+	// What Aeolus made earlier and no longer needs goes.
+	for (let pkg in [cfg.wireless, cfg.network])
+		for (let k in keys(pkg))
+			if (owned(k) && !keep[k])
+				delete pkg[k];
 	system(cfg.system, intent, facts ?? {});
 	agent(cfg.aeolus, intent);
 	steering(cfg.usteer, intent, errors);

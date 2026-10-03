@@ -126,11 +126,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": { "type": "boolean", "default": true, "description": "false turns the port off (0053); unset, the AP leaves it as it is, which is on unless Aeolus turned it off." },
         "uplink": { "type": "boolean", "description": "The port that reaches the manager: the tunnel source (0018) and where VLANs are detected (0020)." },
-        "mode": { "enum": ["trunk", "access", "lacp"] },
+        "mode": { "enum": ["trunk", "access", "lacp"], "description": "access carries one VLAN, untagged; trunk an untagged VLAN and tagged ones (0053). LACP is not applied yet." },
         "untagged": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "0 means no untagged VLAN." },
-        "tagged": { "type": "array", "items": { "$ref": "#/$defs/vlan" }, "uniqueItems": true },
+        "tagged": { "type": "array", "items": { "$ref": "#/$defs/vlan" }, "uniqueItems": true, "description": "Only a trunk carries tagged VLANs." },
         "bond": { "$ref": "#/$defs/id", "description": "The LACP bond this port belongs to." }
       },
       "allOf": [

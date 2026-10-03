@@ -131,6 +131,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
 	problems = append(problems, bondingProblems(doc)...)
 	problems = append(problems, snmpProblems(doc)...)
+	problems = append(problems, portProblems(doc)...)
 	if problems == nil {
 		problems = []string{}
 	}
@@ -214,6 +215,43 @@ func snmpProblems(doc map[string]any) []string {
 	}
 	if v3["user"] != nil && (v3["auth"] == nil || v3["privacy"] == nil) {
 		out = append(out, "system.snmp.v3: a v3 user needs both an auth and a privacy passphrase")
+	}
+	return out
+}
+
+// portProblems refuses port VLANs the AP could not render as asked
+// (0053): an access port without its one untagged VLAN, or with tagged
+// ones; a VLAN both untagged and tagged; VLANs with no mode to carry them;
+// and LACP, which is not applied yet.
+func portProblems(doc map[string]any) []string {
+	ports, _ := doc["ports"].(map[string]any)
+	var out []string
+	for _, name := range sortedKeys(ports) {
+		set, _ := ports[name].(map[string]any)
+		where := "ports." + name
+		untagged, _ := set["untagged"].(float64)
+		tagged, _ := set["tagged"].([]any)
+		switch set["mode"] {
+		case "access":
+			if untagged == 0 {
+				out = append(out, where+": an access port needs its untagged VLAN")
+			}
+			if len(tagged) > 0 {
+				out = append(out, where+": an access port carries no tagged VLANs")
+			}
+		case "trunk":
+			for _, v := range tagged {
+				if v, _ := v.(float64); untagged != 0 && v == untagged {
+					out = append(out, fmt.Sprintf("%s: VLAN %d is both untagged and tagged", where, int(v)))
+				}
+			}
+		case "lacp":
+			out = append(out, where+": LACP is not applied yet")
+		case nil:
+			if set["untagged"] != nil || set["tagged"] != nil {
+				out = append(out, where+": VLANs are set, but not the mode that carries them (access or trunk)")
+			}
+		}
 	}
 	return out
 }

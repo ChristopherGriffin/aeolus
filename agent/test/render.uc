@@ -18,6 +18,11 @@ let current = json(fs.readfile(dir + '/' + c.current));
 for (let name in c.stale ?? [])
 	current.wireless[name] = { '.anonymous': false, '.type': 'wifi-iface', '.name': name, '.index': 99, device: 'radio0', mode: 'ap', ssid: 'Gone' };
 
+// Sections the AP has beyond the fixture, such as ones Aeolus made earlier.
+for (let pkg in c.extra ?? {})
+	for (let name in c.extra[pkg])
+		current[pkg][name] = c.extra[pkg][name];
+
 let out = render(c.intent, current, c.facts);
 for (let e in out.errors)
 	warn('render: ' + e + '\n');

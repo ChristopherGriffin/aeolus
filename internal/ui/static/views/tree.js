@@ -1,18 +1,19 @@
 // A folder in Locations or Services: its values and where they come from, its
 // overrides, and what it holds (0012, 0013). A Locations folder's settings
-// are in tabs: Hardware, Networks and System (0047). Landing Zone lists the
+// are in tabs: Hardware, Networks, Interfaces and System (0047, 0053). Landing Zone lists the
 // APs waiting in it (0032).
 
 import { h, link, icon } from '../dom.js';
 import { get } from '../api.js';
 import { group, value, ago } from '../format.js';
-import { treeAside, crumbs, fleetMap, tabBar, pick } from '../layout.js';
+import { treeAside, crumbs, fleetMap, tabBar, pick, SUBTABS } from '../layout.js';
 import { fieldPanels, editing } from './fields.js';
 import { apPage } from './ap.js';
 import { hardwareTab, systemSection } from './sections.js';
 import { networksTab } from './networks.js';
+import { interfacesTab } from './interfaces.js';
 
-const TABS = [['hardware', 'Hardware'], ['networks', 'Networks'], ['system', 'System']];
+const TABS = [['hardware', 'Hardware'], ['networks', 'Networks'], ['interfaces', 'Interfaces'], ['system', 'System']];
 
 export async function treePage(ctx, tree, id, tab, sub) {
 	const t = ctx.trees[tree];
@@ -55,15 +56,16 @@ export async function treePage(ctx, tree, id, tab, sub) {
 		main.push(tabBar(base, TABS, tab));
 		if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
+		else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, null, editing(ctx, tree, page)));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
-		if (tab === 'hardware' && sub === 'channels') refresh = 30; // live
+		if ((tab === 'hardware' && sub === 'channels') || tab === 'interfaces') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
 	}
 	main.push(inside(ctx, tree, t, id, status));
 	// Moving to another folder or AP in the tree keeps the tab, so folders
 	// can be compared side by side.
-	const keep = tree === 'locations' && !n.isolated ? `/${tab}${tab === 'hardware' && sub ? '/' + sub : ''}` : '';
+	const keep = tree === 'locations' && !n.isolated ? `/${tab}${SUBTABS.has(tab) && sub ? '/' + sub : ''}` : '';
 	return { aside: treeAside(ctx, tree, id, status, keep), main, refresh };
 }
 

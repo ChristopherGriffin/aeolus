@@ -3,7 +3,7 @@
 // every value again before anything is recorded.
 
 import { h } from '../dom.js';
-import { bandName, security, group } from '../format.js';
+import { bandName, security, group, value } from '../format.js';
 
 // describe finds a field's description: network.lab.ssid is described as
 // network.*.ssid.
@@ -32,7 +32,7 @@ export function input(path, f, current) {
 	} else if (f.enum) {
 		el = h('select', null,
 			current === undefined && h('option', { value: '' }, '—'),
-			f.enum.map((v) => h('option', { value: String(v), selected: v === current }, last === 'security' ? security(v) : String(v))));
+			f.enum.map((v) => h('option', { value: String(v), selected: v === current }, last === 'security' ? security(v) : last === 'mode' ? value(path, v) : String(v))));
 		read = () => (el.value === '' ? undefined : f.enum.find((v) => String(v) === el.value));
 	} else if (f.type === 'array' && f.items?.enum) {
 		const all = f.items.enum;
@@ -44,6 +44,15 @@ export function input(path, f, current) {
 			if (f.minItems && list.length < f.minItems) throw new Error(`choose at least ${f.minItems}`);
 			return list;
 		};
+	} else if (f.type === 'array' && f.items?.type === 'integer') {
+		// A list of numbers, such as tagged VLANs: "10, 20".
+		const { minimum: lo, maximum: hi } = f.items;
+		el = h('input', { type: 'text', value: (current ?? []).join(', '), placeholder: '10, 20' });
+		read = () => el.value.split(/[\s,]+/).filter(Boolean).map((x) => {
+			const n = Number(x);
+			if (!Number.isInteger(n) || (lo != null && n < lo) || (hi != null && n > hi)) throw new Error(`${x} is not a whole number from ${lo} to ${hi}`);
+			return n;
+		});
 	} else if (f.type === 'array') {
 		// A list of words, such as NTP servers or SSH keys: one a line.
 		el = h('textarea', { rows: Math.max(2, (current ?? []).length + 1) }, (current ?? []).join('\n'));

@@ -24,7 +24,9 @@ const SNMP = {
 
 const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power' };
 
-const PORT = { enabled: 'Enabled', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
+const PORT = { enabled: 'Port on', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
+
+const MODE = { access: 'Access', trunk: 'Trunk', lacp: 'LACP' };
 
 const NETWORK = {
 	'ssid': 'SSID', 'security': 'Security', 'passphrase': 'Passphrase', 'hidden': 'Hidden',
@@ -70,6 +72,8 @@ export function value(path, v, names) {
 	if (last === 'poll' || last === 'holddown') return v + ' s';
 	if (last.endsWith('_kbps')) return v === 0 ? 'no limit' : v + ' kbps';
 	if (last === 'type' && path.includes('.transport.')) return v === 'vxlan' ? 'VXLAN' : 'VLAN';
+	if (path.startsWith('ports.') && last === 'mode') return MODE[v] || v;
+	if (path.startsWith('ports.') && last === 'untagged' && v === 0) return 'none';
 	if (v == null) return '—';
 	return String(v);
 }

@@ -187,6 +187,49 @@ func TestSNMPNeedsAWayIn(t *testing.T) {
 	}
 }
 
+func TestPortVLANsMustFitTheMode(t *testing.T) {
+	s, sch := site(t)
+	set := func(node, path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: hierarchy.NodeID(node), Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("gate-ap", "ports.lan2.tagged", []int{10})
+	if got := problems(); !strings.Contains(got, "ports.lan2: VLANs are set, but not the mode") {
+		t.Fatalf("problems = %s", got)
+	}
+	// The folder sets the mode, the AP its VLANs.
+	set("gate", "ports.lan2.mode", "access")
+	got := problems()
+	for _, want := range []string{"ports.lan2: an access port needs its untagged VLAN", "ports.lan2: an access port carries no tagged VLANs"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("problems = %s, want %q", got, want)
+		}
+	}
+	set("gate-ap", "ports.lan2.mode", "trunk")
+	set("gate-ap", "ports.lan2.untagged", 10)
+	if got := problems(); !strings.Contains(got, "ports.lan2: VLAN 10 is both untagged and tagged") {
+		t.Fatalf("problems = %s", got)
+	}
+	set("gate-ap", "ports.lan2.untagged", 30)
+	set("gate-ap", "ports.lan2.enabled", false)
+	if got := problems(); strings.Contains(got, "ports.") {
+		t.Fatalf("a trunk with untagged 30 and tagged 10: %s", got)
+	}
+	set("gate-ap", "ports.lan3.mode", "lacp")
+	set("gate-ap", "ports.lan3.bond", "bond0")
+	if got := problems(); !strings.Contains(got, "ports.lan3: LACP is not applied yet") {
+		t.Fatalf("problems = %s", got)
+	}
+}
+
 func TestChannelThatCannotCarryTheWidthIsAProblem(t *testing.T) {
 	s, sch := site(t)
 	set := func(path string, v any) {

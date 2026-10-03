@@ -186,6 +186,8 @@ func TestStateReports(t *testing.T) {
 		"transports": map[string]any{"sweet": map[string]any{"active": "primary", "primary": "up"}},
 		"steering": map[string]any{"installed": true, "running": true, "interval": 30000, "ssids": []string{"Sweet Spot"},
 			"bss": []any{map[string]any{"ssid": "Sweet Spot", "band": "2g", "clients": 1, "steered_away": 4, "steered_in": 0}}},
+		"ports": []any{map[string]any{"name": "lan1", "up": true, "carrier": false},
+			map[string]any{"name": "wan", "up": true, "carrier": true, "speed": "1000F", "uplink": true}},
 	}
 	if code, _, body := f.apDo("POST", "/v1/ap/state", token, report, nil); code != 200 {
 		t.Fatalf("state: %d %v", code, body)
@@ -201,6 +203,9 @@ func TestStateReports(t *testing.T) {
 		"steering": {"version": 1, "steering": map[string]any{"installed": true, "running": true, "interval": 30000,
 			"bss": []any{map[string]any{"ssid": "Sweet Spot", "band": "60g", "clients": 1}}}},
 		"steered": {"version": 1, "steering": map[string]any{"installed": true, "bss": []any{map[string]any{"ssid": "x", "band": "5g", "steered_in": -1}}}},
+		"port":    {"version": 1, "ports": []any{map[string]any{"name": "LAN 1"}}},
+		"twice":   {"version": 1, "ports": []any{map[string]any{"name": "lan1"}, map[string]any{"name": "lan1"}}},
+		"speed":   {"version": 1, "ports": []any{map[string]any{"name": "lan1", "speed": "fast"}}},
 	} {
 		if code, _, body := f.apDo("POST", "/v1/ap/state", token, bad, nil); code != 400 {
 			t.Errorf("%s: %d %v", name, code, body)
@@ -210,7 +215,8 @@ func TestStateReports(t *testing.T) {
 	cond := view["condition"].(map[string]any)
 	state := cond["state"].(map[string]any)["report"].(map[string]any)
 	steer, _ := state["steering"].(map[string]any)
-	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 {
+	ports, _ := state["ports"].([]any)
+	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 {
 		t.Fatalf("condition = %v", cond)
 	}
 }
