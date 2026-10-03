@@ -97,7 +97,7 @@ Each milestone ends in something checkable before the next starts.
 | [0052](docs/decisions/0052-snmp.md) | SNMP through net-snmp, set like any system setting |
 | [0053](docs/decisions/0053-ethernet-ports.md) | Ethernet ports, and an Interfaces tab |
 | [0054](docs/decisions/0054-vxlan-transports.md) | VXLAN transports on the AP |
-| [0055](docs/decisions/0055-tunnels-in-locations.md) | Tunnels are set in Locations; the library is shelved (proposed) |
+| [0055](docs/decisions/0055-tunnels-in-locations.md) | Tunnels are set in Locations; the library is shelved |
 
 ## Open questions
 

@@ -1,8 +1,8 @@
 # 0055. Tunnels are set in Locations; the library is shelved
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Griff: create tunnels in the Interfaces tab of a folder or AP, and keep the library for later, as a way to copy them quickly; a network picks a tunnel; written up by Claude
+- Proposed by: Griff: create tunnels in the Interfaces tab of a folder or AP, and keep the library for later, as a way to copy them quickly; a network picks a tunnel; written up by Claude and accepted with the merge
 - Supersedes: 0023 (where concentrators are defined)
 - Refines: 0018, 0029, 0030, 0037, 0054
 
