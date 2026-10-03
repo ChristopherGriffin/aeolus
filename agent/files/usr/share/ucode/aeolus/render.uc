@@ -6,15 +6,16 @@
 // is fed to the manager's render check.
 //
 // Aeolus only touches what it owns (0040): the radio options intent names,
-// usteer's band_steering_interval and ssid_list (0050), sections named
-// aeolus_, and the time zone, NTP and syslog settings. A section it did not
-// create is never otherwise edited, or removed.
+// usteer's band_steering_interval and ssid_list (0050), all of snmpd's
+// config (0052), sections named aeolus_, and the time zone, NTP and syslog
+// settings. A section it did not create is never otherwise edited, or
+// removed.
 
 'use strict';
 
 import { text } from 'aeolus.uciexport';
 
-const PACKAGES = ['wireless', 'network', 'system', 'aeolus', 'usteer'];
+const PACKAGES = ['wireless', 'network', 'system', 'aeolus', 'usteer', 'snmpd'];
 
 const ENCRYPTION = {
 	'open': 'none', 'owe': 'owe', 'wpa2-psk': 'psk2', 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae-mixed',
@@ -266,6 +267,45 @@ function steering(u, intent, errors) {
 		delete s.ssid_list;
 }
 
+// snmp renders snmpd's config (0052). Aeolus owns all of it, as the agent's
+// installer added snmpd: it answers read-only, with the intent's v2c
+// community, its v3 user (SHA and AES), or both, and while SNMP is off the
+// config is only that it is off, so none of OpenWrt's default communities
+// is left behind.
+function snmp(cfg, intent, facts, errors) {
+	let want = intent.system?.snmp ?? {};
+	if (!length(keys(cfg.snmpd ?? {}))) {
+		if (want.enabled)
+			push(errors, 'SNMP needs snmpd, which is not installed on this AP');
+		return;
+	}
+	let pkg = {};
+	if (want.enabled) {
+		put(pkg, 'agent', 'agent', { agentaddress: 'UDP:161,UDP6:161' });
+		if (want.community != null) {
+			put(pkg, 'aeolus_v2c', 'com2sec', { secname: 'ro', source: 'default', community: want.community });
+			put(pkg, 'aeolus_v2c6', 'com2sec6', { secname: 'ro', source: 'default', community: want.community });
+			put(pkg, 'aeolus_ro_v2c', 'group', { group: 'ro', version: 'v2c', secname: 'ro' });
+			put(pkg, 'all', 'view', { viewname: 'all', type: 'included', oid: '.1' });
+			put(pkg, 'aeolus_ro', 'access', {
+				group: 'ro', context: 'none', version: 'any', level: 'noauth', prefix: 'exact',
+				read: 'all', write: 'none', notify: 'none',
+			});
+		}
+		put(pkg, 'system', 'system', { sysLocation: want.location, sysContact: want.contact });
+		if (facts.uplink)
+			put(pkg, 'engineid', 'engineid', { engineidtype: 3, engineidnic: facts.uplink });
+		if (want.v3?.user != null)
+			put(pkg, 'aeolus_v3', 'v3', {
+				username: want.v3.user, auth_type: 'SHA', auth_pass: want.v3.auth,
+				privacy_type: 'AES', privacy_pass: want.v3.privacy, allow_write: 0,
+			});
+	}
+	let versions = want.community != null ? (want.v3?.user != null ? 'v1/v2c/v3' : 'v1/v2c') : 'v3';
+	put(pkg, 'general', 'snmpd', { enabled: want.enabled ? 1 : 0, snmp_version: want.enabled ? versions : null });
+	cfg.snmpd = pkg;
+}
+
 // render returns the new packages, the names of those that changed, and
 // what it could not render. facts: { uplink, radios: { <radio>: { htmodes } },
 // timezone: the POSIX string for intent's time zone }.
@@ -279,6 +319,7 @@ function render(intent, current, facts) {
 	system(cfg.system, intent, facts ?? {});
 	agent(cfg.aeolus, intent);
 	steering(cfg.usteer, intent, errors);
+	snmp(cfg, intent, facts ?? {}, errors);
 	let changed = filter(PACKAGES, p => text(p, cfg[p]) != text(p, current[p] ?? {}));
 	return { config: cfg, changed: changed, errors: errors };
 }

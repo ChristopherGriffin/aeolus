@@ -237,6 +237,15 @@ func TestFieldValues(t *testing.T) {
 		ok   bool
 	}{
 		{"radio.2g.channel", 6, true},
+		// SNMP's values go into snmpd's config lines (0052).
+		{"system.snmp.community", "aeolus-ro", true},
+		{"system.snmp.community", "two words", false},
+		{"system.snmp.v3.user", "monitor", true},
+		{"system.snmp.v3.auth", "long enough passphrase", true},
+		{"system.snmp.v3.auth", "short", false},
+		{"system.snmp.v3.auth", `has a "quote"`, false},
+		{"system.snmp.location", "Pumphouse, north wall", true},
+		{"system.snmp.location", "two\nlines", false},
 		{"radio.2g.channel", "auto", true},
 		{"radio.2g.channel", 36, false},
 		{"radio.5g.channel", 48, true},

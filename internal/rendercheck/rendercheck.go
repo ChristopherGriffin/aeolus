@@ -59,6 +59,13 @@ var Coverage = map[string]string{
 	"network.*.roaming.btm":              "",
 	"network.*.multicast_to_unicast":     "",
 	"network.*.band_steering":            "",
+	"system.snmp.enabled":                "",
+	"system.snmp.community":              "",
+	"system.snmp.v3.user":                "",
+	"system.snmp.v3.auth":                "",
+	"system.snmp.v3.privacy":             "",
+	"system.snmp.location":               "",
+	"system.snmp.contact":                "",
 	"network.*.rate_limit.down_kbps":     "no standard UCI form; the agent's own setting, checked with it in M5",
 	"network.*.rate_limit.up_kbps":       "no standard UCI form; the agent's own setting, checked with it in M5",
 	"network.*.transport.*.type":         "",
@@ -113,6 +120,7 @@ func Check(doc map[string]any, c *uci.Config) []string {
 	k.system(obj(doc, "system"))
 	k.agent(obj(doc, "system"))
 	k.steering(obj(doc, "network"))
+	k.snmp(obj(obj(doc, "system"), "snmp"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -350,6 +358,95 @@ func (k *checker) steering(nets map[string]any) {
 	k.option("usteer", s, "band_steering_interval", interval)
 	if got := s.List("ssid_list"); !slices.Equal(got, want) {
 		k.add("usteer: ssid_list is %q, want %q", got, want)
+	}
+}
+
+// snmp checks that snmpd answers exactly what the intent asks, read-only,
+// and nothing at all while SNMP is off (0052). Aeolus owns snmpd's whole
+// config, so OpenWrt's default communities must be gone. A secret is never
+// quoted.
+func (k *checker) snmp(want map[string]any) {
+	on, _ := want["enabled"].(bool)
+	p := k.c.Package("snmpd")
+	if p == nil {
+		if on {
+			k.add("snmpd: SNMP needs snmpd, which this AP does not have; install it (apk add snmpd-ssl)")
+		}
+		return
+	}
+	general := p.Named("general")
+	if general == nil {
+		k.add("snmpd: there is no general section")
+		return
+	}
+	k.option("snmpd.general", general, "enabled", map[bool]string{true: "1", false: "0"}[on])
+	community, _ := want["community"].(string)
+	v3 := obj(want, "v3")
+	user, _ := v3["user"].(string)
+
+	var communities []string
+	for _, typ := range []string{"com2sec", "com2sec6"} {
+		for _, s := range p.OfType(typ) {
+			c, _ := s.Option("community")
+			communities = append(communities, c)
+		}
+	}
+	if !on || community == "" {
+		if len(communities) > 0 {
+			k.add("snmpd: %d communities are set, want none", len(communities))
+		}
+	} else if len(communities) != 2 || communities[0] != community || communities[1] != community {
+		k.add("snmpd: the communities do not match the intent's community, for IPv4 and IPv6")
+	}
+	for _, s := range p.OfType("access") {
+		if w, _ := s.Option("write"); w != "none" {
+			k.add("snmpd.%s: write is %q, want none: SNMP is read-only", s.Name, w)
+		}
+	}
+
+	users := p.OfType("v3")
+	switch {
+	case !on || user == "":
+		if len(users) > 0 {
+			k.add("snmpd: %d v3 users are set, want none", len(users))
+		}
+	case len(users) != 1:
+		k.add("snmpd: %d v3 users are set, want 1", len(users))
+	default:
+		u := users[0]
+		where := "snmpd." + u.Name
+		k.option(where, u, "username", user)
+		k.option(where, u, "auth_type", "SHA")
+		k.option(where, u, "privacy_type", "AES")
+		auth, _ := v3["auth"].(string)
+		privacy, _ := v3["privacy"].(string)
+		if got, _ := u.Option("auth_pass"); got != auth {
+			k.add("%s: auth_pass does not match the intent", where)
+		}
+		if got, _ := u.Option("privacy_pass"); got != privacy {
+			k.add("%s: privacy_pass does not match the intent", where)
+		}
+		if u.Flag("allow_write") {
+			k.add("%s: allow_write is on, want off: SNMP is read-only", where)
+		}
+		if v, _ := general.Option("snmp_version"); !strings.Contains(v, "v3") {
+			k.add("snmpd.general: snmp_version is %q, want one with v3", v)
+		}
+	}
+	if !on {
+		return
+	}
+	systems := p.OfType("system")
+	for name, opt := range map[string]string{"location": "sysLocation", "contact": "sysContact"} {
+		v, set := want[name].(string)
+		if !set {
+			continue
+		}
+		if len(systems) != 1 {
+			k.add("snmpd: %d system sections, want 1 for %s", len(systems), opt)
+			continue
+		}
+		k.option("snmpd."+systems[0].Name, systems[0], opt, v)
 	}
 }
 

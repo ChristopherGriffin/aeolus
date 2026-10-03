@@ -94,6 +94,7 @@ Each milestone ends in something checkable before the next starts.
 | [0049](docs/decisions/0049-multicast-to-unicast.md) | Multicast to unicast, per network |
 | [0050](docs/decisions/0050-band-steering.md) | Band steering through usteer, installed with the agent |
 | [0051](docs/decisions/0051-steering-and-multicast-at-hand.md) | Band steering and multicast at hand, and what usteer does |
+| [0052](docs/decisions/0052-snmp.md) | SNMP through net-snmp, set like any system setting (proposed) |
 
 ## Open questions
 

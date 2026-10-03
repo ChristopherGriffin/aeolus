@@ -130,6 +130,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, sch.Problems(doc)...)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
 	problems = append(problems, bondingProblems(doc)...)
+	problems = append(problems, snmpProblems(doc)...)
 	if problems == nil {
 		problems = []string{}
 	}
@@ -194,6 +195,25 @@ func bondingProblems(doc map[string]any) []string {
 		if ok, why := radio.Fits(band, int(ch), int(w)); !ok {
 			out = append(out, fmt.Sprintf("radio.%s.channel: %s", band, why))
 		}
+	}
+	return out
+}
+
+// snmpProblems refuses SNMP turned on with no way to query it: no community
+// and no v3 user, or a v3 user without both passphrases (0052).
+func snmpProblems(doc map[string]any) []string {
+	system, _ := doc["system"].(map[string]any)
+	snmp, _ := system["snmp"].(map[string]any)
+	if snmp["enabled"] != true {
+		return nil
+	}
+	v3, _ := snmp["v3"].(map[string]any)
+	var out []string
+	if snmp["community"] == nil && v3["user"] == nil {
+		out = append(out, "system.snmp: SNMP is on, but neither a community nor a v3 user is set")
+	}
+	if v3["user"] != nil && (v3["auth"] == nil || v3["privacy"] == nil) {
+		out = append(out, "system.snmp.v3: a v3 user needs both an auth and a privacy passphrase")
 	}
 	return out
 }

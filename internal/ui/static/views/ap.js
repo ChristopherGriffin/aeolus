@@ -53,7 +53,7 @@ export async function apPage(ctx, id, tab, sub) {
 			h('div', { class: 'col' }, enrollment(facts))), history(hist));
 	} else if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub, thisAP));
 	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
-	else main.push(systemSection(ctx, id, page, edit));
+	else main.push(await systemSection(ctx, id, page, edit));
 	const keep = tab === 'overview' ? '' : `/${tab}${tab === 'hardware' && sub ? '/' + sub : ''}`;
 	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps), keep), main, refresh: 30 };
 }

@@ -3,7 +3,7 @@
 // every value again before anything is recorded.
 
 import { h } from '../dom.js';
-import { bandName, security } from '../format.js';
+import { bandName, security, group } from '../format.js';
 
 // describe finds a field's description: network.lab.ssid is described as
 // network.*.ssid.
@@ -44,6 +44,13 @@ export function input(path, f, current) {
 			if (f.minItems && list.length < f.minItems) throw new Error(`choose at least ${f.minItems}`);
 			return list;
 		};
+	} else if (f.type === 'array') {
+		// A list of words, such as NTP servers or SSH keys: one a line.
+		el = h('textarea', { rows: Math.max(2, (current ?? []).length + 1) }, (current ?? []).join('\n'));
+		read = () => {
+			const list = el.value.split('\n').map((x) => x.trim()).filter(Boolean);
+			return list.length ? list : undefined;
+		};
 	} else if (f.type === 'integer') {
 		el = h('input', { type: 'number', step: 1, min: f.minimum, max: f.maximum, value: current ?? '' });
 		read = () => {
@@ -72,4 +79,53 @@ export function input(path, f, current) {
 			}
 		},
 	};
+}
+
+// fieldsForm lays out an input for each field in sections ([[title,
+// [path]]]), with the values in force (fields, by path: {value, from,
+// origin}). A field locked above the node at cannot be changed there. The
+// section titled more folds away. It returns the body, the inputs that can
+// be changed, and every field's input and row, by path.
+export function fieldsForm(d, sections, fields, at, more) {
+	const inputs = new Map();
+	const rows = new Map();
+	const rowFor = (path) => {
+		const f = describe(d, path);
+		if (!f) return null;
+		const cur = fields[path];
+		const it = input(path, f, cur?.value);
+		const locked = cur?.origin === 'locked' && cur.from !== at;
+		if (locked) it.el.disabled = true;
+		else inputs.set(path, it);
+		const row = h('label', { class: 'field' },
+			h('span', { class: 'label' }, group(path).label),
+			it.el,
+			locked && h('span', { class: 'sub' }, 'locked above'));
+		rows.set(path, { it, row });
+		return row;
+	};
+	const body = sections.map(([title, paths]) => {
+		const list = paths.map(rowFor).filter(Boolean);
+		if (!list.length) return null;
+		if (title === more) return h('details', null, h('summary', null, title), h('div', { class: 'fields' }, list));
+		return [title && h('h3', null, title), h('div', { class: 'fields' }, list)];
+	});
+	return { body, inputs, rows };
+}
+
+// changedValues reads what the person changed into {path: value}, leaving
+// out fields that are not on show, or throws with the first that is wrong.
+export function changedValues(inputs, rows) {
+	const out = {};
+	for (const [path, it] of inputs) {
+		if (rows.get(path)?.row.hidden || !it.changed()) continue;
+		let v;
+		try {
+			v = it.read();
+		} catch (e) {
+			throw new Error(`${group(path).label}: ${e.message}`);
+		}
+		if (v !== undefined) out[path] = v;
+	}
+	return out;
 }

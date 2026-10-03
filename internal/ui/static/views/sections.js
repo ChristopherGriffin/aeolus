@@ -3,11 +3,12 @@
 // settings.
 
 import { h, link } from '../dom.js';
-import { get } from '../api.js';
+import { get, schema } from '../api.js';
 import { bandName, ago, value } from '../format.js';
 import { tabBar, pick } from '../layout.js';
 import { fieldPanels, editing } from './fields.js';
 import { radiosSection } from './hardware.js';
+import { systemEditor } from './system.js';
 
 const HARDWARE = [['radios', 'Radios'], ['channels', 'Channels'], ['ports', 'Ports']];
 
@@ -70,9 +71,20 @@ export function portsSection(ctx, here, page, edit) {
 	return fieldPanels(ctx, 'locations', here, ports, edit);
 }
 
-// systemSection shows the system settings that reach the node.
-export function systemSection(ctx, here, page, edit) {
+// systemSection shows the system settings that reach the node, and for
+// someone who may change it, an editor for them (0052).
+export async function systemSection(ctx, here, page, edit) {
 	const sys = only(page.fields, (p) => p.startsWith('system.'));
-	if (!Object.keys(sys).length) return h('div', { class: 'banner info' }, 'No system settings here: each AP keeps its own.');
-	return fieldPanels(ctx, 'locations', here, sys, edit);
+	const panels = Object.keys(sys).length
+		? fieldPanels(ctx, 'locations', here, sys, edit)
+		: h('div', { class: 'banner info' }, 'No system settings here: each AP keeps its own.');
+	if (!edit) return panels;
+	const d = await schema();
+	const box = h('div', { class: 'edit flush' });
+	return [
+		h('div', { class: 'below' },
+			h('button', { type: 'button', class: 'button', onclick: () => systemEditor(ctx, d, here, page.node.name, page.fields, box) }, 'Edit system settings')),
+		box,
+		panels,
+	];
 }

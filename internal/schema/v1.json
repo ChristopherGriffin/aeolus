@@ -27,6 +27,26 @@
         "poll": { "type": "integer", "minimum": 10, "maximum": 3600, "description": "Seconds between config polls (0007)." },
         "syslog": { "$ref": "#/$defs/host", "description": "Remote syslog host, optionally host:port." },
         "ssh_keys": { "type": "array", "items": { "type": "string", "pattern": "^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]+( .*)?$" } },
+        "snmp": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Answering SNMP queries, read-only, through snmpd, which the agent's installer adds (0052).",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Answer SNMP queries; unset, the AP does not." },
+            "community": { "type": "string", "pattern": "^[A-Za-z0-9._~!@#%^*+=:-]{1,64}$", "writeOnly": true, "description": "The read-only SNMP v2c community." },
+            "v3": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "user": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,32}$", "description": "The read-only SNMP v3 user." },
+                "auth": { "type": "string", "pattern": "^[^\"\\\\\\x00-\\x1f]{8,64}$", "writeOnly": true, "description": "The v3 user's authentication passphrase, used with SHA." },
+                "privacy": { "type": "string", "pattern": "^[^\"\\\\\\x00-\\x1f]{8,64}$", "writeOnly": true, "description": "The v3 user's privacy passphrase, used with AES." }
+              }
+            },
+            "location": { "type": "string", "pattern": "^[^\\x00-\\x1f]{0,128}$", "description": "sysLocation." },
+            "contact": { "type": "string", "pattern": "^[^\\x00-\\x1f]{0,128}$", "description": "sysContact." }
+          }
+        },
         "management": {
           "type": "object",
           "additionalProperties": false,
