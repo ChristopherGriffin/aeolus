@@ -1,21 +1,24 @@
 // A folder in Locations or Services: its values and where they come from, its
-// overrides, and what it holds (0012, 0013). Landing Zone lists the APs
-// waiting in it (0032).
+// overrides, and what it holds (0012, 0013). A Locations folder's settings
+// are in tabs: Hardware, Networks and System (0047). Landing Zone lists the
+// APs waiting in it (0032).
 
 import { h, link, icon } from '../dom.js';
 import { get } from '../api.js';
 import { group, value, ago } from '../format.js';
-import { treeAside, crumbs, fleetMap } from '../layout.js';
+import { treeAside, crumbs, fleetMap, tabBar, pick } from '../layout.js';
 import { fieldPanels, editing } from './fields.js';
 import { apPage } from './ap.js';
-import { hardwarePanel } from './hardware.js';
+import { hardwareTab, networksTab, systemSection } from './sections.js';
 
-export async function treePage(ctx, tree, id) {
+const TABS = [['hardware', 'Hardware'], ['networks', 'Networks'], ['system', 'System']];
+
+export async function treePage(ctx, tree, id, tab, sub) {
 	const t = ctx.trees[tree];
 	id = id || t.root;
 	if (!id) return { main: [h('div', { class: 'banner info' }, 'You have no role in this tree.')] };
 	// Links to where a value was set can point at an AP; it has its own page.
-	if (tree === 'locations' && t.nodes.get(id)?.kind === 'ap') return apPage(ctx, id);
+	if (tree === 'locations' && t.nodes.get(id)?.kind === 'ap') return apPage(ctx, id, tab, sub);
 	const [page, fleet] = await Promise.all([
 		get(`/v1/trees/${tree}/nodes/${encodeURIComponent(id)}`),
 		tree === 'locations' ? get('/v1/aps') : null,
@@ -41,10 +44,26 @@ export async function treePage(ctx, tree, id) {
 			h('strong', null, `What is set here breaks ${page.problems.length} rule${page.problems.length === 1 ? '' : 's'}`),
 			h('ul', null, page.problems.map((p) => h('li', null, p)))),
 	];
-	if (n.isolated) main.push(await landingZone(ctx, t, id, fleet));
-	else main.push(hardwarePanel(ctx, id, n.name, page), fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
+	let refresh = 0;
+	if (n.isolated) {
+		main.push(await landingZone(ctx, t, id, fleet));
+		refresh = 30;
+	} else if (tree === 'locations') {
+		const base = `/locations/${encodeURIComponent(id)}`;
+		tab = pick(TABS, tab);
+		main.push(tabBar(base, TABS, tab));
+		if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub));
+		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
+		else main.push(systemSection(ctx, id, page, editing(ctx, tree, page)));
+		if (tab === 'hardware' && sub === 'channels') refresh = 30; // live
+	} else {
+		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
+	}
 	main.push(inside(ctx, tree, t, id, status));
-	return { aside: treeAside(ctx, tree, id, status), main, refresh: n.isolated ? 30 : 0 };
+	// Moving to another folder or AP in the tree keeps the tab, so folders
+	// can be compared side by side.
+	const keep = tree === 'locations' && !n.isolated ? `/${tab}${tab === 'hardware' && sub ? '/' + sub : ''}` : '';
+	return { aside: treeAside(ctx, tree, id, status, keep), main, refresh };
 }
 
 // overrides is the mockup's Overrides menu (0012): what differs from above,

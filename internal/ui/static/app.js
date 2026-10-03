@@ -11,9 +11,9 @@ import { libraryPage } from './views/library.js';
 import { changesPage } from './views/changes.js';
 
 const routes = [
-	[/^\/(locations|services)(?:\/([^/]+))?$/, (ctx, m) => treePage(ctx, m[1], m[2] && decodeURIComponent(m[2]))],
+	[/^\/(locations|services)(?:\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?)?$/, (ctx, m) => treePage(ctx, m[1], m[2] && decodeURIComponent(m[2]), m[3], m[4])],
 	[/^\/aps$/, (ctx) => apsPage(ctx)],
-	[/^\/aps\/([^/]+)$/, (ctx, m) => apPage(ctx, decodeURIComponent(m[1]))],
+	[/^\/aps\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?$/, (ctx, m) => apPage(ctx, decodeURIComponent(m[1]), m[2], m[3])],
 	[/^\/library$/, (ctx) => libraryPage(ctx)],
 	[/^\/changes$/, (ctx) => changesPage(ctx)],
 ];
