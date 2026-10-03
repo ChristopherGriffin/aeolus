@@ -383,6 +383,11 @@ func (s *Schema) Describe() Description {
 			for k, v := range node {
 				f[k] = v
 			}
+			// A list's items are described in place, as a client cannot
+			// follow a $ref: tagged VLANs are integers.
+			if items, ok := node["items"].(map[string]any); ok {
+				f["items"], _ = s.deref(items, "")
+			}
 			f["x-aeolus-tree"] = tree
 			d.Fields[prefix] = f
 			return

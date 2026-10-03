@@ -337,6 +337,86 @@ config snmpd 'general'
 	}
 }
 
+func TestPorts(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(`{"ports": {
+		"lan2": {"enabled": true, "mode": "access", "untagged": 30},
+		"lan3": {"enabled": false, "mode": "trunk", "untagged": 0, "tagged": [10, 20]},
+		"lan9": {"mode": "access", "untagged": 10}}}`), &doc); err != nil {
+		t.Fatal(err)
+	}
+	check := func(doc map[string]any, text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	const good = `package network
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'lan1'
+	list ports 'lan2'
+	list ports 'lan3'
+	list ports 'wan'
+config bridge-vlan 'vlan1'
+	option device 'br-lan'
+	option vlan '1'
+	list ports 'wan:u*'
+	list ports 'lan1:u*'
+config bridge-vlan 'vlan10'
+	option device 'br-lan'
+	option vlan '10'
+	list ports 'wan:t'
+	list ports 'lan3:t'
+config bridge-vlan 'vlan20'
+	option device 'br-lan'
+	option vlan '20'
+	list ports 'wan:t'
+	list ports 'lan3:t'
+config bridge-vlan 'aeolus_vlan30'
+	option device 'br-lan'
+	option vlan '30'
+	list ports 'wan:t'
+	list ports 'lan2:u*'
+config device 'aeolus_port_lan3'
+	option name 'lan3'
+	option enabled '0'
+package aeolus
+config agent 'agent'
+	option uplink 'wan'
+`
+	// lan9 is not on this AP, so it is not judged.
+	if got := check(doc, good); got != "" {
+		t.Fatalf("problems with the right config: %s", got)
+	}
+	for _, c := range []struct{ name, old, new, want string }{
+		{"off", "option enabled '0'", "option enabled '1'", "ports.lan3: the port is on, want off"},
+		{"untagged", "list ports 'lan2:u*'", "list ports 'lan2:t'", "ports.lan2: VLAN 30 is tagged, want untagged"},
+		{"missing", "list ports 'wan:t'\n\tlist ports 'lan3:t'\nconfig bridge-vlan 'vlan20'", "list ports 'wan:t'\nconfig bridge-vlan 'vlan20'", "ports.lan3: VLAN 10 is not on the port, want tagged"},
+		{"left over", "list ports 'lan1:u*'", "list ports 'lan1:u*'\n\tlist ports 'lan2:u*'", "ports.lan2: VLAN 1 is untagged, want not on the port"},
+		{"uplink", "list ports 'wan:t'\n\tlist ports 'lan2:u*'", "list ports 'lan2:u*'", "ports.lan2: the uplink wan does not carry VLAN 30 tagged"},
+		{"no bridge", "option type 'bridge'", "option type '8021q'", `ports: the uplink "wan" is in no bridge`},
+	} {
+		if !strings.Contains(good, c.old) {
+			t.Fatalf("%s: fixture lacks %q", c.name, c.old)
+		}
+		if got := check(doc, strings.Replace(good, c.old, c.new, 1)); !strings.Contains(got, c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.name, c.want, got)
+		}
+	}
+	// The uplink is the AP's management.
+	var uplink map[string]any
+	if err := json.Unmarshal([]byte(`{"ports": {"wan": {"enabled": false}}}`), &uplink); err != nil {
+		t.Fatal(err)
+	}
+	if got := check(uplink, good); !strings.Contains(got, "ports.wan: the uplink carries the AP's management") {
+		t.Fatalf("the uplink: %s", got)
+	}
+}
+
 func TestAWrongKeyIsNeverQuoted(t *testing.T) {
 	got := strings.Join(check(t, strings.Replace(rendered, "option key '"+pass+"'", "option key 'wrong-passphrase-1'", 1)), "\n")
 	if !strings.Contains(got, "key does not match the passphrase") {

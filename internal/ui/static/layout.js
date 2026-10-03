@@ -70,6 +70,10 @@ export function tabBar(base, tabs, current, sub) {
 		tabs.map(([key, label]) => h('a', { href: `#${base}/${key}`, class: key === current ? 'on' : null, 'aria-current': key === current ? 'page' : null }, label)));
 }
 
+// SUBTABS are the page tabs with tabs of their own; moving to another node
+// keeps the choice of those too.
+export const SUBTABS = new Set(['hardware', 'interfaces']);
+
 // pick returns the tab asked for if there is one, or the first.
 export function pick(tabs, key) {
 	return tabs.some(([k]) => k === key) ? key : tabs[0][0];

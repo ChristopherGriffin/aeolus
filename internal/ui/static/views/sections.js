@@ -1,16 +1,16 @@
-// The parts of a Locations folder or AP page besides its radios and
-// networks (0047): the channels its APs picked, its ports and its system
+// The parts of a Locations folder or AP page besides its radios, networks
+// and interfaces (0047, 0053): the channels its APs picked and its system
 // settings.
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
 import { bandName, ago, value } from '../format.js';
 import { tabBar, pick } from '../layout.js';
-import { fieldPanels, editing } from './fields.js';
+import { fieldPanels } from './fields.js';
 import { radiosSection } from './hardware.js';
 import { systemEditor } from './system.js';
 
-const HARDWARE = [['radios', 'Radios'], ['channels', 'Channels'], ['ports', 'Ports']];
+const HARDWARE = [['radios', 'Radios'], ['channels', 'Channels']];
 
 // hardwareTab draws the Hardware tab of a Locations node whose page is at
 // base. ap ({ap, cfg}) is the AP itself, on an AP's page.
@@ -18,8 +18,7 @@ export async function hardwareTab(ctx, base, id, page, sub, ap) {
 	sub = pick(HARDWARE, sub);
 	let body;
 	if (sub === 'radios') body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state);
-	else if (sub === 'channels') body = channelsSection(ctx, ap ? [ap] : await configs(page.hardware?.aps || []));
-	else body = portsSection(ctx, id, page, editing(ctx, 'locations', page));
+	else body = channelsSection(ctx, ap ? [ap] : await configs(page.hardware?.aps || []));
 	return [tabBar(`${base}/hardware`, HARDWARE, sub, true), body];
 }
 
@@ -62,13 +61,6 @@ export function channelsSection(ctx, rows) {
 		h('table', { class: 'list' },
 			h('tr', null, ['AP', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
 			lines));
-}
-
-// portsSection shows the port settings that reach the node.
-export function portsSection(ctx, here, page, edit) {
-	const ports = only(page.fields, (p) => p.startsWith('ports.'));
-	if (!Object.keys(ports).length) return h('div', { class: 'banner info' }, 'No port settings here: each AP keeps its own.');
-	return fieldPanels(ctx, 'locations', here, ports, edit);
 }
 
 // systemSection shows the system settings that reach the node, and for

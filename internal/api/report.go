@@ -30,6 +30,8 @@ const (
 var (
 	hashRE      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	networkIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+	portNameRE  = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,15}$`) // as the schema names ports
+	speedRE     = regexp.MustCompile(`^([0-9]{1,6}[FH])?$`)
 )
 
 // secretOptions are the UCI options that hold keys and passwords (0041).
@@ -178,6 +180,18 @@ type stateReport struct {
 	VLANs      []int                     `json:"vlans,omitempty"`
 	Transports map[string]transportState `json:"transports,omitempty"`
 	Steering   *steeringState            `json:"steering,omitempty"`
+	Ports      []portState               `json:"ports,omitempty"`
+}
+
+// portState is one Ethernet port in the bridge the AP's uplink is in
+// (0053): whether it is up, whether it has a link and at what speed, in
+// Mbit/s and duplex ("1000F"), and whether it is the uplink.
+type portState struct {
+	Name    string `json:"name"`
+	Up      bool   `json:"up"`
+	Carrier bool   `json:"carrier"`
+	Speed   string `json:"speed,omitempty"`
+	Uplink  bool   `json:"uplink,omitempty"`
 }
 
 // steeringState is what usteer is doing on the AP (0050, 0051), so a person
@@ -267,6 +281,16 @@ func (st *stateReport) check() error {
 				return badRequest("steering: each BSS has a band (2g, 5g or 6g), an SSID of at most 32 bytes, and counts that are not negative")
 			}
 		}
+	}
+	if len(st.Ports) > 32 {
+		return badRequest("at most 32 ports")
+	}
+	names := map[string]bool{}
+	for _, p := range st.Ports {
+		if !portNameRE.MatchString(p.Name) || names[p.Name] || !speedRE.MatchString(p.Speed) {
+			return badRequest("ports: each has its own name (such as lan1) and a speed such as 1000F, or none")
+		}
+		names[p.Name] = true
 	}
 	for id, t := range st.Transports {
 		if !networkIDRE.MatchString(id) {
