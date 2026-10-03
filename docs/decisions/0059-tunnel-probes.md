@@ -1,8 +1,8 @@
 # 0059. Tunnel probes, the loop guard, and switching transports
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Griff: an agent on the AP that probes every tunnel, to keep it open and to prove it works with no client on it; it always reports, and switches transports when set to, but only to one known to work; written up by Claude, with the defaults Griff agreed
+- Proposed by: Griff: an agent on the AP that probes every tunnel, to keep it open and to prove it works with no client on it; it always reports, and switches transports when set to, but only to one known to work; written up by Claude, with the defaults Griff agreed, and accepted with the merge of step 1
 - Refines: 0018, 0020, 0022, 0054, 0058
 - Resolves: 0020's open point on judging a VXLAN transport healthy
 

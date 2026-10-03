@@ -101,7 +101,7 @@ Each milestone ends in something checkable before the next starts.
 | [0056](docs/decisions/0056-tunnel-mtu.md) | A tunnel's MTU: default or custom, and only what the uplink carries |
 | [0057](docs/decisions/0057-apply-safety.md) | An apply keeps the Wi-Fi up, and what an AP lacks is held |
 | [0058](docs/decisions/0058-tunnel-ports.md) | Ethernet ports on tunnels |
-| [0059](docs/decisions/0059-tunnel-probes.md) | Tunnel probes, the loop guard, and switching transports (proposed) |
+| [0059](docs/decisions/0059-tunnel-probes.md) | Tunnel probes, the loop guard, and switching transports (step 1 built: probes, keepalive and the loop guard) |
 
 ## Open questions
 
