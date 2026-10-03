@@ -140,7 +140,7 @@ function ensure_vlan(n, bridge, uplink, vlan, keep) {
 	return n[name];
 }
 
-function iface_options(net, radio, network) {
+function iface_options(net, radio, network, btm) {
 	let o = {
 		device: radio, mode: 'ap', network: network, ssid: net.ssid,
 		encryption: ENCRYPTION[net.security] ?? 'none',
@@ -159,7 +159,7 @@ function iface_options(net, radio, network) {
 	// Band steering works through 802.11k and 802.11v (0050).
 	if (net.roaming?.rrm || net.band_steering)
 		o.ieee80211k = '1';
-	if (net.roaming?.btm || net.band_steering)
+	if (btm)
 		o.bss_transition = '1';
 	if (net.multicast_to_unicast != null)
 		o.multicast_to_unicast = net.multicast_to_unicast ? '1' : '0';
@@ -244,11 +244,20 @@ function networks(cfg, intent, facts, errors, keep) {
 			put(n, iface, 'interface', { proto: 'none', device: path });
 			keep[iface] = true;
 		}
+		// BSS transition (802.11v), which band steering uses too, is left
+		// out where hostapd lacks it: there, the line makes hostapd refuse
+		// its whole config, so every network on the AP goes down (0057).
+		// The render check then refuses the config.
+		let btm = !!(net.roaming?.btm || net.band_steering);
+		if (btm && facts.bss_transition === false) {
+			push(errors, `network.${id}: band steering and BSS transition need 802.11v, which this AP's hostapd lacks (install wpad-mbedtls)`);
+			btm = false;
+		}
 		for (let d in of_type(w, 'wifi-device')) {
 			if (net.bands && index(net.bands, d.band) < 0)
 				continue;
 			let name = iface_name(id, d['.name']);
-			put(w, name, 'wifi-iface', iface_options(net, d['.name'], iface));
+			put(w, name, 'wifi-iface', iface_options(net, d['.name'], iface, btm));
 			keep[name] = true;
 		}
 	}
@@ -449,8 +458,9 @@ function clamp(network) {
 // render returns the new packages, the names of those that changed, and
 // what it could not render. facts: { uplink, management: the interface the
 // AP reaches the manager through, radios: { <radio>: { htmodes } },
-// timezone: the POSIX string for intent's time zone, vxlan and nft_bridge:
-// whether those packages are installed }.
+// timezone: the POSIX string for intent's time zone, vxlan: whether netifd
+// has loaded the vxlan package, nft_bridge: whether kmod-nft-bridge is
+// installed, bss_transition: whether hostapd has 802.11v, null if not known }.
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)

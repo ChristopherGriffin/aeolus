@@ -239,6 +239,7 @@ function tunnelState(report, t) {
 	if (!report) return h('span', { class: 'sub' }, 'no report yet');
 	if (!report.vxlan) return h('span', { class: 'sub' }, 'its agent does not report tunnels; update it');
 	if (report.vxlan.installed === false) return h('span', { class: 'chip warn' }, 'vxlan is not installed (apk add vxlan)');
+	if (report.vxlan.loaded === false) return h('span', { class: 'chip warn' }, 'vxlan is installed, but netifd has not loaded it: restart the network');
 	if (!t) return h('span', { class: 'sub' }, 'not on the AP yet');
 	if (t.up) return h('span', { class: 'chip ok' }, 'up');
 	if (t.standby) return h('span', { class: 'chip idle' }, 'standing by');

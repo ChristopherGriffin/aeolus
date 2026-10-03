@@ -282,6 +282,51 @@ func TestTunnelMustFitTheUplink(t *testing.T) {
 	_ = ap
 }
 
+// What an AP reports it cannot run is held before it is sent (0057): a
+// tunnel while netifd has not loaded vxlan, and band steering while hostapd
+// lacks 802.11v.
+func TestReportedLacksAreHeld(t *testing.T) {
+	f := newFixture(t)
+	_, token, version := f.adopted()
+	report := func(loaded, btm bool) {
+		t.Helper()
+		if code, _, body := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60,
+			"vxlan":    map[string]any{"installed": true, "loaded": loaded, "clamp": true, "uplink_mtu": 1500},
+			"steering": map[string]any{"installed": true, "running": true, "interval": 0, "bss_transition": btm}}, nil); code != 200 {
+			t.Fatalf("state: %d %v", code, body)
+		}
+	}
+	set := func(tree, node, path string, v any) {
+		t.Helper()
+		if code, body := f.change("griff", map[string]any{"kind": "set", "tree": tree, "node": node, "path": path, "value": v}); code != 200 {
+			t.Fatalf("%s: %d %v", path, code, body)
+		}
+	}
+	poll := func() string {
+		t.Helper()
+		_, _, body := f.apDo("GET", "/v1/ap/config", token, nil, nil)
+		return fmt.Sprint(body["state"], body["problems"])
+	}
+	report(false, false)
+	set("services", "household", "network.sweet.band_steering", true)
+	if got := poll(); !strings.HasPrefix(got, "held") || !strings.Contains(got, "network.sweet: band steering and BSS transition need 802.11v, which this AP's hostapd lacks") {
+		t.Fatalf("band steering without 802.11v: %s", got)
+	}
+	set("services", "household", "network.sweet.band_steering", false)
+	set("locations", "office", "concentrators.dc.address", "1.1.1.2")
+	set("locations", "office", "concentrators.dc.port", 4789)
+	set("services", "household", "network.sweet.transport.primary.concentrator", "dc")
+	set("services", "household", "network.sweet.transport.primary.vni", 20)
+	set("services", "household", "network.sweet.transport.primary.type", "vxlan")
+	if got := poll(); !strings.HasPrefix(got, "held") || !strings.Contains(got, "this AP's netifd has not loaded vxlan; restart its network") {
+		t.Fatalf("a tunnel before netifd loaded vxlan: %s", got)
+	}
+	report(true, false)
+	if got := poll(); !strings.HasPrefix(got, "ready") {
+		t.Fatalf("once loaded: %s", got)
+	}
+}
+
 func TestFleetView(t *testing.T) {
 	f := newFixture(t)
 	ap, token, version := f.adopted()

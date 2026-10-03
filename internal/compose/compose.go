@@ -300,11 +300,25 @@ func tunnelProblems(doc map[string]any) []string {
 	return out
 }
 
-// UplinkProblems holds each tunnel an AP's networks use that its uplink
-// cannot carry now (0056): a tunnel's packets are its MTU plus VXLAN's
-// headers, 50 bytes over IPv4 and 70 over IPv6, and the uplink must carry
-// them whole, as VXLAN endpoints seldom put fragments back together.
-func UplinkProblems(doc map[string]any, uplinkMTU int) []string {
+// Reported is what an AP last said it can run; a zero or nil field was not
+// reported.
+type Reported struct {
+	UplinkMTU     int   // what its uplink carries now (0056)
+	VXLANLoaded   *bool // whether netifd has loaded vxlan (0057)
+	BSSTransition *bool // whether hostapd has 802.11v (0057)
+}
+
+// ReportedProblems holds what an AP's config asks for that the AP said it
+// cannot run:
+//   - a tunnel its uplink cannot carry now (0056): a tunnel's packets are its
+//     MTU plus VXLAN's headers, 50 bytes over IPv4 and 70 over IPv6, and the
+//     uplink must carry them whole, as VXLAN endpoints seldom put fragments
+//     back together;
+//   - a tunnel while netifd has not loaded vxlan, which it does only when
+//     it starts (0057);
+//   - band steering or BSS transition while hostapd lacks 802.11v, as the
+//     line they need would make hostapd refuse its whole config (0057).
+func ReportedProblems(doc map[string]any, r Reported) []string {
 	nets, _ := doc["network"].(map[string]any)
 	concs, _ := doc["concentrators"].(map[string]any)
 	var out []string
@@ -313,10 +327,20 @@ func UplinkProblems(doc map[string]any, uplinkMTU int) []string {
 		if n["enabled"] == false {
 			continue
 		}
+		roaming, _ := n["roaming"].(map[string]any)
+		if (n["band_steering"] == true || roaming["btm"] == true) && r.BSSTransition != nil && !*r.BSSTransition {
+			out = append(out, fmt.Sprintf("network.%s: band steering and BSS transition need 802.11v, which this AP's hostapd lacks; install a full wpad, such as wpad-mbedtls (0057)", id))
+		}
 		transport, _ := n["transport"].(map[string]any)
 		for _, slot := range slots {
 			t, _ := transport[slot].(map[string]any)
 			if t["type"] != "vxlan" {
+				continue
+			}
+			if r.VXLANLoaded != nil && !*r.VXLANLoaded {
+				out = append(out, fmt.Sprintf("network.%s.transport.%s: this AP's netifd has not loaded vxlan; restart its network (/etc/init.d/network restart), and install vxlan first if it is missing (0057)", id, slot))
+			}
+			if r.UplinkMTU == 0 {
 				continue
 			}
 			cid, _ := t["concentrator"].(string)
@@ -327,9 +351,9 @@ func UplinkProblems(doc map[string]any, uplinkMTU int) []string {
 			if strings.Contains(addr, ":") {
 				need = int(mtu) + 70
 			}
-			if need > uplinkMTU {
+			if need > r.UplinkMTU {
 				out = append(out, fmt.Sprintf("network.%s.transport.%s: tunnel %s's MTU of %d needs %d on the AP's uplink, which carries %d now; raise the uplink's MTU, or leave the tunnel's MTU at its default (0056)",
-					id, slot, cid, int(mtu), need, uplinkMTU))
+					id, slot, cid, int(mtu), need, r.UplinkMTU))
 			}
 		}
 	}
