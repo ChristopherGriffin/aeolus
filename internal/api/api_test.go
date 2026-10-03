@@ -419,8 +419,9 @@ func TestLibraryThroughTheAPI(t *testing.T) {
 	ref := func(id string) map[string]any {
 		return map[string]any{"kind": "set", "tree": "services", "node": "household", "path": "network.sweet.transport.fallback.concentrator", "value": id}
 	}
-	if code, body := f.change("griff", ref("nowhere")); code != 400 || !strings.Contains(body["error"].(string), "no such concentrator") {
-		t.Fatalf("unknown concentrator: %d %v", code, body)
+	// A transport names a tunnel set in Locations, not a library entry (0055).
+	if code, body := f.change("griff", ref("nowhere")); code != 200 {
+		t.Fatalf("a tunnel the library lacks: %d %v", code, body)
 	}
 	if code, body := f.change("griff", ref("homelab")); code != 200 {
 		t.Fatalf("%d %v", code, body)

@@ -7,13 +7,14 @@ import { group, value } from '../format.js';
 import { ask, confirm } from './confirm.js';
 
 // followButton offers to unset paths at node, previewing in box. parentName
-// is the folder above, or null at the root, where nothing is above.
-export function followButton(ctx, tree, node, nodeName, parentName, paths, box, label) {
+// is the folder above, or null at the root, where nothing is above. heading,
+// when given, names the change in the preview, such as a delete.
+export function followButton(ctx, tree, node, nodeName, parentName, paths, box, label, heading) {
 	label ??= parentName ? `Follow ${parentName}` : 'Stop setting it here';
-	return h('button', { type: 'button', class: 'button small', onclick: () => follow(ctx, tree, node, nodeName, parentName, paths, box) }, label);
+	return h('button', { type: 'button', class: 'button small', onclick: () => follow(ctx, tree, node, nodeName, parentName, paths, box, heading) }, label);
 }
 
-async function follow(ctx, tree, node, nodeName, parentName, paths, box) {
+async function follow(ctx, tree, node, nodeName, parentName, paths, box, heading) {
 	const op = paths.length === 1
 		? { kind: 'unset', tree, node, path: paths[0] }
 		: { kind: 'unset', tree, node, paths };
@@ -23,8 +24,9 @@ async function follow(ctx, tree, node, nodeName, parentName, paths, box) {
 	const before = paths.length === 1 ? { [paths[0]]: p.effect?.before } : (p.effect?.before || {});
 	const radios = paths.some((x) => x.startsWith('radio.'));
 	const ports = paths.some((x) => x.startsWith('ports.'));
+	const tunnels = paths.some((x) => x.startsWith('concentrators.'));
 	confirm(ctx, box, op, p, [
-		h('div', null, h('strong', null, parentName ? `${nodeName} follows ${parentName} again` : `${nodeName} stops setting ${paths.length === 1 ? 'this' : 'these'}`)),
+		h('div', null, h('strong', null, heading ?? (parentName ? `${nodeName} follows ${parentName} again` : `${nodeName} stops setting ${paths.length === 1 ? 'this' : 'these'}`))),
 		h('ul', { class: 'becomes' }, paths.map((path) => {
 			const g = group(path);
 			const after = p.resolved?.[path];
@@ -36,5 +38,6 @@ async function follow(ctx, tree, node, nodeName, parentName, paths, box) {
 	], [
 		radios && h('div', { class: 'sub warn' }, 'Applying restarts each radio whose settings change; its clients drop briefly and reconnect.'),
 		ports && h('div', { class: 'sub warn' }, "Applying reloads each AP's network; wired clients on the port drop briefly. Each AP leaves a port Aeolus no longer sets as it is."),
+		tunnels && h('div', { class: 'sub warn' }, "A network whose transport names a tunnel not set at an AP leaves that transport out there; where it was the network's only one, the preview shows the config Aeolus would hold."),
 	]);
 }

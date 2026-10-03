@@ -151,12 +151,14 @@ func TestDescribe(t *testing.T) {
 	if d.Names["network"] != "^[a-z][a-z0-9-]{0,31}$" || d.Names["ports"] == "" {
 		t.Fatalf("names = %v", d.Names)
 	}
-	// Every leaf but those the manager fills in.
+	// Every leaf, tunnels too (0055).
 	for _, l := range sch.Leaves() {
-		_, described := d.Fields[l]
-		if described == strings.HasPrefix(l, "concentrators.") {
-			t.Errorf("%s described: %v", l, described)
+		if _, described := d.Fields[l]; !described {
+			t.Errorf("%s is not described", l)
 		}
+	}
+	if a := d.Fields["concentrators.*.address"]; a["x-aeolus-tree"] != "locations" || a["pattern"] == nil {
+		t.Errorf("concentrators.*.address = %v", a)
 	}
 }
 
@@ -196,6 +198,7 @@ func TestFieldPaths(t *testing.T) {
 		"network.sweet.transport.primary.vni":  change.Services,
 		"network.sweet.roaming.ft":             change.Services,
 		"network.guest-2.rate_limit.down_kbps": change.Services,
+		"concentrators.homelab.address":        change.Locations,
 		"network.vlan-guests.ssid":             change.Services,
 		"network.vlan2go.ssid":                 change.Services,
 	}
@@ -212,7 +215,6 @@ func TestFieldPaths(t *testing.T) {
 		"network.Bad_Name.ssid":            ErrUnknownField,
 		"network.sweet.ssid.extra":         ErrUnknownField,
 		"system.nope":                      ErrUnknownField,
-		"concentrators.homelab.address":    ErrReadOnly,
 		"":                                 ErrUnknownField,
 		"network..ssid":                    ErrUnknownField,
 		"ports.Eth0.mode":                  ErrUnknownField,

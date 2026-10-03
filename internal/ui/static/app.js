@@ -18,7 +18,8 @@ const routes = [
 	[/^\/changes$/, (ctx) => changesPage(ctx)],
 ];
 
-const TABS = [['/locations', 'Locations'], ['/services', 'Services'], ['/aps', 'APs'], ['/library', 'Library'], ['/changes', 'Changes']];
+// The library is shelved (0055): its page stays at #/library, out of the tabs.
+const TABS = [['/locations', 'Locations'], ['/services', 'Services'], ['/aps', 'APs'], ['/changes', 'Changes']];
 
 let timer = null;
 let rendering = 0;

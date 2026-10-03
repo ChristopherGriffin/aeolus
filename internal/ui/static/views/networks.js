@@ -4,8 +4,8 @@
 // folder (0013): an edit changes it there, for every location that uses that
 // folder, and the preview names every AP it reaches. Band steering and
 // multicast-to-unicast are switched right on each network, and what usteer
-// does on each AP is shown below them (0051). A VXLAN transport's
-// concentrator and VNI are picked from the library (0023, 0054).
+// does on each AP is shown below them (0051). A VXLAN transport picks one of
+// the tunnels set where it is being edited (0055).
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
@@ -28,8 +28,8 @@ const SECTIONS = [
 ];
 
 export async function networksTab(ctx, id, page) {
-	const [d, at, reports, library] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || []), get('/v1/library')]);
-	const lib = availableAt(library.concentrators || [], page.ancestry || [id]);
+	const [d, at, reports] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || [])]);
+	const lib = tunnelsAt(page.fields);
 	const bandsHere = new Set((page.hardware?.bands || []).map((b) => b.band));
 	const writable = at.folders.filter((f) => f.canEdit);
 	const addBox = h('div', { class: 'edit flush' });
@@ -47,11 +47,17 @@ export async function networksTab(ctx, id, page) {
 	];
 }
 
-// availableAt keeps the library's concentrators that may be used at a
-// Locations node, given its ancestry: those limited to no folders, and
-// those limited to it or a folder above it (0023).
-export function availableAt(concentrators, ancestry) {
-	return concentrators.filter((c) => !c.scope?.length || c.scope.some((f) => ancestry.includes(f)));
+// tunnelsAt lists the tunnels set at a Locations node, from the values in
+// force there (0055): [{id, address, port, mtu}] by name.
+export function tunnelsAt(fields) {
+	const out = new Map();
+	for (const [path, r] of Object.entries(fields || {})) {
+		const m = path.match(/^concentrators\.([^.]+)\.(address|port|mtu)$/);
+		if (!m) continue;
+		if (!out.has(m[1])) out.set(m[1], { id: m[1] });
+		out.get(m[1])[m[2]] = r.value;
+	}
+	return [...out.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 // networksAt reads the networks offered by the service folders that apply at
@@ -119,7 +125,7 @@ function view(ctx, n, bandsHere, box, noUsteer, lib) {
 		const type = f(`transport.${slot}.type`);
 		if (!type) return null;
 		return type === 'vxlan'
-			? `VXLAN to ${concentratorName(lib, f(`transport.${slot}.concentrator`))} · VNI ${vniName(lib, f(`transport.${slot}.concentrator`), f(`transport.${slot}.vni`))}`
+			? `VXLAN over ${tunnelName(lib, f(`transport.${slot}.concentrator`))} · VNI ${f(`transport.${slot}.vni`)}`
 			: `VLAN ${f(`transport.${slot}.vlan`)}`;
 	};
 	const roaming = [f('roaming.ft') && '11r', f('roaming.rrm') && '11k', f('roaming.btm') && '11v'].filter(Boolean);
@@ -143,15 +149,10 @@ function view(ctx, n, bandsHere, box, noUsteer, lib) {
 
 const ssidOf = (n) => n.fields.ssid?.value || n.id;
 
-// concentratorName and vniName name a concentrator and a VNI as the library
-// labels them, or by ID where it does not.
-export function concentratorName(lib, id) {
-	return lib.find((c) => c.id === id)?.name || id;
-}
-
-export function vniName(lib, id, vni) {
-	const label = lib.find((c) => c.id === id)?.vnis?.[vni];
-	return label ? `${vni} (${label})` : String(vni);
+// tunnelName names a tunnel with its far end, where it is set here.
+export function tunnelName(lib, id) {
+	const t = lib.find((c) => c.id === id);
+	return t?.address ? `${id} (${t.address})` : id;
 }
 
 // lockedAbove says whether a network's field is locked above its folder,
@@ -282,46 +283,26 @@ const FOR_TYPE = { vlan: ['vlan'], vxlan: ['concentrator', 'vni'] };
 // What only means something once there is a fallback transport (0022).
 const WITH_FALLBACK = ['transport.ha', 'transport.failback', 'transport.holddown'];
 
-// pickers swaps a transport's concentrator and VNI fields for lists from the
-// library (0023, 0054): the concentrators available here, then the labeled
-// VNIs of the one picked. A value the lists lack, set where it was allowed,
-// stays on offer, marked.
+// pickers swaps a transport's tunnel field for a list of the tunnels set
+// here (0055). A tunnel the list lacks, set where it was, stays on offer,
+// marked.
 function pickers(prefix, rows, inputs, lib) {
 	for (const slot of ['primary', 'fallback']) {
-		const cPath = `${prefix}transport.${slot}.concentrator`;
-		const vPath = `${prefix}transport.${slot}.vni`;
-		const cRow = rows.get(cPath);
-		const vRow = rows.get(vPath);
-		if (!cRow || !vRow) continue;
-		const curC = cRow.it.read();
-		const curV = vRow.it.read();
-		const cSel = h('select', null,
-			h('option', { value: '' }, lib.length ? '—' : 'no concentrator in the library is available here'),
-			lib.map((c) => h('option', { value: c.id, selected: c.id === curC }, `${c.name} (${c.address})`)),
-			curC && !lib.some((c) => c.id === curC) && h('option', { value: curC, selected: true }, `${curC} (not available here)`));
-		const vSel = h('select');
-		const fill = () => {
-			const c = lib.find((x) => x.id === cSel.value);
-			const vnis = Object.entries(c?.vnis || {}).map(([v, label]) => [Number(v), label]).sort((a, b) => a[0] - b[0]);
-			const want = vSel.value ? Number(vSel.value) : curV;
-			vSel.replaceChildren(...[
-				h('option', { value: '' }, !cSel.value ? 'pick a concentrator first' : vnis.length ? '—' : 'it has no VNIs yet'),
-				...vnis.map(([v, label]) => h('option', { value: v, selected: v === want }, `${v} · ${label}`)),
-				want && cSel.value === curC && !vnis.some(([v]) => v === want) && h('option', { value: want, selected: true }, `${want} (not in the library)`),
-			].filter(Boolean));
-		};
-		cSel.addEventListener('change', fill);
-		fill();
-		const swap = (path, row, el, read) => {
-			const initial = JSON.stringify(read());
-			const it = { el, read, changed: () => JSON.stringify(read()) !== initial };
-			el.disabled = row.it.el.disabled;
-			row.it.el.replaceWith(el);
-			row.it = it;
-			if (inputs.has(path)) inputs.set(path, it);
-		};
-		swap(cPath, cRow, cSel, () => cSel.value || undefined);
-		swap(vPath, vRow, vSel, () => (vSel.value ? Number(vSel.value) : undefined));
+		const path = `${prefix}transport.${slot}.concentrator`;
+		const row = rows.get(path);
+		if (!row) continue;
+		const cur = row.it.read();
+		const sel = h('select', null,
+			h('option', { value: '' }, lib.length ? '—' : 'no tunnel is set here yet (Interfaces › Tunnels)'),
+			lib.map((t) => h('option', { value: t.id, selected: t.id === cur }, tunnelName(lib, t.id))),
+			cur && !lib.some((t) => t.id === cur) && h('option', { value: cur, selected: true }, `${cur} (not set here)`));
+		const read = () => sel.value || undefined;
+		const initial = JSON.stringify(read());
+		const it = { el: sel, read, changed: () => JSON.stringify(read()) !== initial };
+		sel.disabled = row.it.el.disabled;
+		row.it.el.replaceWith(sel);
+		row.it = it;
+		if (inputs.has(path)) inputs.set(path, it);
 	}
 }
 
@@ -329,8 +310,7 @@ function pickers(prefix, rows, inputs, lib) {
 // values now in fields ({field: {value, from, origin}}). Fields locked
 // above folder cannot be changed there. A transport shows only the fields
 // its type uses; sync shows the right ones after a type is set. A VXLAN
-// transport's concentrator and VNI are picked from lib, the concentrators
-// available here.
+// transport's tunnel is picked from lib, the tunnels set here.
 function form(d, net, fields, folder, lib) {
 	const prefix = `network.${net}.`;
 	const keys = Object.keys(d.fields).filter((k) => k.startsWith('network.*.')).map((k) => k.slice('network.*.'.length));

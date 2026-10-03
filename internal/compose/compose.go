@@ -1,6 +1,7 @@
 // Package compose builds the config an AP receives (0008): its resolved
-// fields, filtered and completed with the library (0023), and checked whole
-// (0029). The API shows it, and the AP poll will serve it.
+// fields, with each network's transports filtered by the tunnels set where
+// the AP is (0055), and checked whole (0029). The API shows it, and the AP
+// poll serves it.
 package compose
 
 import (
@@ -34,14 +35,12 @@ type Result struct {
 var slots = []string{"primary", "fallback"}
 
 // AP composes one AP's config:
-//   - A VXLAN transport whose concentrator may not be used at the AP's
-//     location is left out, so the AP never tries a concentrator it cannot
-//     reach. If that removes the primary, the fallback takes its place.
-//   - A network left with no transport is a problem, as is a transport
-//     naming a concentrator the library lacks, or a VNI that concentrator
-//     does not have.
-//   - The concentrators the AP's transports use are attached, with what the
-//     AP needs to reach them.
+//   - A VXLAN transport whose tunnel is not set at the AP's location is left
+//     out there (0055). If that removes the primary, the fallback takes its
+//     place.
+//   - A network left with no transport is a problem.
+//   - The config carries only the tunnels its transports use, so an
+//     unfinished tunnel nothing uses holds no AP back.
 //   - A radio width the AP's radio cannot do, by what it reported when it
 //     enrolled, is a problem (0008), as is a 5 GHz channel Aeolus sets that
 //     cannot carry the width Aeolus sets (0045).
@@ -53,7 +52,6 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	if cfg.Unassigned {
 		return Result{Unassigned: true, Problems: []string{}}, nil
 	}
-	ancestry := s.Org.Locations.Ancestry(ap)
 	fields := map[string]any{}
 	for p, r := range cfg.Location {
 		fields[string(p)] = r.Value
@@ -78,21 +76,10 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 				continue
 			}
 			cid, _ := net[prefix+"concentrator"].(string)
-			k, ok := s.Library.Get(cid)
-			switch {
-			case !ok:
-				problems = append(problems, fmt.Sprintf("network.%s.transport.%s: concentrator %q is not in the library", id, slot, cid))
-			case !k.AvailableAt(ancestry):
-				// Not usable here (0023): leave it out.
-			default:
-				if vni, ok := net[prefix+"vni"].(float64); ok {
-					if _, defined := k.VNIs[int(vni)]; !defined {
-						problems = append(problems, fmt.Sprintf("network.%s.transport.%s: VNI %d is not defined on concentrator %s", id, slot, int(vni), cid))
-					}
-				}
+			if _, set := fields["concentrators."+cid+".address"]; set {
 				kept[slot] = true
 				used[cid] = true
-			}
+			} // else: the tunnel is not set here, so the transport is left out (0055)
 		}
 		hadTransport := false
 		for _, slot := range slots {
@@ -114,17 +101,17 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 		}
 	}
 
+	for p := range fields {
+		if rest, ok := strings.CutPrefix(p, "concentrators."); ok {
+			if cid, _, _ := strings.Cut(rest, "."); !used[cid] {
+				delete(fields, p)
+			}
+		}
+	}
+
 	doc, err := schema.Assemble(fields, reveal)
 	if err != nil {
 		return Result{}, err
-	}
-	if len(used) > 0 {
-		concs := map[string]any{}
-		for cid := range used {
-			k, _ := s.Library.Get(cid)
-			concs[cid] = map[string]any{"address": k.Address, "port": k.Port, "mtu": k.MTU}
-		}
-		doc["concentrators"] = concs
 	}
 	doc = jsonShape(doc)
 	sort.Strings(problems)
@@ -260,8 +247,8 @@ func portProblems(doc map[string]any) []string {
 
 // tunnelProblems refuses VXLAN transports an AP cannot run (0054). An AP
 // runs one tunnel per VNI, so two networks on one VNI would become one, and a
-// network's primary and fallback cannot share one yet. A tunnel needs its
-// concentrator's IP address, as names do not resolve reliably on an AP.
+// network's primary and fallback cannot share one yet. A tunnel needs its far
+// end's IP address, as names do not resolve reliably on an AP.
 func tunnelProblems(doc map[string]any) []string {
 	nets, _ := doc["network"].(map[string]any)
 	concs, _ := doc["concentrators"].(map[string]any)
@@ -289,7 +276,7 @@ func tunnelProblems(doc map[string]any) []string {
 			cid, _ := t["concentrator"].(string)
 			c, _ := concs[cid].(map[string]any)
 			if addr, _ := c["address"].(string); addr != "" && net.ParseIP(strings.Trim(addr, "[]")) == nil {
-				out = append(out, fmt.Sprintf("network.%s.transport.%s: concentrator %s's address %q is a name; a tunnel needs its IP address", id, slot, cid, addr))
+				out = append(out, fmt.Sprintf("network.%s.transport.%s: tunnel %s's address %q is not an IP address", id, slot, cid, addr))
 			}
 		}
 	}
@@ -315,9 +302,8 @@ func sortedKeys(m map[string]any) []string {
 	return out
 }
 
-// Node checks what is resolved at one node as a partial config: the schema's
-// rules, and, in the Services tree, that each transport's concentrator is in
-// the library and has the VNI. The page guard uses it (0029).
+// Node checks what is resolved at one node as a partial config, by the
+// schema's rules. The page guard uses it (0029).
 func Node(s *change.State, sch *schema.Schema, tree change.TreeName, t *hierarchy.Tree, node hierarchy.NodeID, reveal Reveal) []string {
 	values := map[string]any{}
 	for p, r := range t.ResolveAll(node) {
@@ -326,26 +312,6 @@ func Node(s *change.State, sch *schema.Schema, tree change.TreeName, t *hierarch
 		}
 	}
 	var problems []string
-	if tree == change.Services {
-		for p, v := range values {
-			network, slot, field, ok := change.TransportField(hierarchy.Path(p))
-			if !ok || field != "concentrator" {
-				continue
-			}
-			cid, _ := v.(string)
-			k, ok := s.Library.Get(cid)
-			if !ok {
-				problems = append(problems, fmt.Sprintf("network.%s.transport.%s: concentrator %q is not in the library", network, slot, cid))
-				continue
-			}
-			if vni, ok := values["network."+network+".transport."+slot+".vni"].(float64); ok {
-				if _, defined := k.VNIs[int(vni)]; !defined {
-					problems = append(problems, fmt.Sprintf("network.%s.transport.%s: VNI %d is not defined on concentrator %s", network, slot, int(vni), cid))
-				}
-			}
-		}
-	}
-	sort.Strings(problems)
 	doc, err := schema.Assemble(values, reveal)
 	if err != nil {
 		return append(problems, err.Error())

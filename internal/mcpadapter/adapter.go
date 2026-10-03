@@ -173,7 +173,7 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", "/v1/aps/"+url.PathEscape(in.AP)+"/history", nil)
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "get_library", Description: "The Org's library: concentrators (address, port, MTU, the Location folders they may be used at) and their labeled VNIs. Network transports pick a concentrator and a VNI from here.", Annotations: readOnly},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_library", Description: "The Org's library of concentrators and their labeled VNIs, which is shelved (0055): nothing uses it. Tunnels are Location fields instead, concentrators.<name>.address, .port and .mtu, set with make_change, and a network transport's concentrator names one.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, any, error) {
 			out, err := c.call(ctx, "GET", "/v1/library", nil)
 			return nil, out, err

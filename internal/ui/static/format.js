@@ -37,7 +37,9 @@ const NETWORK = {
 	'transport.ha': 'HA mode', 'transport.failback': 'Failback', 'transport.holddown': 'Hold-down',
 };
 
-const SLOT = { type: 'type', vlan: 'VLAN', concentrator: 'concentrator', vni: 'VNI' };
+const SLOT = { type: 'type', vlan: 'VLAN', concentrator: 'tunnel', vni: 'VNI' };
+
+const TUNNEL = { address: 'Far end (IP)', port: 'Port', mtu: 'MTU' };
 
 // group says which panel a field belongs in, and its label there.
 export function group(path) {
@@ -47,6 +49,7 @@ export function group(path) {
 	if (p[0] === 'system' && p[1] === 'management') return { key: 'management', title: 'Management', order: 3, label: SYSTEM[p.slice(1).join('.')] || p[2] };
 	if (p[0] === 'system') return { key: 'system', title: 'System', order: 2, label: SYSTEM[p[1]] || p[1] };
 	if (p[0] === 'ports') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: PORT[p[2]] || p[2] };
+	if (p[0] === 'concentrators') return { key: 'concentrators.' + p[1], title: 'Tunnel ' + p[1], order: 4.5, label: TUNNEL[p[2]] || p[2] };
 	if (p[0] === 'services') return { key: 'services', title: 'Services', order: 5, label: 'Service folders' };
 	if (p[0] === 'network') {
 		const f = p.slice(2).join('.');
