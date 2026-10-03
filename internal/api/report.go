@@ -36,6 +36,7 @@ var (
 var secretOptions = map[string]bool{
 	"key": true, "sae_password": true, "password": true,
 	"auth_secret": true, "private_key": true, "preshared_key": true,
+	"community": true, "auth_pass": true, "privacy_pass": true,
 }
 
 // secretsIn lists the secret values in a composed config (0027), so a kept

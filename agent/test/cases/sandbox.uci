@@ -183,3 +183,8 @@ config usteer
 	option ipv6 '0'
 	option debug_level '2'
 	option band_steering_interval '0'
+
+package snmpd
+
+config snmpd 'general'
+	option enabled '0'

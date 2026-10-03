@@ -158,6 +158,35 @@ func TestWidthTheRadioCannotDoIsAProblem(t *testing.T) {
 	}
 }
 
+func TestSNMPNeedsAWayIn(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("system.snmp.enabled", true)
+	if got := problems(); !strings.Contains(got, "neither a community nor a v3 user") {
+		t.Fatalf("problems = %s", got)
+	}
+	set("system.snmp.v3.user", "monitor")
+	if got := problems(); !strings.Contains(got, "needs both an auth and a privacy passphrase") {
+		t.Fatalf("problems = %s", got)
+	}
+	set("system.snmp.v3.auth", "auth-passphrase")
+	set("system.snmp.v3.privacy", "privacy-passphrase")
+	if got := problems(); strings.Contains(got, "system.snmp") {
+		t.Fatalf("a v3 user with both passphrases: %s", got)
+	}
+}
+
 func TestChannelThatCannotCarryTheWidthIsAProblem(t *testing.T) {
 	s, sch := site(t)
 	set := func(path string, v any) {

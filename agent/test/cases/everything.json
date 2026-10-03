@@ -16,7 +16,9 @@
 			"5g": { "channel": 36, "width": 160, "power": 20 },
 			"6g": { "width": 320 }
 		},
-		"system": { "country": "US", "tz": "America/Chicago", "ntp": ["time.symtus.com", "0.pool.ntp.org"], "syslog": "192.168.20.50:514", "poll": 30 },
+		"system": { "country": "US", "tz": "America/Chicago", "ntp": ["time.symtus.com", "0.pool.ntp.org"], "syslog": "192.168.20.50:514", "poll": 30,
+			"snmp": { "enabled": true, "community": "fixture-community", "location": "Pumphouse", "contact": "ops@example.com",
+				"v3": { "user": "monitor", "auth": "fixture-auth-1", "privacy": "fixture-privacy-1" } } },
 		"network": {
 			"sweet-lab": { "ssid": "Sweet Lab", "security": "wpa2-wpa3", "passphrase": "fixture-passphrase-2", "roaming": { "ft": true, "rrm": true, "btm": true }, "multicast_to_unicast": true, "band_steering": true,
 				"transport": { "primary": { "type": "vlan", "vlan": 30 }, "fallback": { "type": "vlan", "vlan": 20 } } },

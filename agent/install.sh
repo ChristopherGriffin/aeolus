@@ -9,10 +9,11 @@
 #	sh install.sh https://aeolus.symtus.com:8443 wan /tmp/manager.crt
 #
 # It also installs usteer, for band steering (0050), with steering off until
-# Aeolus turns it on for a network. That needs the AP to reach OpenWrt's
-# package feeds; without it, everything else works, and a network that asks
-# for band steering is refused until usteer is installed. The agent's files
-# and settings are kept across a sysupgrade; usteer must be installed again.
+# Aeolus turns it on for a network, and snmpd, for SNMP (0052), off until
+# Aeolus turns it on. That needs the AP to reach OpenWrt's package feeds;
+# without them, everything else works, and a setting that needs a missing
+# package is refused until it is installed. The agent's files and settings
+# are kept across a sysupgrade; the packages must be installed again.
 set -eu
 
 [ $# -eq 3 ] || { sed -n '2,10p' "$0" >&2; exit 2; }
@@ -44,6 +45,19 @@ if apk info -e usteer >/dev/null 2>&1 || { apk update >/dev/null && apk add uste
 	/etc/init.d/usteer reload
 else
 	echo "usteer could not be installed: band steering will be refused on this AP until it is (apk add usteer)" >&2
+fi
+
+# SNMP (0052). snmpd starts when it is installed, answering OpenWrt's
+# default communities (public, and private from the AP itself), so it is
+# turned off and those communities deleted at once: Aeolus owns all of
+# snmpd's config from here on. The SSL build is needed for v3's AES.
+if apk info -e snmpd-ssl >/dev/null 2>&1 || { apk update >/dev/null && apk add snmpd-ssl; }; then
+	uci set snmpd.general.enabled=0
+	for s in public private public6 private6; do uci -q delete snmpd.$s || true; done
+	uci commit snmpd
+	/etc/init.d/snmpd restart
+else
+	echo "snmpd could not be installed: SNMP will be refused on this AP until it is (apk add snmpd-ssl)" >&2
 fi
 
 /usr/sbin/aeolus-agent ping

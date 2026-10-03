@@ -245,6 +245,98 @@ func TestBandSteering(t *testing.T) {
 	}
 }
 
+func TestSNMP(t *testing.T) {
+	const community = "secret-community"
+	var on, off map[string]any
+	if err := json.Unmarshal([]byte(`{"system": {"snmp": {"enabled": true, "community": "`+community+`", "location": "Pumphouse",
+		"v3": {"user": "monitor", "auth": "auth-passphrase", "privacy": "privacy-passphrase"}}}}`), &on); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"system": {}}`), &off); err != nil {
+		t.Fatal(err)
+	}
+	check := func(doc map[string]any, text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, p := range Check(doc, c) {
+			if strings.HasPrefix(p, "snmpd") {
+				out = append(out, p)
+			}
+		}
+		return strings.Join(out, "\n")
+	}
+	const good = `package snmpd
+config agent 'agent'
+	option agentaddress 'UDP:161,UDP6:161'
+config com2sec 'aeolus_v2c'
+	option secname 'ro'
+	option source 'default'
+	option community '` + community + `'
+config com2sec6 'aeolus_v2c6'
+	option secname 'ro'
+	option source 'default'
+	option community '` + community + `'
+config access 'aeolus_ro'
+	option group 'ro'
+	option write 'none'
+config system 'system'
+	option sysLocation 'Pumphouse'
+config v3 'aeolus_v3'
+	option username 'monitor'
+	option auth_type 'SHA'
+	option auth_pass 'auth-passphrase'
+	option privacy_type 'AES'
+	option privacy_pass 'privacy-passphrase'
+	option allow_write '0'
+config snmpd 'general'
+	option enabled '1'
+	option snmp_version 'v1/v2c/v3'
+`
+	if got := check(on, good); got != "" {
+		t.Fatalf("problems with the right config: %s", got)
+	}
+	for _, c := range []struct{ name, old, new, want string }{
+		{"off", "option enabled '1'", "option enabled '0'", `enabled is "0", want "1"`},
+		{"community", "option community '" + community + "'\nconfig com2sec6", "option community 'public'\nconfig com2sec6", "communities do not match"},
+		{"write", "option write 'none'", "option write 'all'", "write is \"all\", want none"},
+		{"auth", "option auth_pass 'auth-passphrase'", "option auth_pass 'other-passphrase'", "auth_pass does not match"},
+		{"privacy type", "option privacy_type 'AES'", "option privacy_type 'DES'", `privacy_type is "DES", want "AES"`},
+		{"version", "option snmp_version 'v1/v2c/v3'", "option snmp_version 'v1/v2c'", "want one with v3"},
+		{"location", "option sysLocation 'Pumphouse'", "option sysLocation 'office'", `sysLocation is "office"`},
+	} {
+		if !strings.Contains(good, c.old) {
+			t.Fatalf("%s: fixture lacks %q", c.name, c.old)
+		}
+		got := check(on, strings.Replace(good, c.old, c.new, 1))
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.name, c.want, got)
+		}
+		for _, secret := range []string{community, "auth-passphrase", "privacy-passphrase", "other-passphrase"} {
+			if strings.Contains(got, secret) {
+				t.Errorf("%s: a secret is quoted: %s", c.name, got)
+			}
+		}
+	}
+	// Off: nothing may answer, so OpenWrt's default communities must go.
+	if got := check(off, "package snmpd\nconfig snmpd 'general'\n\toption enabled '0'\n"); got != "" {
+		t.Fatalf("off: %s", got)
+	}
+	if got := check(off, "package snmpd\nconfig com2sec 'public'\n\toption community 'public'\nconfig snmpd 'general'\n\toption enabled '0'\n"); !strings.Contains(got, "1 communities are set, want none") {
+		t.Fatalf("off with a community left: %s", got)
+	}
+	// Without snmpd: fine while off, refused while on.
+	if got := check(off, "package wireless\n"); got != "" {
+		t.Fatalf("off, no snmpd: %s", got)
+	}
+	if got := check(on, "package wireless\n"); !strings.Contains(got, "install it (apk add snmpd-ssl)") {
+		t.Fatalf("on, no snmpd: %s", got)
+	}
+}
+
 func TestAWrongKeyIsNeverQuoted(t *testing.T) {
 	got := strings.Join(check(t, strings.Replace(rendered, "option key '"+pass+"'", "option key 'wrong-passphrase-1'", 1)), "\n")
 	if !strings.Contains(got, "key does not match the passphrase") {

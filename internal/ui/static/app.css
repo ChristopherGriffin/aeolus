@@ -174,15 +174,16 @@ nav.subtabs a.on { background: var(--accent-bg); border-color: var(--accent); co
 .chip.band { background: var(--accent-bg); color: var(--ink); }
 .chip.band.none { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
 .lead { margin: 0 0 12px; }
-.netform { padding: 4px 20px 16px; }
-.netform h3 { margin: 14px 0 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.netform .fields { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 10px; }
-.netform details summary { cursor: pointer; color: var(--muted); margin: 10px 0 4px; }
-.netform .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
-.netform .error:empty { display: none; }
+.fieldform { padding: 4px 20px 16px; }
+.fieldform h3 { margin: 14px 0 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.fieldform .fields { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 10px; }
+.fieldform details summary { cursor: pointer; color: var(--muted); margin: 10px 0 4px; }
+.fieldform .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.fieldform .error:empty { display: none; }
 label.field[hidden] { display: none; }
 label.field { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 label.field > .label { width: 170px; flex-shrink: 0; color: var(--muted); font-size: 14px; }
+label.field textarea { min-width: 320px; padding: 6px 10px; border: 1px solid #C9CEC6; border-radius: 8px; font: inherit; font-family: var(--mono); font-size: 13px; }
 label.field input[type=text], label.field input[type=password], label.field input[type=number] { height: 34px; min-width: 220px; padding: 0 10px; border: 1px solid #C9CEC6; border-radius: 8px; font: inherit; }
 .choices { display: inline-flex; gap: 14px; flex-wrap: wrap; }
 .choices label { display: inline-flex; gap: 5px; align-items: center; }

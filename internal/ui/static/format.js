@@ -16,6 +16,12 @@ const SYSTEM = {
 	'management.gateway': 'Gateway', 'management.dns': 'DNS',
 };
 
+const SNMP = {
+	'enabled': 'Answer SNMP', 'community': 'v2c community', 'v3.user': 'v3 user',
+	'v3.auth': 'v3 auth passphrase (SHA)', 'v3.privacy': 'v3 privacy passphrase (AES)',
+	'location': 'Location (sysLocation)', 'contact': 'Contact (sysContact)',
+};
+
 const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power' };
 
 const PORT = { enabled: 'Enabled', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
@@ -35,6 +41,7 @@ const SLOT = { type: 'type', vlan: 'VLAN', concentrator: 'concentrator', vni: 'V
 export function group(path) {
 	const p = path.split('.');
 	if (p[0] === 'radio') return { key: 'radio.' + p[1], title: (BANDS[p[1]] || p[1]) + ' radio', order: 1 + Object.keys(BANDS).indexOf(p[1]) / 10, label: RADIO[p[2]] || p[2] };
+	if (p[0] === 'system' && p[1] === 'snmp') return { key: 'snmp', title: 'SNMP', order: 2.5, label: SNMP[p.slice(2).join('.')] || p.slice(2).join('.') };
 	if (p[0] === 'system' && p[1] === 'management') return { key: 'management', title: 'Management', order: 3, label: SYSTEM[p.slice(1).join('.')] || p[2] };
 	if (p[0] === 'system') return { key: 'system', title: 'System', order: 2, label: SYSTEM[p[1]] || p[1] };
 	if (p[0] === 'ports') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: PORT[p[2]] || p[2] };

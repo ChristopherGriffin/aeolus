@@ -27,5 +27,11 @@
 	},
 	"usteer": {
 		"cfg013ec2": { ".anonymous": true, ".type": "usteer", ".name": "cfg013ec2", ".index": 0, "network": "lan", "syslog": "1", "local_mode": "0", "ipv6": "0", "debug_level": "2", "band_steering_interval": "0" }
+	},
+	"snmpd": {
+		"cfg01a8b4": { ".anonymous": true, ".type": "agent", ".name": "cfg01a8b4", ".index": 0, "agentaddress": "UDP:161,UDP6:161" },
+		"all": { ".anonymous": false, ".type": "view", ".name": "all", ".index": 1, "viewname": "all", "type": "included", "oid": ".1" },
+		"cfg0bb8d7": { ".anonymous": true, ".type": "system", ".name": "cfg0bb8d7", ".index": 2, "sysLocation": "office", "sysContact": "bofh@example.com", "sysName": "HeartOfGold" },
+		"general": { ".anonymous": false, ".type": "snmpd", ".name": "general", ".index": 3, "enabled": "0" }
 	}
 }

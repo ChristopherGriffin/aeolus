@@ -55,7 +55,7 @@ export async function treePage(ctx, tree, id, tab, sub) {
 		main.push(tabBar(base, TABS, tab));
 		if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
-		else main.push(systemSection(ctx, id, page, editing(ctx, tree, page)));
+		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
 		if (tab === 'hardware' && sub === 'channels') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
