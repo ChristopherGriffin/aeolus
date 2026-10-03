@@ -1,8 +1,8 @@
 # 0054. VXLAN transports on the AP
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Griff: VXLAN tunnels for networks, vendor neutral, so anything can terminate them; written up by Claude
+- Proposed by: Griff: VXLAN tunnels for networks, vendor neutral, so anything can terminate them; written up by Claude and accepted with the merge
 - Refines: 0018, 0020, 0022, 0023, 0037, 0039, 0040, 0053
 
 ## Context
