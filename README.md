@@ -100,6 +100,7 @@ Each milestone ends in something checkable before the next starts.
 | [0055](docs/decisions/0055-tunnels-in-locations.md) | Tunnels are set in Locations; the library is shelved |
 | [0056](docs/decisions/0056-tunnel-mtu.md) | A tunnel's MTU: default or custom, and only what the uplink carries |
 | [0057](docs/decisions/0057-apply-safety.md) | An apply keeps the Wi-Fi up, and what an AP lacks is held |
+| [0058](docs/decisions/0058-tunnel-ports.md) | Ethernet ports on tunnels (proposed) |
 
 ## Open questions
 

@@ -48,6 +48,9 @@ var Coverage = map[string]string{
 	"ports.*.tagged":   "",
 	"ports.*.bond":     "LACP is not applied yet; the config check holds it (0053)",
 
+	"ports.*.vxlan.*.tunnel": "",
+	"ports.*.vxlan.*.vni":    "",
+
 	"network.*.enabled":                  "",
 	"network.*.ssid":                     "",
 	"network.*.hidden":                   "",
@@ -139,7 +142,7 @@ func Check(doc map[string]any, c *uci.Config) []string {
 	k.agent(obj(doc, "system"))
 	k.steering(obj(doc, "network"))
 	k.snmp(obj(obj(doc, "system"), "snmp"))
-	k.ports(obj(doc, "ports"))
+	k.ports(obj(doc, "ports"), obj(doc, "concentrators"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -474,7 +477,7 @@ func (k *checker) snmp(want map[string]any) {
 // not judged. For each: whether it is on, its entries in the bridge's
 // bridge-vlan sections, exactly, and that the uplink carries each of its
 // VLANs tagged. The uplink itself is the AP's management, and is refused.
-func (k *checker) ports(want map[string]any) {
+func (k *checker) ports(want, concentrators map[string]any) {
 	if len(want) == 0 {
 		return
 	}
@@ -507,10 +510,21 @@ func (k *checker) ports(want map[string]any) {
 			vlans = append(vlans, bv)
 		}
 	}
+	// A port is on the AP if it is in a bridge, the uplink's or a tunnel's,
+	// or carries an 802.1Q device (0058).
+	onAP := func(p string) bool {
+		for _, d := range net.OfType("device") {
+			if value(d, "type") == "bridge" && slices.Contains(d.List("ports"), p) ||
+				value(d, "type") == "8021q" && value(d, "ifname") == p {
+				return true
+			}
+		}
+		return false
+	}
 	for _, p := range keys(want) {
 		set := obj(want, p)
 		where := "ports." + p
-		if !slices.Contains(bridge.List("ports"), p) {
+		if !onAP(p) {
 			continue
 		}
 		if p == uplink {
@@ -531,8 +545,15 @@ func (k *checker) ports(want map[string]any) {
 			}
 		}
 		mode, _ := set["mode"].(string)
+		if mode == "tunnel" {
+			k.tunnelPort(where, p, obj(set, "vxlan"), bridge, vlans, concentrators)
+			continue
+		}
 		if mode != "access" && mode != "trunk" {
 			continue
+		}
+		if !slices.Contains(bridge.List("ports"), p) {
+			k.add("%s: the port is not in the uplink's bridge %s", where, value(bridge, "name"))
 		}
 		entries := map[string]string{} // VLAN -> u* or t
 		if u := text(set["untagged"]); u != "" && u != "0" {
@@ -603,6 +624,49 @@ func underlayMTU(net *uci.Package, iface *uci.Section) (int, string) {
 		}
 	}
 	return 1500, dev
+}
+
+// sectionSafe is a port's name as it can stand in a section's name.
+var sectionSafe = regexp.MustCompile(`[^a-z0-9_]`)
+
+// tunnelPort checks a port in tunnel mode (0058): it is out of the uplink's
+// bridge and its VLANs, and each VNI it carries is on its tunnel's bridge,
+// the port itself for the untagged one, and an 802.1Q device of the port,
+// <port>.<vlan>, for each tagged one. Each tunnel is checked as a network's
+// is, and must be started.
+func (k *checker) tunnelPort(where, p string, maps map[string]any, bridge *uci.Section, vlans []*uci.Section, concentrators map[string]any) {
+	net := k.c.Package("network")
+	if slices.Contains(bridge.List("ports"), p) {
+		k.add("%s: the port is still in the uplink's bridge %s", where, value(bridge, "name"))
+	}
+	for _, bv := range vlans {
+		for _, e := range bv.List("ports") {
+			if port, _, _ := strings.Cut(e, ":"); port == p {
+				k.add("%s: VLAN %s of the uplink's bridge still has the port", where, value(bv, "vlan"))
+			}
+		}
+	}
+	for _, vlan := range keys(maps) {
+		m := obj(maps, vlan)
+		at := where + ".vxlan." + vlan
+		vni := text(m["vni"])
+		cid, _ := m["tunnel"].(string)
+		if k.tunnel(at, "primary", m, obj(concentrators, cid)) == "" {
+			continue
+		}
+		member := p
+		if vlan != "untagged" {
+			member = p + "." + vlan
+			name := "aeolus_port_" + sectionSafe.ReplaceAllString(p, "_") + "_" + vlan
+			if d := net.Named(name); d == nil || d.Type != "device" || value(d, "type") != "8021q" ||
+				value(d, "ifname") != p || value(d, "vid") != vlan || value(d, "name") != member {
+				k.add("network.%s: want an 802.1Q device %s, VLAN %s on %s", name, member, vlan, p)
+			}
+		}
+		if b := net.Named(TunnelName(vni) + "_br"); b == nil || !slices.Contains(b.List("ports"), member) {
+			k.add("%s: %s is not in the tunnel's bridge br-vx%s", at, member, vni)
+		}
+	}
 }
 
 // portEntry says what a bridge-vlan entry's flags make of the VLAN.

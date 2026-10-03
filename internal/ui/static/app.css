@@ -185,6 +185,10 @@ label.field { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 label.field > .label { width: 170px; flex-shrink: 0; color: var(--muted); font-size: 14px; }
 label.field textarea { min-width: 320px; padding: 6px 10px; border: 1px solid #C9CEC6; border-radius: 8px; font: inherit; font-family: var(--mono); font-size: 13px; }
 label.field input[type=text], label.field input[type=password], label.field input[type=number] { height: 34px; min-width: 220px; padding: 0 10px; border: 1px solid #C9CEC6; border-radius: 8px; font: inherit; }
+/* A tunnel port's VNIs (0058): a row each, with its tunnel, VNI and Remove. */
+.vnis .field { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vnis .field > .label { width: 90px; flex-shrink: 0; color: var(--muted); font-size: 14px; }
+.vnis .field input { height: 34px; width: 9em; padding: 0 10px; border: 1px solid #C9CEC6; border-radius: 8px; font: inherit; }
 .choices { display: inline-flex; gap: 14px; flex-wrap: wrap; }
 .choices label { display: inline-flex; gap: 5px; align-items: center; }
 .below { margin: 0 0 16px; }

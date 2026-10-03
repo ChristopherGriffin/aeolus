@@ -26,7 +26,7 @@ const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 
 
 const PORT = { enabled: 'Port on', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
 
-const MODE = { access: 'Access', trunk: 'Trunk', lacp: 'LACP' };
+const MODE = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' };
 
 const NETWORK = {
 	'ssid': 'SSID', 'security': 'Security', 'passphrase': 'Passphrase', 'hidden': 'Hidden',
@@ -48,6 +48,8 @@ export function group(path) {
 	if (p[0] === 'system' && p[1] === 'snmp') return { key: 'snmp', title: 'SNMP', order: 2.5, label: SNMP[p.slice(2).join('.')] || p.slice(2).join('.') };
 	if (p[0] === 'system' && p[1] === 'management') return { key: 'management', title: 'Management', order: 3, label: SYSTEM[p.slice(1).join('.')] || p[2] };
 	if (p[0] === 'system') return { key: 'system', title: 'System', order: 2, label: SYSTEM[p[1]] || p[1] };
+	// A tunnel port's VNI, by how it is carried: "VLAN 50 tunnel" (0058).
+	if (p[0] === 'ports' && p[2] === 'vxlan') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: `${p[3] === 'untagged' ? 'Untagged' : 'VLAN ' + p[3]} ${p[4] === 'vni' ? 'VNI' : 'tunnel'}` };
 	if (p[0] === 'ports') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: PORT[p[2]] || p[2] };
 	if (p[0] === 'concentrators') return { key: 'concentrators.' + p[1], title: 'Tunnel ' + p[1], order: 4.5, label: TUNNEL[p[2]] || p[2] };
 	if (p[0] === 'services') return { key: 'services', title: 'Services', order: 5, label: 'Service folders' };

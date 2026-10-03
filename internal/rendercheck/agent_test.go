@@ -109,7 +109,7 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 		out := []any{}
 		for _, e := range list {
 			port, _, _ := strings.Cut(e.(string), ":")
-			if set, _ := ports[port].(map[string]any); set["mode"] != "access" && set["mode"] != "trunk" {
+			if set, _ := ports[port].(map[string]any); set["mode"] != "access" && set["mode"] != "trunk" && set["mode"] != "tunnel" {
 				out = append(out, e)
 			}
 		}

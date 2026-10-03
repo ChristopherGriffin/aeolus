@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ChristopherGriffin/aeolus/internal/change"
@@ -102,6 +104,18 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 		}
 	}
 
+	// A tunnel port's tunnels are used as well (0058).
+	for p, v := range fields {
+		rest, ok := strings.CutPrefix(p, "ports.")
+		if !ok || !strings.HasSuffix(p, ".tunnel") {
+			continue
+		}
+		port, _, _ := strings.Cut(rest, ".")
+		cid, _ := v.(string)
+		if _, set := fields["concentrators."+cid+".address"]; set && fields["ports."+port+".mode"] == "tunnel" {
+			used[cid] = true
+		}
+	}
 	for p := range fields {
 		if rest, ok := strings.CutPrefix(p, "concentrators."); ok {
 			if cid, _, _ := strings.Cut(rest, "."); !used[cid] {
@@ -241,6 +255,8 @@ func portProblems(doc map[string]any) []string {
 					out = append(out, fmt.Sprintf("%s: VLAN %d is both untagged and tagged", where, int(v)))
 				}
 			}
+		case "tunnel":
+			out = append(out, tunnelPortProblems(doc, where, set)...)
 		case "lacp":
 			out = append(out, where+": LACP is not applied yet")
 		case nil:
@@ -252,50 +268,150 @@ func portProblems(doc map[string]any) []string {
 	return out
 }
 
-// tunnelProblems refuses VXLAN transports an AP cannot run (0054). An AP
-// runs one tunnel per VNI, so two networks on one VNI would become one, and a
-// network's primary and fallback cannot share one yet. A tunnel needs its far
-// end's IP address, as names do not resolve reliably on an AP.
-func tunnelProblems(doc map[string]any) []string {
+// tunnelUse is one VNI an AP's config carries over a tunnel: a network's
+// transport, or one a tunnel port maps (0058).
+type tunnelUse struct {
+	where    string // the field it is set at, for messages
+	network  string // the network that uses it, or "" for a port
+	port     string // the port that uses it, or "" for a network
+	fallback bool   // a network's fallback, which waits until switching starts it
+	vni      int
+	tunnel   string
+}
+
+// tunnelUses lists every VNI an AP's config carries over a tunnel.
+func tunnelUses(doc map[string]any) []tunnelUse {
+	var out []tunnelUse
 	nets, _ := doc["network"].(map[string]any)
-	concs, _ := doc["concentrators"].(map[string]any)
-	users := map[int][]string{} // VNI -> the networks that use it
-	var out []string
 	for _, id := range sortedKeys(nets) {
 		n, _ := nets[id].(map[string]any)
 		if n["enabled"] == false {
 			continue // not rendered
 		}
 		transport, _ := n["transport"].(map[string]any)
-		slots := map[int]string{}
-		for _, slot := range []string{"primary", "fallback"} {
+		for _, slot := range slots {
 			t, _ := transport[slot].(map[string]any)
 			vni, ok := t["vni"].(float64)
 			if t["type"] != "vxlan" || !ok {
 				continue
 			}
-			if other, ok := slots[int(vni)]; ok {
-				out = append(out, fmt.Sprintf("network.%s.transport: the %s and the %s both use VNI %d; an AP runs one tunnel per VNI", id, other, slot, int(vni)))
-				continue
-			}
-			slots[int(vni)] = slot
-			users[int(vni)] = append(users[int(vni)], id)
 			cid, _ := t["concentrator"].(string)
-			c, _ := concs[cid].(map[string]any)
-			if addr, _ := c["address"].(string); addr != "" && net.ParseIP(strings.Trim(addr, "[]")) == nil {
-				out = append(out, fmt.Sprintf("network.%s.transport.%s: tunnel %s's address %q is not an IP address", id, slot, cid, addr))
-			}
+			out = append(out, tunnelUse{where: "network." + id + ".transport." + slot, network: id, fallback: slot == "fallback", vni: int(vni), tunnel: cid})
 		}
 	}
-	vnis := make([]int, 0, len(users))
-	for v := range users {
+	ports, _ := doc["ports"].(map[string]any)
+	for _, name := range sortedKeys(ports) {
+		p, _ := ports[name].(map[string]any)
+		if p["mode"] != "tunnel" {
+			continue
+		}
+		maps, _ := p["vxlan"].(map[string]any)
+		for _, vlan := range sortedKeys(maps) {
+			m, _ := maps[vlan].(map[string]any)
+			vni, ok := m["vni"].(float64)
+			cid, _ := m["tunnel"].(string)
+			if !ok || cid == "" {
+				continue
+			}
+			out = append(out, tunnelUse{where: "ports." + name + ".vxlan." + vlan, port: name, vni: int(vni), tunnel: cid})
+		}
+	}
+	return out
+}
+
+// tunnelProblems refuses tunnels an AP cannot run (0054, 0058). An AP runs
+// one tunnel per VNI, so two networks on one VNI would become one, a
+// network's primary and fallback cannot share one yet, one VNI cannot reach
+// two tunnels, and a port cannot use a VNI that waits as a network's
+// fallback. A tunnel needs its far end's IP address, as names do not resolve
+// reliably on an AP.
+func tunnelProblems(doc map[string]any) []string {
+	concs, _ := doc["concentrators"].(map[string]any)
+	var out []string
+	slotOf := map[string]map[int]string{} // network -> VNI -> the slot that has it
+	nets := map[int][]string{}            // VNI -> the networks that use it
+	tunnels := map[int][]string{}         // VNI -> the tunnels it reaches
+	fallbackOf := map[int]string{}        // VNI -> the network whose fallback it is
+	portsOn := map[int][]string{}         // VNI -> the ports that carry it
+	for _, u := range tunnelUses(doc) {
+		if !slices.Contains(tunnels[u.vni], u.tunnel) {
+			tunnels[u.vni] = append(tunnels[u.vni], u.tunnel)
+		}
+		c, _ := concs[u.tunnel].(map[string]any)
+		if addr, _ := c["address"].(string); addr != "" && net.ParseIP(strings.Trim(addr, "[]")) == nil {
+			out = append(out, fmt.Sprintf("%s: tunnel %s's address %q is not an IP address", u.where, u.tunnel, addr))
+		}
+		if u.port != "" {
+			if !slices.Contains(portsOn[u.vni], u.port) {
+				portsOn[u.vni] = append(portsOn[u.vni], u.port)
+			}
+			continue
+		}
+		slot := "primary"
+		if u.fallback {
+			slot = "fallback"
+			fallbackOf[u.vni] = u.network
+		}
+		if slotOf[u.network] == nil {
+			slotOf[u.network] = map[int]string{}
+		}
+		if other, ok := slotOf[u.network][u.vni]; ok {
+			out = append(out, fmt.Sprintf("network.%s.transport: the %s and the %s both use VNI %d; an AP runs one tunnel per VNI", u.network, other, slot, u.vni))
+			continue
+		}
+		slotOf[u.network][u.vni] = slot
+		nets[u.vni] = append(nets[u.vni], u.network)
+	}
+	vnis := make([]int, 0, len(tunnels))
+	for v := range tunnels {
 		vnis = append(vnis, v)
 	}
 	sort.Ints(vnis)
 	for _, v := range vnis {
-		if len(users[v]) > 1 {
-			out = append(out, fmt.Sprintf("VNI %d: networks %s would share one tunnel at this AP, and so become one network", v, strings.Join(users[v], " and ")))
+		if len(nets[v]) > 1 {
+			out = append(out, fmt.Sprintf("VNI %d: networks %s would share one tunnel at this AP, and so become one network", v, strings.Join(nets[v], " and ")))
 		}
+		if len(tunnels[v]) > 1 {
+			out = append(out, fmt.Sprintf("VNI %d: it reaches tunnels %s at this AP, and an AP runs one tunnel per VNI", v, strings.Join(tunnels[v], " and ")))
+		}
+		if fallbackOf[v] != "" && len(portsOn[v]) > 0 {
+			out = append(out, fmt.Sprintf("VNI %d: it is network %s's fallback here, which waits until switching starts it, so port %s cannot carry it", v, fallbackOf[v], strings.Join(portsOn[v], " and ")))
+		}
+	}
+	return out
+}
+
+// tunnelPortProblems refuses a tunnel port's VNIs the AP could not carry as
+// asked (0058): none at all, a VLAN off the wire's range, a mapping without
+// its tunnel or VNI, a tunnel not set where the AP is, and one VNI on two of
+// the port's VLANs.
+func tunnelPortProblems(doc map[string]any, where string, set map[string]any) []string {
+	concs, _ := doc["concentrators"].(map[string]any)
+	maps, _ := set["vxlan"].(map[string]any)
+	if len(maps) == 0 {
+		return []string{where + ": a tunnel port carries no VNIs yet"}
+	}
+	var out []string
+	seen := map[int]string{}
+	for _, vlan := range sortedKeys(maps) {
+		at := where + ".vxlan." + vlan
+		if n, err := strconv.Atoi(vlan); vlan != "untagged" && (err != nil || n < 1 || n > 4094) {
+			out = append(out, fmt.Sprintf("%s: VLAN %s is not one from 1 to 4094", at, vlan))
+		}
+		m, _ := maps[vlan].(map[string]any)
+		cid, _ := m["tunnel"].(string)
+		vni, ok := m["vni"].(float64)
+		if cid == "" || !ok {
+			out = append(out, at+": needs both its tunnel and its VNI")
+			continue
+		}
+		if concs[cid] == nil {
+			out = append(out, fmt.Sprintf("%s: tunnel %s is not set where this AP is", at, cid))
+		}
+		if other, ok := seen[int(vni)]; ok {
+			out = append(out, fmt.Sprintf("%s: VNI %d is on VLAN %s of this port already", at, int(vni), other))
+		}
+		seen[int(vni)] = vlan
 	}
 	return out
 }
@@ -331,30 +447,24 @@ func ReportedProblems(doc map[string]any, r Reported) []string {
 		if (n["band_steering"] == true || roaming["btm"] == true) && r.BSSTransition != nil && !*r.BSSTransition {
 			out = append(out, fmt.Sprintf("network.%s: band steering and BSS transition need 802.11v, which this AP's hostapd lacks; install a full wpad, such as wpad-mbedtls (0057)", id))
 		}
-		transport, _ := n["transport"].(map[string]any)
-		for _, slot := range slots {
-			t, _ := transport[slot].(map[string]any)
-			if t["type"] != "vxlan" {
-				continue
-			}
-			if r.VXLANLoaded != nil && !*r.VXLANLoaded {
-				out = append(out, fmt.Sprintf("network.%s.transport.%s: this AP's netifd has not loaded vxlan; restart its network (/etc/init.d/network restart), and install vxlan first if it is missing (0057)", id, slot))
-			}
-			if r.UplinkMTU == 0 {
-				continue
-			}
-			cid, _ := t["concentrator"].(string)
-			c, _ := concs[cid].(map[string]any)
-			mtu, _ := c["mtu"].(float64)
-			addr, _ := c["address"].(string)
-			need := int(mtu) + 50
-			if strings.Contains(addr, ":") {
-				need = int(mtu) + 70
-			}
-			if need > r.UplinkMTU {
-				out = append(out, fmt.Sprintf("network.%s.transport.%s: tunnel %s's MTU of %d needs %d on the AP's uplink, which carries %d now; raise the uplink's MTU, or leave the tunnel's MTU at its default (0056)",
-					id, slot, cid, int(mtu), need, r.UplinkMTU))
-			}
+	}
+	for _, u := range tunnelUses(doc) {
+		if r.VXLANLoaded != nil && !*r.VXLANLoaded {
+			out = append(out, fmt.Sprintf("%s: this AP's netifd has not loaded vxlan; restart its network (/etc/init.d/network restart), and install vxlan first if it is missing (0057)", u.where))
+		}
+		if r.UplinkMTU == 0 {
+			continue
+		}
+		c, _ := concs[u.tunnel].(map[string]any)
+		mtu, _ := c["mtu"].(float64)
+		addr, _ := c["address"].(string)
+		need := int(mtu) + 50
+		if strings.Contains(addr, ":") {
+			need = int(mtu) + 70
+		}
+		if need > r.UplinkMTU {
+			out = append(out, fmt.Sprintf("%s: tunnel %s's MTU of %d needs %d on the AP's uplink, which carries %d now; raise the uplink's MTU, or leave the tunnel's MTU at its default (0056)",
+				u.where, u.tunnel, int(mtu), need, r.UplinkMTU))
 		}
 	}
 	return out
