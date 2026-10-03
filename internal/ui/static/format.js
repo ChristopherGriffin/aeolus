@@ -23,7 +23,7 @@ const PORT = { enabled: 'Enabled', uplink: 'Uplink', mode: 'Mode', untagged: 'Un
 const NETWORK = {
 	'ssid': 'SSID', 'security': 'Security', 'passphrase': 'Passphrase', 'hidden': 'Hidden',
 	'bands': 'Bands', 'isolation': 'Client isolation', 'enabled': 'Broadcast',
-	'multicast_to_unicast': 'Multicast to unicast',
+	'multicast_to_unicast': 'Multicast to unicast', 'band_steering': 'Band steering',
 	'roaming.ft': 'Fast roaming (11r)', 'roaming.rrm': 'Neighbor reports (11k)', 'roaming.btm': 'Steering (11v)',
 	'rate_limit.down_kbps': 'Download limit', 'rate_limit.up_kbps': 'Upload limit',
 	'transport.ha': 'HA mode', 'transport.failback': 'Failback', 'transport.holddown': 'Hold-down',

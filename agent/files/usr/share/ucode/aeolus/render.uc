@@ -6,14 +6,15 @@
 // is fed to the manager's render check.
 //
 // Aeolus only touches what it owns (0040): the radio options intent names,
-// sections named aeolus_, and the time zone, NTP and syslog settings. A
-// section it did not create is never edited or removed.
+// usteer's band_steering_interval and ssid_list (0050), sections named
+// aeolus_, and the time zone, NTP and syslog settings. A section it did not
+// create is never otherwise edited, or removed.
 
 'use strict';
 
 import { text } from 'aeolus.uciexport';
 
-const PACKAGES = ['wireless', 'network', 'system', 'aeolus'];
+const PACKAGES = ['wireless', 'network', 'system', 'aeolus', 'usteer'];
 
 const ENCRYPTION = {
 	'open': 'none', 'owe': 'owe', 'wpa2-psk': 'psk2', 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae-mixed',
@@ -146,9 +147,10 @@ function iface_options(net, radio, network) {
 		o.ft_over_ds = '0';
 		o.ft_psk_generate_local = '1';
 	}
-	if (net.roaming?.rrm)
+	// Band steering works through 802.11k and 802.11v (0050).
+	if (net.roaming?.rrm || net.band_steering)
 		o.ieee80211k = '1';
-	if (net.roaming?.btm)
+	if (net.roaming?.btm || net.band_steering)
 		o.bss_transition = '1';
 	if (net.multicast_to_unicast != null)
 		o.multicast_to_unicast = net.multicast_to_unicast ? '1' : '0';
@@ -243,6 +245,30 @@ function agent(pkg, intent) {
 // render returns the new packages, the names of those that changed, and
 // what it could not render. facts: { uplink, radios: { <radio>: { htmodes } },
 // timezone: the POSIX string for intent's time zone }.
+// steering turns band steering on for the networks that ask for it, through
+// usteer, which the agent's installer adds (0050). Aeolus owns two of its
+// options: band_steering_interval, 0 while no network asks, so usteer
+// steers nothing on its own, and ssid_list.
+function steering(u, intent, errors) {
+	let ssids = [];
+	for (let id in sort(keys(intent.network ?? {}))) {
+		let net = intent.network[id];
+		if (net.band_steering && net.enabled !== false)
+			push(ssids, net.ssid);
+	}
+	let s = of_type(u, 'usteer')[0];
+	if (!s) {
+		if (length(ssids))
+			push(errors, 'band steering needs usteer, which is not installed on this AP');
+		return;
+	}
+	s.band_steering_interval = length(ssids) ? '30000' : '0';
+	if (length(ssids))
+		s.ssid_list = uniq(sort(ssids));
+	else
+		delete s.ssid_list;
+}
+
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)
@@ -252,6 +278,7 @@ function render(intent, current, facts) {
 	networks(cfg, intent, facts ?? {}, errors);
 	system(cfg.system, intent, facts ?? {});
 	agent(cfg.aeolus, intent);
+	steering(cfg.usteer, intent, errors);
 	let changed = filter(PACKAGES, p => text(p, cfg[p]) != text(p, current[p] ?? {}));
 	return { config: cfg, changed: changed, errors: errors };
 }

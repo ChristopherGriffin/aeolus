@@ -74,6 +74,8 @@ config wifi-iface 'aeolus_iot_lab_radio1'
 	option key 'fixture-passphrase-3'
 	option hidden '1'
 	option isolate '1'
+	option ieee80211k '1'
+	option bss_transition '1'
 	option multicast_to_unicast '0'
 
 config wifi-iface 'aeolus_sweet_lab_radio0'
@@ -206,3 +208,15 @@ config agent 'agent'
 	option url 'https://aeolus.symtus.com:8443'
 	option uplink 'wan'
 	option poll '30'
+
+package usteer
+
+config usteer
+	option network 'lan'
+	option syslog '1'
+	option local_mode '0'
+	option ipv6 '0'
+	option debug_level '2'
+	option band_steering_interval '30000'
+	list ssid_list 'IoT Lab'
+	list ssid_list 'Sweet Lab'

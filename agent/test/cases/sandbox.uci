@@ -173,3 +173,13 @@ config agent 'agent'
 	option url 'https://aeolus.symtus.com:8443'
 	option uplink 'wan'
 	option poll '60'
+
+package usteer
+
+config usteer
+	option network 'lan'
+	option syslog '1'
+	option local_mode '0'
+	option ipv6 '0'
+	option debug_level '2'
+	option band_steering_interval '0'
