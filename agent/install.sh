@@ -63,10 +63,18 @@ fi
 
 # VXLAN tunnels (0054): netifd's vxlan handler, and the bridge family of
 # nftables for the MSS clamp. Neither does anything until Aeolus renders a
-# tunnel.
+# tunnel. netifd loads its protocols only when it starts, so installing vxlan
+# means restarting the network, at the end (0057).
+restart_network=0
 for p in vxlan kmod-nft-bridge; do
-	apk info -e $p >/dev/null 2>&1 || { apk update >/dev/null && apk add $p; } ||
+	if apk info -e $p >/dev/null 2>&1; then
+		continue
+	fi
+	if { apk update >/dev/null && apk add $p; }; then
+		[ $p = vxlan ] && restart_network=1
+	else
 		echo "$p could not be installed: VXLAN tunnels will be refused on this AP until it is (apk add $p)" >&2
+	fi
 done
 
 /usr/sbin/aeolus-agent ping
@@ -75,3 +83,8 @@ done
 /etc/init.d/aeolus stop 2>/dev/null || true
 /etc/init.d/aeolus start
 echo "The agent is running. Its log: logread -e aeolus"
+
+if [ $restart_network = 1 ]; then
+	echo "Restarting the network so netifd loads vxlan; this SSH session may drop for a few seconds."
+	( trap '' HUP; sleep 2; /etc/init.d/network restart ) </dev/null >/dev/null 2>&1 &
+fi

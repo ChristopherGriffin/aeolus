@@ -144,10 +144,11 @@ func (s *Server) apProblems(state *change.State, ap hierarchy.NodeID) []string {
 	return res.Problems
 }
 
-// compose composes an AP's config, and holds a tunnel its uplink cannot
-// carry now, by what the AP last reported (0056). An AP that has not
-// reported its uplink's MTU is left to the render check, which judges by
-// the config it renders.
+// compose composes an AP's config, and holds what the AP said it cannot
+// run, by its last state report: a tunnel its uplink cannot carry now
+// (0056), a tunnel while netifd has not loaded vxlan, and band steering or
+// BSS transition while hostapd lacks 802.11v (0057). What the AP has not
+// reported is left to the render check and to the apply.
 func (s *Server) compose(state *change.State, ap hierarchy.NodeID, reveal compose.Reveal) (compose.Result, error) {
 	res, err := compose.AP(state, s.schema, ap, reveal)
 	if err != nil || res.Unassigned {
@@ -159,13 +160,24 @@ func (s *Server) compose(state *change.State, ap hierarchy.NodeID, reveal compos
 	}
 	var report struct {
 		VXLAN *struct {
-			UplinkMTU int `json:"uplink_mtu"`
+			UplinkMTU int   `json:"uplink_mtu"`
+			Loaded    *bool `json:"loaded"`
 		} `json:"vxlan"`
+		Steering *struct {
+			BSSTransition *bool `json:"bss_transition"`
+		} `json:"steering"`
 	}
-	if json.Unmarshal(st.Report, &report) != nil || report.VXLAN == nil || report.VXLAN.UplinkMTU == 0 {
+	if json.Unmarshal(st.Report, &report) != nil {
 		return res, nil
 	}
-	res.Problems = append(res.Problems, compose.UplinkProblems(res.Doc, report.VXLAN.UplinkMTU)...)
+	var r compose.Reported
+	if v := report.VXLAN; v != nil {
+		r.UplinkMTU, r.VXLANLoaded = v.UplinkMTU, v.Loaded
+	}
+	if g := report.Steering; g != nil {
+		r.BSSTransition = g.BSSTransition
+	}
+	res.Problems = append(res.Problems, compose.ReportedProblems(res.Doc, r)...)
 	return res, nil
 }
 

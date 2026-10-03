@@ -30,6 +30,7 @@ const RUNNING = DIR + '/version';
 const PENDING = DIR + '/pending';
 const BACKUP = DIR + '/backup';
 const CONFIRM = 90;        // seconds to reach the manager again after an apply
+const WIFI_WAIT = 150;     // seconds for the Wi-Fi to come back after an apply, a radar check included
 const STATE_EVERY = 300;   // seconds between state reports
 
 let bus = connect();
@@ -165,9 +166,24 @@ function mgmt_interface() {
 }
 
 // has_vxlan and has_nft_bridge say whether the packages VXLAN tunnels need
-// are installed (0054). The agent never installs them itself.
+// are installed (0054). The agent never installs them itself. netifd loads
+// its protocols only when it starts, so vxlan counts only once netifd knows
+// it: after the network was restarted since it was installed (0057).
 function has_vxlan() {
 	return !!fs.stat('/lib/netifd/proto/vxlan.sh');
+}
+
+function vxlan_loaded() {
+	return bus.call('network', 'get_proto_handlers')?.vxlan != null;
+}
+
+// has_bss_transition says whether hostapd has 802.11v (0057). A running BSS's
+// ubus object offers bss_transition_request only then; wpad-basic has none.
+// With no BSS running, it is not known: null.
+function has_bss_transition() {
+	let bss = filter(bus.list() ?? [], o => match(o, /^hostapd\.phy/))[0];
+	let methods = bss ? bus.list(bss)?.[0] : null;
+	return methods ? 'bss_transition_request' in methods : null;
 }
 
 function has_nft_bridge() {
@@ -240,7 +256,8 @@ function render_facts(intent) {
 		radios[r.radio] = { htmodes: r.htmodes };
 	return {
 		uplink: settings().uplink, management: mgmt_interface(), radios: radios,
-		timezone: posix_tz(intent.system?.tz), vxlan: has_vxlan(), nft_bridge: has_nft_bridge(),
+		timezone: posix_tz(intent.system?.tz), vxlan: vxlan_loaded(), nft_bridge: has_nft_bridge(),
+		bss_transition: has_bss_transition(),
 	};
 }
 
@@ -303,8 +320,50 @@ function report_applied(version, hash, ok, error, token) {
 		fail('reporting the apply: %s', describe(r));
 }
 
+// wifi_down lists the Wi-Fi networks that are not up: each interface netifd
+// lists for a radio that is on, by its SSID and radio (0057).
+function wifi_down() {
+	let out = [];
+	let st = bus.call('network.wireless', 'status') ?? {};
+	for (let r in sort(keys(st))) {
+		if (st[r].disabled)
+			continue;
+		for (let i in st[r].interfaces ?? [])
+			if (!i.config?.disabled && (!i.ifname || read(`/sys/class/net/${i.ifname}/operstate`) != 'up'))
+				push(out, `${i.config?.ssid ?? i.ifname} (${r})`);
+	}
+	return out;
+}
+
+// wifi_back waits for the Wi-Fi to come back after an apply, a radar check
+// (DFS) included, and returns the networks that did not, leaving out those
+// that were already down before it.
+function wifi_back(before) {
+	let deadline = time() + WIFI_WAIT;
+	let down;
+	while (true) {
+		down = filter(wifi_down(), n => index(before, n) < 0);
+		if (!length(down) || time() >= deadline)
+			return down;
+		sleep(5000);
+	}
+}
+
+// hostapd_error is hostapd's last errors, which say why it refused a config:
+// the line it could not read, then how many there were.
+function hostapd_error() {
+	let out = [];
+	for (let line in split(run('logread -e hostapd | grep daemon.err | tail -n 2'), '\n')) {
+		let m = match(line, /hostapd: (.*)$/);
+		if (m)
+			push(out, m[1]);
+	}
+	return length(out) ? substr(join('; ', out), 0, 300) : null;
+}
+
 // apply writes the checked packages, reloads, and keeps them only if the
-// manager can still be reached (0008, 0040).
+// manager can still be reached (0008, 0040), and if a change to the Wi-Fi
+// brought back every network that was up before it (0057).
 function apply(out, version, hash) {
 	if (!length(out.changed))
 		return { ok: true };
@@ -314,6 +373,8 @@ function apply(out, version, hash) {
 		if (cur != null)
 			store(`${BACKUP}/${p}`, cur);
 	}
+	let wifi = index(out.changed, 'wireless') >= 0;
+	let before = wifi ? wifi_down() : [];
 	let pending = { version: version, hash: hash, packages: out.changed };
 	store(PENDING, sprintf('%J', pending));
 	for (let p in out.changed)
@@ -325,12 +386,19 @@ function apply(out, version, hash) {
 	// changed, so only a changed file alone needs a reload here.
 	if (clamped && index(out.changed, 'firewall') < 0)
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
-	if (confirm()) {
-		fs.unlink(PENDING);
-		return { ok: true };
+	if (!confirm()) {
+		revert(pending);
+		return { ok: false, error: sprintf('lost the manager within %d seconds of applying; reverted', CONFIRM) };
 	}
-	revert(pending);
-	return { ok: false, error: sprintf('lost the manager within %d seconds of applying; reverted', CONFIRM) };
+	let down = wifi ? wifi_back(before) : [];
+	if (length(down)) {
+		let why = hostapd_error();
+		revert(pending);
+		return { ok: false, error: sprintf('the Wi-Fi did not come back within %d seconds: %s%s; reverted',
+			WIFI_WAIT, join(', ', slice(down, 0, 6)), why ? ` (hostapd: ${why})` : '') };
+	}
+	fs.unlink(PENDING);
+	return { ok: true };
 }
 
 // recover finishes an apply that was cut short, by a crash or a reboot.
@@ -413,6 +481,7 @@ function steering_state() {
 		interval: cfg.band_steering_interval ?? 0,
 		ssids: slice(cfg.ssid_list ?? [], 0, 64),
 		bss: slice(bss, 0, 64),
+		bss_transition: has_bss_transition(),
 	};
 }
 
@@ -455,7 +524,10 @@ function vxlan_state() {
 		});
 	});
 	let uplink_mtu = int(read(`/sys/class/net/${mgmt_device()}/mtu`) ?? '0');
-	return { installed: has_vxlan(), clamp: has_nft_bridge(), uplink_mtu: uplink_mtu, tunnels: slice(tunnels, 0, 64) };
+	return {
+		installed: has_vxlan(), loaded: vxlan_loaded(), clamp: has_nft_bridge(),
+		uplink_mtu: uplink_mtu, tunnels: slice(tunnels, 0, 64),
+	};
 }
 
 function report_state(running, token) {

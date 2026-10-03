@@ -189,6 +189,7 @@ type stateReport struct {
 // clamp), and each tunnel Aeolus made.
 type vxlanState struct {
 	Installed bool          `json:"installed"`
+	Loaded    *bool         `json:"loaded,omitempty"` // whether netifd has loaded vxlan (0057)
 	Clamp     bool          `json:"clamp"`
 	UplinkMTU int           `json:"uplink_mtu,omitempty"` // what the AP's uplink carries now (0056)
 	Tunnels   []tunnelState `json:"tunnels,omitempty"`
@@ -224,6 +225,9 @@ type steeringState struct {
 	Interval  int        `json:"interval"`        // band_steering_interval, ms; 0 is off
 	SSIDs     []string   `json:"ssids,omitempty"` // the SSIDs it steers
 	BSS       []bssState `json:"bss,omitempty"`
+	// BSSTransition says whether hostapd has 802.11v, which band steering
+	// and BSS transition need (0057); absent when not known.
+	BSSTransition *bool `json:"bss_transition,omitempty"`
 }
 
 // bssState is one SSID on one band: its clients now, and the clients usteer
