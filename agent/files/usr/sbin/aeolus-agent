@@ -430,6 +430,11 @@ function converge(poll, token) {
 	let out = render(intent, current(), render_facts(intent));
 	for (let e in out.errors)
 		fail('render: %s', e);
+	// After a start the whole config comes again, even unchanged. Where it
+	// renders to what runs already, there is nothing to check or apply; where
+	// a newer agent renders more, that is checked and applied as any change.
+	if (!length(out.changed) && version == running_version())
+		return;
 	let uci = join('\n', map(PACKAGES, p => text(p, out.config[p]))) + '\n';
 	let key = version + ':' + sha256(uci);
 	if (attempted[key])
@@ -640,6 +645,10 @@ function main() {
 	let held = null;
 	let last_state = 0;
 	let news = probe_news();
+	// The first poll after a start asks for the config whole, not only
+	// whether it changed, so an updated agent renders what it already runs
+	// with its own renderer, and applies what that adds.
+	let whole = true;
 	while (true) {
 		let token = read(TOKEN);
 		if (!token) {
@@ -650,7 +659,7 @@ function main() {
 			}
 			token = read(TOKEN);
 		}
-		let extra = running != null ? { 'If-None-Match': `"${running}"` } : null;
+		let extra = running != null && !whole ? { 'If-None-Match': `"${running}"` } : null;
 		let r = http('GET', '/v1/ap/config', null, token, extra);
 		if (r.status == 401) {
 			log('the manager no longer knows this AP; enrolling again');
@@ -662,6 +671,7 @@ function main() {
 			assigned = true;
 		}
 		else if (r.status == 200) {
+			whole = false;
 			let state = r.json?.state;
 			assigned = state != 'unassigned';
 			if (state == 'ready') {
