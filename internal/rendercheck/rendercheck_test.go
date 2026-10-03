@@ -2,6 +2,7 @@ package rendercheck
 
 import (
 	"encoding/json"
+	"fmt"
 	"path"
 	"strings"
 	"testing"
@@ -22,7 +23,7 @@ const intent = `{
 	},
 	"system": {"country": "US", "tz": "America/Chicago", "ntp": ["0.pool.ntp.org", "1.pool.ntp.org"], "syslog": "192.168.20.50:514", "poll": 60},
 	"network": {
-		"sweet": {"ssid": "Sweet Spot", "security": "wpa2-psk", "passphrase": "` + pass + `", "roaming": {"ft": true},
+		"sweet": {"ssid": "Sweet Spot", "security": "wpa2-psk", "passphrase": "` + pass + `", "roaming": {"ft": true}, "multicast_to_unicast": true,
 			"transport": {"primary": {"type": "vxlan", "concentrator": "homelab", "vni": 20}, "fallback": {"type": "vlan", "vlan": 20}}},
 		"sweet-iot": {"ssid": "Sweet_Spot_IoT", "security": "wpa2-psk", "passphrase": "` + pass + `", "bands": ["2g"], "hidden": true, "isolation": true,
 			"transport": {"primary": {"type": "vlan", "vlan": 30}}},
@@ -53,6 +54,7 @@ config wifi-iface 'aeolus_sweet_radio0'
 	option ssid 'Sweet Spot'
 	option encryption 'psk2+ccmp'
 	option key '` + pass + `'
+	option multicast_to_unicast '1'
 	option ieee80211r '1'
 	option network 'aeolus_sweet'
 
@@ -62,6 +64,7 @@ config wifi-iface 'aeolus_sweet_radio1'
 	option ssid 'Sweet Spot'
 	option encryption 'psk2'
 	option key '` + pass + `'
+	option multicast_to_unicast '1'
 	option ieee80211r '1'
 	option network 'aeolus_sweet'
 
@@ -156,6 +159,8 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"encryption", "option encryption 'psk2+ccmp'", "option encryption 'sae'", "encryption is \"sae\", want \"psk2\""},
 		{"hidden", "option hidden '1'\n", "", "hidden is \"\", want on"},
 		{"isolation", "option isolate '1'", "option isolate '0'", "isolate is \"0\", want on"},
+		{"multicast to unicast", "option multicast_to_unicast '1'", "option multicast_to_unicast '0'", "aeolus_sweet_radio0: multicast_to_unicast is \"0\""},
+		{"multicast default", "option isolate '1'", "option isolate '1'\n\toption multicast_to_unicast '1'", "multicast_to_unicast is \"1\", want none, for OpenWrt's default"},
 		{"roaming", "option ieee80211r '1'\n\toption network 'aeolus_sweet'\n\nconfig wifi-iface 'aeolus_sweet_radio1'", "option network 'aeolus_sweet'\n\nconfig wifi-iface 'aeolus_sweet_radio1'", "aeolus_sweet_radio0: ieee80211r"},
 		{"interface", "config interface 'aeolus_iot'", "config interface 'aeolus_things'", "network interface aeolus_iot does not exist"},
 		{"device", "option device 'radio1'", "option device 'radio0'", "aeolus_sweet_radio1: device is \"radio0\""},
@@ -181,6 +186,62 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		if !strings.Contains(got, c.want) {
 			t.Errorf("%s: want %q in:\n%s", c.name, c.want, got)
 		}
+	}
+}
+
+func TestBandSteering(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(strings.Replace(intent, `"roaming": {"ft": true},`, `"roaming": {"ft": true}, "band_steering": true,`, 1)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	check := func(text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	// Without usteer, and without 11k and 11v on the network.
+	got := check(rendered)
+	for _, want := range []string{
+		"usteer: band steering needs usteer",
+		"aeolus_sweet_radio0: ieee80211k is \"\", want on",
+		"aeolus_sweet_radio0: bss_transition is \"\", want on",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	steered := strings.ReplaceAll(rendered, "\toption ieee80211r '1'\n", "\toption ieee80211r '1'\n\toption ieee80211k '1'\n\toption bss_transition '1'\n")
+	const usteer = "\npackage usteer\n\nconfig usteer\n\toption network 'lan'\n\toption band_steering_interval '%s'\n%s"
+	for _, c := range []struct {
+		interval, list, want string
+	}{
+		{"30000", "\tlist ssid_list 'Sweet Spot'\n", ""},
+		{"0", "\tlist ssid_list 'Sweet Spot'\n", "usteer: band_steering_interval is \"0\", want \"30000\""},
+		{"30000", "", "usteer: ssid_list is [], want [\"Sweet Spot\"]"},
+		{"30000", "\tlist ssid_list 'Sweet Spot'\n\tlist ssid_list 'Sweet_Spot_IoT'\n", "want [\"Sweet Spot\"]"},
+	} {
+		got := check(steered + fmt.Sprintf(usteer, c.interval, c.list))
+		if c.want == "" && (strings.Contains(got, "usteer") || strings.Contains(got, "ieee80211k") || strings.Contains(got, "bss_transition")) {
+			t.Errorf("steered right, yet: %s", got)
+		}
+		if c.want != "" && !strings.Contains(got, c.want) {
+			t.Errorf("want %q in:\n%s", c.want, got)
+		}
+	}
+	// With no network asking, usteer must steer nothing.
+	var none map[string]any
+	if err := json.Unmarshal([]byte(intent), &none); err != nil {
+		t.Fatal(err)
+	}
+	c, err := uci.Parse(rendered + fmt.Sprintf(usteer, "30000", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(Check(none, c), "\n"); !strings.Contains(got, "usteer: band_steering_interval is \"30000\", want \"0\"") {
+		t.Errorf("usteer steering on its own: %s", got)
 	}
 }
 

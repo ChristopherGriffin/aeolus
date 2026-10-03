@@ -57,6 +57,8 @@ var Coverage = map[string]string{
 	"network.*.roaming.ft":               "",
 	"network.*.roaming.rrm":              "",
 	"network.*.roaming.btm":              "",
+	"network.*.multicast_to_unicast":     "",
+	"network.*.band_steering":            "",
 	"network.*.rate_limit.down_kbps":     "no standard UCI form; the agent's own setting, checked with it in M5",
 	"network.*.rate_limit.up_kbps":       "no standard UCI form; the agent's own setting, checked with it in M5",
 	"network.*.transport.*.type":         "",
@@ -110,6 +112,7 @@ func Check(doc map[string]any, c *uci.Config) []string {
 	k.networks(doc, radios)
 	k.system(obj(doc, "system"))
 	k.agent(obj(doc, "system"))
+	k.steering(obj(doc, "network"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -277,17 +280,26 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 		}
 	}
 	roaming := obj(n, "roaming")
+	rrm, _ := roaming["rrm"].(bool)
+	btm, _ := roaming["btm"].(bool)
+	steer, _ := n["band_steering"].(bool)
 	for opt, v := range map[string]any{
 		"hidden":         n["hidden"],
 		"isolate":        n["isolation"],
 		"ieee80211r":     roaming["ft"],
-		"ieee80211k":     roaming["rrm"],
-		"bss_transition": roaming["btm"],
+		"ieee80211k":     rrm || steer, // band steering works through 11k and 11v (0050)
+		"bss_transition": btm || steer,
 	} {
 		want, _ := v.(bool)
 		if s.Flag(opt) != want {
 			k.add("%s: %s is %q, want %s", where, opt, value(s, opt), onOff(want))
 		}
+	}
+	// Unset, it is left out, so OpenWrt's default holds (0049).
+	if v, ok := n["multicast_to_unicast"].(bool); ok {
+		k.option(where, s, "multicast_to_unicast", map[bool]string{true: "1", false: "0"}[v])
+	} else if got, ok := s.Option("multicast_to_unicast"); ok {
+		k.add("%s: multicast_to_unicast is %q, want none, for OpenWrt's default", where, got)
 	}
 	if s.Flag("disabled") {
 		k.add("%s: disabled", where)
@@ -303,6 +315,41 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 		if i := k.c.Package("network").Named(name); i == nil || i.Type != "interface" {
 			k.add("%s: network interface %s does not exist", where, name)
 		}
+	}
+}
+
+// steering checks that usteer steers exactly the networks that ask for it,
+// and nothing while none does (0050).
+func (k *checker) steering(nets map[string]any) {
+	var want []string
+	for _, id := range keys(nets) {
+		n := obj(nets, id)
+		if on, _ := n["band_steering"].(bool); on && n["enabled"] != false {
+			ssid, _ := n["ssid"].(string)
+			want = append(want, ssid)
+		}
+	}
+	sort.Strings(want)
+	want = slices.Compact(want)
+	var s *uci.Section
+	if p := k.c.Package("usteer"); p != nil {
+		if all := p.OfType("usteer"); len(all) > 0 {
+			s = all[0]
+		}
+	}
+	if s == nil {
+		if len(want) > 0 {
+			k.add("usteer: band steering needs usteer, which this AP does not have; install it (apk add usteer)")
+		}
+		return
+	}
+	interval := "0"
+	if len(want) > 0 {
+		interval = "30000"
+	}
+	k.option("usteer", s, "band_steering_interval", interval)
+	if got := s.List("ssid_list"); !slices.Equal(got, want) {
+		k.add("usteer: ssid_list is %q, want %q", got, want)
 	}
 }
 

@@ -24,5 +24,8 @@
 	},
 	"aeolus": {
 		"agent": { ".anonymous": false, ".type": "agent", ".name": "agent", ".index": 0, "url": "https://aeolus.symtus.com:8443", "uplink": "wan" }
+	},
+	"usteer": {
+		"cfg013ec2": { ".anonymous": true, ".type": "usteer", ".name": "cfg013ec2", ".index": 0, "network": "lan", "syslog": "1", "local_mode": "0", "ipv6": "0", "debug_level": "2", "band_steering_interval": "0" }
 	}
 }

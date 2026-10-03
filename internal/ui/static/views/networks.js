@@ -18,8 +18,8 @@ const BANDS = ['2g', '5g', '6g'];
 // has for a network follows under More settings, so a new one can be set
 // before it gets a place here.
 const SECTIONS = [
-	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation']],
-	['Roaming', ['roaming.ft', 'roaming.rrm', 'roaming.btm']],
+	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation', 'multicast_to_unicast']],
+	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
 	['Traffic', ['transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni']],
 ];
 
@@ -84,7 +84,7 @@ function view(n, bandsHere) {
 			? `VXLAN ${f(`transport.${slot}.concentrator`)} · VNI ${f(`transport.${slot}.vni`)}`
 			: `VLAN ${f(`transport.${slot}.vlan`)}`;
 	};
-	const roaming = [f('roaming.ft') && '11r', f('roaming.rrm') && '11k', f('roaming.btm') && '11v'].filter(Boolean);
+	const roaming = [f('roaming.ft') && '11r', f('roaming.rrm') && '11k', f('roaming.btm') && '11v', f('band_steering') && 'band steering'].filter(Boolean);
 	const limits = [f('rate_limit.down_kbps') && `down ${f('rate_limit.down_kbps')} kbps`, f('rate_limit.up_kbps') && `up ${f('rate_limit.up_kbps')} kbps`].filter(Boolean);
 	return [
 		h('div', { class: 'row' },
@@ -97,6 +97,7 @@ function view(n, bandsHere) {
 		row('Roaming', roaming.length ? roaming.join(', ') : 'off'),
 		f('hidden') && row('Hidden', 'yes'),
 		f('isolation') && row('Client isolation', 'on'),
+		f('multicast_to_unicast') != null && row('Multicast to unicast', f('multicast_to_unicast') ? 'all multicast' : 'off'),
 		limits.length > 0 && row('Rate limit', limits.join(', ')),
 	];
 }

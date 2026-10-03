@@ -8,8 +8,11 @@
 #
 #	sh install.sh https://aeolus.symtus.com:8443 wan /tmp/manager.crt
 #
-# It needs nothing beyond OpenWrt's default image. Everything it adds is kept
-# across a sysupgrade.
+# It also installs usteer, for band steering (0050), with steering off until
+# Aeolus turns it on for a network. That needs the AP to reach OpenWrt's
+# package feeds; without it, everything else works, and a network that asks
+# for band steering is refused until usteer is installed. The agent's files
+# and settings are kept across a sysupgrade; usteer must be installed again.
 set -eu
 
 [ $# -eq 3 ] || { sed -n '2,10p' "$0" >&2; exit 2; }
@@ -30,6 +33,18 @@ uci -q get aeolus.agent >/dev/null || uci set aeolus.agent=agent
 uci set aeolus.agent.url="$url"
 uci set aeolus.agent.uplink="$uplink"
 uci commit aeolus
+
+# Band steering (0050). Installing a package starts its service, and usteer's
+# own default steers every SSID, so steering is turned off at once: Aeolus
+# owns band_steering_interval and ssid_list from here on.
+if apk info -e usteer >/dev/null 2>&1 || { apk update >/dev/null && apk add usteer; }; then
+	uci set usteer.@usteer[0].band_steering_interval=0
+	uci -q delete usteer.@usteer[0].ssid_list || true
+	uci commit usteer
+	/etc/init.d/usteer reload
+else
+	echo "usteer could not be installed: band steering will be refused on this AP until it is (apk add usteer)" >&2
+fi
 
 /usr/sbin/aeolus-agent ping
 /etc/init.d/aeolus enable

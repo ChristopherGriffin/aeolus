@@ -18,9 +18,9 @@
 		},
 		"system": { "country": "US", "tz": "America/Chicago", "ntp": ["time.symtus.com", "0.pool.ntp.org"], "syslog": "192.168.20.50:514", "poll": 30 },
 		"network": {
-			"sweet-lab": { "ssid": "Sweet Lab", "security": "wpa2-wpa3", "passphrase": "fixture-passphrase-2", "roaming": { "ft": true, "rrm": true, "btm": true },
+			"sweet-lab": { "ssid": "Sweet Lab", "security": "wpa2-wpa3", "passphrase": "fixture-passphrase-2", "roaming": { "ft": true, "rrm": true, "btm": true }, "multicast_to_unicast": true, "band_steering": true,
 				"transport": { "primary": { "type": "vlan", "vlan": 30 }, "fallback": { "type": "vlan", "vlan": 20 } } },
-			"iot-lab": { "ssid": "IoT Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-3", "bands": ["2g"], "hidden": true, "isolation": true,
+			"iot-lab": { "ssid": "IoT Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-3", "bands": ["2g"], "hidden": true, "isolation": true, "multicast_to_unicast": false, "band_steering": true,
 				"transport": { "primary": { "type": "vlan", "vlan": 10 } } },
 			"off": { "enabled": false, "ssid": "Off", "security": "open", "transport": { "primary": { "type": "vlan", "vlan": 40 } } }
 		}

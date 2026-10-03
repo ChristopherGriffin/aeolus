@@ -1,6 +1,6 @@
 # The Aeolus agent
 
-The program that runs on each AP (0040). It's written in ucode and needs nothing beyond OpenWrt's default image. It was built against OpenWrt 25.12.5 on PumphouseAP.
+The program that runs on each AP (0040). It's written in ucode and needs nothing beyond OpenWrt's default image. Its installer also adds usteer, for band steering (0050). It was built against OpenWrt 25.12.5 on PumphouseAP.
 
 | Path | What it is |
 |---|---|
@@ -20,7 +20,7 @@ Copy this directory and the manager's certificate (`/etc/aeolus/tls.crt` on the 
 sh install.sh https://192.168.20.60:8443 wan /tmp/manager.crt
 ```
 
-The arguments are the manager's URL, the uplink port (the one carrying the VLANs), and the certificate the agent will trust. The script checks the agent can reach the manager, then starts it. The AP enrolls into Landing Zone and waits for a person to adopt it. `logread -e aeolus` shows what it is doing.
+The arguments are the manager's URL, the uplink port (the one carrying the VLANs), and the certificate the agent will trust. The script installs usteer for band steering and turns its steering off, so it steers nothing until Aeolus asks (0050). This needs the AP to reach OpenWrt's package feeds; without it, everything else works. Then the script checks the agent can reach the manager, and starts it. The AP enrolls into Landing Zone and waits for a person to adopt it. `logread -e aeolus` shows what it is doing.
 
 Use the manager's IP address, not its name. OpenWrt's dnsmasq has rebind protection on by default, which drops DNS answers that point to private addresses, so an AP usually can't resolve a LAN name for the manager.
 
