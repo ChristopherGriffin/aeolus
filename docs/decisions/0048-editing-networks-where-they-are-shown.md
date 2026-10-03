@@ -1,8 +1,8 @@
 # 0048. Editing networks where they are shown
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
-- Proposed by: Griff, choosing to edit SSIDs in place on the Networks tab (0047); written up by Claude
+- Proposed by: Griff, choosing to edit SSIDs in place on the Networks tab (0047); written up by Claude and accepted with the merge
 - Refines: 0013, 0027, 0042, 0045, 0046, 0047
 
 ## Decision
