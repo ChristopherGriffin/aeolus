@@ -180,6 +180,7 @@ nav.subtabs a.on { background: var(--accent-bg); border-color: var(--accent); co
 .netform details summary { cursor: pointer; color: var(--muted); margin: 10px 0 4px; }
 .netform .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
 .netform .error:empty { display: none; }
+label.field[hidden] { display: none; }
 label.field { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 label.field > .label { width: 170px; flex-shrink: 0; color: var(--muted); font-size: 14px; }
 label.field input[type=text], label.field input[type=password], label.field input[type=number] { height: 34px; min-width: 220px; padding: 0 10px; border: 1px solid #C9CEC6; border-radius: 8px; font: inherit; }
