@@ -242,9 +242,6 @@ function agent(pkg, intent) {
 	pkg.agent.poll = '' + poll;
 }
 
-// render returns the new packages, the names of those that changed, and
-// what it could not render. facts: { uplink, radios: { <radio>: { htmodes } },
-// timezone: the POSIX string for intent's time zone }.
 // steering turns band steering on for the networks that ask for it, through
 // usteer, which the agent's installer adds (0050). Aeolus owns two of its
 // options: band_steering_interval, 0 while no network asks, so usteer
@@ -269,6 +266,9 @@ function steering(u, intent, errors) {
 		delete s.ssid_list;
 }
 
+// render returns the new packages, the names of those that changed, and
+// what it could not render. facts: { uplink, radios: { <radio>: { htmodes } },
+// timezone: the POSIX string for intent's time zone }.
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)
