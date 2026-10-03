@@ -184,6 +184,8 @@ func TestStateReports(t *testing.T) {
 		"radios":     []any{map[string]any{"radio": "radio1", "band": "5g", "channel": 36, "width": 40, "clients": 3}},
 		"vlans":      []int{1, 20, 30},
 		"transports": map[string]any{"sweet": map[string]any{"active": "primary", "primary": "up"}},
+		"steering": map[string]any{"installed": true, "running": true, "interval": 30000, "ssids": []string{"Sweet Spot"},
+			"bss": []any{map[string]any{"ssid": "Sweet Spot", "band": "2g", "clients": 1, "steered_away": 4, "steered_in": 0}}},
 	}
 	if code, _, body := f.apDo("POST", "/v1/ap/state", token, report, nil); code != 200 {
 		t.Fatalf("state: %d %v", code, body)
@@ -196,6 +198,9 @@ func TestStateReports(t *testing.T) {
 		"network":  {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},
 		"unknown":  {"version": 1, "temperature": 40},
 		"negative": {"version": -1},
+		"steering": {"version": 1, "steering": map[string]any{"installed": true, "running": true, "interval": 30000,
+			"bss": []any{map[string]any{"ssid": "Sweet Spot", "band": "60g", "clients": 1}}}},
+		"steered": {"version": 1, "steering": map[string]any{"installed": true, "bss": []any{map[string]any{"ssid": "x", "band": "5g", "steered_in": -1}}}},
 	} {
 		if code, _, body := f.apDo("POST", "/v1/ap/state", token, bad, nil); code != 400 {
 			t.Errorf("%s: %d %v", name, code, body)
@@ -204,7 +209,8 @@ func TestStateReports(t *testing.T) {
 	_, view := f.do("GET", "/v1/aps/"+ap+"/config", "griff", nil)
 	cond := view["condition"].(map[string]any)
 	state := cond["state"].(map[string]any)["report"].(map[string]any)
-	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 {
+	steer, _ := state["steering"].(map[string]any)
+	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 {
 		t.Fatalf("condition = %v", cond)
 	}
 }
