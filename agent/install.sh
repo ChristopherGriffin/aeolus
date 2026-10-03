@@ -9,8 +9,9 @@
 #	sh install.sh https://aeolus.symtus.com:8443 wan /tmp/manager.crt
 #
 # It also installs usteer, for band steering (0050), with steering off until
-# Aeolus turns it on for a network, and snmpd, for SNMP (0052), off until
-# Aeolus turns it on. That needs the AP to reach OpenWrt's package feeds;
+# Aeolus turns it on for a network; snmpd, for SNMP (0052), off until Aeolus
+# turns it on; and vxlan and kmod-nft-bridge, for VXLAN tunnels and their
+# MSS clamp (0054). That needs the AP to reach OpenWrt's package feeds;
 # without them, everything else works, and a setting that needs a missing
 # package is refused until it is installed. The agent's files and settings
 # are kept across a sysupgrade; the packages must be installed again.
@@ -59,6 +60,14 @@ if apk info -e snmpd-ssl >/dev/null 2>&1 || { apk update >/dev/null && apk add s
 else
 	echo "snmpd could not be installed: SNMP will be refused on this AP until it is (apk add snmpd-ssl)" >&2
 fi
+
+# VXLAN tunnels (0054): netifd's vxlan handler, and the bridge family of
+# nftables for the MSS clamp. Neither does anything until Aeolus renders a
+# tunnel.
+for p in vxlan kmod-nft-bridge; do
+	apk info -e $p >/dev/null 2>&1 || { apk update >/dev/null && apk add $p; } ||
+		echo "$p could not be installed: VXLAN tunnels will be refused on this AP until it is (apk add $p)" >&2
+done
 
 /usr/sbin/aeolus-agent ping
 /etc/init.d/aeolus enable

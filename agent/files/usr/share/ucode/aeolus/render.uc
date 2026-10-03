@@ -8,15 +8,18 @@
 // Aeolus only touches what it owns (0040): the radio options intent names,
 // the bridge-vlan entries and enabled of the ports intent names (0053),
 // usteer's band_steering_interval and ssid_list (0050), all of snmpd's
-// config (0052), sections named aeolus_, and the time zone, NTP and syslog
-// settings. A section it did not create is never otherwise edited, or
-// removed.
+// config (0052), sections named aeolus_ (in the firewall too, 0054), and the
+// time zone, NTP and syslog settings. A section it did not create is never
+// otherwise edited, or removed.
 
 'use strict';
 
 import { text } from 'aeolus.uciexport';
 
-const PACKAGES = ['wireless', 'network', 'system', 'aeolus', 'usteer', 'snmpd'];
+const PACKAGES = ['wireless', 'network', 'system', 'aeolus', 'usteer', 'snmpd', 'firewall'];
+
+// The MSS clamp's nftables file, which fw4 loads (0054).
+const CLAMP = '/etc/aeolus/clamp.nft';
 
 const ENCRYPTION = {
 	'open': 'none', 'owe': 'owe', 'wpa2-psk': 'psk2', 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae-mixed',
@@ -163,6 +166,55 @@ function iface_options(net, radio, network) {
 	return o;
 }
 
+// tunnel renders a VXLAN transport (0054): an interface named for the VNI,
+// which is also its device, to the concentrator over the management
+// interface; its own bridge, which the network's Wi-Fi joins; a firewall
+// rule letting it in; and below an MTU of 1500, the MSS clamp. A fallback's
+// tunnel is not started until the AP switches to it. It returns the bridge.
+function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
+	let n = cfg.network, fw = cfg.firewall;
+	if (!facts.vxlan) {
+		push(errors, `${where}: VXLAN needs the vxlan package, which is not installed on this AP (apk add vxlan)`);
+		return null;
+	}
+	let address = replace(conc?.address ?? '', /^\[|\]$/g, '');
+	let six = index(address, ':') >= 0;
+	if (!six && !match(address, /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/)) {
+		push(errors, `${where}: the concentrator's address "${address}" is not an IP address`);
+		return null;
+	}
+	if (!facts.management) {
+		push(errors, `${where}: the AP's management interface is not known`);
+		return null;
+	}
+	let name = 'aeolus_' + t.vni;
+	let o = { proto: six ? 'vxlan6' : 'vxlan', vid: t.vni, port: conc.port, mtu: conc.mtu, tunlink: facts.management };
+	o[six ? 'peer6addr' : 'peeraddr'] = address;
+	if (slot != 'primary')
+		o.auto = 0;
+	put(n, name, 'interface', o);
+	let bridge = 'br-vx' + t.vni;
+	put(n, name + '_br', 'device', { type: 'bridge', name: bridge, bridge_empty: 1, ports: [name] });
+	keep[name] = keep[name + '_br'] = true;
+	let zone = filter(of_type(fw, 'zone'), z => index(list(z.network), facts.management) >= 0)[0];
+	if (zone)
+		put(fw, 'aeolus_vxlan_' + t.vni, 'rule', {
+			name: 'Aeolus VXLAN ' + t.vni, src: zone.name, proto: 'udp',
+			src_ip: address, dest_port: conc.port, target: 'ACCEPT',
+		});
+	else
+		push(errors, `${where}: no firewall zone holds the management interface ${facts.management}`);
+	keep['aeolus_vxlan_' + t.vni] = true;
+	if (conc.mtu < 1500) {
+		if (facts.nft_bridge) {
+			put(fw, 'aeolus_clamp', 'include', { type: 'nftables', path: CLAMP, position: 'ruleset-append' });
+			keep.aeolus_clamp = true;
+		} else
+			push(errors, `${where}: an MTU below 1500 needs the MSS clamp, and so kmod-nft-bridge, which is not installed on this AP`);
+	}
+	return bridge;
+}
+
 function networks(cfg, intent, facts, errors, keep) {
 	let w = cfg.wireless, n = cfg.network;
 	let bridge = null;
@@ -172,23 +224,24 @@ function networks(cfg, intent, facts, errors, keep) {
 		if (net.enabled === false)
 			continue;
 		let iface = interface_name(id);
-		let vlan = null;
+		let path = null;   // the device the network's interface is on: its primary's
 		for (let slot in ['primary', 'fallback']) {
 			let t = net.transport?.[slot];
-			if (!t)
-				continue;
-			if (t.type != 'vlan') {
-				push(errors, `network.${id}.transport.${slot}: ${t.type} transports come in M5 part 2`);
-				continue;
-			}
-			bridge ??= uplink_bridge(n, facts.uplink, errors);
-			if (!bridge)
-				continue;
-			ensure_vlan(n, bridge, facts.uplink, t.vlan, keep);
-			vlan ??= t.vlan;
+			let where = `network.${id}.transport.${slot}`;
+			let device = null;
+			if (t?.type == 'vlan') {
+				bridge ??= uplink_bridge(n, facts.uplink, errors);
+				if (!bridge)
+					continue;
+				ensure_vlan(n, bridge, facts.uplink, t.vlan, keep);
+				device = `${bridge}.${t.vlan}`;
+			} else if (t?.type == 'vxlan')
+				device = tunnel(cfg, where, slot, t, intent.concentrators?.[t.concentrator], facts, errors, keep);
+			if (slot == 'primary')
+				path = device;
 		}
-		if (vlan != null) {
-			put(n, iface, 'interface', { proto: 'none', device: `${bridge}.${vlan}` });
+		if (path != null) {
+			put(n, iface, 'interface', { proto: 'none', device: path });
 			keep[iface] = true;
 		}
 		for (let d in of_type(w, 'wifi-device')) {
@@ -363,9 +416,41 @@ function snmp(cfg, intent, facts, errors) {
 	cfg.snmpd = pkg;
 }
 
+// clamp makes the MSS clamp's nftables file from the rendered network
+// config (0054): on each tunnel's bridge whose MTU is below 1500, TCP's MSS
+// is held to the MTU less 40 for IPv4 and less 60 for IPv6. It replaces the
+// whole table each time fw4 loads it. With no such tunnel, the table is
+// empty.
+function clamp(network) {
+	let rules = [];
+	for (let s in of_type(network ?? {}, 'interface')) {
+		let vni = match(s['.name'], /^aeolus_([0-9]+)$/)?.[1];
+		let mtu = int(s.mtu ?? '1500');
+		if (!vni || !(s.proto in { vxlan: 1, vxlan6: 1 }) || mtu >= 1500)
+			continue;
+		for (let fam in [['ip', 40], ['ip6', 60]])
+			push(rules, sprintf('\t\tmeta ibrname "br-vx%s" ether type %s tcp flags & (syn | rst) == syn tcp option maxseg size > %d tcp option maxseg size set %d',
+				vni, fam[0], mtu - fam[1], mtu - fam[1]));
+	}
+	return join('\n', [
+		'# Made by the Aeolus agent from its VXLAN tunnels (0054); fw4 loads it.',
+		'table bridge aeolus',
+		'delete table bridge aeolus',
+		'table bridge aeolus {',
+		'\tchain forward {',
+		'\t\ttype filter hook forward priority filter; policy accept;',
+		...rules,
+		'\t}',
+		'}',
+		'',
+	]);
+}
+
 // render returns the new packages, the names of those that changed, and
-// what it could not render. facts: { uplink, radios: { <radio>: { htmodes } },
-// timezone: the POSIX string for intent's time zone }.
+// what it could not render. facts: { uplink, management: the interface the
+// AP reaches the manager through, radios: { <radio>: { htmodes } },
+// timezone: the POSIX string for intent's time zone, vxlan and nft_bridge:
+// whether those packages are installed }.
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)
@@ -376,7 +461,7 @@ function render(intent, current, facts) {
 	networks(cfg, intent, facts ?? {}, errors, keep);
 	ports(cfg.network, intent, facts ?? {}, errors, keep);
 	// What Aeolus made earlier and no longer needs goes.
-	for (let pkg in [cfg.wireless, cfg.network])
+	for (let pkg in [cfg.wireless, cfg.network, cfg.firewall])
 		for (let k in keys(pkg))
 			if (owned(k) && !keep[k])
 				delete pkg[k];
@@ -390,4 +475,4 @@ function render(intent, current, facts) {
 
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
-export { PACKAGES, iface_name, render };
+export { PACKAGES, CLAMP, iface_name, render, clamp };

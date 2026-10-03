@@ -230,6 +230,60 @@ func TestPortVLANsMustFitTheMode(t *testing.T) {
 	}
 }
 
+func TestTunnelsAnAPCannotRun(t *testing.T) {
+	s, sch := site(t)
+	apply := func(op change.Op) {
+		t.Helper()
+		if _, _, err := change.Apply(s, op); err != nil {
+			t.Fatalf("%+v: %v", op, err)
+		}
+	}
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		apply(change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw})
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	if got := problems(); strings.Contains(got, "VNI") || strings.Contains(got, "address") {
+		t.Fatalf("one tunnel: %s", got)
+	}
+	// A second network on VNI 20 would join the two.
+	set("network.guest.ssid", "Guest")
+	set("network.guest.security", "open")
+	set("network.guest.transport.primary.type", "vxlan")
+	set("network.guest.transport.primary.concentrator", "homelab")
+	set("network.guest.transport.primary.vni", 20)
+	if got := problems(); !strings.Contains(got, "VNI 20: networks guest and sweet would share one tunnel at this AP") {
+		t.Fatalf("problems = %s", got)
+	}
+	// Turned off, it is not rendered, so it shares nothing.
+	set("network.guest.enabled", false)
+	if got := problems(); strings.Contains(got, "VNI 20") {
+		t.Fatalf("guest off: %s", got)
+	}
+	// A primary and a fallback on one VNI.
+	set("network.sweet.transport.fallback.type", "vxlan")
+	set("network.sweet.transport.fallback.concentrator", "homelab")
+	set("network.sweet.transport.fallback.vni", 20)
+	if got := problems(); !strings.Contains(got, "network.sweet.transport: the primary and the fallback both use VNI 20") {
+		t.Fatalf("problems = %s", got)
+	}
+	// A concentrator known by name.
+	set("network.sweet.transport.fallback.type", "vlan")
+	apply(change.Op{Kind: change.SetConcentrator, Concentrator: "homelab", Value: json.RawMessage(`{"name":"Homelab","address":"vtep.example.net","port":4789,"mtu":1450,"scope":["gate"]}`)})
+	if got := problems(); !strings.Contains(got, `network.sweet.transport.primary: concentrator homelab's address "vtep.example.net" is a name`) {
+		t.Fatalf("problems = %s", got)
+	}
+	apply(change.Op{Kind: change.SetConcentrator, Concentrator: "homelab", Value: json.RawMessage(`{"name":"Homelab","address":"[2001:db8::2]","port":4789,"mtu":1450,"scope":["gate"]}`)})
+	if got := problems(); strings.Contains(got, "is a name") {
+		t.Fatalf("an IPv6 address: %s", got)
+	}
+}
+
 func TestChannelThatCannotCarryTheWidthIsAProblem(t *testing.T) {
 	s, sch := site(t)
 	set := func(path string, v any) {

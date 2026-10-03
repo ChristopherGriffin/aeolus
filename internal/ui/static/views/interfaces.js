@@ -3,18 +3,20 @@
 // port, with an editor built from the schema. A port is set by name, so a
 // folder's setting for lan2 reaches every AP below with a lan2. The uplink
 // carries the AP's management, so it is shown but not offered for editing.
-// Tunnels will join Ethernet here.
+// Tunnels shows each AP's VXLAN tunnels live, beside what its networks ask
+// for (0054).
 
 import { h, link } from '../dom.js';
-import { schema } from '../api.js';
+import { get, schema } from '../api.js';
 import { group, value, origin, ago } from '../format.js';
 import { tabBar, pick } from '../layout.js';
 import { configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
+import { availableAt, concentratorName } from './networks.js';
 
-const INTERFACES = [['ethernet', 'Ethernet']];
+const INTERFACES = [['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
 
 // The port fields offered, in order. LACP and its bond are not applied yet,
 // and the uplink is the agent's own setting.
@@ -26,7 +28,91 @@ const RELOAD = "Applying reloads each AP's network: wired clients on this port d
 // at base. ap ({ap, cfg}) is the AP itself, on an AP's page.
 export async function interfacesTab(ctx, base, id, page, sub, ap, edit) {
 	sub = pick(INTERFACES, sub);
-	return [tabBar(`${base}/interfaces`, INTERFACES, sub, true), await ethernet(ctx, id, page, ap, edit)];
+	const body = sub === 'tunnels' ? await tunnels(ctx, id, page, ap) : await ethernet(ctx, id, page, ap, edit);
+	return [tabBar(`${base}/interfaces`, INTERFACES, sub, true), body];
+}
+
+// tunnels lists, for each AP here, the tunnels its networks ask for and the
+// ones it reported (0054), joined by VNI, and below them the concentrators
+// that may be used here.
+async function tunnels(ctx, here, page, ap) {
+	const [rows, library] = await Promise.all([ap ? [ap] : configs(page.hardware?.aps || []), get('/v1/library')]);
+	const lib = library.concentrators || [];
+	const lines = rows.flatMap(({ ap, cfg }) => tunnelRows(ap, cfg, lib));
+	return [
+		lines.length
+			? h('section', { class: 'panel' },
+				h('h2', null, 'Tunnels now', h('span', { class: 'note' }, 'as each AP last reported')),
+				h('table', { class: 'list' },
+					h('tr', null, ['AP', 'Network', 'As', 'Concentrator', 'VNI', 'MTU', 'State'].map((c) => h('th', null, c))),
+					lines))
+			: h('div', { class: 'banner info' }, 'No network here travels over VXLAN.'),
+		concentratorsHere(availableAt(lib, page.ancestry || [here])),
+	];
+}
+
+// tunnelRows joins what an AP's config asks for with what it reported.
+function tunnelRows(ap, cfg, lib) {
+	if (!cfg) return [];
+	const doc = cfg.document || {};
+	const report = cfg.condition?.state?.report;
+	const reported = new Map((report?.vxlan?.tunnels || []).map((t) => [t.vni, t]));
+	const want = [];
+	for (const [id, n] of Object.entries(doc.network || {}).sort()) {
+		if (n.enabled === false) continue;
+		for (const slot of ['primary', 'fallback']) {
+			const t = n.transport?.[slot];
+			if (t?.type === 'vxlan') want.push({ id, ssid: n.ssid || id, slot, t, conc: doc.concentrators?.[t.concentrator] });
+		}
+	}
+	const apLink = link(`/aps/${encodeURIComponent(ap.id)}`, ap.name);
+	const lines = want.map((w, i) => h('tr', null,
+		h('td', null, i === 0 && apLink),
+		h('td', null, w.ssid),
+		h('td', null, w.slot === 'primary' ? 'primary' : 'fallback'),
+		h('td', null, concentratorName(lib, w.t.concentrator), w.conc && h('span', { class: 'sub' }, ` ${w.conc.address}:${w.conc.port}`)),
+		h('td', { class: 'mono' }, String(w.t.vni)),
+		h('td', null, w.conc ? String(w.conc.mtu) : '—'),
+		h('td', null, tunnelState(report, reported.get(w.t.vni)))));
+	// What the AP runs that nothing asks for any more, until it applies.
+	const asked = new Set(want.map((w) => w.t.vni));
+	for (const t of reported.values())
+		if (!asked.has(t.vni))
+			lines.push(h('tr', null,
+				h('td', null, lines.length === 0 && apLink),
+				h('td', { class: 'sub', colspan: 3 }, `to ${t.peer}:${t.port}; no network asks for it`),
+				h('td', { class: 'mono' }, String(t.vni)),
+				h('td', null, String(t.mtu || '—')),
+				h('td', null, t.up ? h('span', { class: 'chip ok' }, 'up') : h('span', { class: 'chip idle' }, 'down'))));
+	return lines;
+}
+
+// tunnelState says what the AP reported for a tunnel its config asks for.
+function tunnelState(report, t) {
+	if (!report) return h('span', { class: 'sub' }, 'no report yet');
+	if (!report.vxlan) return h('span', { class: 'sub' }, 'its agent does not report tunnels; update it');
+	if (report.vxlan.installed === false) return h('span', { class: 'chip warn' }, 'vxlan is not installed (apk add vxlan)');
+	if (!t) return h('span', { class: 'sub' }, 'not on the AP yet');
+	if (t.up) return h('span', { class: 'chip ok' }, 'up');
+	if (t.standby) return h('span', { class: 'chip idle' }, 'standing by');
+	return h('span', { class: 'chip warn' }, 'down');
+}
+
+// concentratorsHere lists the library's concentrators that may be used here,
+// with their labeled VNIs (0023).
+function concentratorsHere(lib) {
+	return h('section', { class: 'panel' },
+		h('h2', null, 'Concentrators available here', h('span', { class: 'note' }, 'from the library')),
+		lib.length === 0
+			? h('div', { class: 'sub' }, 'None yet. A concentrator is added to the library by an admin at the Services root.')
+			: h('table', { class: 'list' },
+				h('tr', null, ['Concentrator', 'Address', 'Port', 'MTU', 'VNIs'].map((c) => h('th', null, c))),
+				lib.map((c) => h('tr', null,
+					h('td', null, c.name),
+					h('td', { class: 'mono' }, c.address),
+					h('td', null, String(c.port)),
+					h('td', null, String(c.mtu)),
+					h('td', null, Object.entries(c.vnis || {}).sort((a, b) => a[0] - b[0]).map(([v, label]) => `${v} · ${label}`).join(', ') || '—')))));
 }
 
 async function ethernet(ctx, here, page, ap, edit) {

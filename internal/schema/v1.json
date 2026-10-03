@@ -72,7 +72,7 @@
     "network": {
       "x-aeolus-tree": "services",
       "type": "object",
-      "propertyNames": { "$ref": "#/$defs/id" },
+      "propertyNames": { "$ref": "#/$defs/networkId" },
       "additionalProperties": { "$ref": "#/$defs/network" }
     },
     "concentrators": {
@@ -85,6 +85,12 @@
   },
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
+    "networkId": {
+      "description": "A network's name. It starts with a letter, and vlan<number> and port-<anything> are kept for the names Aeolus gives its own sections on an AP (0054).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,31}$",
+      "not": { "pattern": "^(vlan[0-9]+$|port-)" }
+    },
     "vlan": { "type": "integer", "minimum": 1, "maximum": 4094 },
     "ip": { "type": "string", "pattern": "^[0-9A-Fa-f:.]+$" },
     "host": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[A-Za-z0-9.:\\[\\]-]+$" },

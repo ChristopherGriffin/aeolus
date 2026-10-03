@@ -4,7 +4,8 @@
 // folder (0013): an edit changes it there, for every location that uses that
 // folder, and the preview names every AP it reaches. Band steering and
 // multicast-to-unicast are switched right on each network, and what usteer
-// does on each AP is shown below them (0051).
+// does on each AP is shown below them (0051). A VXLAN transport's
+// concentrator and VNI are picked from the library (0023, 0054).
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
@@ -27,7 +28,8 @@ const SECTIONS = [
 ];
 
 export async function networksTab(ctx, id, page) {
-	const [d, at, reports] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || [])]);
+	const [d, at, reports, library] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || []), get('/v1/library')]);
+	const lib = availableAt(library.concentrators || [], page.ancestry || [id]);
 	const bandsHere = new Set((page.hardware?.bands || []).map((b) => b.band));
 	const writable = at.folders.filter((f) => f.canEdit);
 	const addBox = h('div', { class: 'edit flush' });
@@ -37,12 +39,19 @@ export async function networksTab(ctx, id, page) {
 		fieldPanels(ctx, 'locations', id, only(page.fields, (p) => p === 'services'), editing(ctx, 'locations', page)),
 		at.nets.length === 0
 			? h('div', { class: 'banner info' }, 'No network reaches here: no service folder that applies offers one.')
-			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, noUsteer))),
+			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, noUsteer, lib))),
 		writable.length > 0 && h('div', { class: 'below' },
-			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox) }, 'Add a network')),
+			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox, lib) }, 'Add a network')),
 		addBox,
 		steeringStatus(ctx, reports),
 	];
+}
+
+// availableAt keeps the library's concentrators that may be used at a
+// Locations node, given its ancestry: those limited to no folders, and
+// those limited to it or a folder above it (0023).
+export function availableAt(concentrators, ancestry) {
+	return concentrators.filter((c) => !c.scope?.length || c.scope.some((f) => ancestry.includes(f)));
 }
 
 // networksAt reads the networks offered by the service folders that apply at
@@ -69,16 +78,16 @@ async function networksAt(page) {
 	return { folders, nets: [...nets.values()] };
 }
 
-function networkCard(ctx, d, n, bandsHere, noUsteer) {
+function networkCard(ctx, d, n, bandsHere, noUsteer, lib) {
 	const box = h('div', { class: 'edit' });
-	const viewNow = () => view(ctx, n, bandsHere, box, noUsteer);
+	const viewNow = () => view(ctx, n, bandsHere, box, noUsteer, lib);
 	const body = h('div', null, viewNow());
 	const close = () => body.replaceChildren(viewNow());
 	return h('section', { class: 'panel' },
 		h('h2', null, n.fields.ssid?.value || n.id, n.fields.enabled?.value === false && h('span', { class: 'chip idle' }, 'off'),
 			h('span', { class: 'note' }, 'from ', link(`/services/${encodeURIComponent(n.from)}`, ctx.name('services', n.from))),
 			n.canEdit && h('span', { class: 'controls' },
-				h('button', { type: 'button', class: 'button small', onclick: () => { box.replaceChildren(); body.replaceChildren(editForm(ctx, d, n, close)); } }, 'Edit'),
+				h('button', { type: 'button', class: 'button small', onclick: () => { box.replaceChildren(); body.replaceChildren(editForm(ctx, d, n, close, lib)); } }, 'Edit'),
 				n.fields.ssid?.origin === 'self' && h('button', { type: 'button', class: 'button small danger', onclick: () => { close(); deleteNetwork(ctx, n, box); } }, 'Delete'))),
 		body,
 		box);
@@ -102,7 +111,7 @@ async function deleteNetwork(ctx, n, box) {
 	]);
 }
 
-function view(ctx, n, bandsHere, box, noUsteer) {
+function view(ctx, n, bandsHere, box, noUsteer, lib) {
 	const f = (k) => n.fields?.[k]?.value;
 	const asks = f('bands') || BANDS;
 	const row = (label, v) => v != null && v !== '' && h('div', { class: 'row' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, v));
@@ -110,7 +119,7 @@ function view(ctx, n, bandsHere, box, noUsteer) {
 		const type = f(`transport.${slot}.type`);
 		if (!type) return null;
 		return type === 'vxlan'
-			? `VXLAN ${f(`transport.${slot}.concentrator`)} · VNI ${f(`transport.${slot}.vni`)}`
+			? `VXLAN to ${concentratorName(lib, f(`transport.${slot}.concentrator`))} · VNI ${vniName(lib, f(`transport.${slot}.concentrator`), f(`transport.${slot}.vni`))}`
 			: `VLAN ${f(`transport.${slot}.vlan`)}`;
 	};
 	const roaming = [f('roaming.ft') && '11r', f('roaming.rrm') && '11k', f('roaming.btm') && '11v'].filter(Boolean);
@@ -133,6 +142,17 @@ function view(ctx, n, bandsHere, box, noUsteer) {
 }
 
 const ssidOf = (n) => n.fields.ssid?.value || n.id;
+
+// concentratorName and vniName name a concentrator and a VNI as the library
+// labels them, or by ID where it does not.
+export function concentratorName(lib, id) {
+	return lib.find((c) => c.id === id)?.name || id;
+}
+
+export function vniName(lib, id, vni) {
+	const label = lib.find((c) => c.id === id)?.vnis?.[vni];
+	return label ? `${vni} (${label})` : String(vni);
+}
 
 // lockedAbove says whether a network's field is locked above its folder,
 // so it cannot be changed there.
@@ -262,11 +282,56 @@ const FOR_TYPE = { vlan: ['vlan'], vxlan: ['concentrator', 'vni'] };
 // What only means something once there is a fallback transport (0022).
 const WITH_FALLBACK = ['transport.ha', 'transport.failback', 'transport.holddown'];
 
+// pickers swaps a transport's concentrator and VNI fields for lists from the
+// library (0023, 0054): the concentrators available here, then the labeled
+// VNIs of the one picked. A value the lists lack, set where it was allowed,
+// stays on offer, marked.
+function pickers(prefix, rows, inputs, lib) {
+	for (const slot of ['primary', 'fallback']) {
+		const cPath = `${prefix}transport.${slot}.concentrator`;
+		const vPath = `${prefix}transport.${slot}.vni`;
+		const cRow = rows.get(cPath);
+		const vRow = rows.get(vPath);
+		if (!cRow || !vRow) continue;
+		const curC = cRow.it.read();
+		const curV = vRow.it.read();
+		const cSel = h('select', null,
+			h('option', { value: '' }, lib.length ? '—' : 'no concentrator in the library is available here'),
+			lib.map((c) => h('option', { value: c.id, selected: c.id === curC }, `${c.name} (${c.address})`)),
+			curC && !lib.some((c) => c.id === curC) && h('option', { value: curC, selected: true }, `${curC} (not available here)`));
+		const vSel = h('select');
+		const fill = () => {
+			const c = lib.find((x) => x.id === cSel.value);
+			const vnis = Object.entries(c?.vnis || {}).map(([v, label]) => [Number(v), label]).sort((a, b) => a[0] - b[0]);
+			const want = vSel.value ? Number(vSel.value) : curV;
+			vSel.replaceChildren(...[
+				h('option', { value: '' }, !cSel.value ? 'pick a concentrator first' : vnis.length ? '—' : 'it has no VNIs yet'),
+				...vnis.map(([v, label]) => h('option', { value: v, selected: v === want }, `${v} · ${label}`)),
+				want && cSel.value === curC && !vnis.some(([v]) => v === want) && h('option', { value: want, selected: true }, `${want} (not in the library)`),
+			].filter(Boolean));
+		};
+		cSel.addEventListener('change', fill);
+		fill();
+		const swap = (path, row, el, read) => {
+			const initial = JSON.stringify(read());
+			const it = { el, read, changed: () => JSON.stringify(read()) !== initial };
+			el.disabled = row.it.el.disabled;
+			row.it.el.replaceWith(el);
+			row.it = it;
+			if (inputs.has(path)) inputs.set(path, it);
+		};
+		swap(cPath, cRow, cSel, () => cSel.value || undefined);
+		swap(vPath, vRow, vSel, () => (vSel.value ? Number(vSel.value) : undefined));
+	}
+}
+
 // form lays out an input for every network field the schema has, with the
 // values now in fields ({field: {value, from, origin}}). Fields locked
 // above folder cannot be changed there. A transport shows only the fields
-// its type uses; sync shows the right ones after a type is set.
-function form(d, net, fields, folder) {
+// its type uses; sync shows the right ones after a type is set. A VXLAN
+// transport's concentrator and VNI are picked from lib, the concentrators
+// available here.
+function form(d, net, fields, folder, lib) {
 	const prefix = `network.${net}.`;
 	const keys = Object.keys(d.fields).filter((k) => k.startsWith('network.*.')).map((k) => k.slice('network.*.'.length));
 	const placed = new Set(SECTIONS.flatMap(([, ks]) => ks));
@@ -274,6 +339,7 @@ function form(d, net, fields, folder) {
 		.map(([title, ks]) => [title, ks.map((k) => prefix + k)]);
 	const byPath = Object.fromEntries(Object.entries(fields).map(([k, r]) => [prefix + k, r]));
 	const { body, inputs, rows } = fieldsForm(d, sections, byPath, folder, MORE);
+	pickers(prefix, rows, inputs, lib);
 	const typeOf = (slot) => rows.get(`${prefix}transport.${slot}.type`)?.it.el.value;
 	const show = (k, on) => {
 		const r = rows.get(prefix + k)?.row;
@@ -303,9 +369,9 @@ function shown(path, v) {
 	return path.endsWith('.passphrase') ? 'a new passphrase' : value(path, v);
 }
 
-function editForm(ctx, d, n, close) {
+function editForm(ctx, d, n, close, lib) {
 	const folderName = ctx.name('services', n.from);
-	const { body, inputs, rows } = form(d, n.id, n.fields, n.from);
+	const { body, inputs, rows } = form(d, n.id, n.fields, n.from, lib);
 	const box = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
 	const review = async () => {
@@ -346,9 +412,9 @@ function editForm(ctx, d, n, close) {
 // addForm offers a new network in one of the service folders that apply
 // here and that the person may change. Its name in the schema comes from
 // its SSID.
-function addForm(ctx, d, folders, nets, box) {
+function addForm(ctx, d, folders, nets, box, lib) {
 	const pickFolder = h('select', null, folders.map((f) => h('option', { value: f.id }, `Services › ${ctx.name('services', f.id)}`)));
-	const { body, inputs, rows, sync } = form(d, 'new', {}, null);
+	const { body, inputs, rows, sync } = form(d, 'new', {}, null, lib);
 	// A new network travels over a VLAN unless the person picks otherwise.
 	const primary = inputs.get('network.new.transport.primary.type');
 	if (primary) {
@@ -399,13 +465,17 @@ function addForm(ctx, d, folders, nets, box) {
 			out)));
 }
 
+// The names a network cannot have: Aeolus keeps them for its own sections on
+// an AP (0054).
+const KEPT = /^(vlan[0-9]+$|port-)/;
+
 // name makes a network's name from its SSID, as the schema's pattern allows
-// and unlike any taken.
+// and unlike any taken. It starts with a letter.
 function name(ssid, pattern, taken) {
 	let base = ssid.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 28) || 'network';
-	if (!/^[a-z0-9]/.test(base)) base = 'n' + base;
+	if (!/^[a-z]/.test(base) || KEPT.test(base)) base = 'n' + base;
 	const ok = new RegExp(pattern);
 	let id = base;
-	for (let i = 2; taken.has(id) || !ok.test(id); i++) id = `${base}-${i}`;
+	for (let i = 2; taken.has(id) || !ok.test(id) || KEPT.test(id); i++) id = `${base}-${i}`;
 	return id;
 }

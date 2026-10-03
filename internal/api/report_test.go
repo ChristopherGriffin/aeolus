@@ -38,11 +38,13 @@ package network
 
 config interface 'aeolus_sweet'
 	option proto 'none'
+	option device 'lan.20'
 
 config device
 	option type '8021q'
 	option ifname 'lan'
 	option vid '20'
+	option name 'lan.20'
 
 package aeolus
 
@@ -188,6 +190,9 @@ func TestStateReports(t *testing.T) {
 			"bss": []any{map[string]any{"ssid": "Sweet Spot", "band": "2g", "clients": 1, "steered_away": 4, "steered_in": 0}}},
 		"ports": []any{map[string]any{"name": "lan1", "up": true, "carrier": false},
 			map[string]any{"name": "wan", "up": true, "carrier": true, "speed": "1000F", "uplink": true}},
+		"vxlan": map[string]any{"installed": true, "clamp": true, "tunnels": []any{
+			map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "up": true},
+			map[string]any{"vni": 10, "peer": "2001:db8::2", "port": 4789, "mtu": 1450, "up": false, "standby": true}}},
 	}
 	if code, _, body := f.apDo("POST", "/v1/ap/state", token, report, nil); code != 200 {
 		t.Fatalf("state: %d %v", code, body)
@@ -206,6 +211,8 @@ func TestStateReports(t *testing.T) {
 		"port":    {"version": 1, "ports": []any{map[string]any{"name": "LAN 1"}}},
 		"twice":   {"version": 1, "ports": []any{map[string]any{"name": "lan1"}, map[string]any{"name": "lan1"}}},
 		"speed":   {"version": 1, "ports": []any{map[string]any{"name": "lan1", "speed": "fast"}}},
+		"vni":     {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 16777216, "peer": "1.1.1.2", "port": 4789}}}},
+		"peer":    {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "vtep.example.net", "port": 4789}}}},
 	} {
 		if code, _, body := f.apDo("POST", "/v1/ap/state", token, bad, nil); code != 400 {
 			t.Errorf("%s: %d %v", name, code, body)
@@ -216,7 +223,8 @@ func TestStateReports(t *testing.T) {
 	state := cond["state"].(map[string]any)["report"].(map[string]any)
 	steer, _ := state["steering"].(map[string]any)
 	ports, _ := state["ports"].([]any)
-	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 {
+	tunnels, _ := state["vxlan"].(map[string]any)["tunnels"].([]any)
+	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 2 {
 		t.Fatalf("condition = %v", cond)
 	}
 }
