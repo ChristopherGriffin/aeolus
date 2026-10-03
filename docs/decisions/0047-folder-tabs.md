@@ -1,8 +1,8 @@
 # 0047. A Locations page in tabs: Hardware, Networks, System
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
-- Proposed by: Griff: "folders on the left hand side, then tabs at the top … interface first (2.4, 5, 6) … one feeding into the other"; written up by Claude
+- Proposed by: Griff: "folders on the left hand side, then tabs at the top … interface first (2.4, 5, 6) … one feeding into the other"; written up by Claude and accepted with the merge
 - Refines: 0042, 0013, 0044
 
 ## Decision
