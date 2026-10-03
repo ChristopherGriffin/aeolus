@@ -49,6 +49,13 @@ jobs:
           for f in api.js dom.js format.js layout.js refresh.js views/*.js; do
             node --input-type=module -e "await import('./$f')"
           done
+      # Loading a module does not resolve names used inside its functions, so
+      # a call to one that no longer exists passed the check above (v0.20.0's
+      # Interfaces tab). ESLint's no-undef catches that, and only that.
+      - name: the UI uses no undefined names
+        working-directory: internal/ui/static
+        run: |
+          npx --yes eslint@8.57.1 --no-eslintrc --env browser,es2022 --parser-options=sourceType:module --parser-options=ecmaVersion:2022 --rule 'no-undef: error' .
       - name: the agent's shell scripts parse
         run: for f in agent/install.sh agent/files/etc/init.d/aeolus; do sh -n "$f"; done
 
