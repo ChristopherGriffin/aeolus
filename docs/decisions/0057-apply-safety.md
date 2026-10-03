@@ -1,8 +1,8 @@
 # 0057. An apply keeps the Wi-Fi up, and what an AP lacks is held
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Claude, after OpenWrtnight's Wi-Fi went down for five minutes; Griff asked for the fixes
+- Proposed by: Claude, after OpenWrtnight's Wi-Fi went down for five minutes; Griff asked for the fixes, and accepted them with the merge
 - Refines: 0008, 0039, 0040, 0050, 0054, 0056
 
 ## Context
