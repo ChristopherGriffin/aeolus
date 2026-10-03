@@ -101,12 +101,13 @@ Each milestone ends in something checkable before the next starts.
 | [0056](docs/decisions/0056-tunnel-mtu.md) | A tunnel's MTU: default or custom, and only what the uplink carries |
 | [0057](docs/decisions/0057-apply-safety.md) | An apply keeps the Wi-Fi up, and what an AP lacks is held |
 | [0058](docs/decisions/0058-tunnel-ports.md) | Ethernet ports on tunnels |
+| [0059](docs/decisions/0059-tunnel-probes.md) | Tunnel probes, the loop guard, and switching transports (proposed) |
 
 ## Open questions
 
 - Intent model contents: the full field list for each object type.
 - UI for assigning services to locations (mockup first).
-- VLAN detection method and VXLAN health check (0020).
+- VLAN detection method (0020). The VXLAN health check is 0059.
 - Key delivery details (0014).
 - Whether intent gets a narrow raw-UCI escape hatch.
 - Config signing and an Org CA are set aside (0032).
