@@ -42,6 +42,7 @@
     - sent tagged straight on the uplink, so no local port or Wi-Fi client sees it;
     - from the VLAN's own MAC (`06:…`, 0060), with a lease of its own;
     - asking the gateway that lease names, or the probe address set.
+    - The answers come in with their tag taken off, and the VLAN in the packet's metadata, which the prober reads with `recvmsg`. Checked on OpenWrtnight: a discover and an ARP on VLAN 20 were answered, the VLAN read as 20.
 - **Without HA mode, a VXLAN standby stays stopped** until the primary goes down. Then the AP starts it, probes it, and uses it only once it answers.
 
 ### How a switch is made
@@ -55,7 +56,8 @@
     - one end is a port of the uplink bridge, untagged in that VLAN;
     - the other end is what joins the network's bridge;
     - the installer adds `kmod-veth`.
-- **The prober attaches the primary when it starts,** and attaches the active transport again after any network reload.
+    - netifd makes the pair from a `veth` device section, whose own end must be the VLAN end. That end keeps the pair alive, since releasing it deletes the pair; its peer is the network's end. Checked on OpenWrtnight: the VLAN end joined the uplink bridge untagged in VLAN 20, the way a VLAN network's Wi-Fi does, and stayed through a network reload.
+- **The prober attaches the primary when it starts.** A device attached with `add_device` stays through a network reload; checked on OpenWrtnight. The prober still checks the bridge's members after one, and attaches the active transport again if it went.
   - The render check holds that neither transport is in the bridge's configured ports, so a reload can never leave both attached.
   - Which transport is active is state, not config (0020).
 - **Break before make** (0018): the failed transport comes out of the bridge before the other goes in. A VLAN 50 primary and a VNI 50 fallback are one broadcast domain, so both at once would be the loop 0018 warns of.
@@ -92,7 +94,4 @@
 
 ## Open
 
-- **Three things to check on OpenWrtnight before it's built:**
-  - **Hot-plugged members across a reload:** does netifd keep a device added with `add_device` through a network reload? If not, the prober re-attaches on netifd's reload event.
-  - **VLAN probes on the uplink:** can a packet socket on the uplink port send a tagged probe, and see the tagged answer with its VLAN? The tag may come in the packet's metadata rather than its bytes.
-  - **veth pairs:** do `kmod-veth` and netifd's `veth` device make the pair, and does its uplink end join the uplink bridge's VLAN?
+- **Attaching the veth's network end at run time, and taking it out, is not checked.** Attaching it on OpenWrtnight's only other bridge would have joined VLAN 20 to VNI 50. Since its configured end holds the pair, it should leave the pair alone; checked with a bridge made for the test when this is built.
