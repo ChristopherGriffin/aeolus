@@ -1,8 +1,8 @@
 # 0045. APs pick their own channels, and a width never waits on one
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
-- Proposed by: Griff, after the first width change from the UI: offer 160 MHz when the radios can do it, and let the APs pick their channels, since they are best placed to see which ones are free; written up by Claude
+- Proposed by: Griff, after the first width change from the UI: offer 160 MHz when the radios can do it, and let the APs pick their channels, since they are best placed to see which ones are free; written up by Claude and accepted with the merge
 - Refines: 0044, 0026, 0029
 
 ## Decision

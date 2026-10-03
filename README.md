@@ -87,7 +87,7 @@ Each milestone ends in something checkable before the next starts.
 | [0042](docs/decisions/0042-the-web-ui.md) | The web UI |
 | [0043](docs/decisions/0043-getting-back-in.md) | Getting back in when a token is lost |
 | [0044](docs/decisions/0044-hardware-by-folder.md) | Radio hardware is set by folder, within what every AP can do |
-| [0045](docs/decisions/0045-aps-pick-their-channels.md) | APs pick their own channels, and a width never waits on one (proposed) |
+| [0045](docs/decisions/0045-aps-pick-their-channels.md) | APs pick their own channels, and a width never waits on one |
 
 ## Open questions
 
