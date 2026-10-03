@@ -51,10 +51,7 @@ func Check(sch *schema.Schema) func(*change.State, string, change.Op) error {
 		if err := change.Authorize(state, actor, op); err != nil {
 			return err
 		}
-		if err := sch.CheckOp(op); err != nil {
-			return err
-		}
-		return change.CheckReferences(state, op)
+		return sch.CheckOp(op)
 	}
 }
 
@@ -145,12 +142,9 @@ func status(err error) int {
 	var be *changelog.APBreakError
 	var fe *schema.FieldError
 	var ce *hierarchy.NetworkConflictError
-	var re *change.RefError
 	switch {
 	case errors.As(err, &ae):
 		return ae.code
-	case errors.As(err, &re):
-		return http.StatusBadRequest
 	case errors.Is(err, change.ErrForbidden), errors.Is(err, change.ErrUnknownActor):
 		return http.StatusForbidden
 	case errors.Is(err, change.ErrFull):

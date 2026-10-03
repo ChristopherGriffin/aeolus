@@ -2,6 +2,7 @@ package compose
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,8 +12,8 @@ import (
 )
 
 // site: House (office-ap) and Main Gate (gate-ap). The Sweet Spot network's
-// primary transport is VXLAN to "homelab", which may only be used at the gate;
-// its fallback is VLAN 20.
+// primary transport is VXLAN over the tunnel "homelab", which is set only at
+// the gate (0055); its fallback is VLAN 20.
 func site(t *testing.T) (*change.State, *schema.Schema) {
 	t.Helper()
 	sch, err := schema.V1()
@@ -32,8 +33,9 @@ func site(t *testing.T) (*change.State, *schema.Schema) {
 		{Kind: change.AddAP, Tree: L, Node: "gate-ap", Name: "GateOpenWrt", Parent: "gate"},
 		{Kind: change.AddAP, Tree: L, Node: "new-ap", Name: "NewAP", Parent: change.LandingZone},
 		{Kind: change.AddFolder, Tree: S, Node: "household", Name: "Household", Parent: "symtus"},
-		{Kind: change.SetConcentrator, Concentrator: "homelab", Value: json.RawMessage(`{"name":"Homelab","address":"1.1.1.2","port":4789,"mtu":1450,"scope":["gate"]}`)},
-		{Kind: change.SetVNI, Concentrator: "homelab", VNI: 20, Name: "Trusted"},
+		set(L, "gate", "concentrators.homelab.address", "1.1.1.2"),
+		set(L, "gate", "concentrators.homelab.port", 4789),
+		set(L, "gate", "concentrators.homelab.mtu", 1450),
 		set(S, "household", "network.sweet.ssid", "Sweet Spot"),
 		set(S, "household", "network.sweet.security", "open"),
 		set(S, "household", "network.sweet.transport.primary.type", "vxlan"),
@@ -107,17 +109,40 @@ func TestNoUsableTransportIsAProblem(t *testing.T) {
 	}
 }
 
-func TestVNIMissingFromTheConcentratorIsAProblem(t *testing.T) {
+// A tunnel set at the Org reaches every AP; an AP can change its far end;
+// and one nothing uses, even unfinished, holds no AP back (0055).
+func TestTunnelsAreLocationSettings(t *testing.T) {
 	s, sch := site(t)
-	if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: "network.sweet.transport.primary.vni", Value: json.RawMessage(`99`)}); err != nil {
-		t.Fatal(err)
+	set := func(node, path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: hierarchy.NodeID(node), Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	res, err := AP(s, sch, "gate-ap", nil)
-	must(t, err)
-	if !contains(res.Problems, "VNI 99 is not defined on concentrator homelab") {
-		t.Fatalf("AP problems = %v", res.Problems)
+	set("symtus", "concentrators.homelab.address", "1.1.1.9")
+	set("symtus", "concentrators.homelab.port", 4789)
+	set("symtus", "concentrators.homelab.mtu", 1400)
+	set("office-ap", "concentrators.homelab.address", "1.1.1.10")
+	set("symtus", "concentrators.spare.address", "1.1.1.11") // no port or MTU, and unused
+	for ap, want := range map[string]map[string]any{
+		"office-ap": {"address": "1.1.1.10", "port": float64(4789), "mtu": float64(1400)},
+		"gate-ap":   {"address": "1.1.1.2", "port": float64(4789), "mtu": float64(1450)},
+	} {
+		res, err := AP(s, sch, hierarchy.NodeID(ap), nil)
+		must(t, err)
+		if len(res.Problems) != 0 {
+			t.Fatalf("%s problems: %v", ap, res.Problems)
+		}
+		concs := res.Doc["concentrators"].(map[string]any)
+		if got := concs["homelab"].(map[string]any); fmt.Sprint(got) != fmt.Sprint(want) || len(concs) != 1 {
+			t.Fatalf("%s tunnels = %v, want only homelab %v", ap, concs, want)
+		}
+		if tr := transport(t, res.Doc); tr["primary"].(map[string]any)["type"] != "vxlan" {
+			t.Fatalf("%s transport = %v", ap, tr)
+		}
 	}
-	if p := Node(s, sch, change.Services, s.Org.Services, "household", nil); !contains(p, "VNI 99 is not defined") {
+	// The folder's page shows the unfinished tunnel.
+	if p := Node(s, sch, change.Locations, s.Org.Locations, "symtus", nil); !contains(p, "concentrators.spare") {
 		t.Fatalf("node problems = %v", p)
 	}
 }
@@ -272,14 +297,18 @@ func TestTunnelsAnAPCannotRun(t *testing.T) {
 	if got := problems(); !strings.Contains(got, "network.sweet.transport: the primary and the fallback both use VNI 20") {
 		t.Fatalf("problems = %s", got)
 	}
-	// A concentrator known by name.
+	// An address the schema lets through but that is no IP address.
 	set("network.sweet.transport.fallback.type", "vlan")
-	apply(change.Op{Kind: change.SetConcentrator, Concentrator: "homelab", Value: json.RawMessage(`{"name":"Homelab","address":"vtep.example.net","port":4789,"mtu":1450,"scope":["gate"]}`)})
-	if got := problems(); !strings.Contains(got, `network.sweet.transport.primary: concentrator homelab's address "vtep.example.net" is a name`) {
+	tunnel := func(addr string) {
+		raw, _ := json.Marshal(addr)
+		apply(change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate", Path: "concentrators.homelab.address", Value: raw})
+	}
+	tunnel("999.1.1.2")
+	if got := problems(); !strings.Contains(got, `network.sweet.transport.primary: tunnel homelab's address "999.1.1.2" is not an IP address`) {
 		t.Fatalf("problems = %s", got)
 	}
-	apply(change.Op{Kind: change.SetConcentrator, Concentrator: "homelab", Value: json.RawMessage(`{"name":"Homelab","address":"[2001:db8::2]","port":4789,"mtu":1450,"scope":["gate"]}`)})
-	if got := problems(); strings.Contains(got, "is a name") {
+	tunnel("2001:db8::2")
+	if got := problems(); strings.Contains(got, "is not an IP address") {
 		t.Fatalf("an IPv6 address: %s", got)
 	}
 }

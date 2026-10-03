@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
-	"github.com/ChristopherGriffin/aeolus/internal/library"
 )
 
 func concentrator(id, value string) Op {
@@ -52,25 +51,6 @@ func TestLibraryRefusesRemovingWhatIsInUse(t *testing.T) {
 	mustApply(t, s, Op{Kind: RemoveConcentrator, Concentrator: "homelab"})
 	if _, ok := s.Library.Get("homelab"); ok {
 		t.Fatal("homelab still in the library")
-	}
-}
-
-func TestReferencesToMissingConcentratorsAreRefused(t *testing.T) {
-	s := people(t)
-	mustApply(t, s, concentrator("homelab", `{"name":"Homelab","address":"1.1.1.2","port":4789,"mtu":1450}`))
-	set := func(value string) Op {
-		return Op{Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.transport.fallback.concentrator", Value: json.RawMessage(value)}
-	}
-	if err := CheckReferences(s, set(`"homelab"`)); err != nil {
-		t.Fatalf("known concentrator: %v", err)
-	}
-	var re *RefError
-	if err := CheckReferences(s, set(`"nowhere"`)); !errors.As(err, &re) || !errors.Is(err, library.ErrNoConcentrator) {
-		t.Fatalf("unknown concentrator: %v", err)
-	}
-	other := Op{Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.ssid", Value: json.RawMessage(`"nowhere"`)}
-	if err := CheckReferences(s, other); err != nil {
-		t.Fatalf("a non-reference field: %v", err)
 	}
 }
 

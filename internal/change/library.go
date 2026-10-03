@@ -120,36 +120,3 @@ func vniUsers(s *State, id string, vni int) []string {
 	sort.Strings(by)
 	return by
 }
-
-// RefError is a field value naming something that does not exist.
-type RefError struct {
-	Path hierarchy.Path
-	Err  error
-}
-
-func (e *RefError) Error() string { return fmt.Sprintf("%s: %v", e.Path, e.Err) }
-func (e *RefError) Unwrap() error { return e.Err }
-
-// CheckReferences refuses a change whose value names something that does not
-// exist: a network transport pointing at a concentrator missing from the
-// library (0023). Whether a VNI exists on the concentrator it resolves to is
-// a config check (0029), because the two fields may be set in different
-// folders.
-func CheckReferences(s *State, op Op) error {
-	if op.Kind != Set || op.Tree != Services || s == nil {
-		return nil
-	}
-	for _, f := range op.Fields() {
-		if _, _, field, ok := TransportField(f.Path); !ok || field != "concentrator" {
-			continue
-		}
-		var id string
-		if err := json.Unmarshal(f.Value, &id); err != nil {
-			continue // the schema check reports a wrong type
-		}
-		if _, ok := s.Library.Get(id); !ok {
-			return &RefError{Path: f.Path, Err: fmt.Errorf("%w: %s", library.ErrNoConcentrator, id)}
-		}
-	}
-	return nil
-}
