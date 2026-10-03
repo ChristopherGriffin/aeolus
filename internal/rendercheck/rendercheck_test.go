@@ -22,7 +22,7 @@ const intent = `{
 	},
 	"system": {"country": "US", "tz": "America/Chicago", "ntp": ["0.pool.ntp.org", "1.pool.ntp.org"], "syslog": "192.168.20.50:514", "poll": 60},
 	"network": {
-		"sweet": {"ssid": "Sweet Spot", "security": "wpa2-psk", "passphrase": "` + pass + `", "roaming": {"ft": true},
+		"sweet": {"ssid": "Sweet Spot", "security": "wpa2-psk", "passphrase": "` + pass + `", "roaming": {"ft": true}, "multicast_to_unicast": true,
 			"transport": {"primary": {"type": "vxlan", "concentrator": "homelab", "vni": 20}, "fallback": {"type": "vlan", "vlan": 20}}},
 		"sweet-iot": {"ssid": "Sweet_Spot_IoT", "security": "wpa2-psk", "passphrase": "` + pass + `", "bands": ["2g"], "hidden": true, "isolation": true,
 			"transport": {"primary": {"type": "vlan", "vlan": 30}}},
@@ -53,6 +53,7 @@ config wifi-iface 'aeolus_sweet_radio0'
 	option ssid 'Sweet Spot'
 	option encryption 'psk2+ccmp'
 	option key '` + pass + `'
+	option multicast_to_unicast '1'
 	option ieee80211r '1'
 	option network 'aeolus_sweet'
 
@@ -62,6 +63,7 @@ config wifi-iface 'aeolus_sweet_radio1'
 	option ssid 'Sweet Spot'
 	option encryption 'psk2'
 	option key '` + pass + `'
+	option multicast_to_unicast '1'
 	option ieee80211r '1'
 	option network 'aeolus_sweet'
 
@@ -156,6 +158,8 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"encryption", "option encryption 'psk2+ccmp'", "option encryption 'sae'", "encryption is \"sae\", want \"psk2\""},
 		{"hidden", "option hidden '1'\n", "", "hidden is \"\", want on"},
 		{"isolation", "option isolate '1'", "option isolate '0'", "isolate is \"0\", want on"},
+		{"multicast to unicast", "option multicast_to_unicast '1'", "option multicast_to_unicast '0'", "aeolus_sweet_radio0: multicast_to_unicast is \"0\""},
+		{"multicast default", "option isolate '1'", "option isolate '1'\n\toption multicast_to_unicast '1'", "multicast_to_unicast is \"1\", want none, for OpenWrt's default"},
 		{"roaming", "option ieee80211r '1'\n\toption network 'aeolus_sweet'\n\nconfig wifi-iface 'aeolus_sweet_radio1'", "option network 'aeolus_sweet'\n\nconfig wifi-iface 'aeolus_sweet_radio1'", "aeolus_sweet_radio0: ieee80211r"},
 		{"interface", "config interface 'aeolus_iot'", "config interface 'aeolus_things'", "network interface aeolus_iot does not exist"},
 		{"device", "option device 'radio1'", "option device 'radio0'", "aeolus_sweet_radio1: device is \"radio0\""},

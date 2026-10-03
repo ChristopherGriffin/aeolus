@@ -57,6 +57,7 @@ var Coverage = map[string]string{
 	"network.*.roaming.ft":               "",
 	"network.*.roaming.rrm":              "",
 	"network.*.roaming.btm":              "",
+	"network.*.multicast_to_unicast":     "",
 	"network.*.rate_limit.down_kbps":     "no standard UCI form; the agent's own setting, checked with it in M5",
 	"network.*.rate_limit.up_kbps":       "no standard UCI form; the agent's own setting, checked with it in M5",
 	"network.*.transport.*.type":         "",
@@ -288,6 +289,12 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 		if s.Flag(opt) != want {
 			k.add("%s: %s is %q, want %s", where, opt, value(s, opt), onOff(want))
 		}
+	}
+	// Unset, it is left out, so OpenWrt's default holds (0049).
+	if v, ok := n["multicast_to_unicast"].(bool); ok {
+		k.option(where, s, "multicast_to_unicast", map[bool]string{true: "1", false: "0"}[v])
+	} else if got, ok := s.Option("multicast_to_unicast"); ok {
+		k.add("%s: multicast_to_unicast is %q, want none, for OpenWrt's default", where, got)
 	}
 	if s.Flag("disabled") {
 		k.add("%s: disabled", where)

@@ -74,6 +74,7 @@ config wifi-iface 'aeolus_iot_lab_radio1'
 	option key 'fixture-passphrase-3'
 	option hidden '1'
 	option isolate '1'
+	option multicast_to_unicast '0'
 
 config wifi-iface 'aeolus_sweet_lab_radio0'
 	option device 'radio0'
@@ -87,6 +88,7 @@ config wifi-iface 'aeolus_sweet_lab_radio0'
 	option ft_psk_generate_local '1'
 	option ieee80211k '1'
 	option bss_transition '1'
+	option multicast_to_unicast '1'
 
 config wifi-iface 'aeolus_sweet_lab_radio1'
 	option device 'radio1'
@@ -100,6 +102,7 @@ config wifi-iface 'aeolus_sweet_lab_radio1'
 	option ft_psk_generate_local '1'
 	option ieee80211k '1'
 	option bss_transition '1'
+	option multicast_to_unicast '1'
 
 package network
 

@@ -150,6 +150,8 @@ function iface_options(net, radio, network) {
 		o.ieee80211k = '1';
 	if (net.roaming?.btm)
 		o.bss_transition = '1';
+	if (net.multicast_to_unicast != null)
+		o.multicast_to_unicast = net.multicast_to_unicast ? '1' : '0';
 	return o;
 }
 
