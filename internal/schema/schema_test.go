@@ -178,7 +178,9 @@ func TestLeaves(t *testing.T) {
 		if strings.Contains(l, "libraryConcentrator") || strings.HasSuffix(l, ".transport") || strings.HasPrefix(l, ".") {
 			t.Errorf("unexpected leaf %s", l)
 		}
-		if f, err := sch.Field(hierarchy.Path(strings.ReplaceAll(l, "*", "x"))); err != nil && !strings.HasPrefix(l, "concentrators.") {
+		// A name that fits each place: a VLAN for a tunnel port's VNI (0058).
+		name := strings.ReplaceAll(strings.ReplaceAll(l, "vxlan.*", "vxlan.50"), "*", "x")
+		if f, err := sch.Field(hierarchy.Path(name)); err != nil && !strings.HasPrefix(l, "concentrators.") {
 			t.Errorf("%s is not a field: %v", l, err)
 		} else if err == nil && f.Path == "" {
 			t.Errorf("%s resolved to nothing", l)
@@ -200,6 +202,8 @@ func TestFieldPaths(t *testing.T) {
 		"network.guest-2.rate_limit.down_kbps": change.Services,
 		"concentrators.homelab.address":        change.Locations,
 		"network.vlan-guests.ssid":             change.Services,
+		"ports.lan3.vxlan.50.vni":              change.Locations,
+		"ports.lan3.vxlan.untagged.tunnel":     change.Locations,
 		"network.vlan2go.ssid":                 change.Services,
 	}
 	for p, tree := range ok {
@@ -220,10 +224,11 @@ func TestFieldPaths(t *testing.T) {
 		"ports.Eth0.mode":                  ErrUnknownField,
 		"network.sweet.transport.tertiary": ErrUnknownField,
 		// Names Aeolus keeps for its own sections on an AP (0054).
-		"network.20.ssid":        ErrUnknownField,
-		"network.5g-guest.ssid":  ErrUnknownField,
-		"network.vlan20.ssid":    ErrUnknownField,
-		"network.port-lan3.ssid": ErrUnknownField,
+		"network.20.ssid":             ErrUnknownField,
+		"network.5g-guest.ssid":       ErrUnknownField,
+		"network.vlan20.ssid":         ErrUnknownField,
+		"network.port-lan3.ssid":      ErrUnknownField,
+		"ports.lan3.vxlan.tagged.vni": ErrUnknownField,
 	}
 	for p, want := range bad {
 		if _, err := s.Field(p); !errors.Is(err, want) {

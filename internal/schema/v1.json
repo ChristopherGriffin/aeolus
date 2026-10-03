@@ -140,14 +140,29 @@
       "properties": {
         "enabled": { "type": "boolean", "default": true, "description": "false turns the port off (0053); unset, the AP leaves it as it is, which is on unless Aeolus turned it off." },
         "uplink": { "type": "boolean", "description": "The port that reaches the manager: the tunnel source (0018) and where VLANs are detected (0020)." },
-        "mode": { "enum": ["trunk", "access", "lacp"], "description": "access carries one VLAN, untagged; trunk an untagged VLAN and tagged ones (0053). LACP is not applied yet." },
+        "mode": { "enum": ["trunk", "access", "tunnel", "lacp"], "description": "access carries one VLAN, untagged; trunk an untagged VLAN and tagged ones (0053); tunnel carries VNIs over tunnels instead, as vxlan maps them (0058). LACP is not applied yet." },
         "untagged": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "0 means no untagged VLAN." },
         "tagged": { "type": "array", "items": { "$ref": "#/$defs/vlan" }, "uniqueItems": true, "description": "Only a trunk carries tagged VLANs." },
-        "bond": { "$ref": "#/$defs/id", "description": "The LACP bond this port belongs to." }
+        "bond": { "$ref": "#/$defs/id", "description": "The LACP bond this port belongs to." },
+        "vxlan": {
+          "description": "In tunnel mode, the VNIs the port carries, by the VLAN each is tagged with on the wire, or untagged (0058).",
+          "type": "object",
+          "propertyNames": { "pattern": "^(untagged|[1-9][0-9]{0,3})$" },
+          "additionalProperties": { "$ref": "#/$defs/portVNI" }
+        }
       },
       "allOf": [
         { "if": { "properties": { "mode": { "const": "lacp" } }, "required": ["mode"] }, "then": { "required": ["bond"] } }
       ]
+    },
+    "portVNI": {
+      "description": "One VNI a tunnel port carries (0058).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tunnel": { "$ref": "#/$defs/id", "description": "The tunnel it travels over, by name, as set in Locations (0055)." },
+        "vni": { "type": "integer", "minimum": 1, "maximum": 16777215 }
+      }
     },
     "network": {
       "type": "object",

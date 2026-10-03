@@ -194,7 +194,9 @@ function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
 		o.auto = 0;
 	put(n, name, 'interface', o);
 	let bridge = 'br-vx' + t.vni;
-	put(n, name + '_br', 'device', { type: 'bridge', name: bridge, bridge_empty: 1, ports: [name] });
+	// Ports on the tunnel stay; ports() sets those it is told about (0058).
+	let members = filter(list(n[name + '_br']?.ports), e => e != name);
+	put(n, name + '_br', 'device', { type: 'bridge', name: bridge, bridge_empty: 1, ports: [name, ...members] });
 	keep[name] = keep[name + '_br'] = true;
 	let zone = filter(of_type(fw, 'zone'), z => index(list(z.network), facts.management) >= 0)[0];
 	if (zone)
@@ -263,21 +265,67 @@ function networks(cfg, intent, facts, errors, keep) {
 	}
 }
 
+// leave_tunnels takes a port off every tunnel's bridge Aeolus made: the port
+// itself, and its 802.1Q devices (0058).
+function leave_tunnels(n, p) {
+	for (let d in of_type(n, 'device'))
+		if (owned(d['.name']) && d.type == 'bridge')
+			d.ports = filter(list(d.ports), e => e != p && substr(e, 0, length(p) + 1) != p + '.');
+}
+
+// tunnel_port puts a port on tunnels (0058): out of the uplink's bridge and
+// its VLANs, and each VNI it carries onto its tunnel's bridge, the port
+// itself for the untagged one and an 802.1Q device <port>.<vlan> for each
+// tagged one. The tunnels are the ones networks' transports make (0054).
+function tunnel_port(cfg, p, set, bridge, up, intent, facts, errors, keep) {
+	let n = cfg.network;
+	up.ports = filter(list(up.ports), e => e != p);
+	for (let v in of_type(n, 'bridge-vlan'))
+		if (v.device == bridge)
+			v.ports = filter(list(v.ports), e => split(e, ':')[0] != p);
+	leave_tunnels(n, p);
+	let safe = replace(p, /[^a-z0-9_]/g, '_');
+	for (let vlan in sort(keys(set.vxlan ?? {}))) {
+		let m = set.vxlan[vlan];
+		let br = tunnel(cfg, `ports.${p}.vxlan.${vlan}`, 'primary', { vni: m.vni, concentrator: m.tunnel },
+			intent.concentrators?.[m.tunnel], facts, errors, keep);
+		if (!br)
+			continue;
+		let member = p;
+		if (vlan != 'untagged') {
+			member = `${p}.${vlan}`;
+			let name = `aeolus_port_${safe}_${vlan}`;
+			put(n, name, 'device', { type: '8021q', ifname: p, vid: vlan, name: member });
+			keep[name] = true;
+		}
+		let b = n[`aeolus_${m.vni}_br`];
+		b.ports = [...list(b.ports), member];
+	}
+}
+
 // ports applies the intent's Ethernet port settings (0053): a port's VLANs,
 // as its entries in the bridge's bridge-vlan sections, and whether it is on.
 // Only ports in the uplink's bridge count; the uplink itself is the AP's
 // management and is left alone. Each VLAN a port uses is tagged on the
-// uplink as well. LACP is not applied yet; the manager holds it.
+// uplink as well. A port in tunnel mode carries VNIs over tunnels instead,
+// and leaves the uplink's bridge; set back to access or trunk, it returns
+// (0058). LACP is not applied yet; the manager holds it.
 //
 // A setting left unset leaves the port as it is, as with a radio, so a VLAN
-// Aeolus added stays while a port is still on it.
-function ports(n, intent, facts, errors, keep) {
+// Aeolus added stays while a port is still on it, and so does a tunnel.
+function ports(cfg, intent, facts, errors, keep) {
+	let n = cfg.network;
 	let want = intent.ports ?? {};
 	let bridge = length(keys(want)) ? uplink_bridge(n, facts.uplink, errors) : null;
-	let members = list(filter(of_type(n, 'device'), d => d.name == bridge)[0]?.ports);
+	let up = filter(of_type(n, 'device'), d => d.name == bridge)[0];
+	// A port is on this AP if it is in the uplink's bridge, or on a tunnel's
+	// bridge or an 802.1Q device Aeolus made (0058).
+	let on_ap = p => index(list(up?.ports), p) >= 0 ||
+		length(filter(of_type(n, 'device'), d => owned(d['.name']) &&
+			(index(list(d.ports), p) >= 0 || (d.type == '8021q' && d.ifname == p)))) > 0;
 	for (let p in (bridge ? sort(keys(want)) : [])) {
 		let set = want[p];
-		if (index(members, p) < 0)
+		if (!on_ap(p))
 			continue;   // not on this AP
 		if (p == facts.uplink) {
 			push(errors, `ports.${p}: the uplink carries the AP's management; Aeolus leaves it alone`);
@@ -295,8 +343,16 @@ function ports(n, intent, facts, errors, keep) {
 			else
 				put(n, own, 'device', { name: p, enabled: 0 });
 		}
+		if (set.mode == 'tunnel') {
+			tunnel_port(cfg, p, set, bridge, up, intent, facts, errors, keep);
+			continue;
+		}
 		if (set.mode != 'access' && set.mode != 'trunk')
 			continue;
+		// Back from tunnels, if it was on them, into the uplink's bridge.
+		leave_tunnels(n, p);
+		if (index(list(up.ports), p) < 0)
+			up.ports = [...list(up.ports), p];
 		for (let v in of_type(n, 'bridge-vlan'))
 			if (v.device == bridge)
 				v.ports = filter(list(v.ports), e => split(e, ':')[0] != p);
@@ -316,8 +372,22 @@ function ports(n, intent, facts, errors, keep) {
 		if (owned(v['.name']) && length(filter(list(v.ports), e => split(e, ':')[0] != facts.uplink)))
 			keep[v['.name']] = true;
 	for (let d in of_type(n, 'device'))
-		if (substr(d['.name'], 0, 12) == 'aeolus_port_')
+		if (substr(d['.name'], 0, 12) == 'aeolus_port_' && d.type != '8021q')
 			keep[d['.name']] = true;
+	// So does a tunnel a port is still on: its bridge, the tunnel, the rule
+	// that lets it in, the clamp, and the port's 802.1Q devices on it (0058).
+	for (let b in of_type(n, 'device')) {
+		let m = match(b['.name'], /^aeolus_([0-9]+)_br$/);
+		let others = m ? filter(list(b.ports), e => e != 'aeolus_' + m[1]) : [];
+		if (!length(others))
+			continue;
+		keep[b['.name']] = keep['aeolus_' + m[1]] = keep['aeolus_vxlan_' + m[1]] = true;
+		if (int(n['aeolus_' + m[1]]?.mtu ?? '1500') < 1500 && cfg.firewall?.aeolus_clamp)
+			keep.aeolus_clamp = true;
+		for (let d in of_type(n, 'device'))
+			if (owned(d['.name']) && d.type == '8021q' && index(others, d.name) >= 0)
+				keep[d['.name']] = true;
+	}
 }
 
 // host_port splits "host", "host:port", "[v6]" or "[v6]:port".
@@ -469,7 +539,7 @@ function render(intent, current, facts) {
 	let keep = {};
 	radios(cfg.wireless, intent, facts ?? {});
 	networks(cfg, intent, facts ?? {}, errors, keep);
-	ports(cfg.network, intent, facts ?? {}, errors, keep);
+	ports(cfg, intent, facts ?? {}, errors, keep);
 	// What Aeolus made earlier and no longer needs goes.
 	for (let pkg in [cfg.wireless, cfg.network, cfg.firewall])
 		for (let k in keys(pkg))

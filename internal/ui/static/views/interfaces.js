@@ -3,6 +3,8 @@
 // port, with an editor built from the schema. A port is set by name, so a
 // folder's setting for lan2 reaches every AP below with a lan2. The uplink
 // carries the AP's management, so it is shown but not offered for editing.
+// A port in tunnel mode carries VNIs instead of VLANs, each untagged or on a
+// VLAN of its own (0058).
 // Tunnels is where tunnels are set, by name, for every AP below (0055), and
 // shows each AP's VXLAN tunnels live, beside what its networks ask for (0054).
 
@@ -14,7 +16,7 @@ import { configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
-import { tunnelsAt } from './networks.js';
+import { tunnelsAt, tunnelName } from './networks.js';
 
 const INTERFACES = [['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
 
@@ -266,7 +268,7 @@ async function ethernet(ctx, here, page, ap, edit) {
 			? h('div', { class: 'bands' }, names.map((name) => portCard(ctx, d, here, page.node.name, name, fields, seen.get(name), edit, !ap)))
 			: h('div', { class: 'banner info' }, 'No AP here has reported its ports yet, and no port is set here.'),
 		edit && h('div', { class: 'below' },
-			h('button', { type: 'button', class: 'button', onclick: () => addPort(ctx, d, here, page.node.name, fields, addBox) }, 'Set up another port')),
+			h('button', { type: 'button', class: 'button', onclick: () => addPort(ctx, d, here, page.node.name, fields, addBox, edit) }, 'Set up another port')),
 		addBox,
 		portsNow(rows),
 	];
@@ -292,7 +294,7 @@ function portCard(ctx, d, here, nodeName, name, fields, seen, edit, folder) {
 			f('enabled')?.value === false && h('span', { class: 'chip idle' }, 'off'),
 			folder && h('span', { class: 'note' }, seen ? `on ${seen.aps.length} AP${seen.aps.length === 1 ? '' : 's'}` : 'no AP here has reported it'),
 			edit && uplinkOn.length === 0 && h('span', { class: 'controls' },
-				h('button', { type: 'button', class: 'button small', onclick: () => body.replaceChildren(portForm(ctx, d, here, nodeName, name, fields, close)) }, 'Edit'))),
+				h('button', { type: 'button', class: 'button small', onclick: () => body.replaceChildren(portForm(ctx, d, here, nodeName, name, fields, close, edit)) }, 'Edit'))),
 		uplinkOn.length > 0 && h('div', { class: 'sub' },
 			`The uplink on ${uplinkOn.map((a) => a.name).join(', ')}: it carries the AP's management, so Aeolus leaves it alone there.`),
 		body);
@@ -300,29 +302,71 @@ function portCard(ctx, d, here, nodeName, name, fields, seen, edit, folder) {
 
 function view(ctx, here, nodeName, name, fields, edit) {
 	const set = FIELDS.map((k) => `ports.${name}.${k}`).filter((p) => fields[p]);
-	if (!set.length) return h('div', { class: 'sub' }, 'Not set: each AP leaves this port as it is.');
+	const vnis = vnisOf(fields, name);
+	if (!set.length && !vnis.length) return h('div', { class: 'sub' }, 'Not set: each AP leaves this port as it is.');
 	const names = (id) => ctx.name('locations', id);
-	return set.map((path) => {
-		const r = fields[path];
+	// What the mode leaves out stays set, but does nothing (0058).
+	const tunnel = fields[`ports.${name}.mode`]?.value === 'tunnel';
+	const unused = (path) => (tunnel ? /\.(untagged|tagged)$/.test(path) : /\.vxlan\./.test(path));
+	const row = (label, path, shown, r, paths) => {
 		const box = h('div', { class: 'edit' });
+		const own = paths.filter((p) => fields[p]?.origin === 'self');
 		return [h('div', { class: 'row' },
-			h('div', { class: 'label' }, group(path).label),
-			h('div', { class: 'value' }, value(path, r.value)),
+			h('div', { class: 'label' }, label, unused(path) && h('span', { class: 'sub' }, ' (unused in this mode)')),
+			h('div', { class: 'value' }, shown),
 			origin('locations', here, r, names),
-			edit && r.origin === 'self' && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, [path], box)),
+			edit && own.length > 0 && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, own, box)),
 		box];
-	});
+	};
+	return [
+		set.map((path) => row(group(path).label, path, value(path, fields[path].value), fields[path], [path])),
+		vnis.map((m) => row(onWire(m.vlan, true), vniPath(name, m.vlan, 'vni'), carried(m), m.tunnel ?? m.vni,
+			['tunnel', 'vni'].map((k) => vniPath(name, m.vlan, k)))),
+	];
+}
+
+// vniPath is where a tunnel port sets one of a VNI's fields (0058).
+const vniPath = (name, vlan, k) => `ports.${name}.vxlan.${vlan}.${k}`;
+
+// vnisOf reads a tunnel port's VNIs from the values in force (by path, each
+// {value, from, origin}) as [{vlan, tunnel, vni}], untagged first, then by
+// VLAN.
+function vnisOf(fields, name) {
+	const prefix = `ports.${name}.vxlan.`;
+	const out = new Map();
+	for (const [path, r] of Object.entries(fields || {})) {
+		if (!path.startsWith(prefix)) continue;
+		const [vlan, k] = path.slice(prefix.length).split('.');
+		if (k !== 'tunnel' && k !== 'vni') continue;
+		if (!out.has(vlan)) out.set(vlan, { vlan });
+		out.get(vlan)[k] = r;
+	}
+	const rank = (v) => (v === 'untagged' ? 0 : Number(v));
+	return [...out.values()].sort((a, b) => rank(a.vlan) - rank(b.vlan));
+}
+
+// onWire says how a port carries a VNI: untagged, or on a VLAN.
+function onWire(vlan, capital) {
+	if (vlan === 'untagged') return capital ? 'Untagged' : 'untagged';
+	return `VLAN ${vlan}`;
+}
+
+// carried says where a VNI goes: "arista · VNI 50".
+function carried(m) {
+	return `${m.tunnel?.value ?? '(no tunnel)'} · VNI ${m.vni?.value ?? '(none)'}`;
 }
 
 // portForm edits one port's settings on this node, in one change. Only what
-// the mode uses is shown: an access port's one VLAN, or a trunk's untagged
-// VLAN and tagged ones.
-function portForm(ctx, d, here, nodeName, name, fields, close) {
+// the mode uses is shown: an access port's one VLAN, a trunk's untagged VLAN
+// and tagged ones, or a tunnel port's VNIs (0058).
+function portForm(ctx, d, here, nodeName, name, fields, close, edit) {
 	const prefix = `ports.${name}.`;
 	const { body, inputs, rows } = fieldsForm(d, [[null, FIELDS.map((k) => prefix + k)]], fields, here);
 	const mode = rows.get(prefix + 'mode')?.it.el;
 	// LACP is in the schema, but not applied yet (0053).
 	if (mode && mode.value !== 'lacp') mode.querySelector('option[value="lacp"]')?.remove();
+	const out = h('div', { class: 'edit flush' });
+	const vnis = vniTable(ctx, here, nodeName, name, fields, edit, out);
 	const sync = () => {
 		const m = mode?.value;
 		const show = (k, on) => {
@@ -331,16 +375,17 @@ function portForm(ctx, d, here, nodeName, name, fields, close) {
 		};
 		show('untagged', m === 'access' || m === 'trunk');
 		show('tagged', m === 'trunk');
+		vnis.el.hidden = m !== 'tunnel';
 	};
 	mode?.addEventListener('change', sync);
 	sync();
-	const out = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
 	const review = async () => {
 		msg.replaceChildren();
 		let values;
 		try {
 			values = changedValues(inputs, rows);
+			if (!vnis.el.hidden) Object.assign(values, vnis.read());
 		} catch (e) {
 			msg.replaceChildren(e.message);
 			return;
@@ -350,6 +395,10 @@ function portForm(ctx, d, here, nodeName, name, fields, close) {
 		if (now('mode') === 'access' && now('tagged')?.length) values[prefix + 'tagged'] = [];
 		if (now('mode') === 'access' && !now('untagged')) {
 			msg.replaceChildren('An access port needs its untagged VLAN.');
+			return;
+		}
+		if (now('mode') === 'tunnel' && !vnis.count()) {
+			msg.replaceChildren('A tunnel port needs a VNI: add one under VNIs.');
 			return;
 		}
 		const paths = Object.keys(values);
@@ -372,6 +421,7 @@ function portForm(ctx, d, here, nodeName, name, fields, close) {
 	};
 	return h('div', { class: 'fieldform', 'data-editing': true },
 		body,
+		vnis.el,
 		msg,
 		h('div', { class: 'actions' },
 			h('button', { type: 'button', class: 'button primary', onclick: review }, 'Review changes'),
@@ -379,9 +429,84 @@ function portForm(ctx, d, here, nodeName, name, fields, close) {
 		out);
 }
 
+// vniTable edits a tunnel port's VNIs a row at a time (0058). A row in force
+// can take another tunnel or VNI, and one more row can be added, both with
+// the rest of the port's change; a row set here can be removed, which is a
+// change of its own, previewed in out. read() returns {path: value} to set,
+// or throws with what is wrong; count() says how many VNIs the port would
+// carry.
+function vniTable(ctx, here, nodeName, name, fields, edit, out) {
+	const lib = tunnelsAt(fields);
+	const names = (id) => ctx.name('locations', id);
+	const picker = (cur) => h('select', null,
+		h('option', { value: '' }, lib.length ? 'tunnel…' : 'no tunnel is set here yet (Interfaces › Tunnels)'),
+		lib.map((t) => h('option', { value: t.id, selected: t.id === cur }, tunnelName(lib, t.id))),
+		cur && !lib.some((t) => t.id === cur) && h('option', { value: cur, selected: true }, `${cur} (not set here)`));
+	const number = (cur) => h('input', { type: 'number', min: 1, max: 16777215, step: 1, value: cur ?? '', placeholder: 'VNI' });
+	const vniIn = (el, vlan) => {
+		if (el.value === '') return undefined;
+		const n = Number(el.value);
+		if (!Number.isInteger(n) || n < 1 || n > 16777215) throw new Error(`${onWire(vlan, true)}: the VNI is a whole number from 1 to 16777215`);
+		return n;
+	};
+	const have = vnisOf(fields, name);
+	const lines = have.map((m) => {
+		const tunnel = picker(m.tunnel?.value);
+		const vni = number(m.vni?.value);
+		tunnel.disabled = vni.disabled = [m.tunnel, m.vni].some((r) => r?.origin === 'locked' && r.from !== here);
+		const own = ['tunnel', 'vni'].map((k) => vniPath(name, m.vlan, k)).filter((p) => fields[p]?.origin === 'self');
+		const heading = `Port ${name} on ${nodeName}: ${onWire(m.vlan)} leaves VNI ${m.vni?.value}`;
+		return {
+			m, tunnel, vni,
+			row: h('div', { class: 'field' },
+				h('span', { class: 'label' }, onWire(m.vlan, true)),
+				tunnel, vni,
+				origin('locations', here, m.tunnel ?? m.vni, names),
+				own.length > 0 && followButton(ctx, 'locations', here, nodeName, edit?.parentName, own, out, 'Remove', heading)),
+		};
+	});
+	const vlanIn = h('input', { type: 'text', maxlength: 8, placeholder: 'untagged, or a VLAN' });
+	const newTunnel = picker(undefined);
+	const newVni = number(undefined);
+	const read = () => {
+		const values = {};
+		for (const l of lines) {
+			if (l.tunnel.disabled) continue;
+			const t = l.tunnel.value || undefined;
+			const v = vniIn(l.vni, l.m.vlan);
+			if (t !== l.m.tunnel?.value) {
+				if (!t) throw new Error(`${onWire(l.m.vlan, true)}: pick its tunnel, or remove the row`);
+				values[vniPath(name, l.m.vlan, 'tunnel')] = t;
+			}
+			if (v !== l.m.vni?.value) {
+				if (v === undefined) throw new Error(`${onWire(l.m.vlan, true)}: set its VNI, or remove the row`);
+				values[vniPath(name, l.m.vlan, 'vni')] = v;
+			}
+		}
+		const vlan = vlanIn.value.trim().toLowerCase();
+		if (!vlan && !newTunnel.value && newVni.value === '') return values;
+		if (!/^(untagged|[1-9][0-9]{0,3})$/.test(vlan) || (vlan !== 'untagged' && Number(vlan) > 4094))
+			throw new Error('The new VNI is carried untagged, or on a VLAN from 1 to 4094.');
+		if (have.some((m) => m.vlan === vlan)) throw new Error(`${onWire(vlan, true)} carries a VNI already; change that row instead.`);
+		const v = vniIn(newVni, vlan);
+		if (!newTunnel.value) throw new Error(`${onWire(vlan, true)}: pick its tunnel.`);
+		if (v === undefined) throw new Error(`${onWire(vlan, true)}: set its VNI.`);
+		values[vniPath(name, vlan, 'tunnel')] = newTunnel.value;
+		values[vniPath(name, vlan, 'vni')] = v;
+		return values;
+	};
+	const el = h('div', { class: 'vnis' },
+		h('h3', null, 'VNIs'),
+		h('div', { class: 'sub' }, 'Each VNI is carried untagged, or tagged with a VLAN of its own, over a tunnel set here. The port leaves the uplink\'s bridge.'),
+		h('div', { class: 'fields' },
+			lines.map((l) => l.row),
+			h('div', { class: 'field' }, h('span', { class: 'label' }, have.length ? 'Add another' : 'Add one'), vlanIn, newTunnel, newVni)));
+	return { el, read, count: () => have.length + (vlanIn.value.trim() ? 1 : 0) };
+}
+
 // addPort sets up a port no AP here has reported yet, by its name, such as
 // one on APs that are still to be adopted.
-function addPort(ctx, d, here, nodeName, fields, box) {
+function addPort(ctx, d, here, nodeName, fields, box, edit) {
 	const pattern = new RegExp(d.names.ports || '^[a-z][a-z0-9._-]{0,15}$');
 	const nameIn = h('input', { type: 'text', maxlength: 16, placeholder: 'lan3' });
 	const slot = h('div', null);
@@ -393,7 +518,7 @@ function addPort(ctx, d, here, nodeName, fields, box) {
 			msg.replaceChildren('A port name is lower case, such as lan3 or eth1.');
 			return;
 		}
-		slot.replaceChildren(portForm(ctx, d, here, nodeName, name, fields, () => box.replaceChildren()));
+		slot.replaceChildren(portForm(ctx, d, here, nodeName, name, fields, () => box.replaceChildren(), edit));
 	};
 	box.replaceChildren(h('section', { class: 'panel', 'data-editing': true },
 		h('h2', null, 'Set up another port'),
@@ -450,6 +575,10 @@ function settings(location, name) {
 		parts.push('trunk');
 		if (v('untagged')) parts.push(`untagged ${v('untagged')}`);
 		if (v('tagged')?.length) parts.push(`tagged ${v('tagged').join(', ')}`);
+	} else if (v('mode') === 'tunnel') {
+		// "VLAN 50 → arista · VNI 50" for each VNI the port carries (0058).
+		const vnis = vnisOf(location, name);
+		parts.push(vnis.length ? `tunnel: ${vnis.map((m) => `${onWire(m.vlan)} → ${carried(m)}`).join(', ')}` : 'tunnel, with no VNIs yet');
 	} else if (v('mode') === 'lacp') parts.push('LACP (not applied yet)');
 	return parts.length ? parts.join(', ') : h('span', { class: 'sealed' }, 'not set; the AP keeps its own');
 }

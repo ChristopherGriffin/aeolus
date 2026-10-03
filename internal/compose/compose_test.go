@@ -147,6 +147,77 @@ func TestTunnelsAreLocationSettings(t *testing.T) {
 	}
 }
 
+// A tunnel port's VNIs are held where the AP could not carry them (0058).
+func TestTunnelPorts(t *testing.T) {
+	s, sch := site(t)
+	set := func(tree change.TreeName, node, path string, v any) {
+		t.Helper()
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: tree, Node: hierarchy.NodeID(node), Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+	problems := func(ap string) (string, map[string]any) {
+		t.Helper()
+		res, err := AP(s, sch, hierarchy.NodeID(ap), nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n"), res.Doc
+	}
+	set(change.Locations, "gate-ap", "ports.lan3.mode", "tunnel")
+	if got, _ := problems("gate-ap"); !strings.Contains(got, "ports.lan3: a tunnel port carries no VNIs yet") {
+		t.Fatalf("no VNIs: %s", got)
+	}
+	// Tagged VLAN 50 and untagged both over homelab; VNI 20 shares sweet's
+	// segment, which is allowed.
+	set(change.Locations, "gate", "ports.lan3.vxlan.50.tunnel", "homelab")
+	set(change.Locations, "gate", "ports.lan3.vxlan.50.vni", 50)
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.untagged.tunnel", "homelab")
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.untagged.vni", 20)
+	got, doc := problems("gate-ap")
+	if strings.Contains(got, "ports.") || strings.Contains(got, "VNI") {
+		t.Fatalf("a good tunnel port: %s", got)
+	}
+	if doc["concentrators"].(map[string]any)["homelab"] == nil {
+		t.Fatalf("the port's tunnel is not in the config: %v", doc["concentrators"])
+	}
+	// The office has no homelab tunnel.
+	set(change.Locations, "office-ap", "ports.lan3.mode", "tunnel")
+	set(change.Locations, "office-ap", "ports.lan3.vxlan.50.tunnel", "homelab")
+	set(change.Locations, "office-ap", "ports.lan3.vxlan.50.vni", 50)
+	if got, _ := problems("office-ap"); !strings.Contains(got, "ports.lan3.vxlan.50: tunnel homelab is not set where this AP is") {
+		t.Fatalf("a tunnel not set here: %s", got)
+	}
+	// One VNI on two VLANs, and a mapping without its VNI.
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.60.tunnel", "homelab")
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.60.vni", 50)
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.70.tunnel", "homelab")
+	got, _ = problems("gate-ap")
+	for _, want := range []string{"ports.lan3.vxlan.60: VNI 50 is on VLAN 50 of this port already", "ports.lan3.vxlan.70: needs both its tunnel and its VNI"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("problems = %s, want %q", got, want)
+		}
+	}
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.60.vni", 60)
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.70.vni", 70)
+	// A VNI that waits as a network's fallback, and one reaching two tunnels.
+	set(change.Services, "household", "network.sweet.transport.fallback.type", "vxlan")
+	set(change.Services, "household", "network.sweet.transport.fallback.concentrator", "homelab")
+	set(change.Services, "household", "network.sweet.transport.fallback.vni", 60)
+	set(change.Locations, "gate", "concentrators.other.address", "1.1.1.9")
+	set(change.Locations, "gate", "concentrators.other.port", 4789)
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.70.tunnel", "other")
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.70.vni", 20)
+	got, _ = problems("gate-ap")
+	for _, want := range []string{
+		"VNI 60: it is network sweet's fallback here, which waits until switching starts it, so port lan3 cannot carry it",
+		"VNI 20: it reaches tunnels homelab and other at this AP",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("problems = %s, want %q", got, want)
+		}
+	}
+}
+
 // A tunnel without an MTU gets the default for its far end's family (0056).
 func TestTunnelMTUDefault(t *testing.T) {
 	s, sch := site(t)

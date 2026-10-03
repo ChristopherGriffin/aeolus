@@ -535,6 +535,110 @@ config rule 'aeolus_vxlan_5000'
 	}
 }
 
+// A tunnel port is out of the uplink's bridge, and carries its VNIs on their
+// tunnels' bridges: the port for the untagged one, an 802.1Q device of it
+// for each tagged one (0058).
+func TestTunnelPort(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(`{"ports": {"lan3": {"mode": "tunnel", "vxlan": {
+		"untagged": {"tunnel": "arista", "vni": 50}, "10": {"tunnel": "arista", "vni": 10}}}},
+		"concentrators": {"arista": {"address": "1.1.1.2", "port": 4789, "mtu": 1500}}}`), &doc); err != nil {
+		t.Fatal(err)
+	}
+	check := func(text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	const good = `package network
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	option mtu '9000'
+	list ports 'lan1'
+	list ports 'wan'
+config bridge-vlan 'vlan1'
+	option device 'br-lan'
+	option vlan '1'
+	list ports 'wan:u*'
+	list ports 'lan1:u*'
+config interface 'lan'
+	option proto 'dhcp'
+	option device 'br-lan.1'
+config interface 'aeolus_50'
+	option proto 'vxlan'
+	option peeraddr '1.1.1.2'
+	option port '4789'
+	option vid '50'
+	option mtu '1500'
+	option tunlink 'lan'
+config device 'aeolus_50_br'
+	option type 'bridge'
+	option name 'br-vx50'
+	list ports 'aeolus_50'
+	list ports 'lan3'
+config interface 'aeolus_10'
+	option proto 'vxlan'
+	option peeraddr '1.1.1.2'
+	option port '4789'
+	option vid '10'
+	option mtu '1500'
+	option tunlink 'lan'
+config device 'aeolus_10_br'
+	option type 'bridge'
+	option name 'br-vx10'
+	list ports 'aeolus_10'
+	list ports 'lan3.10'
+config device 'aeolus_port_lan3_10'
+	option type '8021q'
+	option ifname 'lan3'
+	option vid '10'
+	option name 'lan3.10'
+package firewall
+config rule 'aeolus_vxlan_50'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+config rule 'aeolus_vxlan_10'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+package aeolus
+config agent 'agent'
+	option uplink 'wan'
+`
+	if got := check(good); got != "" {
+		t.Fatalf("problems with the right config: %s", got)
+	}
+	for _, c := range []struct{ name, old, new, want string }{
+		{"still in br-lan", "list ports 'lan1'\n", "list ports 'lan1'\n\tlist ports 'lan3'\n", "ports.lan3: the port is still in the uplink's bridge br-lan"},
+		{"still on a VLAN", "list ports 'lan1:u*'", "list ports 'lan1:u*'\n\tlist ports 'lan3:u*'", "ports.lan3: VLAN 1 of the uplink's bridge still has the port"},
+		{"untagged not bridged", "list ports 'lan3'\n", "", "ports.lan3.vxlan.untagged: lan3 is not in the tunnel's bridge br-vx50"},
+		{"tagged not bridged", "list ports 'lan3.10'\n", "", "ports.lan3.vxlan.10: lan3.10 is not in the tunnel's bridge br-vx10"},
+		{"wrong VLAN device", "option vid '10'\n\toption name 'lan3.10'", "option vid '11'\n\toption name 'lan3.10'", "network.aeolus_port_lan3_10: want an 802.1Q device lan3.10, VLAN 10 on lan3"},
+		{"tunnel not started", "option vid '10'\n\toption mtu '1500'\n\toption tunlink 'lan'", "option vid '10'\n\toption mtu '1500'\n\toption tunlink 'lan'\n\toption auto '0'", "the primary's tunnel is not started"},
+	} {
+		if !strings.Contains(good, c.old) {
+			t.Fatalf("%s: fixture lacks %q", c.name, c.old)
+		}
+		if got := check(strings.Replace(good, c.old, c.new, 1)); !strings.Contains(got, c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.name, c.want, got)
+		}
+	}
+	// Back in access mode, the port must be in the uplink's bridge again.
+	doc["ports"] = map[string]any{"lan3": map[string]any{"mode": "access", "untagged": float64(1)}}
+	if got := check(good); !strings.Contains(got, "ports.lan3: the port is not in the uplink's bridge br-lan") {
+		t.Fatalf("access, still on the tunnel: %s", got)
+	}
+}
+
 func TestAWrongKeyIsNeverQuoted(t *testing.T) {
 	got := strings.Join(check(t, strings.Replace(rendered, "option key '"+pass+"'", "option key 'wrong-passphrase-1'", 1)), "\n")
 	if !strings.Contains(got, "key does not match the passphrase") {

@@ -1,0 +1,280 @@
+package wireless
+
+config wifi-device 'radio0'
+	option type 'mac80211'
+	option path 'soc/1b500000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0'
+	option band '5g'
+	option channel '149'
+	option htmode 'VHT80'
+	option disabled '0'
+	option ucentral_path '/radios/1'
+	option txantenna '15'
+	option rxantenna '15'
+	option noscan '1'
+	option country 'US'
+	option legacy_rates '0'
+	option maxassoc_ignore_probe '0'
+	option reconf '1'
+	option acs_exclude_dfs '0'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option path 'soc/1b700000.pcie/pci0001:00/0001:00:00.0/0001:01:00.0'
+	option band '2g'
+	option channel '6'
+	option htmode 'HT20'
+	option disabled '0'
+	option ucentral_path '/radios/0'
+	option txantenna '15'
+	option rxantenna '15'
+	option noscan '1'
+	option country 'US'
+	option legacy_rates '0'
+	option maxassoc_ignore_probe '0'
+	option reconf '1'
+	option acs_exclude_dfs '0'
+
+config wifi-iface 'iot24'
+	option device 'radio1'
+	option network 'iot'
+	option mode 'ap'
+	option ssid 'Sweet_Spot_IoT'
+	option encryption 'psk2'
+	option key 'fixture-key-iot24'
+
+config wifi-iface 'trusted_radio0'
+	option device 'radio0'
+	option network 'trusted'
+	option mode 'ap'
+	option ssid 'Sweet Spot'
+	option encryption 'psk2'
+	option key 'fixture-key-trusted_radio0'
+	option ieee80211r '1'
+	option ft_over_ds '0'
+	option ft_psk_generate_local '1'
+
+config wifi-iface 'trusted_radio1'
+	option device 'radio1'
+	option network 'trusted'
+	option mode 'ap'
+	option ssid 'Sweet Spot'
+	option encryption 'psk2'
+	option key 'fixture-key-trusted_radio1'
+	option ieee80211r '1'
+	option ft_over_ds '0'
+	option ft_psk_generate_local '1'
+
+config wifi-iface 'aeolus_lab_radio0'
+	option device 'radio0'
+	option mode 'ap'
+	option network 'aeolus_lab'
+	option ssid 'Aeolus Lab'
+	option encryption 'psk2'
+	option key 'fixture-passphrase-1'
+
+config wifi-iface 'aeolus_lab_radio1'
+	option device 'radio1'
+	option mode 'ap'
+	option network 'aeolus_lab'
+	option ssid 'Aeolus Lab'
+	option encryption 'psk2'
+	option key 'fixture-passphrase-1'
+
+package network
+
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option ifname 'lo'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option dhcp_default_duid '0004fixture'
+	option ula_prefix 'fd59:2068:3844::/48'
+	option packet_steering '1'
+
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'lan1'
+	list ports 'lan2'
+	list ports 'lan4'
+	list ports 'wan'
+	option ipv6 '0'
+
+config interface 'lan'
+	option device 'br-lan.1'
+	option proto 'dhcp'
+	option multipath 'off'
+
+config bridge-vlan 'vlan1'
+	option device 'br-lan'
+	option vlan '1'
+	list ports 'wan:u*'
+	list ports 'lan1:u*'
+	list ports 'lan2:u*'
+
+config bridge-vlan 'vlan10'
+	option device 'br-lan'
+	option vlan '10'
+	list ports 'wan:t'
+
+config interface 'iot'
+	option proto 'none'
+	option device 'br-lan.10'
+
+config bridge-vlan 'vlan20'
+	option device 'br-lan'
+	option vlan '20'
+	list ports 'wan:t'
+	list ports 'lan4:u*'
+
+config interface 'trusted'
+	option proto 'none'
+	option device 'br-lan.20'
+
+config interface 'aeolus_30'
+	option proto 'vxlan'
+	option vid '30'
+	option port '4789'
+	option mtu '1450'
+	option tunlink 'lan'
+	option peeraddr '1.1.1.2'
+
+config device 'aeolus_30_br'
+	option type 'bridge'
+	option name 'br-vx30'
+	option bridge_empty '1'
+	list ports 'aeolus_30'
+	list ports 'lan3.30'
+
+config interface 'aeolus_50'
+	option proto 'vxlan'
+	option vid '50'
+	option port '4789'
+	option mtu '1450'
+	option tunlink 'lan'
+	option peeraddr '1.1.1.2'
+
+config device 'aeolus_50_br'
+	option type 'bridge'
+	option name 'br-vx50'
+	option bridge_empty '1'
+	list ports 'aeolus_50'
+	list ports 'lan3'
+
+config interface 'aeolus_lab'
+	option proto 'none'
+	option device 'br-vx50'
+
+config device 'aeolus_port_lan3_30'
+	option type '8021q'
+	option ifname 'lan3'
+	option vid '30'
+	option name 'lan3.30'
+
+package system
+
+config system
+	option hostname 'OpenWrtnight'
+	option timezone 'GMT0'
+	option zonename 'UTC'
+	option ttylogin '0'
+	option log_size '128'
+	option urandom_seed '0'
+	option compat_version '1.1'
+	option log_proto 'udp'
+	option conloglevel '8'
+	option cronloglevel '7'
+
+config timeserver 'ntp'
+	list server '0.openwrt.pool.ntp.org'
+	list server '1.openwrt.pool.ntp.org'
+	list server '2.openwrt.pool.ntp.org'
+	list server '3.openwrt.pool.ntp.org'
+
+config led 'led_wan'
+	option name 'WAN'
+	option sysfs 'white:wan'
+	option trigger 'netdev'
+	option mode 'link tx rx'
+	option dev 'wan'
+
+package aeolus
+
+config agent 'agent'
+	option url 'https://aeolus.symtus.com:8443'
+	option uplink 'wan'
+	option poll '60'
+
+package usteer
+
+config usteer
+	option network 'lan'
+	option syslog '1'
+	option local_mode '0'
+	option ipv6 '0'
+	option debug_level '2'
+	option band_steering_interval '0'
+
+package snmpd
+
+config snmpd 'general'
+	option enabled '0'
+
+package firewall
+
+config defaults
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	option synflood_protect '1'
+
+config zone
+	option name 'lan'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	list network 'lan'
+
+config zone
+	option name 'wan'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'DROP'
+	option masq '1'
+	option mtu_fix '1'
+
+config forwarding
+	option src 'lan'
+	option dest 'wan'
+
+config rule
+	option name 'Allow-Ping'
+	option src 'wan'
+	option proto 'icmp'
+	option icmp_type 'echo-request'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule 'aeolus_vxlan_50'
+	option name 'Aeolus VXLAN 50'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+
+config include 'aeolus_clamp'
+	option type 'nftables'
+	option path '/etc/aeolus/clamp.nft'
+	option position 'ruleset-append'
+
+config rule 'aeolus_vxlan_30'
+	option name 'Aeolus VXLAN 30'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'

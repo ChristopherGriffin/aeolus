@@ -489,15 +489,31 @@ function steering_state() {
 // (0053), in the bridge's order: whether each is up, whether it has a link
 // and at what speed ("1000F"), and which is the uplink. The ports are those
 // the bridge's config lists, as the renderer reads them; the running bridge
-// holds the Wi-Fi interfaces too.
+// holds the Wi-Fi interfaces too. A tunnel port has left that bridge for its
+// tunnels' (0058), on its own or by an 802.1Q device Aeolus made of it, and
+// follows the others, by name.
 function ports_state() {
 	let uplink = settings().uplink;
 	let members = [];
+	let bridges = [];
+	let vlans = {};   // an 802.1Q device Aeolus made -> the port under it
 	cursor().foreach('network', 'device', d => {
 		let ports = type(d.ports) == 'array' ? d.ports : d.ports ? [d.ports] : [];
 		if (d.type == 'bridge' && index(ports, uplink) >= 0)
-			members = ports;
+			members = [...ports];
+		else if (d.type == 'bridge' && match(d['.name'], /^aeolus_[0-9]+_br$/))
+			push(bridges, ports);
+		else if (d.type == '8021q' && match(d['.name'], /^aeolus_port_/) && d.name && d.ifname)
+			vlans[d.name] = d.ifname;
 	});
+	let tunnel_ports = [];
+	for (let ports in bridges)
+		for (let e in ports) {
+			let p = vlans[e] ?? (match(e, /^aeolus_/) ? null : e);
+			if (p != null && index(members, p) < 0 && index(tunnel_ports, p) < 0)
+				push(tunnel_ports, p);
+		}
+	members = [...members, ...sort(tunnel_ports)];
 	let devs = bus.call('network.device', 'status') ?? {};
 	let out = [];
 	for (let p in members) {

@@ -23,7 +23,8 @@ async function follow(ctx, tree, node, nodeName, parentName, paths, box, heading
 	const names = (id) => ctx.name('services', id);
 	const before = paths.length === 1 ? { [paths[0]]: p.effect?.before } : (p.effect?.before || {});
 	const radios = paths.some((x) => x.startsWith('radio.'));
-	const ports = paths.some((x) => x.startsWith('ports.'));
+	const vnis = paths.some((x) => /^ports\.[^.]+\.vxlan\./.test(x));
+	const ports = !vnis && paths.some((x) => x.startsWith('ports.'));
 	const tunnels = paths.some((x) => x.startsWith('concentrators.'));
 	confirm(ctx, box, op, p, [
 		h('div', null, h('strong', null, heading ?? (parentName ? `${nodeName} follows ${parentName} again` : `${nodeName} stops setting ${paths.length === 1 ? 'this' : 'these'}`))),
@@ -38,6 +39,8 @@ async function follow(ctx, tree, node, nodeName, parentName, paths, box, heading
 	], [
 		radios && h('div', { class: 'sub warn' }, 'Applying restarts each radio whose settings change; its clients drop briefly and reconnect.'),
 		ports && h('div', { class: 'sub warn' }, "Applying reloads each AP's network; wired clients on the port drop briefly. Each AP leaves a port Aeolus no longer sets as it is."),
+		// A tunnel port carries only the VNIs in force, so one removed comes off (0058).
+		vnis && h('div', { class: 'sub warn' }, "Applying reloads each AP's network; wired clients on the port drop briefly. Each AP takes the port off a VNI it no longer carries; the port stays a tunnel port."),
 		tunnels && h('div', { class: 'sub warn' }, "A network whose transport names a tunnel not set at an AP leaves that transport out there; where it was the network's only one, the preview shows the config Aeolus would hold."),
 	]);
 }
