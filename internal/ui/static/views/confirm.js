@@ -48,7 +48,7 @@ export function confirm(ctx, box, op, p, lines, notes) {
 		lines,
 		h('div', { class: 'sub' }, affected.length
 			? `New config version for ${affected.length <= 5 ? affected.map(name).join(', ') : `${affected.length} APs`}.`
-			: 'No AP\'s config changes: the APs below set their own, or there are none.'),
+			: 'No AP gets a new config: what each one runs stays the same.'),
 		problems.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Aeolus would hold these configs, so the APs would not apply them:'),
 			h('ul', null, problems.flatMap(([id, list]) => list.map((x) => h('li', null, `${name(id)}: ${x}`))))),
