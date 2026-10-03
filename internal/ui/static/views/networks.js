@@ -70,9 +70,9 @@ async function networksAt(page) {
 
 function networkCard(ctx, d, n, bandsHere, noUsteer) {
 	const box = h('div', { class: 'edit' });
-	const shown = () => view(ctx, n, bandsHere, box, noUsteer);
-	const body = h('div', null, shown());
-	const close = () => body.replaceChildren(shown());
+	const viewNow = () => view(ctx, n, bandsHere, box, noUsteer);
+	const body = h('div', null, viewNow());
+	const close = () => body.replaceChildren(viewNow());
 	return h('section', { class: 'panel' },
 		h('h2', null, n.fields.ssid?.value || n.id, n.fields.enabled?.value === false && h('span', { class: 'chip idle' }, 'off'),
 			h('span', { class: 'note' }, 'from ', link(`/services/${encodeURIComponent(n.from)}`, ctx.name('services', n.from))),
@@ -254,14 +254,24 @@ function steeringStatus(ctx, reports) {
 			rows));
 }
 
+// The fields a transport's type shows: a VLAN's ID, or a VXLAN's
+// concentrator and VNI. The others stay hidden, and are not sent.
+const FOR_TYPE = { vlan: ['vlan'], vxlan: ['concentrator', 'vni'] };
+
+// What only means something once there is a fallback transport (0022).
+const WITH_FALLBACK = ['transport.ha', 'transport.failback', 'transport.holddown'];
+
 // form lays out an input for every network field the schema has, with the
 // values now in fields ({field: {value, from, origin}}). Fields locked
-// above folder cannot be changed there.
+// above folder cannot be changed there. A transport shows only the fields
+// its type uses. visible says whether a field is on show; sync shows the
+// right ones after a type is set.
 function form(d, net, fields, folder) {
 	const keys = Object.keys(d.fields).filter((k) => k.startsWith('network.*.')).map((k) => k.slice('network.*.'.length));
 	const placed = new Set(SECTIONS.flatMap(([, ks]) => ks));
 	const sections = [...SECTIONS, ['More settings', keys.filter((k) => !placed.has(k)).sort()]];
 	const inputs = new Map();
+	const all = new Map(); // every input, locked or not, and its row
 	const rowFor = (k) => {
 		const path = `network.${net}.${k}`;
 		const f = describe(d, path);
@@ -271,10 +281,12 @@ function form(d, net, fields, folder) {
 		const locked = cur?.origin === 'locked' && cur.from !== folder;
 		if (locked) it.el.disabled = true;
 		else inputs.set(k, it);
-		return h('label', { class: 'field' },
+		const row = h('label', { class: 'field' },
 			h('span', { class: 'label' }, group(path).label),
 			it.el,
 			locked && h('span', { class: 'sub' }, 'locked above'));
+		all.set(k, { it, row });
+		return row;
 	};
 	const body = sections.map(([title, ks]) => {
 		const rows = ks.map(rowFor).filter(Boolean);
@@ -282,15 +294,31 @@ function form(d, net, fields, folder) {
 		if (title === 'More settings') return h('details', null, h('summary', null, title), h('div', { class: 'fields' }, rows));
 		return [title && h('h3', null, title), h('div', { class: 'fields' }, rows)];
 	});
-	return { body, inputs };
+	const show = (k, on) => {
+		const r = all.get(k)?.row;
+		if (r) r.hidden = !on;
+	};
+	const sync = () => {
+		for (const slot of ['primary', 'fallback']) {
+			const type = all.get(`transport.${slot}.type`)?.it.el.value;
+			for (const [t, ks] of Object.entries(FOR_TYPE))
+				for (const k of ks) show(`transport.${slot}.${k}`, type === t);
+		}
+		const fallback = all.get('transport.fallback.type')?.it.el.value;
+		for (const k of WITH_FALLBACK) show(k, Boolean(fallback));
+	};
+	for (const slot of ['primary', 'fallback'])
+		all.get(`transport.${slot}.type`)?.it.el.addEventListener('change', sync);
+	sync();
+	return { body, inputs, sync, visible: (k) => !all.get(k)?.row.hidden };
 }
 
 // changes reads what the person changed into {path: value}, or throws with
-// the first value that is wrong.
-function changes(net, inputs) {
+// the first value that is wrong. A field not on show is left out.
+function changes(net, inputs, visible) {
 	const out = {};
 	for (const [k, it] of inputs) {
-		if (!it.changed()) continue;
+		if (!visible(k) || !it.changed()) continue;
 		let v;
 		try {
 			v = it.read();
@@ -316,14 +344,14 @@ function shown(path, v) {
 
 function editForm(ctx, d, n, close) {
 	const folderName = ctx.name('services', n.from);
-	const { body, inputs } = form(d, n.id, n.fields, n.from);
+	const { body, inputs, visible } = form(d, n.id, n.fields, n.from);
 	const box = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
 	const review = async () => {
 		msg.replaceChildren();
 		let values;
 		try {
-			values = changes(n.id, inputs);
+			values = changes(n.id, inputs, visible);
 		} catch (e) {
 			msg.replaceChildren(e.message);
 			return;
@@ -359,14 +387,20 @@ function editForm(ctx, d, n, close) {
 // its SSID.
 function addForm(ctx, d, folders, nets, box) {
 	const pickFolder = h('select', null, folders.map((f) => h('option', { value: f.id }, `Services › ${ctx.name('services', f.id)}`)));
-	const { body, inputs } = form(d, 'new', {}, null);
+	const { body, inputs, sync, visible } = form(d, 'new', {}, null);
+	// A new network travels over a VLAN unless the person picks otherwise.
+	const primary = inputs.get('transport.primary.type');
+	if (primary) {
+		primary.el.value = 'vlan';
+		sync();
+	}
 	const msg = h('div', { class: 'error' });
 	const out = h('div', { class: 'edit flush' });
 	const review = async () => {
 		msg.replaceChildren();
 		let values;
 		try {
-			values = changes('new', inputs);
+			values = changes('new', inputs, visible);
 		} catch (e) {
 			msg.replaceChildren(e.message);
 			return;
