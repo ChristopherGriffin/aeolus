@@ -76,7 +76,7 @@ config wifi-iface 'aeolus_sweet_iot_radio0'
 	option key '` + pass + `'
 	option hidden '1'
 	option isolate '1'
-	option network 'aeolus_iot'
+	option network 'aeolus_sweet_iot'
 
 config wifi-iface 'default_radio0'
 	option device 'radio0'
@@ -84,11 +84,17 @@ config wifi-iface 'default_radio0'
 
 package network
 
+config interface 'lan'
+	option proto 'dhcp'
+	option device 'br-lan.1'
+
 config interface 'aeolus_sweet'
 	option proto 'none'
+	option device 'br-vx20'
 
-config interface 'aeolus_iot'
+config interface 'aeolus_sweet_iot'
 	option proto 'none'
+	option device 'br-lan.30'
 
 config device
 	option type '8021q'
@@ -100,12 +106,38 @@ config bridge-vlan
 	option device 'br-lan'
 	option vlan '30'
 
-config interface 'aeolus_sweet_vx'
+config interface 'aeolus_20'
 	option proto 'vxlan'
 	option peeraddr '1.1.1.2'
 	option port '4789'
 	option vid '20'
 	option mtu '1450'
+	option tunlink 'lan'
+
+config device 'aeolus_20_br'
+	option type 'bridge'
+	option name 'br-vx20'
+	option bridge_empty '1'
+	list ports 'aeolus_20'
+
+package firewall
+
+config zone
+	option name 'lan'
+	list network 'lan'
+
+config rule 'aeolus_vxlan_20'
+	option name 'Aeolus VXLAN 20'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+
+config include 'aeolus_clamp'
+	option type 'nftables'
+	option path '/etc/aeolus/clamp.nft'
+	option position 'ruleset-post'
 
 package system
 
@@ -162,14 +194,30 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"multicast to unicast", "option multicast_to_unicast '1'", "option multicast_to_unicast '0'", "aeolus_sweet_radio0: multicast_to_unicast is \"0\""},
 		{"multicast default", "option isolate '1'", "option isolate '1'\n\toption multicast_to_unicast '1'", "multicast_to_unicast is \"1\", want none, for OpenWrt's default"},
 		{"roaming", "option ieee80211r '1'\n\toption network 'aeolus_sweet'\n\nconfig wifi-iface 'aeolus_sweet_radio1'", "option network 'aeolus_sweet'\n\nconfig wifi-iface 'aeolus_sweet_radio1'", "aeolus_sweet_radio0: ieee80211r"},
-		{"interface", "config interface 'aeolus_iot'", "config interface 'aeolus_things'", "network interface aeolus_iot does not exist"},
+		{"interface", "config interface 'aeolus_sweet_iot'", "config interface 'aeolus_things'", "network interface aeolus_sweet_iot does not exist"},
+		{"no network interface", "config interface 'aeolus_sweet_iot'", "config interface 'aeolus_things'", "network.sweet-iot: no interface aeolus_sweet_iot"},
+		{"vlan path", "option device 'br-lan.30'", "option device 'br-lan.31'", "interface aeolus_sweet_iot is on \"br-lan.31\", want the primary's VLAN 30"},
+		{"tunnel path", "option device 'br-vx20'", "option device 'br-lan.20'", "interface aeolus_sweet is on \"br-lan.20\", want the primary's tunnel bridge br-vx20"},
 		{"device", "option device 'radio1'", "option device 'radio0'", "aeolus_sweet_radio1: device is \"radio0\""},
 		{"stale", "config wifi-iface 'default_radio0'", "config wifi-iface 'aeolus_old_radio0'", "wireless.aeolus_old_radio0: no network calls for it"},
 		{"vlan", "option vid '20'\n\toption name", "option vid '21'\n\toption name", "transport.fallback: VLAN 20 is not in the network config"},
 		{"bridge vlan", "option vlan '30'", "option vlan '31'", "sweet-iot.transport.primary: VLAN 30"},
-		{"vxlan", "option peeraddr '1.1.1.2'", "option peeraddr '1.1.1.3'", "no vxlan interface to 1.1.1.2 with VNI 20"},
-		{"vxlan mtu", "option mtu '1450'", "option mtu '1500'", "aeolus_sweet_vx: mtu is \"1500\""},
-		{"vxlan port", "option port '4789'", "option port '8472'", "port is \"8472\""},
+		{"no tunnel", "config interface 'aeolus_20'", "config interface 'aeolus_21'", "no tunnel aeolus_20 to 1.1.1.2 with VNI 20"},
+		{"tunnel peer", "option peeraddr '1.1.1.2'", "option peeraddr '1.1.1.3'", "network.aeolus_20: peeraddr is \"1.1.1.3\", want \"1.1.1.2\""},
+		{"tunnel proto", "option proto 'vxlan'", "option proto 'vxlan6'", "network.aeolus_20: proto is \"vxlan6\""},
+		{"tunnel vni", "option vid '20'\n\toption mtu", "option vid '21'\n\toption mtu", "network.aeolus_20: vid is \"21\""},
+		{"tunnel mtu", "option mtu '1450'", "option mtu '1500'", "aeolus_20: mtu is \"1500\""},
+		{"tunnel port", "option port '4789'", "option port '8472'", "port is \"8472\""},
+		{"tunlink", "\toption tunlink 'lan'\n", "", "aeolus_20: tunlink is missing"},
+		{"tunlink names", "option tunlink 'lan'", "option tunlink 'wan'", "tunlink \"wan\" names no interface"},
+		{"primary started", "option tunlink 'lan'", "option tunlink 'lan'\n\toption auto '0'", "the primary's tunnel is not started"},
+		{"tunnel bridge", "option name 'br-vx20'", "option name 'br-lan'", "network.aeolus_20_br: want a bridge br-vx20"},
+		{"bridge carries", "list ports 'aeolus_20'", "list ports 'lan1'", "the bridge does not carry the tunnel aeolus_20"},
+		{"firewall rule", "config rule 'aeolus_vxlan_20'", "config rule 'other'", "firewall.aeolus_vxlan_20: no rule letting the tunnel in from 1.1.1.2"},
+		{"rule source", "option src_ip '1.1.1.2'", "option src_ip '0.0.0.0/0'", "firewall.aeolus_vxlan_20: src_ip is \"0.0.0.0/0\""},
+		{"rule zone", "\toption src 'lan'\n", "", "firewall.aeolus_vxlan_20: src is missing"},
+		{"clamp", "config include 'aeolus_clamp'", "config include 'other'", "MTU 1450 needs the MSS clamp"},
+		{"no firewall", "package firewall", "package fire", "package firewall is missing"},
 		{"zonename", "option zonename 'America/Chicago'", "option zonename 'UTC'", "zonename is \"UTC\""},
 		{"ntp", "\tlist server '0.pool.ntp.org'\n", "", "system.ntp: servers"},
 		{"syslog", "option log_port '514'", "option log_port '515'", "log_port is \"515\""},
@@ -414,6 +462,60 @@ config agent 'agent'
 	}
 	if got := check(uplink, good); !strings.Contains(got, "ports.wan: the uplink carries the AP's management") {
 		t.Fatalf("the uplink: %s", got)
+	}
+}
+
+func TestTunnelFallbackAndIPv6(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(`{"network": {"sweet": {"transport": {
+		"primary": {"type": "vlan", "vlan": 20},
+		"fallback": {"type": "vxlan", "concentrator": "dc", "vni": 5000}}}},
+		"concentrators": {"dc": {"address": "[2001:db8::2]", "port": 4789, "mtu": 1500}}}`), &doc); err != nil {
+		t.Fatal(err)
+	}
+	check := func(text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	const good = `package wireless
+package network
+config interface 'lan'
+	option proto 'dhcp'
+config interface 'aeolus_sweet'
+	option proto 'none'
+	option device 'br-lan.20'
+config bridge-vlan 'vlan20'
+	option device 'br-lan'
+	option vlan '20'
+config interface 'aeolus_5000'
+	option proto 'vxlan6'
+	option peer6addr '2001:db8::2'
+	option vid '5000'
+	option mtu '1500'
+	option tunlink 'lan'
+	option auto '0'
+config device 'aeolus_5000_br'
+	option type 'bridge'
+	option name 'br-vx5000'
+	list ports 'aeolus_5000'
+package firewall
+config rule 'aeolus_vxlan_5000'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '2001:db8::2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+`
+	// MTU 1500 needs no clamp, and an unset port is vxlan's default.
+	if got := check(good); got != "" {
+		t.Fatalf("problems with the right config: %s", got)
+	}
+	if got := check(strings.Replace(good, "\toption auto '0'\n", "", 1)); !strings.Contains(got, "the fallback's tunnel is started; it waits") {
+		t.Fatalf("a started fallback: %s", got)
 	}
 }
 

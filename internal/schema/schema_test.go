@@ -148,7 +148,7 @@ func TestDescribe(t *testing.T) {
 	if w := d.Fields["radio.5g.width"]; w["x-aeolus-tree"] != "locations" {
 		t.Fatalf("radio.5g.width = %v", w)
 	}
-	if d.Names["network"] != "^[a-z0-9][a-z0-9-]{0,31}$" || d.Names["ports"] == "" {
+	if d.Names["network"] != "^[a-z][a-z0-9-]{0,31}$" || d.Names["ports"] == "" {
 		t.Fatalf("names = %v", d.Names)
 	}
 	// Every leaf but those the manager fills in.
@@ -196,6 +196,8 @@ func TestFieldPaths(t *testing.T) {
 		"network.sweet.transport.primary.vni":  change.Services,
 		"network.sweet.roaming.ft":             change.Services,
 		"network.guest-2.rate_limit.down_kbps": change.Services,
+		"network.vlan-guests.ssid":             change.Services,
+		"network.vlan2go.ssid":                 change.Services,
 	}
 	for p, tree := range ok {
 		f, err := s.Field(p)
@@ -215,6 +217,11 @@ func TestFieldPaths(t *testing.T) {
 		"network..ssid":                    ErrUnknownField,
 		"ports.Eth0.mode":                  ErrUnknownField,
 		"network.sweet.transport.tertiary": ErrUnknownField,
+		// Names Aeolus keeps for its own sections on an AP (0054).
+		"network.20.ssid":        ErrUnknownField,
+		"network.5g-guest.ssid":  ErrUnknownField,
+		"network.vlan20.ssid":    ErrUnknownField,
+		"network.port-lan3.ssid": ErrUnknownField,
 	}
 	for p, want := range bad {
 		if _, err := s.Field(p); !errors.Is(err, want) {

@@ -454,11 +454,17 @@ func (s *Schema) nameAllowed(node map[string]any, name string) bool {
 		return true
 	}
 	pn, _ = s.deref(pn, "")
-	pattern, ok := pn["pattern"].(string)
-	if !ok {
-		return true
+	if pattern, ok := pn["pattern"].(string); ok && !regexp.MustCompile(pattern).MatchString(name) {
+		return false
 	}
-	return regexp.MustCompile(pattern).MatchString(name)
+	// A name can also be kept out: network names that Aeolus keeps for its
+	// own sections on an AP (0054).
+	if not, ok := pn["not"].(map[string]any); ok {
+		if pattern, ok := not["pattern"].(string); ok && regexp.MustCompile(pattern).MatchString(name) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Schema) leaf(ptr string) (*jsonschema.Schema, error) {

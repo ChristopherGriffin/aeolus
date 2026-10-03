@@ -177,5 +177,18 @@ func TestAgentRendersItsOutput(t *testing.T) {
 		if string(out) != c.golden {
 			t.Errorf("%s: the agent renders something else than %s.uci:\n%s", c.name, c.name, out)
 		}
+		// The MSS clamp's file, made from the rendered tunnels (0054).
+		want, err := os.ReadFile(filepath.Join(agentDir, "test", "cases", c.name+".nft"))
+		if err != nil {
+			continue
+		}
+		cmd = exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "render.uc"),
+			filepath.Join(agentDir, "test", "cases", c.name+".json"), "clamp")
+		if out, err = cmd.Output(); err != nil {
+			t.Fatalf("%s clamp: %v", c.name, err)
+		}
+		if string(out) != string(want) {
+			t.Errorf("%s: the agent makes another clamp than %s.nft:\n%s", c.name, c.name, out)
+		}
 	}
 }

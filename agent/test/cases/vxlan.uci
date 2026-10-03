@@ -80,6 +80,14 @@ config wifi-iface 'aeolus_lab_radio1'
 	option encryption 'psk2'
 	option key 'fixture-passphrase-1'
 
+config wifi-iface 'aeolus_things_radio1'
+	option device 'radio1'
+	option mode 'ap'
+	option network 'aeolus_things'
+	option ssid 'Aeolus Things'
+	option encryption 'psk2'
+	option key 'fixture-passphrase-2'
+
 package network
 
 config interface 'loopback'
@@ -136,9 +144,42 @@ config interface 'trusted'
 	option proto 'none'
 	option device 'br-lan.20'
 
+config interface 'aeolus_50'
+	option proto 'vxlan'
+	option vid '50'
+	option port '4789'
+	option mtu '1450'
+	option tunlink 'lan'
+	option peeraddr '1.1.1.2'
+
+config device 'aeolus_50_br'
+	option type 'bridge'
+	option name 'br-vx50'
+	option bridge_empty '1'
+	list ports 'aeolus_50'
+
 config interface 'aeolus_lab'
 	option proto 'none'
-	option device 'br-lan.20'
+	option device 'br-vx50'
+
+config interface 'aeolus_10'
+	option proto 'vxlan'
+	option vid '10'
+	option port '4789'
+	option mtu '1450'
+	option tunlink 'lan'
+	option peeraddr '1.1.1.2'
+	option auto '0'
+
+config device 'aeolus_10_br'
+	option type 'bridge'
+	option name 'br-vx10'
+	option bridge_empty '1'
+	list ports 'aeolus_10'
+
+config interface 'aeolus_things'
+	option proto 'none'
+	option device 'br-lan.10'
 
 package system
 
@@ -222,4 +263,25 @@ config rule
 	option proto 'icmp'
 	option icmp_type 'echo-request'
 	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule 'aeolus_vxlan_50'
+	option name 'Aeolus VXLAN 50'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+
+config include 'aeolus_clamp'
+	option type 'nftables'
+	option path '/etc/aeolus/clamp.nft'
+	option position 'ruleset-append'
+
+config rule 'aeolus_vxlan_10'
+	option name 'Aeolus VXLAN 10'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
 	option target 'ACCEPT'

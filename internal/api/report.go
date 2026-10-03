@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -181,6 +182,27 @@ type stateReport struct {
 	Transports map[string]transportState `json:"transports,omitempty"`
 	Steering   *steeringState            `json:"steering,omitempty"`
 	Ports      []portState               `json:"ports,omitempty"`
+	VXLAN      *vxlanState               `json:"vxlan,omitempty"`
+}
+
+// vxlanState is what the AP's VXLAN tunnels are doing (0054): whether the
+// packages they need are installed (vxlan, and kmod-nft-bridge for the
+// clamp), and each tunnel Aeolus made.
+type vxlanState struct {
+	Installed bool          `json:"installed"`
+	Clamp     bool          `json:"clamp"`
+	Tunnels   []tunnelState `json:"tunnels,omitempty"`
+}
+
+// tunnelState is one tunnel: its VNI, the concentrator's address and port,
+// its MTU, and whether it is up, or standing by as a fallback.
+type tunnelState struct {
+	VNI     int    `json:"vni"`
+	Peer    string `json:"peer"`
+	Port    int    `json:"port"`
+	MTU     int    `json:"mtu"`
+	Up      bool   `json:"up"`
+	Standby bool   `json:"standby,omitempty"`
 }
 
 // portState is one Ethernet port in the bridge the AP's uplink is in
@@ -291,6 +313,16 @@ func (st *stateReport) check() error {
 			return badRequest("ports: each has its own name (such as lan1) and a speed such as 1000F, or none")
 		}
 		names[p.Name] = true
+	}
+	if x := st.VXLAN; x != nil {
+		if len(x.Tunnels) > 64 {
+			return badRequest("vxlan: at most 64 tunnels")
+		}
+		for _, t := range x.Tunnels {
+			if t.VNI < 1 || t.VNI > 16777215 || t.Port < 1 || t.Port > 65535 || t.MTU < 0 || t.MTU > 9000 || net.ParseIP(t.Peer) == nil {
+				return badRequest("vxlan: each tunnel has a VNI from 1 to 16777215, its peer's IP address, a port and an MTU of at most 9000")
+			}
+		}
 	}
 	for id, t := range st.Transports {
 		if !networkIDRE.MatchString(id) {

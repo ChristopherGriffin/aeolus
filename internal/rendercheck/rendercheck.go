@@ -101,6 +101,23 @@ func IfaceName(network, dev string) string {
 	return "aeolus_" + strings.ReplaceAll(network, "-", "_") + "_" + dev
 }
 
+// InterfaceName is a network's interface, which its wifi-ifaces join.
+func InterfaceName(network string) string {
+	return "aeolus_" + strings.ReplaceAll(network, "-", "_")
+}
+
+// TunnelName is the interface of the VXLAN tunnel for a VNI, and so its
+// Linux device: at most 15 characters for every VNI (0054).
+func TunnelName(vni string) string {
+	return "aeolus_" + vni
+}
+
+// The clamp's firewall include, and the file the agent makes for it (0054).
+const (
+	clampInclude = "aeolus_clamp"
+	clampPath    = "/etc/aeolus/clamp.nft"
+)
+
 type checker struct {
 	c        *uci.Config
 	problems []string
@@ -570,7 +587,10 @@ func portEntry(flags string) string {
 }
 
 // transports checks that every transport a network keeps has its path in
-// the network config. Both are rendered; the AP chooses between them (0020).
+// the network config. Both are rendered, as the AP chooses between them
+// (0020), and the network's interface is on the primary's path. Until
+// switching is built, a VXLAN fallback's tunnel is rendered but not
+// started (0054).
 func (k *checker) transports(id string, n map[string]any, concentrators map[string]any) {
 	net := k.c.Package("network")
 	if net == nil {
@@ -583,6 +603,7 @@ func (k *checker) transports(id string, n map[string]any, concentrators map[stri
 	for _, slot := range []string{"primary", "fallback"} {
 		t := obj(obj(n, "transport"), slot)
 		where := "network." + id + ".transport." + slot
+		path := "" // the device the network's interface is on, for this transport
 		switch t["type"] {
 		case "vlan":
 			vlan := text(t["vlan"])
@@ -600,30 +621,100 @@ func (k *checker) transports(id string, n map[string]any, concentrators map[stri
 			if !found {
 				k.add("%s: VLAN %s is not in the network config", where, vlan)
 			}
+			path = "." + vlan
 		case "vxlan":
-			cid, _ := t["concentrator"].(string)
-			conc := obj(concentrators, cid)
-			vni, address := text(t["vni"]), text(conc["address"])
-			var tunnel *uci.Section
-			for _, i := range net.OfType("interface") {
-				if value(i, "proto") == "vxlan" && value(i, "vid") == vni && value(i, "peeraddr") == address {
-					tunnel = i
-				}
-			}
-			if tunnel == nil {
-				k.add("%s: no vxlan interface to %s with VNI %s", where, address, vni)
-				continue
-			}
-			port := value(tunnel, "port")
-			if port == "" {
-				port = "4789" // the vxlan protocol's default
-			}
-			if want := text(conc["port"]); port != want {
-				k.add("network.%s: port is %q, want %q", tunnel.Name, port, want)
-			}
-			k.option("network."+tunnel.Name, tunnel, "mtu", text(conc["mtu"]))
+			path = k.tunnel(where, slot, t, obj(concentrators, text(t["concentrator"])))
+		}
+		if slot != "primary" || path == "" {
+			continue
+		}
+		iface := net.Named(InterfaceName(id))
+		if iface == nil || iface.Type != "interface" {
+			k.add("network.%s: no interface %s", id, InterfaceName(id))
+		} else if dev := value(iface, "device"); path[0] == '.' && !strings.HasSuffix(dev, path) {
+			k.add("network.%s: interface %s is on %q, want the primary's VLAN %s", id, iface.Name, dev, path[1:])
+		} else if path[0] != '.' && dev != path {
+			k.add("network.%s: interface %s is on %q, want the primary's tunnel bridge %s", id, iface.Name, dev, path)
 		}
 	}
+}
+
+// tunnel checks a VXLAN transport's tunnel (0054): the interface named for
+// its VNI, to the concentrator, started only for the primary; its bridge;
+// the firewall rule that lets it in; and the MSS clamp below 1500. It
+// returns the bridge the network's interface goes on.
+func (k *checker) tunnel(where, slot string, t, conc map[string]any) string {
+	net := k.c.Package("network")
+	vni := text(t["vni"])
+	address := strings.Trim(text(conc["address"]), "[]")
+	port := text(conc["port"])
+	name := TunnelName(vni)
+	at := "network." + name
+	s := net.Named(name)
+	if s == nil || s.Type != "interface" {
+		k.add("%s: no tunnel %s to %s with VNI %s (is the vxlan package installed?)", where, name, address, vni)
+		return ""
+	}
+	proto, peer := "vxlan", "peeraddr"
+	if strings.Contains(address, ":") {
+		proto, peer = "vxlan6", "peer6addr"
+	}
+	k.option(at, s, "proto", proto)
+	k.option(at, s, peer, address)
+	k.option(at, s, "vid", vni)
+	got := value(s, "port")
+	if got == "" {
+		got = "4789" // the vxlan protocol's default
+	}
+	if got != port {
+		k.add("%s: port is %q, want %q", at, got, port)
+	}
+	k.option(at, s, "mtu", text(conc["mtu"]))
+	if link := value(s, "tunlink"); link == "" {
+		k.add("%s: tunlink is missing, want the management interface", at)
+	} else if l := net.Named(link); l == nil || l.Type != "interface" {
+		k.add("%s: tunlink %q names no interface", at, link)
+	}
+	auto := value(s, "auto") != "0"
+	if slot == "primary" && !auto {
+		k.add("%s: the primary's tunnel is not started", at)
+	}
+	if slot == "fallback" && auto {
+		k.add("%s: the fallback's tunnel is started; it waits until the AP switches to it (0054)", at)
+	}
+
+	bridge := "br-vx" + vni
+	if b := net.Named(name + "_br"); b == nil || b.Type != "device" || value(b, "type") != "bridge" || value(b, "name") != bridge {
+		k.add("network.%s_br: want a bridge %s for the tunnel", name, bridge)
+	} else if !slices.Contains(b.List("ports"), name) {
+		k.add("network.%s_br: the bridge does not carry the tunnel %s", name, name)
+	}
+
+	fw := k.c.Package("firewall")
+	if fw == nil {
+		k.add("%s: package firewall is missing, for the tunnel's rule", where)
+		return bridge
+	}
+	rule := "aeolus_vxlan_" + vni
+	if r := fw.Named(rule); r == nil || r.Type != "rule" {
+		k.add("firewall.%s: no rule letting the tunnel in from %s", rule, address)
+	} else {
+		for opt, want := range map[string]string{"proto": "udp", "src_ip": address, "dest_port": port, "target": "ACCEPT"} {
+			k.option("firewall."+rule, r, opt, want)
+		}
+		if value(r, "src") == "" {
+			k.add("firewall.%s: src is missing, want the management interface's zone", rule)
+		}
+	}
+	if mtu, _ := conc["mtu"].(float64); mtu < 1500 {
+		if inc := fw.Named(clampInclude); inc == nil || inc.Type != "include" {
+			k.add("%s: MTU %s needs the MSS clamp, firewall.%s (is kmod-nft-bridge installed?)", where, text(conc["mtu"]), clampInclude)
+		} else {
+			k.option("firewall."+clampInclude, inc, "type", "nftables")
+			k.option("firewall."+clampInclude, inc, "path", clampPath)
+		}
+	}
+	return bridge
 }
 
 func (k *checker) system(sys map[string]any) {

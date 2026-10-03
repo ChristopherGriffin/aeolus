@@ -6,6 +6,7 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -132,6 +133,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, bondingProblems(doc)...)
 	problems = append(problems, snmpProblems(doc)...)
 	problems = append(problems, portProblems(doc)...)
+	problems = append(problems, tunnelProblems(doc)...)
 	if problems == nil {
 		problems = []string{}
 	}
@@ -251,6 +253,54 @@ func portProblems(doc map[string]any) []string {
 			if set["untagged"] != nil || set["tagged"] != nil {
 				out = append(out, where+": VLANs are set, but not the mode that carries them (access or trunk)")
 			}
+		}
+	}
+	return out
+}
+
+// tunnelProblems refuses VXLAN transports an AP cannot run (0054). An AP
+// runs one tunnel per VNI, so two networks on one VNI would become one, and a
+// network's primary and fallback cannot share one yet. A tunnel needs its
+// concentrator's IP address, as names do not resolve reliably on an AP.
+func tunnelProblems(doc map[string]any) []string {
+	nets, _ := doc["network"].(map[string]any)
+	concs, _ := doc["concentrators"].(map[string]any)
+	users := map[int][]string{} // VNI -> the networks that use it
+	var out []string
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		if n["enabled"] == false {
+			continue // not rendered
+		}
+		transport, _ := n["transport"].(map[string]any)
+		slots := map[int]string{}
+		for _, slot := range []string{"primary", "fallback"} {
+			t, _ := transport[slot].(map[string]any)
+			vni, ok := t["vni"].(float64)
+			if t["type"] != "vxlan" || !ok {
+				continue
+			}
+			if other, ok := slots[int(vni)]; ok {
+				out = append(out, fmt.Sprintf("network.%s.transport: the %s and the %s both use VNI %d; an AP runs one tunnel per VNI", id, other, slot, int(vni)))
+				continue
+			}
+			slots[int(vni)] = slot
+			users[int(vni)] = append(users[int(vni)], id)
+			cid, _ := t["concentrator"].(string)
+			c, _ := concs[cid].(map[string]any)
+			if addr, _ := c["address"].(string); addr != "" && net.ParseIP(strings.Trim(addr, "[]")) == nil {
+				out = append(out, fmt.Sprintf("network.%s.transport.%s: concentrator %s's address %q is a name; a tunnel needs its IP address", id, slot, cid, addr))
+			}
+		}
+	}
+	vnis := make([]int, 0, len(users))
+	for v := range users {
+		vnis = append(vnis, v)
+	}
+	sort.Ints(vnis)
+	for _, v := range vnis {
+		if len(users[v]) > 1 {
+			out = append(out, fmt.Sprintf("VNI %d: networks %s would share one tunnel at this AP, and so become one network", v, strings.Join(users[v], " and ")))
 		}
 	}
 	return out
