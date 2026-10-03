@@ -16,7 +16,7 @@ const SYSTEM = {
 	'management.gateway': 'Gateway', 'management.dns': 'DNS',
 };
 
-const RADIO = { enabled: 'Enabled', channel: 'Channel', width: 'Width', power: 'Power' };
+const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power' };
 
 const PORT = { enabled: 'Enabled', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
 
@@ -57,6 +57,7 @@ export function value(path, v, names) {
 	if (Array.isArray(v)) return v.map((x) => (last === 'bands' ? BANDS[x] || x : String(x))).join(', ');
 	if (last === 'security') return SECURITY[v] || v;
 	if (last === 'width' && typeof v === 'number') return v + ' MHz';
+	if (last === 'channel' && v === 'auto') return path.includes('.2g.') ? 'automatic (1, 6, 11)' : 'automatic';
 	if (last === 'power' && typeof v === 'number') return v + ' dBm';
 	if (last === 'poll' || last === 'holddown') return v + ' s';
 	if (last.endsWith('_kbps')) return v === 0 ? 'no limit' : v + ' kbps';

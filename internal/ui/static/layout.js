@@ -5,8 +5,10 @@ import { h, link, icon } from './dom.js';
 import { ago } from './format.js';
 
 // treeAside draws a tree on the left, as in the mockup. status maps an AP
-// to how it is doing (apStatus), for the dot beside its name.
-export function treeAside(ctx, tree, selected, status) {
+// to how it is doing (apStatus), for the dot beside its name. keep is the
+// tab to open on the folder or AP clicked (0047); it is not kept in an
+// isolated folder, whose page has no tabs.
+export function treeAside(ctx, tree, selected, status, keep = '') {
 	const t = ctx.trees[tree];
 	const depth = (id) => {
 		let d = 0;
@@ -21,7 +23,7 @@ export function treeAside(ctx, tree, selected, status) {
 		h('div', { class: 'tree-title' }, tree === 'locations' ? 'Locations' : 'Services'),
 		t.list.map((n) => {
 			const ap = n.kind === 'ap';
-			const href = ap ? `/aps/${encodeURIComponent(n.id)}` : `/${tree}/${encodeURIComponent(n.id)}`;
+			const href = (ap ? `/aps/${encodeURIComponent(n.id)}` : `/${tree}/${encodeURIComponent(n.id)}`) + (n.isolated ? '' : keep);
 			const cls = [n.id === selected ? 'on' : '', inBranch(n.id) ? 'branch' : ''].join(' ').trim();
 			const st = ap && status ? status.get(n.id) : null;
 			return h('a', { href: '#' + href, class: cls || null, style: { '--depth': depth(n.id) } },
@@ -59,4 +61,16 @@ export function apStatus(a) {
 // fleet reads every AP's state, by ID.
 export function fleetMap(aps) {
 	return new Map(aps.map((a) => [a.id, apStatus(a)]));
+}
+
+// tabBar draws a page's tabs as links under base ([[key, label]]); current
+// is the one shown. sub draws the smaller second row (0047).
+export function tabBar(base, tabs, current, sub) {
+	return h('nav', { class: sub ? 'subtabs' : 'pagetabs', 'aria-label': sub ? 'Part of this section' : 'Sections of this page' },
+		tabs.map(([key, label]) => h('a', { href: `#${base}/${key}`, class: key === current ? 'on' : null, 'aria-current': key === current ? 'page' : null }, label)));
+}
+
+// pick returns the tab asked for if there is one, or the first.
+export function pick(tabs, key) {
+	return tabs.some(([k]) => k === key) ? key : tabs[0][0];
 }

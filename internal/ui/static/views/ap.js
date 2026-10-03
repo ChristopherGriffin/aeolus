@@ -1,15 +1,17 @@
-// One AP: whether it runs what it should, what it offers, what it reported,
-// and its history (0039, 0041).
+// One AP: whether it runs what it should, its settings in the same tabs as a
+// folder's (0047), what it reported, and its history (0039, 0041).
 
-import { h, link } from '../dom.js';
+import { h } from '../dom.js';
 import { get } from '../api.js';
-import { security, bandName, when, ago } from '../format.js';
-import { treeAside, crumbs, apStatus, fleetMap } from '../layout.js';
-import { fieldPanels, editing } from './fields.js';
-import { hardwarePanel } from './hardware.js';
+import { bandName, when, ago } from '../format.js';
+import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick } from '../layout.js';
+import { editing } from './fields.js';
 import { followButton } from './follow.js';
+import { hardwareTab, networksTab, systemSection } from './sections.js';
 
-export async function apPage(ctx, id) {
+const TABS = [['overview', 'Overview'], ['hardware', 'Hardware'], ['networks', 'Networks'], ['system', 'System']];
+
+export async function apPage(ctx, id, tab, sub) {
 	const enc = encodeURIComponent(id);
 	const [page, cfg, hist, fleet] = await Promise.all([
 		get(`/v1/trees/locations/nodes/${enc}`),
@@ -26,6 +28,9 @@ export async function apPage(ctx, id) {
 	// change (0046).
 	const own = Object.keys(page.fields || {}).filter((p) => page.fields[p].origin === 'self').sort();
 	const revertBox = h('div', { class: 'edit flush' });
+	const base = `/aps/${enc}`;
+	tab = pick(TABS, tab);
+	const thisAP = { ap: { id, name: page.node.name }, cfg };
 	const main = [
 		crumbs(ctx, 'locations', page.ancestry),
 		h('div', { class: 'head' },
@@ -39,15 +44,17 @@ export async function apPage(ctx, id) {
 		cfg.check?.problems?.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Its config breaks these rules, so it is not sent'),
 			h('ul', null, cfg.check.problems.map((p) => h('li', null, p)))),
-		h('div', { class: 'grid2' },
-			h('div', { class: 'col' }, hardwarePanel(ctx, id, page.node.name, page, cfg.condition?.state), networks(ctx, cfg)),
-			h('div', { class: 'col' }, latest(cond), enrollment(facts))),
-		h('section', { class: 'panel' },
-			h('h2', null, 'Location settings', h('span', { class: 'note' }, 'what it inherits, and from where'))),
-		fieldPanels(ctx, 'locations', id, page.fields, edit),
-		history(hist),
+		tabBar(base, TABS, tab),
 	];
-	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps)), main, refresh: 30 };
+	if (tab === 'overview') {
+		main.push(h('div', { class: 'grid2' },
+			h('div', { class: 'col' }, latest(cond)),
+			h('div', { class: 'col' }, enrollment(facts))), history(hist));
+	} else if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub, thisAP));
+	else if (tab === 'networks') main.push(await networksTab(ctx, id, page, thisAP));
+	else main.push(systemSection(ctx, id, page, edit));
+	const keep = tab === 'overview' ? '' : `/${tab}${tab === 'hardware' && sub ? '/' + sub : ''}`;
+	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps), keep), main, refresh: 30 };
 }
 
 function statusPanel(st, cfg, cond) {
@@ -60,31 +67,6 @@ function statusPanel(st, cfg, cond) {
 					cond.seen ? `Last seen ${ago(cond.seen.at)} from ${cond.seen.source}` : 'Never seen',
 					' · its version is ', String(cfg.version),
 					cond.seen?.running != null && ` · running ${cond.seen.running}`))));
-}
-
-// networks is what this AP offers: each network from its service folders,
-// with how its traffic travels (0018).
-function networks(ctx, cfg) {
-	const nets = Object.entries(cfg.networks || {});
-	const f = (n, k) => n.fields?.[k]?.value;
-	const transport = (n, slot) => {
-		const type = f(n, `transport.${slot}.type`);
-		if (!type) return null;
-		return type === 'vxlan'
-			? `VXLAN ${f(n, `transport.${slot}.concentrator`)} · VNI ${f(n, `transport.${slot}.vni`)}`
-			: `VLAN ${f(n, `transport.${slot}.vlan`)}`;
-	};
-	return h('section', { class: 'panel' },
-		h('h2', null, 'Networks on this AP', h('span', { class: 'note' }, 'from its service folders')),
-		nets.length === 0
-			? h('div', { class: 'empty' }, cfg.unassigned ? 'None while it waits in Landing Zone.' : 'None: no service folder assigned above it offers a network.')
-			: h('table', { class: 'list' },
-				h('tr', null, ['SSID', 'Security', 'Travels over', 'From'].map((c) => h('th', null, c))),
-				nets.map(([nid, n]) => h('tr', null,
-					h('td', { class: 'mono' }, f(n, 'ssid') || nid, f(n, 'enabled') === false && ' (off)'),
-					h('td', null, security(f(n, 'security')) || '—'),
-					h('td', { class: 'mono' }, transport(n, 'primary') || '—', transport(n, 'fallback') && h('div', null, 'then ', transport(n, 'fallback'))),
-					h('td', null, link(`/services/${encodeURIComponent(n.from)}`, ctx.name('services', n.from)))))));
 }
 
 function latest(cond) {

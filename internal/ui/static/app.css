@@ -158,12 +158,24 @@ details ul.problems { margin: 0; padding: 4px 20px 12px 38px; color: #6B1A13; fo
 .more button, .button { border: 1px solid #C9CEC6; background: var(--panel); border-radius: 8px; padding: 7px 14px; cursor: pointer; color: var(--ink); }
 
 /* Editing (M6 part 2) */
-.radio { border-top: 1px solid var(--line-2); }
-.radio-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 20px 2px; }
-.radio .row { border-top: 0; flex-wrap: wrap; }
-.radio .row .value { min-width: 7em; }
 .controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 select { height: 34px; padding: 0 8px; border: 1px solid #C9CEC6; border-radius: 8px; background: var(--panel); font: inherit; font-size: 14px; color: var(--ink); }
+nav.pagetabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 4px 0 16px; }
+nav.pagetabs a { padding: 10px 16px; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+nav.pagetabs a:hover { text-decoration: none; color: var(--ink); }
+nav.pagetabs a.on { color: var(--ink); border-bottom-color: var(--accent); }
+nav.subtabs { display: flex; gap: 6px; margin: 0 0 16px; }
+nav.subtabs a { padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+nav.subtabs a:hover { text-decoration: none; color: var(--ink); }
+nav.subtabs a.on { background: var(--accent-bg); border-color: var(--accent); color: var(--ink); }
+.bands { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.panel.band.none h2 { color: var(--muted); }
+.panel.band .row { flex-wrap: wrap; }
+.panel.band .row .label { width: 90px; }
+.panel.band .row .value { min-width: 8em; }
+.chip.band { background: var(--accent-bg); color: var(--ink); }
+.chip.band.none { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+.lead { margin: 0 0 12px; }
 .button.small { padding: 4px 10px; font-size: 13px; }
 .edit.flush { padding: 0; }
 .preview ul.becomes { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
