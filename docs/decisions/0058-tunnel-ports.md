@@ -1,8 +1,8 @@
 # 0058. Ethernet ports on tunnels
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Griff: attach an Ethernet port to VXLAN by tunnel and VNI, carrying several VNIs tagged; written up by Claude
+- Proposed by: Griff: attach an Ethernet port to VXLAN by tunnel and VNI, carrying several VNIs tagged; written up by Claude and accepted with the merge
 - Refines: 0053, 0054, 0055, 0056, 0057
 
 ## Context
