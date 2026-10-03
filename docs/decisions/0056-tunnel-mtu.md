@@ -1,8 +1,8 @@
 # 0056. A tunnel's MTU: default or custom, and only what the uplink carries
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Griff: a tunnel's MTU is the default or custom, and a higher one is allowed only if the AP's port carries it now, or else Aeolus says it cannot; written up by Claude
+- Proposed by: Griff: a tunnel's MTU is the default or custom, and a higher one is allowed only if the AP's port carries it now, or else Aeolus says it cannot; written up by Claude and accepted with the merge
 - Refines: 0018, 0054, 0055
 
 ## Context
