@@ -1,8 +1,8 @@
 # 0061. Switching a network between its transports
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Griff: step 2 of 0059, a network moves to its fallback when its primary fails, when set to, and only to one known to work; written up by Claude
+- Proposed by: Griff: step 2 of 0059, a network moves to its fallback when its primary fails, when set to, and only to one known to work; written up by Claude, and accepted with the merge of part 1
 - Refines: 0018, 0020, 0022, 0054, 0059, 0060
 
 ## Context
