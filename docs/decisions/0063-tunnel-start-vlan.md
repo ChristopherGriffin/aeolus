@@ -1,8 +1,8 @@
 # 0063. A tunnel can start from any VLAN on the uplink
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
-- Proposed by: Griff: a tunnel can start from the management VLAN or from any VLAN the uplink's trunk carries, such as VLAN 20, and end on a concentrator that maps its VNI (55, say) to a VLAN of its own. The management VLAN is the default; otherwise the VLAN is given. Written up by Claude.
+- Proposed by: Griff: a tunnel can start from the management VLAN or from any VLAN the uplink's trunk carries, such as VLAN 20, and end on a concentrator that maps its VNI (55, say) to a VLAN of its own. The management VLAN is the default; otherwise the VLAN is given. Written up by Claude, and accepted with the merge.
 - Refines: 0054, 0055
 
 ## Context
