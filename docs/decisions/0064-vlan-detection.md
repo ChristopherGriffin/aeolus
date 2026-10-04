@@ -1,8 +1,8 @@
 # 0064. Telling which VLANs reach an AP
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
-- Proposed by: Griff: 0020's rule that APs detect the VLANs on their trunk, and the manager flags a VLAN that is expected but missing. Since an AP can't see a VLAN it doesn't carry, it tells when one it carries, for a port or an SSID, has no frames coming in from the uplink: that VLAN isn't on the switch port. Written up by Claude
+- Proposed by: Griff: 0020's rule that APs detect the VLANs on their trunk, and the manager flags a VLAN that is expected but missing. Since an AP can't see a VLAN it doesn't carry, it tells when one it carries, for a port or an SSID, has no frames coming in from the uplink: that VLAN isn't on the switch port. Written up by Claude, and accepted with the merge
 - Refines: 0020, 0059, 0060, 0061
 - Resolves: 0020's first open point, how APs detect VLANs
 

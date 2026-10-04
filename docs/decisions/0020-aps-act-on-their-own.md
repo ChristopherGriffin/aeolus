@@ -15,6 +15,6 @@
 
 ## Open
 
-- How APs detect VLANs. Candidates: LLDP from the switch where it advertises VLANs; an active probe per expected VLAN (a DHCP discover, or ARP to the gateway); tagged traffic seen on the uplink as supporting evidence. A quiet VLAN shows no traffic, so absence of traffic alone does not prove a VLAN is missing.
+- ~~How APs detect VLANs. Candidates: LLDP from the switch where it advertises VLANs; an active probe per expected VLAN (a DHCP discover, or ARP to the gateway); tagged traffic seen on the uplink as supporting evidence. A quiet VLAN shows no traffic, so absence of traffic alone does not prove a VLAN is missing.~~ Resolved by 0064: frames coming in on each VLAN the AP carries, a nudge for a quiet one, and the switch's LLDP.
 - How an AP judges a VXLAN transport healthy (a reachability check to the concentrator).
 - ~~Switching back to the primary.~~ Resolved by 0022: HA mode, with revertive (hold-down) or equal-weight failback.
