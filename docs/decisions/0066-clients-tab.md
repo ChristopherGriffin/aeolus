@@ -71,3 +71,41 @@
 
 - Acting on a client: disconnecting it, or blocking it.
 - Clients on wired ports.
+
+## As built
+
+- **The prober reads the stations of every Wi-Fi interface** from nl80211 when it scans, every 10 seconds and after each apply. It reports them as `clients`, newest first, merged with the DHCP watch's address, host name and verdict on Aeolus's networks.
+  - The host name is kept from a client's DHCP request, option 12, else option 81's FQDN, read as DNS labels when its E flag is set. It is dropped when the client leaves.
+- **The agent passes `clients` through.** A client joining or leaving counts as news, so a report goes at the next poll.
+- **The manager holds each client to what the prober writes:**
+  - a MAC;
+  - a network ID or none;
+  - an SSID of at most 32 bytes;
+  - a band;
+  - a signal from −150 to 50 dBm;
+  - rates up to 100 Gbit/s, MCS up to 31, up to 16 streams;
+  - counts that are not negative;
+  - an IPv4 address or none;
+  - a printable host name of at most 64 characters;
+  - a DHCP verdict.
+
+  At most 256 clients.
+- **The UI:**
+  - The tab is after Networks, on an AP's page and on a folder's.
+  - One panel, with filters by network, and by AP on a folder's, and a search box. Each column sorts, newest first by default.
+  - Rates read down then up from the client's side: down is what the AP sends.
+  - Connected counts on from the report's time.
+  - What the person chose stays through the page's 30-second refresh.
+
+## Lab checks
+
+- **On OpenWrtnight on 2026-10-04,** with the new prober run by hand, it listed the two clients on Sweet_Spot_IoT, the AP's own network, at 2.4 GHz. Their address, host name and DHCP verdict were blank, as on any network of the AP's own.
+  - One had a signal of −88 dBm, rates of 12 and 18 Mbit/s, and 574 failed transmissions.
+  - The other had −49 dBm, and rates of 72.2 and 43.3 Mbit/s.
+- **The new agent's read-only state report** carried both, in the shape the manager checks.
+- **probe.out** covers the host name, as option 12 and as an FQDN in DNS labels.
+- **The tab, in the local harness:**
+  - on an AP's page and on a folder's;
+  - the filters, the search and the sorting;
+  - a client with a host name, one static, and the AP's own.
+- **To check after the release:** a phone on Aeolus Lab, with its host name, address and DHCP verdict.
