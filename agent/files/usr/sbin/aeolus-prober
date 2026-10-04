@@ -24,6 +24,10 @@
 // once a minute it listens on the uplink until a frame has come in on each,
 // and nudges one that stays quiet. It reads the switch's LLDP too.
 //
+// On the Wi-Fi interfaces of Aeolus's networks it watches the clients' DHCP
+// (0065): a client that doesn't use it, requests nothing answers, and
+// requests more than one server answers.
+//
 // Its plan is the agent's own UCI package, as the renderer made it: probe
 // and guard sections. What it finds goes to /var/run/aeolus/probes.json,
 // which the agent reports. procd runs it beside the agent.
@@ -41,6 +45,14 @@ import { cursor } from 'uci';
 import { connect } from 'ubus';
 import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING, LOG_ERR } from 'log';
 import * as probe from 'aeolus.probe';
+
+// nl80211 says when each Wi-Fi client joined (0065). OpenWrt installs it; an
+// AP without it watches DHCP without judging which clients don't use it.
+let nl80211 = null;
+try {
+	nl80211 = require('nl80211');
+} catch (e) {
+}
 
 let confdir = null, out = '/var/run/aeolus/probes.json', act = true;
 for (let i = 0; i < length(ARGV); i++) {
@@ -223,6 +235,13 @@ let guard_rx = null;
 // listening and when it ends; when the next is due; the LLDP socket, and
 // what the switch last said.
 let watch = { uplink: null, vlans: {}, sock: null, until: 0, next: 0, lldp: null, neighbor: null };
+
+// The clients' DHCP on the Wi-Fi interfaces of Aeolus's networks (0065): by
+// interface, its socket, network and when the watch began there; by network,
+// the requests waiting for answers, its servers, the unanswered and answered
+// requests in the window, its duplicates, its clients, and when each client
+// last asked.
+let dw = { ifaces: {}, nets: {} };
 
 // heard notes that a frame came in on a watched VLAN (0064).
 function heard(vlan, at) {
@@ -801,6 +820,165 @@ function on_lldp(at) {
 	}
 }
 
+// dhcp_net is a network's DHCP watch (0065), made when first needed.
+function dhcp_net(id) {
+	return dw.nets[id] ??= { requests: {}, servers: {}, unanswered: [], answered: [], duplicates: [], clients: {}, asked: {}, silent: false };
+}
+
+// dhcp_scan finds the Wi-Fi interfaces of Aeolus's networks, as netifd has
+// them, and opens a socket on each new one (0065). Then it reads, from
+// nl80211, which clients are on each and when each joined. A client that
+// joined after the watch began on its interface is watched; one that joined
+// again starts afresh.
+function dhcp_scan(at) {
+	let want = {}, nets = {};
+	for (let r, v in bus.call('network.wireless', 'status') ?? {})
+		for (let i in v.interfaces ?? []) {
+			let n = filter(i.config?.network ?? [], x => match(x, /^aeolus_/))[0];
+			if (i.ifname && n) {
+				want[i.ifname] = replace(substr(n, 7), /_/g, '-');
+				nets[want[i.ifname]] = true;
+			}
+		}
+	for (let ifn in keys(dw.ifaces))
+		if (want[ifn] != dw.ifaces[ifn].network || ifindex(ifn) != dw.ifaces[ifn].index) {
+			close(dw.ifaces[ifn].sock);
+			delete dw.ifaces[ifn];
+		}
+	for (let ifn, id in want)
+		if (!dw.ifaces[ifn]) {
+			let sock = packet(ifn, probe.DHCP_FILTER);
+			if (sock)
+				dw.ifaces[ifn] = { sock: sock, network: id, index: ifindex(ifn), started: at };
+		}
+	for (let id in keys(dw.nets))
+		if (!nets[id])
+			delete dw.nets[id];
+	if (!nl80211)
+		return;
+	let seen = {};
+	for (let ifn, w in dw.ifaces) {
+		let n = dhcp_net(w.network);
+		seen[w.network] ??= {};
+		for (let st in nl80211.request(nl80211.const.NL80211_CMD_GET_STATION, nl80211.const.NLM_F_DUMP, { dev: ifn }) ?? []) {
+			let mac = lc(st.mac ?? ''), connected = st.sta_info?.connected_time;
+			if (!mac || connected == null)
+				continue;
+			seen[w.network][mac] = true;
+			let joined = at - connected, c = n.clients[mac];
+			if (!c || joined > c.joined + 5)
+				n.clients[mac] = c = { joined: joined, watched: joined >= w.started - 2, asked: null, address: null, said: null };
+			if (n.asked[mac] != null && n.asked[mac] >= c.joined - 2)
+				c.asked = n.asked[mac];
+		}
+	}
+	for (let id, n in dw.nets)
+		for (let mac in keys(n.clients))
+			if (!seen[id]?.[mac])
+				delete n.clients[mac];
+}
+
+// on_dhcp reads what crossed a Wi-Fi interface (0065). A request counts when
+// it comes in from a client: the bridge floods the segment's other
+// broadcast requests out to the Wi-Fi clients too, and one client's to the
+// others. It is kept by its transaction ID. An answer goes with its request,
+// by server, and a second server answering one request is a duplicate; any
+// answer shows its server, whoever it answers on the segment. An ack gives a
+// client its address; so does its ARP.
+function on_dhcp(w, at) {
+	let n = dhcp_net(w.network), m;
+	while ((m = w.sock.recvmsg(2048, 0, socket.MSG_DONTWAIT)) != null) {
+		let f = m.data, d = probe.dhcp_seen(f);
+		if (d && d.op == 1) {
+			if (m.address?.packet_type == 4)
+				continue;   // going out: not this network's Wi-Fi client asking
+			if (d.type in ['discover', 'request', 'inform'] && !n.requests['' + d.xid])
+				n.requests['' + d.xid] = { at: at, client: d.client, type: d.type, answers: {}, duplicate: null };
+			n.asked[d.client] = at;
+			if (n.clients[d.client])
+				n.clients[d.client].asked = at;
+		} else if (d && d.op == 2) {
+			let r = n.requests['' + d.xid], server = d.server ?? d.src_ip;
+			let sv = n.servers[server] ??= { mac: d.src_mac, answers: 0, last: at };
+			sv.mac = d.src_mac;
+			sv.last = at;
+			if (!r || !r.answers[server])
+				sv.answers++;
+			if (r && !r.answers[server]) {
+				r.answers[server] = { type: d.type, mac: d.src_mac };
+				if (length(keys(r.answers)) >= 2) {
+					if (!r.duplicate) {
+						r.duplicate = { at: at, client: r.client, servers: [] };
+						push(n.duplicates, r.duplicate);
+					}
+					r.duplicate.servers = sort(keys(r.answers));
+					note('DHCP on %s: %s all answered %s', w.network, join(' and ', r.duplicate.servers), r.client);
+				}
+			}
+			if (d.type == 'ack' && d.yiaddr != '0.0.0.0' && n.clients[d.client])
+				n.clients[d.client].address = d.yiaddr;
+		} else {
+			let a = probe.arp_seen(f);
+			if (a && n.clients[a.mac])
+				n.clients[a.mac].address = a.address;
+		}
+	}
+}
+
+// dhcp_results judges each network's DHCP (0065): requests that waited their
+// time unanswered, or were answered; the windows they are counted in; and
+// each client's use of DHCP. A network that stops answering, and a client
+// that doesn't use DHCP, are logged once.
+function dhcp_results(at) {
+	let out = {};
+	for (let id, n in dw.nets) {
+		for (let x in keys(n.requests)) {
+			let r = n.requests[x], st = probe.request_state(r, at);
+			if (st == 'unanswered') {
+				push(n.unanswered, { at: r.at, client: r.client });
+				delete n.requests[x];
+			} else if (st == 'answered' && at - r.at > probe.DHCP_WAIT) {
+				push(n.answered, r.at);
+				delete n.requests[x];
+			}
+		}
+		n.unanswered = filter(n.unanswered, u => at - u.at <= probe.DHCP_WINDOW);
+		n.answered = filter(n.answered, t => at - t <= probe.DHCP_WINDOW);
+		n.duplicates = filter(n.duplicates, x => at - x.at <= probe.DHCP_MEMORY);
+		for (let k in keys(n.servers))
+			if (at - n.servers[k].last > probe.DHCP_MEMORY)
+				delete n.servers[k];
+		for (let k in keys(n.asked))
+			if (at - n.asked[k] > probe.DHCP_MEMORY)
+				delete n.asked[k];
+		let silent = length(n.unanswered) > 0 && !length(n.answered);
+		if (silent != n.silent) {
+			let how = silent ? note : log;
+			how('DHCP on %s: %s', id, silent ? `nothing answers: ${length(n.unanswered)} requests in ${probe.DHCP_WINDOW / 60} minutes` : 'answering again');
+			n.silent = silent;
+		}
+		let without = [];
+		for (let mac, c in n.clients) {
+			let v = probe.client_dhcp(c, at);
+			if (v != c.said && (v == 'static' || v == 'none'))
+				note('DHCP on %s: client %s asked nothing in %d s, %s', id, mac, probe.DHCP_QUIET, v == 'static' ? `and uses ${c.address}` : 'and shows no address');
+			c.said = v;
+			if (v == 'static' || v == 'none')
+				push(without, { mac: mac, joined_ago: int(at - c.joined), address: c.address });
+		}
+		if (!length(n.servers) && !length(n.unanswered) && !length(n.answered) && !length(without))
+			continue;
+		out[id] = {
+			servers: slice(map(sort(keys(n.servers)), k => ({ id: k, mac: n.servers[k].mac, answers: n.servers[k].answers, ago: int(at - n.servers[k].last) })), 0, 8),
+			answered: length(n.answered), unanswered: length(n.unanswered),
+			unanswered_clients: slice(uniq(map(n.unanswered, u => u.client)), 0, 16),
+			duplicates: slice(map(n.duplicates, x => ({ servers: x.servers, client: x.client, ago: int(at - x.at) })), -8),
+			without: slice(without, 0, 32),
+		};
+	}
+	return out;
+}
+
 function send_guard(port, g, at) {
 	for (let i = 0; i < length(g.plan.devices); i++) {
 		let name = g.plan.devices[i];
@@ -915,7 +1093,7 @@ function results(at) {
 		nb.ago = int(at - watch.neighbor.at);
 	}
 	let uplink = { vlans: uv, neighbor: nb };
-	store(out, sprintf('%J\n', { at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp, uplink: uplink }));
+	store(out, sprintf('%J\n', { at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp, uplink: uplink, dhcp: dhcp_results(at) }));
 }
 
 function main() {
@@ -936,6 +1114,7 @@ function main() {
 	let p = plan(), sig = sprintf('%J', p);
 	apply_plan(p);
 	open_lldp();
+	dhcp_scan(now());
 	log('probing %d tunnels, guarding %d ports, watching %d VLANs on the uplink', length(keys(tun)), length(keys(guards)), length(keys(watch.vlans)));
 	let next_plan = now() + PLAN_EVERY, next_write = now(), next_attach = now();
 	// The agent sends a SIGHUP when it has applied a config, so the plan,
@@ -952,6 +1131,7 @@ function main() {
 				log('the plan changed: probing %d tunnels, guarding %d ports, watching %d VLANs on the uplink', length(keys(tun)), length(keys(guards)), length(keys(watch.vlans)));
 			}
 			open_lldp();
+			dhcp_scan(at);
 			next_plan = at + PLAN_EVERY;
 		}
 		for (let vni, t in tun)
@@ -1013,6 +1193,11 @@ function main() {
 		for (let s in [watch.sock, watch.lldp])
 			if (s)
 				push(polls, [s, socket.POLLIN]);
+		let by_wifi = {};
+		for (let ifn, w in dw.ifaces) {
+			by_wifi[w.sock.fileno()] = ifn;
+			push(polls, [w.sock, socket.POLLIN]);
+		}
 		if (!length(polls)) {
 			sleep(wait);
 			continue;
@@ -1037,6 +1222,15 @@ function main() {
 				on_guard();
 			else if (watch.sock && fd == watch.sock.fileno())
 				on_watch(now());
+			else if (by_wifi[fd] != null && dw.ifaces[by_wifi[fd]]) {
+				let w = dw.ifaces[by_wifi[fd]];
+				on_dhcp(w, now());
+				// The interface went away: the next scan opens it again.
+				if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
+					close(w.sock);
+					delete dw.ifaces[by_wifi[fd]];
+				}
+			}
 			else if (watch.lldp && fd == watch.lldp.fileno()) {
 				on_lldp(now());
 				// The uplink went away or down: the socket is opened again at

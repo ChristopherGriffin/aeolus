@@ -192,6 +192,81 @@ type stateReport struct {
 	UplinkVLANs    []uplinkVLAN    `json:"uplink_vlans,omitempty"`
 	UplinkNeighbor *uplinkNeighbor `json:"uplink_neighbor,omitempty"`
 	UplinkPort     *uplinkPort     `json:"uplink_port,omitempty"`
+	// What the AP saw of its Wi-Fi clients' DHCP, by network (0065).
+	DHCP map[string]dhcpState `json:"dhcp,omitempty"`
+}
+
+// dhcpState is what the AP saw of one network's DHCP on its Wi-Fi
+// interfaces (0065): the servers that answered, and when last; how many of
+// the clients' requests in the last 10 minutes were answered, and how many
+// not, and which clients made those; requests more than one server answered;
+// and the clients that don't use DHCP, with the address each shows.
+type dhcpState struct {
+	Servers           []dhcpServer    `json:"servers"`
+	Answered          int             `json:"answered"`
+	Unanswered        int             `json:"unanswered"`
+	UnansweredClients []string        `json:"unanswered_clients"`
+	Duplicates        []dhcpDuplicate `json:"duplicates"`
+	Without           []dhcpClient    `json:"without"`
+}
+
+type dhcpServer struct {
+	ID      string `json:"id"`
+	MAC     string `json:"mac"`
+	Answers int    `json:"answers"`
+	Ago     int64  `json:"ago"`
+}
+
+type dhcpDuplicate struct {
+	Servers []string `json:"servers"`
+	Client  string   `json:"client"`
+	Ago     int64    `json:"ago"`
+}
+
+type dhcpClient struct {
+	MAC       string  `json:"mac"`
+	JoinedAgo int64   `json:"joined_ago"`
+	Address   *string `json:"address"`
+}
+
+// check holds a network's DHCP findings to what the prober writes: IPv4
+// addresses, MACs, counts that are not negative, and short lists.
+func (d dhcpState) check(id string) error {
+	bad := badRequest("dhcp.%s: servers by IPv4 address and MAC, counts not negative, clients by MAC, at most 8 servers, 16 unanswered clients, 8 duplicates and 32 clients without DHCP", id)
+	ipv4 := func(s string) bool {
+		ip := net.ParseIP(s)
+		return ip != nil && ip.To4() != nil
+	}
+	if !networkIDRE.MatchString(id) || len(d.Servers) > 8 || len(d.UnansweredClients) > 16 || len(d.Duplicates) > 8 || len(d.Without) > 32 ||
+		d.Answered < 0 || d.Unanswered < 0 {
+		return bad
+	}
+	for _, s := range d.Servers {
+		if !ipv4(s.ID) || !macRE.MatchString(s.MAC) || s.Answers < 0 || s.Ago < 0 {
+			return bad
+		}
+	}
+	for _, m := range d.UnansweredClients {
+		if !macRE.MatchString(m) {
+			return bad
+		}
+	}
+	for _, x := range d.Duplicates {
+		if !macRE.MatchString(x.Client) || x.Ago < 0 || len(x.Servers) < 2 || len(x.Servers) > 8 {
+			return bad
+		}
+		for _, s := range x.Servers {
+			if !ipv4(s) {
+				return bad
+			}
+		}
+	}
+	for _, c := range d.Without {
+		if !macRE.MatchString(c.MAC) || c.JoinedAgo < 0 || (c.Address != nil && !ipv4(*c.Address)) {
+			return bad
+		}
+	}
+	return nil
 }
 
 // uplinkPort is what the AP knows of its uplink itself (0064): its name, MAC
@@ -673,6 +748,14 @@ func (st *stateReport) check() error {
 	}
 	if u := st.UplinkPort; u != nil {
 		if err := u.check(); err != nil {
+			return err
+		}
+	}
+	if len(st.DHCP) > 64 {
+		return badRequest("dhcp: at most 64 networks")
+	}
+	for id, d := range st.DHCP {
+		if err := d.check(id); err != nil {
 			return err
 		}
 	}

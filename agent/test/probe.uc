@@ -192,8 +192,37 @@ print('dhcp offer ', probe.dhcp_reply(offer, 0x12345678), '\n');
 print('dhcp offer to another xid ', probe.dhcp_reply(offer, 0x12345679), '\n');
 print('an arp reply is no dhcp ', probe.dhcp_reply(reply, 0x12345678), '\n');
 
+// A client's DHCP, as the watch on a Wi-Fi interface reads it (0065): a
+// discover and a renewal from a client, the server's offer, and ARP.
+print('dhcp seen: a discover ', probe.dhcp_seen(probe.dhcp(SEG, 'discover', 0x12345678, { host: 'phone' })), '\n');
+print('dhcp seen: a renewal ', probe.dhcp_seen(probe.dhcp(SEG, 'request', 0x0abcdef0, { ciaddr: '192.168.50.6' })), '\n');
+print('dhcp seen: an offer ', probe.dhcp_seen(offer), '\n');
+print('dhcp seen: an arp reply ', probe.dhcp_seen(reply), '\n');
+print('arp seen: a reply ', probe.arp_seen(reply), '\n');
+print('arp seen: a probe from 0.0.0.0 ', probe.arp_seen(arp), '\n');
+print('arp seen: an offer ', probe.arp_seen(offer), '\n');
+
+// How a request stands, made at 990 (0065).
+for (let c in [
+	['no answer, at 995', { at: 990, answers: {} }, 995],
+	['no answer, at 1000', { at: 990, answers: {} }, 1000],
+	['an offer', { at: 990, answers: { '192.168.50.254': { type: 'offer' } } }, 1000],
+])
+	print('request ', c[0], ': ', probe.request_state(c[1], c[2]), '\n');
+
+// How a client does with DHCP, at 1000 (0065).
+for (let c in [
+	['asked after joining', { joined: 900, watched: true, asked: 902 }],
+	['asked before joining again', { joined: 900, watched: true, asked: 800, address: '192.168.50.7' }],
+	['joined 30 s ago, nothing yet', { joined: 970, watched: true }],
+	['joined 100 s ago, uses an address', { joined: 900, watched: true, address: '192.168.50.7' }],
+	['joined 100 s ago, no address', { joined: 900, watched: true }],
+	['joined before the watch', { joined: 100, watched: false }],
+])
+	print('client ', c[0], ': ', probe.client_dhcp(c[1], 1000), '\n');
+
 // Every jump in the filters lands inside them.
-for (let name, prog in { overlay: probe.OVERLAY_FILTER, guard: probe.GUARD_FILTER, watch: probe.WATCH_FILTER, lldp: probe.LLDP_FILTER }) {
+for (let name, prog in { overlay: probe.OVERLAY_FILTER, guard: probe.GUARD_FILTER, watch: probe.WATCH_FILTER, lldp: probe.LLDP_FILTER, dhcp: probe.DHCP_FILTER }) {
 	let ok = true;
 	for (let i = 0; i < length(prog); i++)
 		if ((prog[i][0] & 0x07) == 0x05 && (i + 1 + prog[i][1] >= length(prog) || i + 1 + prog[i][2] >= length(prog)))

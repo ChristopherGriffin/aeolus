@@ -77,6 +77,40 @@ const LLDP_FILTER = [
 	[0x06, 0, 0, 0x40000],      //  5  keep
 ];
 
+// DHCP_FILTER keeps, of what crosses a Wi-Fi interface, what tells how its
+// clients do with DHCP (0065): DHCP itself, both ways (IPv4 UDP from or to
+// port 67 or 68, but a later fragment), and ARP coming in from a client,
+// which shows the address a client uses.
+const DHCP_FILTER = [
+	[0x28, 0, 0, 12],           //  0  A = EtherType
+	[0x15, 0, 2, 0x0806],       //  1  not ARP: to 4
+	[0x20, 0, 0, 0xfffff004],   //  2  A = packet type
+	[0x15, 13, 12, 4],          //  3  outgoing: drop; else keep
+	[0x15, 0, 12, 0x0800],      //  4  not IPv4: drop
+	[0x30, 0, 0, 23],           //  5  A = IP protocol
+	[0x15, 0, 10, 17],          //  6  not UDP: drop
+	[0x28, 0, 0, 20],           //  7  A = flags and fragment offset
+	[0x45, 8, 0, 0x1fff],       //  8  a later fragment: drop
+	[0xb1, 0, 0, 14],           //  9  X = the IP header's length
+	[0x48, 0, 0, 14],           // 10  A = UDP source port
+	[0x15, 4, 0, 67],           // 11  from a server's port: keep
+	[0x15, 3, 0, 68],           // 12  from a client's port: keep
+	[0x48, 0, 0, 16],           // 13  A = UDP destination port
+	[0x15, 1, 0, 67],           // 14  to a server's port: keep
+	[0x15, 0, 1, 68],           // 15  to a client's port: keep; else drop
+	[0x06, 0, 0, 0x40000],      // 16  keep
+	[0x06, 0, 0, 0],            // 17  drop
+];
+
+// How long, in seconds, the DHCP watch waits and remembers (0065): an answer
+// to a request; a client that joined, before it is judged not to use DHCP;
+// the window unanswered requests are counted in; and how long servers and
+// duplicates are remembered.
+const DHCP_WAIT = 10;
+const DHCP_QUIET = 60;
+const DHCP_WINDOW = 600;
+const DHCP_MEMORY = 3600;
+
 // WATCH_SPAN is how long a watched VLAN may go unheard before it is silent,
 // in seconds: three of the prober's spells of listening (0064).
 const WATCH_SPAN = 180;
@@ -260,6 +294,48 @@ function dhcp_reply(f, xid) {
 		type: type, address: ip4_text(f, b + 16), server: ip(54), router: ip(3), mask: ip(1),
 		lease: length(opts[51] ?? '') >= 4 ? get32(opts[51], 0) : null,
 	};
+}
+
+// dhcp_seen reads any DHCP message in a frame (0065): op (1 a client's
+// request, 2 a server's answer); its kind; the transaction ID; the client's
+// MAC; the address the client holds (ciaddr) and the one it is given
+// (yiaddr); the server's ID (option 54) and the address asked for (50); and
+// the frame's source MAC and IP address. Null for anything else.
+function dhcp_seen(f) {
+	if (length(f) < 34 || get16(f, 12) != 0x0800 || ord(f, 23) != 17)
+		return null;
+	let u = 14 + (ord(f, 14) & 15) * 4, b = u + 8;
+	if (length(f) < b + 240 || get32(f, b + 236) != 0x63825363 || !(ord(f, b) in [1, 2]) || ord(f, b + 2) != 6)
+		return null;
+	let opts = {};
+	for (let at = b + 240; at + 1 < length(f) && ord(f, at) != 255; ) {
+		if (ord(f, at) == 0) {
+			at++;
+			continue;
+		}
+		opts[ord(f, at)] = substr(f, at + 2, ord(f, at + 1));
+		at += 2 + ord(f, at + 1);
+	}
+	let kinds = [null, 'discover', 'offer', 'request', 'decline', 'ack', 'nak', 'release', 'inform'];
+	let type = opts[53] != null ? kinds[ord(opts[53], 0)] : null;
+	if (!type)
+		return null;
+	let ip = (k) => length(opts[k] ?? '') >= 4 ? ip4_text(opts[k], 0) : null;
+	return {
+		op: ord(f, b), type: type, xid: get32(f, b + 4), client: mac_text(f, b + 28),
+		ciaddr: ip4_text(f, b + 12), yiaddr: ip4_text(f, b + 16), server: ip(54), requested: ip(50),
+		src_mac: mac_text(f, 6), src_ip: ip4_text(f, 26),
+	};
+}
+
+// arp_seen reads who an ARP frame comes from (0065): the sender's MAC and the
+// address it uses. Null for anything else, and for a probe from 0.0.0.0,
+// which uses no address yet.
+function arp_seen(f) {
+	if (length(f) < 42 || get16(f, 12) != 0x0806 || get16(f, 16) != 0x0800 || ord(f, 18) != 6 || ord(f, 19) != 4)
+		return null;
+	let address = ip4_text(f, 28);
+	return address == '0.0.0.0' ? null : { mac: mac_text(f, 22), address: address };
 }
 
 // What LLDP's TLVs name, for lldp (IEEE 802.1AB, 802.1Q, 802.3, ANSI/TIA-1057):
@@ -580,11 +656,36 @@ function watch_verdict(w, now) {
 	return now - (w.heard ?? w.started) >= WATCH_SPAN ? 'silent' : 'unknown';
 }
 
+// request_state says how a client's DHCP request stands (0065), from r:
+// when it was made, and the answers to it, by server. Answered once any
+// came; waiting for DHCP_WAIT seconds; unanswered after that.
+function request_state(r, now) {
+	if (length(keys(r.answers ?? {})))
+		return 'answered';
+	return now - r.at < DHCP_WAIT ? 'waiting' : 'unanswered';
+}
+
+// client_dhcp says how a Wi-Fi client does with DHCP (0065), from c: when it
+// joined; whether the prober watched since then (watched); when it last
+// asked for DHCP; and the address it shows. ok once it asked since it
+// joined; static when it shows an address but asked nothing within
+// DHCP_QUIET seconds of joining; none when it shows no address either;
+// unknown before then, or for a client that joined before the watch began.
+function client_dhcp(c, now) {
+	if (c.asked != null && c.asked >= c.joined)
+		return 'ok';
+	if (!c.watched || now - c.joined < DHCP_QUIET)
+		return 'unknown';
+	return c.address ? 'static' : 'none';
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
 	GUARD_DST, GUARD_TYPE, OVERLAY_FILTER, GUARD_FILTER, WATCH_FILTER, LLDP_FILTER, WATCH_SPAN,
+	DHCP_FILTER, DHCP_WAIT, DHCP_QUIET, DHCP_WINDOW, DHCP_MEMORY,
 	mac_text, ip6, ip6_text, checksum, segment_mac, arp_probe, dhcp, dhcp_reply, echo6, answer,
 	echo4, echo4_answer, echo6_plain, echo6_plain_answer,
-	guard_frame, guard_seen, verdict, switch_step, link_local, lldp, watch_verdict
+	guard_frame, guard_seen, verdict, switch_step, link_local, lldp, watch_verdict,
+	dhcp_seen, arp_seen, request_state, client_dhcp
 };
