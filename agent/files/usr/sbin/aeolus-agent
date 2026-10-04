@@ -19,7 +19,7 @@ import { sha256 } from 'digest';
 import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING, LOG_ERR } from 'log';
 import { cursor } from 'uci';
 import { connect } from 'ubus';
-import { render, clamp, PACKAGES, CLAMP } from 'aeolus.render';
+import { render, clamp, PACKAGES, CLAMP, VLAN_END } from 'aeolus.render';
 import { text, file } from 'aeolus.uciexport';
 
 const AGENT = 'aeolus-agent/1';
@@ -526,7 +526,8 @@ function steering_state() {
 // the bridge's config lists, as the renderer reads them; the running bridge
 // holds the Wi-Fi interfaces too. A tunnel port has left that bridge for its
 // tunnels' (0058), on its own or by an 802.1Q device Aeolus made of it, and
-// follows the others, by name.
+// follows the others, by name. The VLAN end of a network's veth pair (0061)
+// is in that bridge too, and is not a port.
 function ports_state() {
 	let uplink = settings().uplink;
 	let members = [];
@@ -535,7 +536,7 @@ function ports_state() {
 	cursor().foreach('network', 'device', d => {
 		let ports = type(d.ports) == 'array' ? d.ports : d.ports ? [d.ports] : [];
 		if (d.type == 'bridge' && index(ports, uplink) >= 0)
-			members = [...ports];
+			members = filter(ports, e => !match(e, VLAN_END));
 		else if (d.type == 'bridge' && match(d['.name'], /^aeolus_[0-9]+_br$/))
 			push(bridges, ports);
 		else if (d.type == '8021q' && match(d['.name'], /^aeolus_port_/) && d.name && d.ifname)
@@ -616,11 +617,18 @@ function vxlan_state() {
 }
 
 // transports_state says, for each network with a fallback (0061), which
-// transport carries it now, and how each is doing, by the prober's verdicts.
+// transport carries it now, and how each is doing, by the prober's verdicts;
+// its last switch, and why a switch that is due cannot be made.
 function transports_state() {
 	let out = {};
-	for (let id, s in probes()?.switches ?? {})
-		out[id] = { active: s.active, primary: s.primary, fallback: s.fallback };
+	for (let id, s in probes()?.switches ?? {}) {
+		let x = { active: s.active, primary: s.primary, fallback: s.fallback };
+		if (type(s.last?.at) == 'int')
+			x.last_switch = { from: s.last.from, to: s.last.to, why: s.last.why, ago: max(0, time() - s.last.at) };
+		if (s.cannot)
+			x.cannot_switch = s.cannot;
+		out[id] = x;
+	}
 	return length(out) ? out : null;
 }
 
@@ -640,14 +648,15 @@ function vlan_probes() {
 }
 
 // probe_news is what, of the prober's results, is worth a state report as
-// soon as it changes: each tunnel's verdict, and the loops it found.
+// soon as it changes: each tunnel's verdict, where each network with a
+// fallback is and whether it cannot switch, and the loops it found.
 function probe_news() {
 	let p = probes();
 	if (!p)
 		return '';
 	let v = map(sort(keys(p.tunnels ?? {})), k => k + '=' + p.tunnels[k].verdict);
 	push(v, ...map(sort(keys(p.vlans ?? {})), k => 'vlan' + k + '=' + p.vlans[k].verdict));
-	push(v, ...map(sort(keys(p.switches ?? {})), k => k + ':' + p.switches[k].active));
+	push(v, ...map(sort(keys(p.switches ?? {})), k => k + ':' + p.switches[k].active + (p.switches[k].cannot ? '!' : '')));
 	let l = map(p.loops ?? [], x => x.port);
 	return join(',', v) + ';' + join(',', l);
 }

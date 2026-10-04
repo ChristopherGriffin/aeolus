@@ -215,7 +215,7 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"tunnel port", "option port '4789'", "option port '8472'", "port is \"8472\""},
 		{"tunlink", "\toption tunlink 'lan'\n", "", "aeolus_20: tunlink is missing"},
 		{"tunlink names", "option tunlink 'lan'", "option tunlink 'wan'", "tunlink \"wan\" names no interface"},
-		{"primary started", "option tunlink 'lan'", "option tunlink 'lan'\n\toption auto '0'", "the primary's tunnel is not started"},
+		{"primary started", "option tunlink 'lan'", "option tunlink 'lan'\n\toption auto '0'", "the tunnel is not started"},
 		{"tunnel bridge", "option name 'br-vx20'", "option name 'br-lan'", "network.aeolus_20_br: want a bridge br-vx20"},
 		{"bridge carries", "list ports 'aeolus_20'", "list ports 'lan1'", "the bridge does not carry the tunnel aeolus_20"},
 		{"firewall rule", "config rule 'aeolus_vxlan_20'", "config rule 'other'", "firewall.aeolus_vxlan_20: no rule letting the tunnel in from 1.1.1.2"},
@@ -568,8 +568,45 @@ config switch 'aeolus_n5584392f'
 	if got := check(strings.Replace(good, "\toption device 'br-lan.1'\n", "\toption device 'br-lan.1'\n\toption mtu '1500'\n", 1)); !strings.Contains(got, "which carries 1500") {
 		t.Fatalf("the interface's MTU: %s", got)
 	}
-	if got := check(strings.Replace(good, "\toption auto '0'\n", "", 1)); !strings.Contains(got, "the fallback's tunnel is started; it waits") {
+	if got := check(strings.Replace(good, "\toption auto '0'\n", "", 1)); !strings.Contains(got, "the fallback's tunnel is started; without HA mode, it waits") {
 		t.Fatalf("a started fallback: %s", got)
+	}
+	if got := check(strings.Replace(good, "\toption mode 'report'\n", "\toption mode 'report'\n\toption holddown '60'\n", 1)); !strings.Contains(got,
+		`aeolus.aeolus_n5584392f: holddown is "60", but the network does not switch (report mode)`) {
+		t.Fatalf("a hold-down in report mode: %s", got)
+	}
+
+	// Automatic switching (0061): the plan says how, and in HA mode the
+	// fallback's tunnel is started.
+	checkAuto := func(ha bool, text string) string {
+		t.Helper()
+		var d map[string]any
+		raw, _ := json.Marshal(doc)
+		if err := json.Unmarshal(raw, &d); err != nil {
+			t.Fatal(err)
+		}
+		tr := d["network"].(map[string]any)["sweet"].(map[string]any)["transport"].(map[string]any)
+		tr["switching"], tr["ha"], tr["holddown"] = "automatic", ha, 60.0
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(d, c), "\n")
+	}
+	automatic := strings.Replace(good, "\toption mode 'report'\n",
+		"\toption mode 'automatic'\n\toption ha '0'\n\toption failback 'revertive'\n\toption holddown '60'\n", 1)
+	if got := checkAuto(false, automatic); got != "" {
+		t.Fatalf("automatic switching: %s", got)
+	}
+	if got := checkAuto(false, good); !strings.Contains(got, `aeolus.aeolus_n5584392f: mode is "report", want "automatic"`) {
+		t.Fatalf("automatic switching, planned as report: %s", got)
+	}
+	withHA := strings.Replace(automatic, "\toption ha '0'\n", "\toption ha '1'\n", 1)
+	if got := checkAuto(true, strings.Replace(withHA, "\toption auto '0'\n", "", 1)); got != "" {
+		t.Fatalf("HA mode: %s", got)
+	}
+	if got := checkAuto(true, withHA); !strings.Contains(got, "network.aeolus_5000: the tunnel is not started") {
+		t.Fatalf("HA mode with the fallback stopped: %s", got)
 	}
 }
 
@@ -919,7 +956,7 @@ config guard 'aeolus_guard_lan3'
 			"ports.lan3.vxlan.10: no interface is on the tunnel's bridge br-vx10, so netifd never makes it and lan3.10 is on nothing"},
 		{"bridge held with an address", "config interface 'aeolus_50_ports'\n\toption proto 'none'", "config interface 'aeolus_50_ports'\n\toption proto 'dhcp'",
 			"ports.lan3.vxlan.untagged: no interface is on the tunnel's bridge br-vx50"},
-		{"tunnel not started", "option vid '10'\n\toption mtu '1500'\n\toption tunlink 'lan'", "option vid '10'\n\toption mtu '1500'\n\toption tunlink 'lan'\n\toption auto '0'", "the primary's tunnel is not started"},
+		{"tunnel not started", "option vid '10'\n\toption mtu '1500'\n\toption tunlink 'lan'", "option vid '10'\n\toption mtu '1500'\n\toption tunlink 'lan'\n\toption auto '0'", "the tunnel is not started"},
 	} {
 		if !strings.Contains(good, c.old) {
 			t.Fatalf("%s: fixture lacks %q", c.name, c.old)

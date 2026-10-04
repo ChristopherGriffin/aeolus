@@ -28,6 +28,31 @@ verdict never answered, concentrator does: unverified
 verdict never answered, nor the concentrator: down
 verdict answered at 90, now 180: up
 verdict answered at 90, now 181: down
+switch report mode, primary down: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": null }
+switch primary up: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": null }
+switch primary down, fallback up: { "want": "fallback", "start": false, "stop": false, "why": "the primary is down", "cannot": null }
+switch primary down, fallback unverified: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": "the primary is down, and the fallback is unverified" }
+switch primary down, fallback down: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": "the primary is down, and the fallback is down" }
+switch primary unverified: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": null }
+switch primary down, tunnel fallback stopped: { "want": "primary", "start": true, "stop": false, "why": null, "cannot": "the primary is down, and the fallback is starting" }
+switch primary down, tunnel fallback started and up: { "want": "fallback", "start": false, "stop": false, "why": "the primary is down", "cannot": null }
+switch on the fallback, primary still down: { "want": "fallback", "start": false, "stop": false, "why": null, "cannot": null }
+switch on the fallback, primary up 100 s: { "want": "fallback", "start": false, "stop": false, "why": null, "cannot": null }
+switch on the fallback, primary up 300 s: { "want": "primary", "start": false, "stop": false, "why": "the primary has been up for 300 s", "cannot": null }
+switch on the fallback, primary up 300 s, failback equal: { "want": "fallback", "start": false, "stop": false, "why": null, "cannot": null }
+switch on the fallback, fallback down, primary up: { "want": "primary", "start": false, "stop": false, "why": "the fallback is down", "cannot": null }
+switch on the fallback, both down: { "want": "fallback", "start": false, "stop": false, "why": null, "cannot": "the fallback is down, and the primary is down" }
+switch on the tunnel fallback, back to the primary: { "want": "primary", "start": false, "stop": true, "why": "the primary has been up for 300 s", "cannot": null }
+switch on the tunnel fallback, back to the primary, HA: { "want": "primary", "start": false, "stop": false, "why": "the primary has been up for 300 s", "cannot": null }
+switch on the tunnel fallback, it stopped: { "want": "fallback", "start": true, "stop": false, "why": null, "cannot": "the fallback is starting, and the primary is down" }
+switch on the tunnel fallback, it stopped, primary up: { "want": "primary", "start": false, "stop": false, "why": "the fallback is off", "cannot": null }
+switch on the tunnel fallback, it is unknown, primary up: { "want": "fallback", "start": false, "stop": false, "why": null, "cannot": null }
+switch primary up, tunnel fallback still running: { "want": "primary", "start": false, "stop": true, "why": null, "cannot": null }
+switch primary unknown, tunnel fallback stopped: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": null }
+switch HA, tunnel fallback stopped: { "want": "primary", "start": true, "stop": false, "why": null, "cannot": null }
+switch primary down, VLAN fallback off: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": "the primary is down, and the fallback is off" }
+switch report mode, on the fallback: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": null }
+switch report mode, tunnel fallback running: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": null }
 segment mac vni 50: 02:21:36:5e:00:50
 segment mac vni 1234: 02:21:36:5e:12:34
 segment mac vni 10000: 0a:21:36:5e:27:10

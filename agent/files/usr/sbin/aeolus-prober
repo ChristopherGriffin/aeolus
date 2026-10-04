@@ -16,6 +16,10 @@
 // AP, the segment loops, and the port is taken off its tunnels until its
 // settings change or the agent restarts.
 //
+// For each network with a fallback (0061), it keeps one transport in the
+// network's bridge: the primary, or in automatic mode, the fallback while
+// the primary is down, by the probes' verdicts.
+//
 // Its plan is the agent's own UCI package, as the renderer made it: probe
 // and guard sections. What it finds goes to /var/run/aeolus/probes.json,
 // which the agent reports. procd runs it beside the agent.
@@ -186,6 +190,8 @@ function plan() {
 		let key = slot => s[slot + '_vni'] ?? (s[slot + '_vlan'] ? 'vlan' + s[slot + '_vlan'] : null);
 		switches[s.network] = {
 			bridge: s.bridge, mode: s.mode ?? 'report', primary: s.primary, fallback: s.fallback,
+			ha: s.ha == '1', failback: s.failback ?? 'revertive',
+			holddown: s.holddown != null ? max(0, min(3600, int(s.holddown))) : 300,
 			probes: { primary: key('primary'), fallback: key('fallback') },
 		};
 	});
@@ -193,7 +199,7 @@ function plan() {
 }
 
 let tun = {};      // VNI, or vlan and the VLAN -> { plan, sock, index, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
-let sw = {};       // network -> { plan, active, said }
+let sw = {};       // network -> { plan, active, said, want, up_since, last, cannot, asked }
 let peers = {};    // concentrator address, and where it is pinged from -> { addr, start, six, interval, sent, seq, ok, rtt, since, next }
 let guards = {};   // port -> { plan, devices: [{ name, sock, index, mac }], next }
 let loops = {};    // port -> { port, device, vni, came_in, at }
@@ -320,11 +326,16 @@ function apply_plan(p) {
 		peers[k] ??= { addr: w.addr, start: w.start, six: index(w.addr, ':') >= 0, sent: {}, seq: 0, ok: null, rtt: null, since: now(), next: now() };
 		peers[k].interval = w.interval;
 	}
+	// A network whose settings change starts again from what its bridge
+	// holds, and keeps its last switch.
+	let last = {};
 	for (let id in keys(sw))
-		if (sprintf('%J', sw[id].plan) != sprintf('%J', p.switches?.[id]))
+		if (sprintf('%J', sw[id].plan) != sprintf('%J', p.switches?.[id])) {
+			last[id] = sw[id].last;
 			delete sw[id];
+		}
 	for (let id, s in p.switches ?? {})
-		sw[id] ??= { plan: s, active: null, said: null };
+		sw[id] ??= { plan: s, active: null, said: null, want: null, up_since: null, last: last[id], cannot: null, asked: null };
 	// A port whose settings changed, or that left its tunnels, gets a fresh
 	// start: the loop guard lets it go.
 	for (let port in keys(guards))
@@ -574,19 +585,82 @@ function on_raw(r) {
 	}
 }
 
+// health is how a probe's transport is doing (0059): its verdict, or off
+// while its device is down.
+function health(t, at) {
+	if (!t.running)
+		return 'off';
+	let p = t.plan.peer ? peers[peer_key(t.plan)] : null;
+	// A VLAN probe has no concentrator: its underlay is the uplink's link.
+	let carrier = t.plan.vlan ? read(`/sys/class/net/${t.plan.device}/carrier`) == '1' : null;
+	return probe.verdict({ interval: t.plan.interval, started: t.started, answered: t.answered, underlay: t.plan.vlan ? (carrier ? at : null) : p?.ok }, at);
+}
+
+function in_bridge(bridge, dev) {
+	return dev != null && fs.stat(`/sys/class/net/${bridge}/brif/${dev}`) != null;
+}
+
+// decide says which transport carries each network with a fallback (0061),
+// as switch_step rules: in automatic mode, the fallback while the primary is
+// down. A switch is logged, and kept for the report. It starts a tunnel
+// fallback that is needed, and stops one that is not, unless in HA mode. A
+// network the prober finds on its fallback in automatic mode stays there,
+// as after the prober restarts.
+function decide(at) {
+	for (let id, s in sw) {
+		let pt = tun[s.plan.probes.primary], ft = tun[s.plan.probes.fallback];
+		let pv = pt ? health(pt, at) : 'unknown', fv = ft ? health(ft, at) : 'unknown';
+		if (pv != 'up')
+			s.up_since = null;
+		else
+			s.up_since ??= at;
+		s.want ??= s.plan.mode == 'automatic' && in_bridge(s.plan.bridge, s.plan.fallback) && !in_bridge(s.plan.bridge, s.plan.primary)
+			? 'fallback' : 'primary';
+		let vxlan = ft != null && !ft.plan.vlan;
+		let r = probe.switch_step({
+			mode: s.plan.mode, ha: s.plan.ha, failback: s.plan.failback, holddown: s.plan.holddown,
+			want: s.want, primary: pv, fallback: fv, fallback_vxlan: vxlan, up_since: s.up_since,
+		}, at);
+		if (r.want != s.want) {
+			if (r.why) {
+				s.last = { from: s.want, to: r.want, why: r.why, at: time() };
+				let how = r.want == 'fallback' ? note : log;
+				how('network %s: switching from its %s %s to its %s %s: %s%s',
+					id, s.want, s.plan[s.want], r.want, s.plan[r.want], r.why, act ? '' : ' (not done: -n)');
+			}
+			s.want = r.want;
+		}
+		if (r.cannot != s.cannot) {
+			if (r.cannot)
+				note('network %s: cannot switch: %s', id, r.cannot);
+			s.cannot = r.cannot;
+		}
+		// The fallback's tunnel, asked to go up or down again only after a
+		// while; the probe looks at it soon after.
+		let ask = r.start ? 'up' : r.stop ? 'down' : null;
+		if (ask && act && (s.asked?.what != ask || at - s.asked.at >= 30)) {
+			log('network %s: %s its fallback, tunnel %s', id, ask == 'up' ? 'starting' : 'stopping', ft.plan.device);
+			bus.call('network.interface.' + ft.plan.device, ask, {});
+			s.asked = { what: ask, at: at };
+			ft.next = min(ft.next, at + 2);
+		}
+	}
+}
+
 // attach keeps the transport that carries each network with a fallback in
-// the network's bridge (0061): the primary, until switching is built. The
-// other comes out first, so the two are never in at once. It looks every
-// few seconds, so whatever took the primary out, a reload or a tunnel made
-// again, is put right at once. With -n it only looks.
+// the network's bridge (0061), as decide says. The other comes out first, so
+// the two are never in at once. It looks every few seconds, so whatever took
+// the transport out, a reload or a tunnel made again, is put right at once.
+// With -n it only looks.
 function attach() {
 	for (let id, s in sw) {
 		let iface = 'network.interface.aeolus_' + replace(id, '-', '_');
-		let has = d => d != null && fs.stat(`/sys/class/net/${s.plan.bridge}/brif/${d}`) != null;
-		if (act && has(s.plan.fallback))
-			bus.call(iface, 'remove_device', { name: s.plan.fallback, 'link-ext': false });
-		if (act && !has(s.plan.primary) && s.plan.primary && fs.stat(`/sys/class/net/${s.plan.primary}`))
-			bus.call(iface, 'add_device', { name: s.plan.primary, 'link-ext': false });
+		let want = s.want ?? 'primary', other = want == 'primary' ? 'fallback' : 'primary';
+		let has = d => in_bridge(s.plan.bridge, d);
+		if (act && has(s.plan[other]))
+			bus.call(iface, 'remove_device', { name: s.plan[other], 'link-ext': false });
+		if (act && !has(s.plan[want]) && s.plan[want] && fs.stat(`/sys/class/net/${s.plan[want]}`))
+			bus.call(iface, 'add_device', { name: s.plan[want], 'link-ext': false });
 		s.active = has(s.plan.primary) ? 'primary' : has(s.plan.fallback) ? 'fallback' : 'none';
 		if (s.active != s.said) {
 			let how = s.active == 'primary' ? log : note;
@@ -636,12 +710,9 @@ function results(at) {
 	let tunnels = {}, vlans = {}, verdict_of = {};
 	for (let vni, t in tun) {
 		let p = t.plan.peer ? peers[peer_key(t.plan)] : null;
-		// A VLAN probe has no concentrator: its underlay is the uplink's link.
 		let carrier = t.plan.vlan ? read(`/sys/class/net/${t.plan.device}/carrier`) == '1' : null;
 		let span = 3 * t.plan.interval;
-		let v = t.running
-			? probe.verdict({ interval: t.plan.interval, started: t.started, answered: t.answered, underlay: t.plan.vlan ? (carrier ? at : null) : p?.ok }, at)
-			: 'off';
+		let v = health(t, at);
 		if (v != t.said && t.said != null) {
 			let how = v == 'down' ? note : log;
 			if (t.plan.vlan)
@@ -671,12 +742,20 @@ function results(at) {
 		} else
 			tunnels[vni] = r;
 	}
+	// Each network with a fallback: where it is, how each transport is doing,
+	// its last switch, and why a switch that is due cannot be made (0061).
 	let switches = {};
-	for (let id, s in sw)
-		switches[id] = {
+	for (let id, s in sw) {
+		let x = {
 			active: s.active ?? 'none', mode: s.plan.mode,
 			primary: verdict_of[s.plan.probes.primary] ?? 'unknown', fallback: verdict_of[s.plan.probes.fallback] ?? 'unknown',
 		};
+		if (s.last)
+			x.last = s.last;
+		if (s.cannot)
+			x.cannot = s.cannot;
+		switches[id] = x;
+	}
 	let lp = map(sort(keys(loops)), k => {
 		let l = loops[k];
 		return { port: l.port, device: l.device, vni: l.vni, came_in: l.came_in, ago: int(at - l.at) };
@@ -734,6 +813,7 @@ function main() {
 				g.next = at + GUARD_EVERY;
 			}
 		if (at >= next_attach) {
+			decide(at);
 			attach();
 			next_attach = at + ATTACH_EVERY;
 		}

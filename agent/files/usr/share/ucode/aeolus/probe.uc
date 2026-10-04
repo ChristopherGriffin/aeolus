@@ -322,11 +322,57 @@ function verdict(t, now) {
 	return t.underlay != null && now - t.underlay <= span ? 'unverified' : 'down';
 }
 
+// switch_step says which transport should carry a network with a fallback
+// (0061), from where it is and how each transport is doing. n holds the
+// network's settings: mode (report or automatic), ha, failback (revertive
+// or equal) and holddown; want, the transport that carries it now (primary
+// or fallback); each transport's verdict, primary and fallback;
+// fallback_vxlan, whether the fallback is a tunnel; and up_since, since when
+// the primary has been up. It returns want; whether to start or stop the
+// fallback's tunnel; why the network moves; and why a move that is due
+// cannot be made.
+//
+// In report mode the primary carries the network. In automatic mode the
+// network moves to the fallback when the primary is down, and only to a
+// fallback that is up. It moves back when the primary is up and the fallback
+// is down or stopped, or, with revertive failback, once the primary has been
+// up for the hold-down. A tunnel fallback without HA mode runs only while it
+// is needed: it is started when the primary goes down, and used once it
+// answers.
+function switch_step(n, now) {
+	let r = { want: 'primary', start: false, stop: false, why: null, cannot: null };
+	if (n.mode != 'automatic')
+		return r;
+	r.want = n.want ?? 'primary';
+	// A stopped tunnel fallback is started wherever a switch waits on it.
+	let fallback = n.fallback == 'off' && n.fallback_vxlan ? 'starting' : n.fallback;
+	if (r.want == 'primary') {
+		if (n.primary == 'down' && n.fallback == 'up') {
+			r.want = 'fallback';
+			r.why = 'the primary is down';
+		} else if (n.primary == 'down')
+			r.cannot = `the primary is down, and the fallback is ${fallback}`;
+	} else if (n.primary == 'up' && n.fallback in { down: 1, off: 1 }) {
+		r.want = 'primary';
+		r.why = `the fallback is ${n.fallback}`;
+	} else if (n.primary == 'up' && n.failback != 'equal' && n.up_since != null && now - n.up_since >= n.holddown) {
+		r.want = 'primary';
+		r.why = `the primary has been up for ${n.holddown} s`;
+	} else if (n.fallback != 'up' && n.primary != 'up')
+		r.cannot = `the fallback is ${fallback}, and the primary is ${n.primary}`;
+	if (n.fallback_vxlan) {
+		let needed = n.ha || r.want == 'fallback' || n.primary == 'down';
+		r.start = needed && n.fallback == 'off';
+		r.stop = !needed && n.fallback != 'off';
+	}
+	return r;
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
 	GUARD_DST, GUARD_TYPE, OVERLAY_FILTER, GUARD_FILTER,
 	mac_text, ip6, ip6_text, checksum, segment_mac, arp_probe, dhcp, dhcp_reply, echo6, answer,
 	echo4, echo4_answer, echo6_plain, echo6_plain_answer,
-	guard_frame, guard_seen, verdict
+	guard_frame, guard_seen, verdict, switch_step
 };

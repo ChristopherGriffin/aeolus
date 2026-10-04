@@ -104,7 +104,7 @@
 
 ## As built: part 1, report mode
 
-Built in two parts. Part 1 renders a network with a fallback as described above, attaches its primary, and probes and reports both transports. Nothing switches until part 2, which brings `transport.switching`, HA mode, failback and hold-down.
+Built in two parts. Part 1 renders a network with a fallback as described above, attaches its primary, and probes and reports both transports. Part 2 brings `transport.switching`, HA mode, failback and hold-down.
 
 - **Names:** a network's hash is FNV-1a of its name, as 8 hex digits.
   - Its bridge is `br-n<hash>`, in a section `aeolus_n<hash>`.
@@ -128,3 +128,30 @@ Built in two parts. Part 1 renders a network with a fallback as described above,
 - **Checked on OpenWrtnight,** with the prober run by hand:
   - VLAN 20 probed tagged on `wan` leased 192.168.20.80 and found the gateway in 6 ms, at about 0.15% CPU.
   - On a test bridge with two test tunnels, the prober took out a fallback it found in the bridge, put the primary in, put it back 3 seconds after it was taken out by hand, and swapped the two within a second of a changed plan and a SIGHUP.
+
+## As built: part 2, automatic switching
+
+- **The settings:** `transport.switching`, `report` (the default) or `automatic`.
+  - The network editor offers it beside the transports once a fallback is set, and HA mode, failback and hold-down only with `automatic`.
+  - They reach an AP only where both of a network's transports are usable. Where one is out of its tunnel's scope (0055), there is nothing to switch between, and they are left out.
+  - `automatic` without a fallback is held, at the AP and on the folder's page.
+  - Only the prober reads switching, failback and hold-down, so changing them reloads nothing: the agent wakes the prober after the apply. HA mode can start or stop a tunnel, so it reloads the network.
+- **The render:** in automatic mode, the prober's plan gains `ha`, `failback` and `holddown`.
+  - In HA mode a VXLAN fallback's tunnel is started with the rest; otherwise it waits, stopped.
+  - The render check holds a plan that disagrees with the intent, switching settings in report mode, and a tunnel started or stopped against HA mode.
+- **The prober decides every 2 seconds,** by `switch_step` in probe.uc, which agent/test/probe.uc tests:
+  - Away from the primary when its verdict is `down`, to a fallback that is `up`.
+  - A stopped VXLAN fallback is started first (`up` on its interface), probed 2 seconds later, and used once it answers. Without HA mode it is stopped again once the network is back on a primary that is not down.
+  - Back when the primary is up and the fallback is down or stopped; or with `revertive`, once the primary has been up for the hold-down. The hold-down counts from the moment the primary's verdict turns `up`. One missed probe doesn't reset it, as the verdict stays `up` until three are missed (0059).
+  - A network the prober finds on its fallback when it starts stays there in automatic mode. In report mode the primary goes back in.
+- **Reported:**
+  - Each switch is logged, from which transport to which and why, and reported as the network's `last_switch`.
+  - Why a switch that is due can't be made is logged once, and reported as `cannot_switch`.
+  - The AP's overview warns of a network on its fallback, or one that cannot switch. The Networks view shows the last switch under "Carried by", and each network's card says how it switches.
+- **Fixed:** the agent no longer lists a network's veth end among the AP's Ethernet ports.
+- **Checked on OpenWrtnight on 2026-10-04,** with the new prober, aeolus-50's plan set to automatic by hand (hold-down 60 s), and VNI 50's VXLAN packets from the Arista dropped by an nft rule of its own. lan4's VNI 10 was untouched.
+  - VNI 50 turned `down` 90 seconds after its last answer (16:14:19). The prober moved aeolus-50 to VLAN 50 a second later, break before make: the veth's end in, the tunnel out. VLAN 50's frames came in through the veth, about 28 a second.
+  - With the rule gone, VNI 50 answered at its next probe (16:15:19). The prober moved the network back at 16:16:20, 61 seconds later.
+  - The new agent's state report carried the last switch. No client was on aeolus_50.
+  - Afterwards the plan and the v0.28.0 prober were put back.
+- **Not checked live:** starting and stopping a VXLAN fallback, as the lab's only switching network has a VLAN fallback. That path rests on the decision's tests, and on netifd's own `up` and `down`.

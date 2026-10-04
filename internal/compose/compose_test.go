@@ -196,6 +196,46 @@ func TestASwitchingNetworksTunnelIsItsOwn(t *testing.T) {
 	}
 }
 
+// Automatic switching needs a fallback (0061). Where only one of a network's
+// transports is usable, there is nothing to switch between: the AP gets no
+// switching settings, and is not held.
+func TestAutomaticSwitchingNeedsAFallback(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("network.sweet.transport.switching", "automatic")
+	set("network.sweet.transport.holddown", 60)
+	res, err := AP(s, sch, "gate-ap", nil)
+	must(t, err)
+	if tr := transport(t, res.Doc); len(res.Problems) != 0 || tr["switching"] != "automatic" || tr["holddown"] != float64(60) {
+		t.Fatalf("gate: %v, problems %v", tr, res.Problems)
+	}
+	// The office is outside the tunnel's scope, so VLAN 20 is its only transport.
+	res, err = AP(s, sch, "office-ap", nil)
+	must(t, err)
+	if tr := transport(t, res.Doc); len(res.Problems) != 0 || tr["switching"] != nil || tr["holddown"] != nil {
+		t.Fatalf("office: %v, problems %v", tr, res.Problems)
+	}
+	for _, f := range []string{"network.sweet.transport.fallback.type", "network.sweet.transport.fallback.vlan"} {
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Unset, Tree: change.Services, Node: "household", Path: hierarchy.Path(f)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := "network.sweet.transport.switching: automatic switching needs a fallback (0061)"
+	res, err = AP(s, sch, "gate-ap", nil)
+	must(t, err)
+	if !contains(res.Problems, want) {
+		t.Fatalf("gate without a fallback: %v", res.Problems)
+	}
+	if p := Node(s, sch, change.Services, s.Org.Services, "household", nil); !contains(p, want) {
+		t.Fatalf("the folder: %v", p)
+	}
+}
+
 func TestTunnelPorts(t *testing.T) {
 	s, sch := site(t)
 	set := func(tree change.TreeName, node, path string, v any) {

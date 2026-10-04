@@ -184,9 +184,13 @@ func TestStateReports(t *testing.T) {
 	ap, token, version := f.adopted()
 	report := map[string]any{
 		"version": version, "uptime": 3600, "openwrt": "25.12.5",
-		"radios":     []any{map[string]any{"radio": "radio1", "band": "5g", "channel": 36, "width": 40, "clients": 3}},
-		"vlans":      []int{1, 20, 30},
-		"transports": map[string]any{"sweet": map[string]any{"active": "primary", "primary": "up", "fallback": "unverified"}},
+		"radios": []any{map[string]any{"radio": "radio1", "band": "5g", "channel": 36, "width": 40, "clients": 3}},
+		"vlans":  []int{1, 20, 30},
+		"transports": map[string]any{"sweet": map[string]any{"active": "primary", "primary": "up", "fallback": "unverified"},
+			// With automatic switching: its last switch, and why it cannot switch now (0061).
+			"lab": map[string]any{"active": "fallback", "primary": "down", "fallback": "up",
+				"last_switch":   map[string]any{"from": "primary", "to": "fallback", "why": "the primary is down", "ago": 95},
+				"cannot_switch": ""}},
 		// A network's VLAN fallback, probed on the uplink (0061).
 		"vlan_probes": []any{map[string]any{"vlan": 20, "tagged": true, "probe": map[string]any{
 			"verdict": "up", "interval": 30, "asks": []string{"192.168.20.1"}, "underlay": true, "from": "192.168.20.1", "rtt_ms": 0.6, "answered_ago": 4,
@@ -238,6 +242,9 @@ func TestStateReports(t *testing.T) {
 			"probe": map[string]any{"verdict": "up", "interval": 30, "lease": map[string]any{"address": "fe80::1", "expires_in": 10}}}}}},
 		"loop device":  {"version": 1, "vxlan": map[string]any{"loops": []any{map[string]any{"port": "lan3", "device": "lan3; rm", "ago": 1}}}},
 		"health":       {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "primary", "primary": "fine"}}},
+		"switch":       {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "primary", "last_switch": map[string]any{"from": "primary", "to": "primary", "why": "x", "ago": 1}}}},
+		"switch why":   {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "primary", "last_switch": map[string]any{"from": "fallback", "to": "primary", "ago": 1}}}},
+		"cannot":       {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "primary", "cannot_switch": strings.Repeat("x", 201)}}},
 		"vlan probe":   {"version": 1, "vlan_probes": []any{map[string]any{"vlan": 4095, "probe": map[string]any{"verdict": "up", "interval": 30}}}},
 		"vlan verdict": {"version": 1, "vlan_probes": []any{map[string]any{"vlan": 20, "probe": map[string]any{"verdict": "great", "interval": 30}}}},
 		"from vlan":    {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789, "from_vlan": 4095}}}},

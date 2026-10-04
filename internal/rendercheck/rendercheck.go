@@ -8,6 +8,7 @@
 package rendercheck
 
 import (
+	"cmp"
 	"fmt"
 	"hash/fnv"
 	"maps"
@@ -79,9 +80,10 @@ var Coverage = map[string]string{
 	"network.*.transport.*.concentrator": "",
 	"network.*.transport.*.vni":          "",
 	"network.*.transport.*.probe":        "", // a VLAN transport's is not used until switching (0059)
-	"network.*.transport.ha":             "the agent's own behavior (0022); checked with the agent in M5",
-	"network.*.transport.failback":       "the agent's own behavior (0022); checked with the agent in M5",
-	"network.*.transport.holddown":       "the agent's own behavior (0022); checked with the agent in M5",
+	"network.*.transport.switching":      "", // the prober's plan (0061)
+	"network.*.transport.ha":             "",
+	"network.*.transport.failback":       "",
+	"network.*.transport.holddown":       "",
 
 	"concentrators.*.address":        "",
 	"concentrators.*.port":           "",
@@ -745,7 +747,7 @@ func (k *checker) tunnelPort(where, p string, maps map[string]any, bridge *uci.S
 		at := where + ".vxlan." + vlan
 		vni := text(m["vni"])
 		cid, _ := m["tunnel"].(string)
-		if k.tunnel(at, "primary", m, obj(concentrators, cid), true) == "" {
+		if k.tunnel(at, false, m, obj(concentrators, cid), true) == "" {
 			continue
 		}
 		member := p
@@ -792,10 +794,8 @@ func portEntry(flags string) string {
 }
 
 // transports checks that every transport a network keeps has its path in
-// the network config. Both are rendered, as the AP chooses between them
-// (0020), and the network's interface is on the primary's path. Until
-// switching is built, a VXLAN fallback's tunnel is rendered but not
-// started (0054).
+// the network config, and the network's interface is on the primary's path.
+// A network with a fallback is switching's to check (0061).
 func (k *checker) transports(id string, n map[string]any, concentrators map[string]any) {
 	net := k.c.Package("network")
 	if net == nil {
@@ -832,7 +832,7 @@ func (k *checker) transports(id string, n map[string]any, concentrators map[stri
 			}
 			path = "." + vlan
 		case "vxlan":
-			path = k.tunnel(where, slot, t, obj(concentrators, text(t["concentrator"])), true)
+			path = k.tunnel(where, slot != "primary", t, obj(concentrators, text(t["concentrator"])), true)
 		}
 		if slot != "primary" || path == "" {
 			continue
@@ -853,7 +853,9 @@ func (k *checker) transports(id string, n map[string]any, concentrators map[stri
 // transport is configured, as the prober attaches the one that carries the
 // network; for a VLAN transport, a veth pair whose VLAN end is in the
 // uplink's bridge, untagged in the VLAN; for a VXLAN transport, its tunnel,
-// with no bridge of its own; and the prober's plan, which names them all.
+// with no bridge of its own, and a fallback's started only in HA mode; and
+// the prober's plan, which names them all and says how the network
+// switches: report, or automatic with HA mode, failback and hold-down.
 func (k *checker) switching(id string, n map[string]any, concentrators map[string]any) {
 	net := k.c.Package("network")
 	h := NetHash(id)
@@ -882,6 +884,9 @@ func (k *checker) switching(id string, n map[string]any, concentrators map[strin
 		}
 	}
 	at := "aeolus." + sect
+	tr := obj(n, "transport")
+	auto := tr["switching"] == "automatic"
+	ha, _ := tr["ha"].(bool)
 	plan := k.c.Package("aeolus").Named(sect)
 	if plan == nil || plan.Type != "switch" {
 		k.add("%s: no plan for the prober, which attaches the transport that carries network %s (0061)", at, id)
@@ -889,7 +894,19 @@ func (k *checker) switching(id string, n map[string]any, concentrators map[strin
 	} else {
 		k.option(at, plan, "network", id)
 		k.option(at, plan, "bridge", br)
-		k.option(at, plan, "mode", "report")
+		if auto {
+			k.option(at, plan, "mode", "automatic")
+			k.option(at, plan, "ha", map[bool]string{false: "0", true: "1"}[ha])
+			k.option(at, plan, "failback", cmp.Or(text(tr["failback"]), "revertive"))
+			k.option(at, plan, "holddown", cmp.Or(text(tr["holddown"]), "300"))
+		} else {
+			k.option(at, plan, "mode", "report")
+			for _, o := range []string{"ha", "failback", "holddown"} {
+				if v := value(plan, o); v != "" {
+					k.add("%s: %s is %q, but the network does not switch (report mode)", at, o, v)
+				}
+			}
+		}
 	}
 	mac := ""
 	for _, slot := range []string{"primary", "fallback"} {
@@ -925,7 +942,7 @@ func (k *checker) switching(id string, n map[string]any, concentrators map[strin
 			}
 		case "vxlan":
 			vni := text(t["vni"])
-			k.tunnel(where, slot, t, obj(concentrators, text(t["concentrator"])), false)
+			k.tunnel(where, slot == "fallback" && !(auto && ha), t, obj(concentrators, text(t["concentrator"])), false)
 			if plan != nil {
 				k.option(at, plan, slot, TunnelName(vni))
 				k.option(at, plan, slot+"_vni", vni)
@@ -942,10 +959,11 @@ func (k *checker) switching(id string, n map[string]any, concentrators map[strin
 }
 
 // tunnel checks a VXLAN transport's tunnel (0054): the interface named for
-// its VNI, to the concentrator, started only for the primary; its bridge;
-// the firewall rule that lets it in; and the MSS clamp below 1500. It
-// returns the bridge the network's interface goes on.
-func (k *checker) tunnel(where, slot string, t, conc map[string]any, bridged bool) string {
+// its VNI, to the concentrator, started unless it stands by; its bridge; the
+// firewall rule that lets it in; and the MSS clamp below 1500. A fallback
+// stands by, but in HA mode (0061). It returns the bridge the network's
+// interface goes on.
+func (k *checker) tunnel(where string, standby bool, t, conc map[string]any, bridged bool) string {
 	net := k.c.Package("network")
 	vni := text(t["vni"])
 	address := strings.Trim(text(conc["address"]), "[]")
@@ -1007,11 +1025,11 @@ func (k *checker) tunnel(where, slot string, t, conc map[string]any, bridged boo
 		k.add("%s: the tunnel starts from %s, want the management interface (0063)", at, link)
 	}
 	auto := value(s, "auto") != "0"
-	if slot == "primary" && !auto {
-		k.add("%s: the primary's tunnel is not started", at)
+	if !standby && !auto {
+		k.add("%s: the tunnel is not started", at)
 	}
-	if slot == "fallback" && auto {
-		k.add("%s: the fallback's tunnel is started; it waits until the AP switches to it (0054)", at)
+	if standby && auto {
+		k.add("%s: the fallback's tunnel is started; without HA mode, it waits until the AP needs it (0054, 0061)", at)
 	}
 
 	// A tunnel of a network with a fallback has no bridge of its own: the

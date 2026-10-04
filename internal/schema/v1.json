@@ -211,9 +211,10 @@
           "properties": {
             "primary": { "$ref": "#/$defs/transport" },
             "fallback": { "$ref": "#/$defs/transport" },
-            "ha": { "type": "boolean", "description": "Keep both transports established; switch only when the active one is marked bad (0022)." },
-            "failback": { "enum": ["revertive", "equal"], "description": "0022." },
-            "holddown": { "type": "integer", "minimum": 0, "maximum": 3600, "description": "Seconds the primary must stay healthy before a revertive failback." }
+            "switching": { "enum": ["report", "automatic"], "default": "report", "description": "report (the default) probes both transports and never moves the network; automatic moves it to the fallback while the primary is down (0061)." },
+            "ha": { "type": "boolean", "description": "With automatic switching: keep a VXLAN fallback started and probed, so a switch is a re-attach; unset, it is started when the primary goes down (0022, 0061)." },
+            "failback": { "enum": ["revertive", "equal"], "default": "revertive", "description": "With automatic switching: revertive moves back to the primary after the hold-down; equal stays on the fallback until it fails (0022, 0061)." },
+            "holddown": { "type": "integer", "minimum": 0, "maximum": 3600, "default": 300, "description": "Seconds the primary must answer before a revertive switch back (0061)." }
           },
           "required": ["primary"]
         }

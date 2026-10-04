@@ -20,7 +20,7 @@
 			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1",
 				"transport": { "primary": { "type": "vxlan", "concentrator": "arista", "vni": 50, "probe": "192.168.50.1" }, "fallback": { "type": "vlan", "vlan": 20 } } },
 			"things": { "ssid": "Aeolus Things", "security": "wpa2-psk", "passphrase": "fixture-passphrase-2", "bands": ["2g"],
-				"transport": { "primary": { "type": "vlan", "vlan": 10 }, "fallback": { "type": "vxlan", "concentrator": "arista", "vni": 10 } } }
+				"transport": { "primary": { "type": "vlan", "vlan": 10 }, "fallback": { "type": "vxlan", "concentrator": "arista", "vni": 10 }, "switching": "automatic", "ha": true, "holddown": 120 } }
 		},
 		"concentrators": { "arista": { "address": "1.1.1.2", "port": 4789, "mtu": 1450, "probe_interval": 20 } }
 	}

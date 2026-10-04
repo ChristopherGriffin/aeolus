@@ -305,17 +305,30 @@ type radioState struct {
 
 // transportState is one network's transports: which is carrying traffic, and
 // how each is doing (0020, 0022), by the prober's verdicts (0061). A
-// transport not started, a VXLAN fallback waiting, is off.
+// transport not started, a VXLAN fallback waiting, is off. With automatic
+// switching, the last switch, and why a switch that is due cannot be made.
 type transportState struct {
-	Active   string `json:"active"`
-	Primary  string `json:"primary,omitempty"`
-	Fallback string `json:"fallback,omitempty"`
+	Active       string      `json:"active"`
+	Primary      string      `json:"primary,omitempty"`
+	Fallback     string      `json:"fallback,omitempty"`
+	LastSwitch   *lastSwitch `json:"last_switch,omitempty"`
+	CannotSwitch string      `json:"cannot_switch,omitempty"`
+}
+
+// lastSwitch is a network's last move between its transports (0061): from
+// which to which, why, and how many seconds ago.
+type lastSwitch struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Why  string `json:"why"`
+	Ago  int64  `json:"ago"`
 }
 
 var (
 	verdicts = map[string]bool{"up": true, "down": true, "unverified": true, "unknown": true, "off": true}
 	bands    = map[string]bool{"2g": true, "5g": true, "6g": true}
 	actives  = map[string]bool{"primary": true, "fallback": true, "none": true}
+	sides    = map[string]bool{"primary": true, "fallback": true}
 	healths  = map[string]bool{"": true, "up": true, "down": true, "unknown": true, "unverified": true, "off": true}
 )
 
@@ -406,6 +419,12 @@ func (st *stateReport) check() error {
 		}
 		if !actives[t.Active] || !healths[t.Primary] || !healths[t.Fallback] {
 			return badRequest("network %s: active is primary, fallback or none; health is up, down, unverified, unknown or off", id)
+		}
+		if l := t.LastSwitch; l != nil && (!sides[l.From] || !sides[l.To] || l.From == l.To || l.Why == "" || len(l.Why) > 200 || l.Ago < 0) {
+			return badRequest("network %s: the last switch is from one transport to the other (primary or fallback), with why, in at most 200 characters, and seconds ago", id)
+		}
+		if len(t.CannotSwitch) > 200 {
+			return badRequest("network %s: why it cannot switch is at most 200 characters", id)
 		}
 	}
 	if len(st.VLANProbes) > 64 {

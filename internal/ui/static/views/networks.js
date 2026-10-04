@@ -9,7 +9,7 @@
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
-import { bandName, security, group, value, ago, probeOnly, PROBE_ONLY } from '../format.js';
+import { bandName, security, group, value, ago, secondsAgo, probeOnly, PROBE_ONLY } from '../format.js';
 import { fieldPanels, editing } from './fields.js';
 import { only, configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -24,7 +24,11 @@ const MORE = 'More settings';
 const SECTIONS = [
 	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation', 'multicast_to_unicast']],
 	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
-	['Traffic', ['transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni', 'transport.primary.probe']],
+	['Traffic', [
+		'transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni', 'transport.primary.probe',
+		'transport.fallback.type', 'transport.fallback.vlan', 'transport.fallback.concentrator', 'transport.fallback.vni', 'transport.fallback.probe',
+		'transport.switching', 'transport.ha', 'transport.failback', 'transport.holddown',
+	]],
 ];
 
 export async function networksTab(ctx, id, page) {
@@ -138,7 +142,10 @@ function view(ctx, n, bandsHere, box, noUsteer, lib) {
 				? h('span', { class: 'chip band' }, bandName(b))
 				: h('span', { class: 'chip band none', title: 'No radio here for this band' }, bandName(b) + ' (no radio here)')))),
 		row('Security', security(f('security'))),
-		row('Travels over', transport('primary') && [transport('primary'), transport('fallback') && `, then ${transport('fallback')}`]),
+		row('Travels over', transport('primary') && [transport('primary'), transport('fallback') && `, then ${transport('fallback')}`,
+			transport('fallback') && (f('transport.switching') === 'automatic'
+				? ` · switches automatically${f('transport.failback') === 'equal' ? '' : `, back after ${f('transport.holddown') ?? 300} s`}${f('transport.ha') ? ', HA' : ''}`
+				: ' · report only')]),
 		row('Roaming', roaming.length ? roaming.join(', ') : 'off'),
 		steeringRow(ctx, n, box, noUsteer),
 		multicastRow(ctx, n, box),
@@ -286,7 +293,7 @@ const VERDICT = {
 // transportsStatus shows, for each network with a fallback on each AP here,
 // which transport carries it and how each is doing, by the AP's prober
 // (0061): a VLAN transport probed on the uplink, a VXLAN one on its tunnel.
-// Until switching is built, the primary carries it.
+// Under it, the last switch, or why a switch that is due cannot be made.
 function transportsStatus(reports) {
 	const rows = [];
 	for (const { ap, cfg } of reports) {
@@ -308,7 +315,11 @@ function transportsStatus(reports) {
 			rows.push(h('tr', null,
 				h('td', null, rows.length === 0 || rows[rows.length - 1].dataset.ap !== ap.id ? link(`/aps/${encodeURIComponent(ap.id)}`, ap.name) : null),
 				h('td', null, n?.ssid || id),
-				h('td', null, s.active === 'none' ? h('span', { class: 'chip bad' }, 'nothing') : s.active),
+				h('td', null,
+					s.active === 'none' ? h('span', { class: 'chip bad' }, 'nothing') : s.active === 'fallback' ? h('span', { class: 'chip warn' }, 'fallback') : s.active,
+					s.cannot_switch ? h('div', { class: 'sub' }, `cannot switch: ${s.cannot_switch}`)
+						: s.last_switch && h('div', { class: 'sub' },
+							`to ${s.last_switch.to} ${secondsAgo(s.last_switch.ago, st.at)}: ${s.last_switch.why}`)),
 				h('td', null, how('primary')),
 				h('td', null, how('fallback')),
 				h('td', null, ago(st.at))));
@@ -328,8 +339,10 @@ function transportsStatus(reports) {
 // are not sent.
 const FOR_TYPE = { vlan: ['vlan'], vxlan: ['concentrator', 'vni', 'probe'] };
 
-// What only means something once there is a fallback transport (0022).
-const WITH_FALLBACK = ['transport.ha', 'transport.failback', 'transport.holddown'];
+// What only means something once there is a fallback transport, and with
+// automatic switching (0022, 0061).
+const WITH_FALLBACK = ['transport.switching'];
+const WITH_AUTOMATIC = ['transport.ha', 'transport.failback', 'transport.holddown'];
 
 // pickers swaps a transport's tunnel field for a list of the tunnels set
 // here (0055). A tunnel the list lacks, set where it was, stays on offer,
@@ -357,8 +370,9 @@ function pickers(prefix, rows, inputs, lib) {
 // form lays out an input for every network field the schema has, with the
 // values now in fields ({field: {value, from, origin}}). Fields locked
 // above folder cannot be changed there. A transport shows only the fields
-// its type uses; sync shows the right ones after a type is set. A VXLAN
-// transport's tunnel is picked from lib, the tunnels set here.
+// its type uses; sync shows the right ones after a type is set, and the
+// switching settings only with a fallback. A VXLAN transport's tunnel is
+// picked from lib, the tunnels set here.
 function form(d, net, fields, folder, lib) {
 	const prefix = `network.${net}.`;
 	const keys = Object.keys(d.fields).filter((k) => k.startsWith('network.*.')).map((k) => k.slice('network.*.'.length));
@@ -377,10 +391,13 @@ function form(d, net, fields, folder, lib) {
 		for (const slot of ['primary', 'fallback'])
 			for (const [t, ks] of Object.entries(FOR_TYPE))
 				for (const k of ks) show(`transport.${slot}.${k}`, typeOf(slot) === t);
-		for (const k of WITH_FALLBACK) show(k, Boolean(typeOf('fallback')));
+		const fallback = Boolean(typeOf('fallback'));
+		for (const k of WITH_FALLBACK) show(k, fallback);
+		const automatic = rows.get(`${prefix}transport.switching`)?.it.el.value === 'automatic';
+		for (const k of WITH_AUTOMATIC) show(k, fallback && automatic);
 	};
-	for (const slot of ['primary', 'fallback'])
-		rows.get(`${prefix}transport.${slot}.type`)?.it.el.addEventListener('change', sync);
+	for (const k of ['transport.primary.type', 'transport.fallback.type', 'transport.switching'])
+		rows.get(prefix + k)?.it.el.addEventListener('change', sync);
 	sync();
 	return { body, inputs, rows, sync };
 }
