@@ -27,7 +27,8 @@
 // On the Wi-Fi interfaces of Aeolus's networks it watches the clients' DHCP
 // (0065): a client that doesn't use it, requests nothing answers, and
 // requests more than one server answers. It lists every Wi-Fi client on the
-// AP too (0066).
+// AP too (0066), with what it said of itself and the 802.11 features it
+// supports (0067).
 //
 // Its plan is the agent's own UCI package, as the renderer made it: probe
 // and guard sections. What it finds goes to /var/run/aeolus/probes.json,
@@ -241,9 +242,11 @@ let watch = { uplink: null, vlans: {}, sock: null, until: 0, next: 0, lldp: null
 // interface, its socket, network and when the watch began there; by network,
 // the requests waiting for answers, its servers, the unanswered and answered
 // requests in the window, its duplicates, its clients, when each client last
-// asked, and the host name each gave (0066). And every Wi-Fi client on the AP,
-// with what nl80211 said of it at the last scan.
-let dw = { ifaces: {}, nets: {}, clients: [] };
+// asked. Every Wi-Fi client on the AP, with what nl80211 and hostapd said of
+// it at the last scan (0066, 0067). And, by MAC, what each client said of
+// itself in DHCP, on any of the AP's networks: its host name, vendor class
+// and fingerprint, and the address it uses (0067).
+let dw = { ifaces: {}, nets: {}, clients: [], ident: {} };
 
 // heard notes that a frame came in on a watched VLAN (0064).
 function heard(vlan, at) {
@@ -824,15 +827,18 @@ function on_lldp(at) {
 
 // dhcp_net is a network's DHCP watch (0065), made when first needed.
 function dhcp_net(id) {
-	return dw.nets[id] ??= { requests: {}, servers: {}, unanswered: [], answered: [], duplicates: [], clients: {}, asked: {}, hosts: {}, silent: false };
+	return dw.nets[id] ??= { requests: {}, servers: {}, unanswered: [], answered: [], duplicates: [], clients: {}, asked: {}, silent: false };
 }
 
 // dhcp_scan finds the AP's Wi-Fi interfaces, as netifd has them, and opens
-// a socket on each new one of Aeolus's networks (0065). Then it reads, from
-// nl80211, the clients on every one, the AP's own included (0066): when each
-// joined, its signal, rates and data. On Aeolus's networks, a client that
-// joined after the watch began on its interface is watched for DHCP; one
-// that joined again starts afresh.
+// a socket on each new one: on Aeolus's networks for the DHCP watch (0065),
+// on the AP's own for what clients say of themselves (0067). Then it reads,
+// from nl80211, the clients on every one (0066): when each joined, its
+// signal, rates and data; and from hostapd, the 802.11 features each
+// supports (0067). On Aeolus's networks, a client that joined after the
+// watch began on its interface is watched for DHCP; one that joined again
+// starts afresh. What a client said of itself is forgotten an hour after it
+// leaves.
 function dhcp_scan(at) {
 	let want = {}, nets = {}, all = [];
 	for (let r, v in bus.call('network.wireless', 'status') ?? {})
@@ -842,13 +848,12 @@ function dhcp_scan(at) {
 			let n = filter(i.config?.network ?? [], x => match(x, /^aeolus_/))[0];
 			let id = n ? replace(substr(n, 7), /_/g, '-') : null;
 			push(all, { ifname: i.ifname, ssid: i.config?.ssid, band: v.config?.band, network: id });
-			if (id) {
-				want[i.ifname] = id;
+			want[i.ifname] = id;
+			if (id)
 				nets[id] = true;
-			}
 		}
 	for (let ifn in keys(dw.ifaces))
-		if (want[ifn] != dw.ifaces[ifn].network || ifindex(ifn) != dw.ifaces[ifn].index) {
+		if (!(ifn in want) || want[ifn] != dw.ifaces[ifn].network || ifindex(ifn) != dw.ifaces[ifn].index) {
 			close(dw.ifaces[ifn].sock);
 			delete dw.ifaces[ifn];
 		}
@@ -864,14 +869,25 @@ function dhcp_scan(at) {
 	dw.clients = [];
 	if (!nl80211)
 		return;
-	let seen = {};
+	// The 802.11 features a client's association showed hostapd: its
+	// generation; 802.11k, from any RRM bit; 802.11v, from the BSS transition
+	// bit (19) of its extended capabilities; 802.11w; MBO; and WMM.
+	let features = (x) => x == null ? null : {
+		gen: x.eht ? 'be' : x.he ? 'ax' : x.vht ? 'ac' : x.ht ? 'n' : null,
+		k: length(filter(x.rrm ?? [], b => b != 0)) > 0,
+		v: !!((x.extended_capabilities?.[2] ?? 0) & 0x08),
+		w: !!x.mfp, mbo: !!x.mbo, wmm: !!x.wmm,
+	};
+	let seen = {}, here = {};
 	for (let a in all) {
 		let w = dw.ifaces[a.ifname], n = a.network ? dhcp_net(a.network) : null;
+		let hc = bus.call('hostapd.' + a.ifname, 'get_clients')?.clients ?? {};
 		for (let st in nl80211.request(nl80211.const.NL80211_CMD_GET_STATION, nl80211.const.NLM_F_DUMP, { dev: a.ifname }) ?? []) {
 			let mac = lc(st.mac ?? ''), s = st.sta_info ?? {};
 			if (!mac || s.connected_time == null)
 				continue;
-			push(dw.clients, { mac: mac, ssid: a.ssid, band: a.band, network: a.network, sta: s });
+			here[mac] = true;
+			push(dw.clients, { mac: mac, ssid: a.ssid, band: a.band, network: a.network, sta: s, features: features(hc[mac]) });
 			if (!n || !w)
 				continue;
 			seen[a.network] ??= {};
@@ -885,34 +901,48 @@ function dhcp_scan(at) {
 	}
 	for (let id, n in dw.nets)
 		for (let mac in keys(n.clients))
-			if (!seen[id]?.[mac]) {
+			if (!seen[id]?.[mac])
 				delete n.clients[mac];
-				delete n.hosts[mac];
-			}
+	for (let mac in keys(dw.ident))
+		if (here[mac])
+			dw.ident[mac].at = at;
+		else if (at - dw.ident[mac].at > probe.DHCP_MEMORY)
+			delete dw.ident[mac];
 }
 
 // on_dhcp reads what crossed a Wi-Fi interface (0065). A request counts when
 // it comes in from a client: the bridge floods the segment's other
 // broadcast requests out to the Wi-Fi clients too, and one client's to the
-// others. It is kept by its transaction ID. An answer goes with its request,
-// by server, and a second server answering one request is a duplicate; any
-// answer shows its server, whoever it answers on the segment. An ack gives a
-// client its address; so does its ARP.
+// others. What a client says of itself is kept, on any network (0067); the
+// rest only on Aeolus's. A request is kept by its transaction ID. An answer
+// goes with its request, by server, and a second server answering one
+// request is a duplicate; any answer shows its server, whoever it answers
+// on the segment. An ack gives a client its address; so does its ARP.
 function on_dhcp(w, at) {
-	let n = dhcp_net(w.network), m;
+	let n = w.network ? dhcp_net(w.network) : null, m;
+	let ident = (mac) => dw.ident[mac] ??= { at: at, host: null, vendor_class: null, params: null, address: null };
 	while ((m = w.sock.recvmsg(2048, 0, socket.MSG_DONTWAIT)) != null) {
 		let f = m.data, d = probe.dhcp_seen(f);
 		if (d && d.op == 1) {
 			if (m.address?.packet_type == 4)
 				continue;   // going out: not this network's Wi-Fi client asking
+			let id = ident(d.client);
+			id.at = at;
+			for (let k in ['host', 'vendor_class', 'params'])
+				if (d[k])
+					id[k] = d[k];
+			if (!n)
+				continue;
 			if (d.type in ['discover', 'request', 'inform'] && !n.requests['' + d.xid])
 				n.requests['' + d.xid] = { at: at, client: d.client, type: d.type, answers: {}, duplicate: null };
 			n.asked[d.client] = at;
 			if (n.clients[d.client])
 				n.clients[d.client].asked = at;
-			if (d.host)
-				n.hosts[d.client] = { name: d.host, at: at };
 		} else if (d && d.op == 2) {
+			if (d.type == 'ack' && d.yiaddr != '0.0.0.0' && dw.ident[d.client])
+				dw.ident[d.client].address = d.yiaddr;
+			if (!n)
+				continue;
 			let r = n.requests['' + d.xid], server = d.server ?? d.src_ip;
 			let sv = n.servers[server] ??= { mac: d.src_mac, answers: 0, last: at };
 			sv.mac = d.src_mac;
@@ -934,7 +964,9 @@ function on_dhcp(w, at) {
 				n.clients[d.client].address = d.yiaddr;
 		} else {
 			let a = probe.arp_seen(f);
-			if (a && n.clients[a.mac])
+			if (a)
+				ident(a.mac).address = a.address;
+			if (a && n?.clients[a.mac])
 				n.clients[a.mac].address = a.address;
 		}
 	}
@@ -966,11 +998,6 @@ function dhcp_results(at) {
 		for (let k in keys(n.asked))
 			if (at - n.asked[k] > probe.DHCP_MEMORY)
 				delete n.asked[k];
-		// A name stays while its client does; one for a client never seen
-		// goes after an hour.
-		for (let k in keys(n.hosts))
-			if (!n.clients[k] && at - n.hosts[k].at > probe.DHCP_MEMORY)
-				delete n.hosts[k];
 		let silent = length(n.unanswered) > 0 && !length(n.answered);
 		if (silent != n.silent) {
 			let how = silent ? note : log;
@@ -1004,15 +1031,16 @@ function dhcp_results(at) {
 // MAC, network (Aeolus's, or null for the AP's own) and SSID, band, signal
 // and its average, rates each way in Mbit/s with MCS and streams, data and
 // packets each way, retries and failures, seconds connected, milliseconds
-// since last heard, and on Aeolus's networks, the address it uses, the host
-// name it gave, and how it does with DHCP (0065). At most 256.
+// since last heard; the address it uses, the host name, vendor class and
+// fingerprint it gave in DHCP, and its 802.11 features (0067); and on
+// Aeolus's networks how it does with DHCP (0065). At most 256.
 function clients_report(at) {
 	let mbit = (b) => (b?.bitrate32 ?? b?.bitrate) != null ? (b.bitrate32 ?? b.bitrate) / 10.0 : null;
 	let mcs = (b) => b?.mcs ?? b?.vht_mcs ?? b?.he_mcs ?? b?.eht_mcs;
 	let nss = (b) => b?.vht_nss ?? b?.he_nss ?? b?.eht_nss;
 	let out = [];
 	for (let c in dw.clients) {
-		let s = c.sta, n = c.network ? dw.nets[c.network] : null, d = n?.clients[c.mac];
+		let s = c.sta, n = c.network ? dw.nets[c.network] : null, d = n?.clients[c.mac], id = dw.ident[c.mac], x = c.features;
 		push(out, {
 			mac: c.mac, network: c.network, ssid: c.ssid, band: c.band,
 			signal: s.signal, signal_avg: s.signal_avg,
@@ -1021,7 +1049,9 @@ function clients_report(at) {
 			rx_bytes: s.rx_bytes64 ?? s.rx_bytes, tx_bytes: s.tx_bytes64 ?? s.tx_bytes,
 			rx_packets: s.rx_packets, tx_packets: s.tx_packets, tx_retries: s.tx_retries, tx_failed: s.tx_failed,
 			connected: s.connected_time, inactive_ms: s.inactive_time,
-			address: d?.address, host: n?.hosts[c.mac]?.name, dhcp: d ? probe.client_dhcp(d, at) : null,
+			address: d?.address ?? id?.address, host: id?.host, vendor_class: id?.vendor_class, params: id?.params,
+			dhcp: d ? probe.client_dhcp(d, at) : null,
+			gen: x?.gen, k: x?.k, v: x?.v, w: x?.w, mbo: x?.mbo, wmm: x?.wmm,
 		});
 	}
 	return slice(sort(out, (x, y) => x.connected - y.connected), 0, 256);

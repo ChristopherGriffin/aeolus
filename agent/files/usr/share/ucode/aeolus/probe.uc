@@ -300,7 +300,8 @@ function dhcp_reply(f, xid) {
 // request, 2 a server's answer); its kind; the transaction ID; the client's
 // MAC; the address the client holds (ciaddr) and the one it is given
 // (yiaddr); the server's ID (option 54) and the address asked for (50); the
-// host name a client gives (option 12, else 81's FQDN, 0066); and the
+// host name a client gives (option 12, else 81's FQDN, 0066); its vendor
+// class (60) and the options it asks for (55, 0067); and the
 // frame's source MAC and IP address. Null for anything else.
 function dhcp_seen(f) {
 	if (length(f) < 34 || get16(f, 12) != 0x0800 || ord(f, 23) != 17)
@@ -336,10 +337,14 @@ function dhcp_seen(f) {
 		}
 		host = name(text);
 	}
+	// What a client says of itself (0067): its vendor class (option 60),
+	// and the options it asks for, in order (55), its fingerprint.
+	let params = opts[55] != null ? join(',', map(split(substr(opts[55], 0, 64), ''), c => ord(c))) : null;
 	return {
 		op: ord(f, b), type: type, xid: get32(f, b + 4), client: mac_text(f, b + 28),
 		ciaddr: ip4_text(f, b + 12), yiaddr: ip4_text(f, b + 16), server: ip(54), requested: ip(50),
-		host: host, src_mac: mac_text(f, 6), src_ip: ip4_text(f, 26),
+		host: host, vendor_class: name(opts[60]), params: params || null,
+		src_mac: mac_text(f, 6), src_ip: ip4_text(f, 26),
 	};
 }
 
