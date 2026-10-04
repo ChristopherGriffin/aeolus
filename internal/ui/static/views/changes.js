@@ -25,7 +25,7 @@ export async function changesPage(ctx) {
 			h('div', { class: 'head' },
 				h('div', null,
 					h('h1', null, 'Changes'),
-					h('div', { class: 'sub' }, `${seq} changes. Each one is logged with who made it and why, and none can be edited or removed.`))),
+					h('div', { class: 'sub' }, `${seq} changes. Each one is logged with who made it and when, and none can be edited or removed.`))),
 			h('section', { class: 'panel' }, list, more),
 		],
 	};

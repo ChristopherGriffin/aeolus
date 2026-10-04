@@ -1,7 +1,7 @@
 // A change on its way to the log (0042): previewed first, showing what it
-// does, the APs that get a new config and any rule it would break; then a
-// reason and Apply. Nothing is recorded until Apply, and the change is
-// logged under the person's name.
+// does, the APs that get a new config and any rule it would break; then
+// Apply, with a note if the person wants one (0062). Nothing is recorded
+// until Apply, and the change is logged under the person's name.
 
 import { h } from '../dom.js';
 import { post } from '../api.js';
@@ -25,9 +25,10 @@ export function confirm(ctx, box, op, p, lines, notes) {
 	const name = (id) => ctx.name('locations', id);
 	const problems = Object.entries(p.checks || {});
 	const affected = p.reversioned || [];
-	const reason = h('input', { type: 'text', class: 'reason', placeholder: 'Why? (logged with your name)', maxlength: 500 });
-	const apply = h('button', { type: 'button', class: 'button primary', disabled: true }, 'Apply');
-	reason.addEventListener('input', () => { apply.disabled = problems.length > 0 || !reason.value.trim(); });
+	// The log records who made the change and when; a note is optional (0062).
+	const reason = h('input', { type: 'text', class: 'reason', placeholder: 'Note (optional)', maxlength: 500 });
+	const apply = h('button', { type: 'button', class: 'button primary', disabled: problems.length > 0 }, 'Apply');
+	reason.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !apply.disabled) apply.click(); });
 	apply.addEventListener('click', async () => {
 		apply.disabled = true;
 		try {
@@ -53,7 +54,7 @@ export function confirm(ctx, box, op, p, lines, notes) {
 			h('ul', null, problems.flatMap(([id, list]) => list.map((x) => h('li', null, `${name(id)}: ${x}`))))),
 		problems.length === 0 && affected.length > 0 && notes,
 		h('div', { class: 'actions' }, reason, apply, cancelButton(box))));
-	reason.focus();
+	(apply.disabled ? reason : apply).focus();
 }
 
 export function cancelButton(box) {

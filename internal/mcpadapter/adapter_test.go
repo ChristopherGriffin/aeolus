@@ -152,6 +152,44 @@ func TestChangeIsLoggedUnderTheCallersNameWithTheReason(t *testing.T) {
 	}
 }
 
+// A change needs no reason (0062): the log records who made it and when, and
+// the tool's schema does not ask for one.
+func TestChangeNeedsNoReason(t *testing.T) {
+	f := newFixture(t)
+	s := f.session(t, "claude")
+	tools, err := s.ListTools(context.Background(), nil)
+	must(t, err)
+	for _, tool := range tools.Tools {
+		if tool.Name != "make_change" {
+			continue
+		}
+		raw, err := json.Marshal(tool.InputSchema)
+		must(t, err)
+		var schema struct {
+			Required []string `json:"required"`
+		}
+		must(t, json.Unmarshal(raw, &schema))
+		if strings.Join(schema.Required, " ") != "op" {
+			t.Fatalf("make_change requires %v, want only op", schema.Required)
+		}
+	}
+	for _, args := range []map[string]any{
+		{"op": map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "radio.5g.width", "value": 40}},
+		{"op": map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "radio.5g.width", "value": 80}, "reason": "  "},
+	} {
+		before := f.log.Seq()
+		res, text := call(t, s, "make_change", args)
+		if res.IsError {
+			t.Fatalf("make_change %v failed: %s", args, text)
+		}
+		entries, err := f.log.Entries(before, 1)
+		must(t, err)
+		if e := entries[0]; e.Actor != "claude" || e.Reason != "" || e.At.IsZero() || e.Op.Path != "radio.5g.width" {
+			t.Fatalf("logged %+v", e)
+		}
+	}
+}
+
 func TestRefusalsAreToolErrors(t *testing.T) {
 	f := newFixture(t)
 	s := f.session(t, "claude")
@@ -161,7 +199,6 @@ func TestRefusalsAreToolErrors(t *testing.T) {
 	}{
 		{map[string]any{"op": map[string]any{"kind": "lock", "tree": "locations", "node": "symtus", "path": "radio.5g.width"}, "reason": "x"}, "needs admin"},
 		{map[string]any{"op": map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "radio.5g.width", "value": 33}, "reason": "x"}, "value must be one of"},
-		{map[string]any{"op": map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "radio.5g.width", "value": 40}, "reason": " "}, "reason is required"},
 	}
 	for _, c := range cases {
 		res, text := call(t, s, "make_change", c.args)

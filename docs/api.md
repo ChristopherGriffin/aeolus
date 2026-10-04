@@ -23,7 +23,7 @@ Secrets are never returned: a secret value appears as `{"sealed": true}`, and to
 
 | Request | Body | Returns |
 |---|---|---|
-| `POST /v1/changes` | `{op, reason}` | the logged `change`, the APs it `reversioned`, and `checks` for any of them whose config now fails |
+| `POST /v1/changes` | `{op, reason?}`: a note for the log, which records who made the change and when without one (0062) | the logged `change`, the APs it `reversioned`, and `checks` for any of them whose config now fails |
 | `POST /v1/preview` | `{op}` | the `effect` (before, after, overrides a lock or move would remove), the APs it would re-version, their `checks`, and for a set or unset, how each field it touches would resolve at its node (`resolved`) afterwards (`value`, `from`, `origin`, or null if nothing would set it; 0046); nothing is recorded |
 | `POST /v1/tokens` | `{account?, reason?}` | a new token for you or, as Org admin, for another account, shown once |
 | `DELETE /v1/tokens/{id}` | | the logged revocation |
@@ -64,7 +64,7 @@ Every AP request updates when it was last seen. An AP in Landing Zone can only p
 
 ## MCP
 
-`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `get_ap_history`, `get_library`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` requires a reason.
+`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `get_ap_history`, `get_library`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` takes a reason as an optional note (0062).
 
 ## Errors
 
