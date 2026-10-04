@@ -28,7 +28,7 @@ What the observations are used for:
 
 ## Open
 
-- Which address attacks v1 detects, and their thresholds.
+- Which address attacks v1 detects, and their thresholds. For clients' DHCP, 0065: a client not using it, requests unanswered, and more than one server answering.
 - Where the expected DHCP servers per VLAN are declared (a field in the schema).
 - Whether APs later act on what they see, for example by dropping rogue DHCP offers on the wireless side, or only report it.
 

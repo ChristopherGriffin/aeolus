@@ -1,8 +1,8 @@
 # 0065. Watching clients' DHCP
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
-- Proposed by: Griff: the AP should tell when a client doesn't use DHCP, when DHCP is asked for and nothing answers, and when a request gets answers from more than one server. Written up by Claude
+- Proposed by: Griff: the AP should tell when a client doesn't use DHCP, when DHCP is asked for and nothing answers, and when a request gets answers from more than one server. Written up by Claude, and accepted with the merge
 - Refines: 0035
 - Resolves: 0035's open points, for v1: what is detected, and where expected servers are declared (nowhere, yet)
 

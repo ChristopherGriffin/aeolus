@@ -112,7 +112,7 @@ Each milestone ends in something checkable before the next starts.
 | [0062](docs/decisions/0062-optional-reasons.md) | A change needs no reason |
 | [0063](docs/decisions/0063-tunnel-start-vlan.md) | A tunnel can start from any VLAN on the uplink |
 | [0064](docs/decisions/0064-vlan-detection.md) | Telling which VLANs reach an AP |
-| [0065](docs/decisions/0065-client-dhcp-watch.md) | Watching clients' DHCP (proposed) |
+| [0065](docs/decisions/0065-client-dhcp-watch.md) | Watching clients' DHCP |
 
 ## Open questions
 
