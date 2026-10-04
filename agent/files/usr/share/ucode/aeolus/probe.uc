@@ -692,7 +692,7 @@ function request_state(r, now) {
 // DHCP_QUIET seconds of joining; none when it shows no address either;
 // unknown before then, or for a client that joined before the watch began.
 function client_dhcp(c, now) {
-	if (c.asked != null && c.asked >= c.joined)
+	if (c.asked != null && c.asked >= c.joined - 2)   // nl80211 gives the join to the second
 		return 'ok';
 	if (!c.watched || now - c.joined < DHCP_QUIET)
 		return 'unknown';

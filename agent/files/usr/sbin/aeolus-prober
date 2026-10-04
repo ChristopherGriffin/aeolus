@@ -70,6 +70,7 @@ const SHUT = '/var/run/aeolus/shut.json';   // ports the loop guard took off the
 const GUARD_EVERY = 2;                       // seconds between loop guard frames
 const WRITE_EVERY = 5;                       // seconds between writes of the results
 const PLAN_EVERY = 10;                       // seconds between looks at the plan
+const STAY_GAP = 15;                         // seconds a client may be off the AP's radios and still be on the network
 const ATTACH_EVERY = 2;                      // seconds between looks at the networks' bridges (0061)
 const SPELL_EVERY = 60;                      // seconds between spells of listening on the uplink (0064)
 const SPELL_MAX = 10;                        // seconds a spell lasts at most
@@ -836,9 +837,11 @@ function dhcp_net(id) {
 // from nl80211, the clients on every one (0066): when each joined, its
 // signal, rates and data; and from hostapd, the 802.11 features each
 // supports (0067). On Aeolus's networks, a client that joined after the
-// watch began on its interface is watched for DHCP; one that joined again
-// starts afresh. What a client said of itself is forgotten an hour after it
-// leaves.
+// watch began on its interface is watched for DHCP. One that moves between
+// the AP's radios on the network, or is off them for less than STAY_GAP, is
+// still there: it keeps its lease, and needn't ask again. One gone longer
+// starts afresh when it comes back. What a client said of itself is
+// forgotten an hour after it leaves.
 function dhcp_scan(at) {
 	let want = {}, nets = {}, all = [];
 	for (let r, v in bus.call('network.wireless', 'status') ?? {})
@@ -871,14 +874,19 @@ function dhcp_scan(at) {
 		return;
 	// The 802.11 features a client's association showed hostapd: its
 	// generation; 802.11k, from any RRM bit; 802.11v, from the BSS transition
-	// bit (19) of its extended capabilities; 802.11w; MBO; and WMM.
+	// bit (19) of its extended capabilities; 802.11w; MBO; and WMM. They are
+	// what the connection uses, which the radio and the SSID cap: a Wi-Fi 6
+	// phone shows n on an n-only radio, and no v where hostapd offers none.
 	let features = (x) => x == null ? null : {
 		gen: x.eht ? 'be' : x.he ? 'ax' : x.vht ? 'ac' : x.ht ? 'n' : null,
 		k: length(filter(x.rrm ?? [], b => b != 0)) > 0,
 		v: !!((x.extended_capabilities?.[2] ?? 0) & 0x08),
 		w: !!x.mfp, mbo: !!x.mbo, wmm: !!x.wmm,
 	};
-	let seen = {}, here = {};
+	let here = {};
+	for (let id, n in dw.nets)
+		for (let mac, c in n.clients)
+			c.here = false;
 	for (let a in all) {
 		let w = dw.ifaces[a.ifname], n = a.network ? dhcp_net(a.network) : null;
 		let hc = bus.call('hostapd.' + a.ifname, 'get_clients')?.clients ?? {};
@@ -890,18 +898,18 @@ function dhcp_scan(at) {
 			push(dw.clients, { mac: mac, ssid: a.ssid, band: a.band, network: a.network, sta: s, features: features(hc[mac]) });
 			if (!n || !w)
 				continue;
-			seen[a.network] ??= {};
-			seen[a.network][mac] = true;
 			let joined = at - s.connected_time, c = n.clients[mac];
-			if (!c || joined > c.joined + 5)
+			if (!c)
 				n.clients[mac] = c = { joined: joined, watched: joined >= w.started - 2, asked: null, address: null, said: null };
+			c.here = true;
+			c.seen = at;
 			if (n.asked[mac] != null && n.asked[mac] >= c.joined - 2)
 				c.asked = n.asked[mac];
 		}
 	}
 	for (let id, n in dw.nets)
 		for (let mac in keys(n.clients))
-			if (!seen[id]?.[mac])
+			if (at - n.clients[mac].seen > STAY_GAP)
 				delete n.clients[mac];
 	for (let mac in keys(dw.ident))
 		if (here[mac])
@@ -1007,6 +1015,8 @@ function dhcp_results(at) {
 		}
 		let without = [];
 		for (let mac, c in n.clients) {
+			if (!c.here)
+				continue;   // between radios, or gone
 			let v = probe.client_dhcp(c, at);
 			if (v != c.said && (v == 'static' || v == 'none'))
 				note('DHCP on %s: client %s asked nothing in %d s, %s', id, mac, probe.DHCP_QUIET, v == 'static' ? `and uses ${c.address}` : 'and shows no address');

@@ -226,6 +226,7 @@ for (let c in [
 // How a client does with DHCP, at 1000 (0065).
 for (let c in [
 	['asked after joining', { joined: 900, watched: true, asked: 902 }],
+	['asked in the second nl80211 rounds the join into', { joined: 900, watched: true, asked: 899.4, address: '192.168.50.7' }],
 	['asked before joining again', { joined: 900, watched: true, asked: 800, address: '192.168.50.7' }],
 	['joined 30 s ago, nothing yet', { joined: 970, watched: true }],
 	['joined 100 s ago, uses an address', { joined: 900, watched: true, address: '192.168.50.7' }],
