@@ -1,8 +1,8 @@
 # 0068. The manager's DHCP listeners
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
-- Proposed by: Griff: start on 0035, the manager's side of DHCP observation (build order 4.4). Written up by Claude
+- Proposed by: Griff: start on 0035, the manager's side of DHCP observation (build order 4.4). Written up by Claude, and accepted with the merge
 - Refines: 0034, 0035
 
 ## Context

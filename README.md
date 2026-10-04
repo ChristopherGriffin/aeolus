@@ -115,7 +115,7 @@ Each milestone ends in something checkable before the next starts.
 | [0065](docs/decisions/0065-client-dhcp-watch.md) | Watching clients' DHCP |
 | [0066](docs/decisions/0066-clients-tab.md) | A Clients tab |
 | [0067](docs/decisions/0067-client-identity.md) | Who each client is, and how well it connects |
-| [0068](docs/decisions/0068-manager-dhcp-listeners.md) | The manager's DHCP listeners (proposed) |
+| [0068](docs/decisions/0068-manager-dhcp-listeners.md) | The manager's DHCP listeners |
 
 ## Open questions
 
