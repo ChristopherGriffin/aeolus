@@ -1,8 +1,8 @@
 # 0066. A Clients tab
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
-- Proposed by: Griff: a Clients tab beside Hardware, Networks, Interfaces and System. The menus may be nested or moved later; a tab is fine for now. Written up by Claude
+- Proposed by: Griff: a Clients tab beside Hardware, Networks, Interfaces and System. The menus may be nested or moved later; a tab is fine for now. Written up by Claude, and accepted with the merge
 - Refines: 0039, 0042, 0065
 
 ## Context
