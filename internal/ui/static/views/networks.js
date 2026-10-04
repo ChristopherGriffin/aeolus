@@ -354,7 +354,7 @@ function dhcpStatus(reports) {
 					h('span', { class: 'chip ' + (dup.size > 1 && dup.has(s.id) ? 'bad' : 'ok'), title: `${s.answers} answers, last ${s.ago} s ago` }, s.id), ` ${s.mac}`))),
 				h('td', null, d.unanswered > 0 && !d.answered
 					? h('span', { class: 'chip bad' }, `none of ${d.unanswered} answered`)
-					: `${d.answered} answered${d.unanswered ? `, ${d.unanswered} not` : ''}`),
+					: d.answered || d.unanswered ? `${d.answered} answered${d.unanswered ? `, ${d.unanswered} not` : ''}` : '—'),
 				h('td', null, (d.without || []).map((c) => h('div', null,
 					h('span', { class: 'chip ' + (c.address ? 'idle' : 'bad') }, c.address ? `static ${c.address}` : 'no address'), ` ${c.mac}`))),
 				h('td', { title: warn.join('\n') }, ago(st.at))));

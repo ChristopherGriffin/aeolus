@@ -61,8 +61,36 @@
 - **Clients' MACs and addresses reach the manager,** in the AP's state report, kept as long as reports are (0039).
 - **Roaming clients:** a client roaming in from another AP may not ask for DHCP again. It is reported with the address it shows, as information, not a warning.
 
-## Lab checks, to do
+## As built
 
-- A phone on Aeolus Lab: the four messages (discover, offer, request, ack) seen on its Wi-Fi interface, in and out, with the server's ID.
-- A client on a test network on VLAN 999, which the switch doesn't carry: its requests reported as unanswered, and the network as not answering.
-- A second server: by frames in the prober's tests. A real one on a test VLAN, only if Griff wants one.
+- **The prober refreshes the interfaces every 10 seconds, and after each apply:**
+  - The Wi-Fi interfaces of Aeolus's networks are found from `network.wireless status`, with one socket each.
+  - Each interface's stations are read from nl80211, which also says when each joined.
+  - An AP without ucode's nl80211 module still watches DHCP. It just doesn't judge which clients don't use it.
+- **A request counts only when it comes in from a client.** Found live on OpenWrtnight: the bridge floods the segment's broadcast DHCP out to the Wi-Fi clients too. So with no client on aeolus_50, the AP's own probes' leases and other hosts' requests crossed its interfaces, going out.
+  - An answer still shows its server, whoever it answers on the segment, so each network lists its servers even before a client asks.
+  - Only a client's own requests count as answered or unanswered, or as answered by more than one server.
+- **Judged every 5 seconds, when the prober writes its results:**
+  - a request waits 10 seconds for an answer;
+  - requests are counted over 10 minutes;
+  - servers and duplicates are remembered for an hour;
+  - a client gets 60 seconds to ask.
+- **Logged once each:** a network where nothing answers, a second server answering one request, and a client that asked nothing.
+- **The agent sends a report at once** when a network stops or starts answering, when a duplicate appears, or when a client without DHCP comes or goes.
+- **The UI:**
+  - the AP's overview gets a warning line for each problem;
+  - the Networks view gets a "DHCP on each AP" panel, listing each network's servers, its requests of the last 10 minutes, and its clients without DHCP.
+
+## Lab checks
+
+- **On OpenWrtnight on 2026-10-04,** with the new prober run by hand:
+  - It opened sockets on the six Wi-Fi interfaces of Aeolus Lab, tedt and aeolus_50, and on none of the AP's own.
+  - On aeolus_50, with no clients, it listed the segment's server, 192.168.50.254, from answers flooded to the Wi-Fi interfaces, and counted no client requests.
+- **probe.out** covers:
+  - the parser on a discover, a renewal, an offer and an ARP;
+  - the ARP reader;
+  - the new filter's jumps;
+  - each judgment's limits.
+- **To do after the release:**
+  - A phone on Aeolus Lab: its discover, offer, request and ack seen, and its server listed.
+  - A client on a test network on VLAN 999, which the switch doesn't carry: its requests reported unanswered, and the network as not answering.
