@@ -113,6 +113,7 @@ Each milestone ends in something checkable before the next starts.
 | [0063](docs/decisions/0063-tunnel-start-vlan.md) | A tunnel can start from any VLAN on the uplink |
 | [0064](docs/decisions/0064-vlan-detection.md) | Telling which VLANs reach an AP |
 | [0065](docs/decisions/0065-client-dhcp-watch.md) | Watching clients' DHCP |
+| [0066](docs/decisions/0066-clients-tab.md) | A Clients tab (proposed) |
 
 ## Open questions
 
