@@ -276,12 +276,13 @@ func portProblems(doc map[string]any) []string {
 // tunnelUse is one VNI an AP's config carries over a tunnel: a network's
 // transport, or one a tunnel port maps (0058).
 type tunnelUse struct {
-	where    string // the field it is set at, for messages
-	network  string // the network that uses it, or "" for a port
-	port     string // the port that uses it, or "" for a network
-	fallback bool   // a network's fallback, which waits until switching starts it
-	vni      int
-	tunnel   string
+	where     string // the field it is set at, for messages
+	network   string // the network that uses it, or "" for a port
+	port      string // the port that uses it, or "" for a network
+	fallback  bool   // a network's fallback, which waits until switching starts it
+	switching bool   // a transport of a network with a fallback (0061)
+	vni       int
+	tunnel    string
 }
 
 // tunnelUses lists every VNI an AP's config carries over a tunnel.
@@ -301,7 +302,8 @@ func tunnelUses(doc map[string]any) []tunnelUse {
 				continue
 			}
 			cid, _ := t["concentrator"].(string)
-			out = append(out, tunnelUse{where: "network." + id + ".transport." + slot, network: id, fallback: slot == "fallback", vni: int(vni), tunnel: cid})
+			_, switching := transport["fallback"].(map[string]any)
+			out = append(out, tunnelUse{where: "network." + id + ".transport." + slot, network: id, fallback: slot == "fallback", switching: switching, vni: int(vni), tunnel: cid})
 		}
 	}
 	ports, _ := doc["ports"].(map[string]any)
@@ -337,6 +339,7 @@ func tunnelProblems(doc map[string]any) []string {
 	nets := map[int][]string{}            // VNI -> the networks that use it
 	tunnels := map[int][]string{}         // VNI -> the tunnels it reaches
 	fallbackOf := map[int]string{}        // VNI -> the network whose fallback it is
+	switchingOf := map[int]string{}       // VNI -> the network with a fallback whose tunnel it is (0061)
 	portsOn := map[int][]string{}         // VNI -> the ports that carry it
 	for _, u := range tunnelUses(doc) {
 		if !slices.Contains(tunnels[u.vni], u.tunnel) {
@@ -356,6 +359,8 @@ func tunnelProblems(doc map[string]any) []string {
 		if u.fallback {
 			slot = "fallback"
 			fallbackOf[u.vni] = u.network
+		} else if u.switching {
+			switchingOf[u.vni] = u.network
 		}
 		if slotOf[u.network] == nil {
 			slotOf[u.network] = map[int]string{}
@@ -381,6 +386,8 @@ func tunnelProblems(doc map[string]any) []string {
 		}
 		if fallbackOf[v] != "" && len(portsOn[v]) > 0 {
 			out = append(out, fmt.Sprintf("VNI %d: it is network %s's fallback here, which waits until switching starts it, so port %s cannot carry it", v, fallbackOf[v], strings.Join(portsOn[v], " and ")))
+		} else if switchingOf[v] != "" && len(portsOn[v]) > 0 {
+			out = append(out, fmt.Sprintf("VNI %d: network %s has a fallback, so the AP moves its tunnel into and out of the network's own bridge (0061), and port %s cannot carry it", v, switchingOf[v], strings.Join(portsOn[v], " and ")))
 		}
 	}
 	// The AP's MAC on a segment ends in the VNI's last 16 bits above 9999,

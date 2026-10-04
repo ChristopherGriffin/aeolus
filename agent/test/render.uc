@@ -28,6 +28,6 @@ let out = render(c.intent, current, c.facts);
 for (let e in out.errors)
 	warn('render: ' + e + '\n');
 if (ARGV[1] == 'clamp')
-	print(clamp(out.config.network));
+	print(clamp(out.config.network, out.config.aeolus));
 else
 	print(join('\n', map(PACKAGES, p => text(p, out.config[p]))));

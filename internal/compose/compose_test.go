@@ -171,6 +171,31 @@ func TestSegmentMACsDoNotClash(t *testing.T) {
 	}
 }
 
+// A network with a fallback has its tunnel moved into and out of its own
+// bridge (0061), so no port can carry that VNI as well.
+func TestASwitchingNetworksTunnelIsItsOwn(t *testing.T) {
+	doc := map[string]any{
+		"concentrators": map[string]any{"dc": map[string]any{"address": "1.1.1.2", "port": float64(4789)}},
+		"network": map[string]any{
+			"lab": map[string]any{"transport": map[string]any{
+				"primary":  map[string]any{"type": "vxlan", "concentrator": "dc", "vni": float64(50)},
+				"fallback": map[string]any{"type": "vlan", "vlan": float64(20)},
+			}},
+		},
+		"ports": map[string]any{"lan3": map[string]any{"mode": "tunnel", "vxlan": map[string]any{
+			"untagged": map[string]any{"tunnel": "dc", "vni": float64(50)},
+		}}},
+	}
+	want := "VNI 50: network lab has a fallback, so the AP moves its tunnel into and out of the network's own bridge (0061), and port lan3 cannot carry it"
+	if got := strings.Join(tunnelProblems(doc), "\n"); got != want {
+		t.Fatalf("problems: %s", got)
+	}
+	delete(doc["network"].(map[string]any)["lab"].(map[string]any)["transport"].(map[string]any), "fallback")
+	if got := tunnelProblems(doc); len(got) != 0 {
+		t.Fatalf("problems without the fallback: %v", got)
+	}
+}
+
 func TestTunnelPorts(t *testing.T) {
 	s, sch := site(t)
 	set := func(tree change.TreeName, node, path string, v any) {
@@ -190,12 +215,17 @@ func TestTunnelPorts(t *testing.T) {
 	if got, _ := problems("gate-ap"); !strings.Contains(got, "ports.lan3: a tunnel port carries no VNIs yet") {
 		t.Fatalf("no VNIs: %s", got)
 	}
-	// Tagged VLAN 50 and untagged both over homelab; VNI 20 shares sweet's
-	// segment, which is allowed.
-	set(change.Locations, "gate", "ports.lan3.vxlan.50.tunnel", "homelab")
-	set(change.Locations, "gate", "ports.lan3.vxlan.50.vni", 50)
+	// Sweet's VNI 20 is not for a port: sweet has a fallback, so the AP
+	// moves its tunnel into and out of sweet's own bridge (0061).
 	set(change.Locations, "gate-ap", "ports.lan3.vxlan.untagged.tunnel", "homelab")
 	set(change.Locations, "gate-ap", "ports.lan3.vxlan.untagged.vni", 20)
+	if got, _ := problems("gate-ap"); !strings.Contains(got, "VNI 20: network sweet has a fallback") {
+		t.Fatalf("a switching network's VNI on a port: %s", got)
+	}
+	// Tagged VLAN 50 and untagged both over homelab.
+	set(change.Locations, "gate", "ports.lan3.vxlan.50.tunnel", "homelab")
+	set(change.Locations, "gate", "ports.lan3.vxlan.50.vni", 50)
+	set(change.Locations, "gate-ap", "ports.lan3.vxlan.untagged.vni", 30)
 	got, doc := problems("gate-ap")
 	if strings.Contains(got, "ports.") || strings.Contains(got, "VNI") {
 		t.Fatalf("a good tunnel port: %s", got)

@@ -11,8 +11,9 @@
 # It also installs usteer, for band steering (0050), with steering off until
 # Aeolus turns it on for a network; snmpd, for SNMP (0052), off until Aeolus
 # turns it on; vxlan and kmod-nft-bridge, for VXLAN tunnels and their MSS
-# clamp (0054); and ucode-mod-socket, for the prober, which probes the
-# tunnels and guards tunnel ports against loops (0059). That needs the AP to
+# clamp (0054); ucode-mod-socket, for the prober, which probes the tunnels
+# and guards tunnel ports against loops (0059); and kmod-veth, which joins a
+# network with a fallback to its VLAN transport (0061). That needs the AP to
 # reach OpenWrt's package feeds;
 # without them, everything else works, and a setting that needs a missing
 # package is refused until it is installed. The agent's files and settings
@@ -83,6 +84,10 @@ done
 # alone, and reports that its tunnels go unprobed.
 if ! apk info -e ucode-mod-socket >/dev/null 2>&1 && ! { apk update >/dev/null && apk add ucode-mod-socket; }; then
 	echo "ucode-mod-socket could not be installed: the tunnels go unprobed, and tunnel ports unguarded, until it is (apk add ucode-mod-socket)" >&2
+fi
+# A network with a fallback reaches a VLAN transport through a veth pair (0061).
+if ! apk info -e kmod-veth >/dev/null 2>&1 && ! { apk update >/dev/null && apk add kmod-veth; }; then
+	echo "kmod-veth could not be installed: a network with a VLAN transport and a fallback will be refused on this AP until it is (apk add kmod-veth)" >&2
 fi
 
 /usr/sbin/aeolus-agent ping

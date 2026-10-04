@@ -102,10 +102,10 @@
       "description": "An address on the segment for the AP to ask, by ARP, whether its traffic gets across: normally the segment's gateway (0059). Unset, the AP asks any IPv6 host there."
     },
     "networkId": {
-      "description": "A network's name. It starts with a letter, and vlan<number>, vlan<number>-<anything> and port-<anything> are kept for the names Aeolus gives its own sections on an AP (0054, 0063).",
+      "description": "A network's name. It starts with a letter, and vlan<number>, port-<anything> and n followed by 8 hex digits, each alone or followed by a hyphen and more, are kept for the names Aeolus gives its own sections on an AP (0054, 0061, 0063).",
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{0,31}$",
-      "not": { "pattern": "^(vlan[0-9]+($|-)|port-)" }
+      "not": { "pattern": "^(vlan[0-9]+($|-)|port-|n[0-9a-f]{8}($|-))" }
     },
     "vlan": { "type": "integer", "minimum": 1, "maximum": 4094 },
     "ip": { "type": "string", "pattern": "^[0-9A-Fa-f:.]+$" },

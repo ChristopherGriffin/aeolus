@@ -128,6 +128,8 @@ config device
 	list ports 'lan3'
 	list ports 'lan4'
 	list ports 'wan'
+	list ports 'avp43ace17d'
+	list ports 'avf43ace17d'
 	option ipv6 '0'
 
 config interface 'lan'
@@ -157,6 +159,7 @@ config bridge-vlan 'vlan20'
 	option device 'br-lan'
 	option vlan '20'
 	list ports 'wan:t'
+	list ports 'avf43ace17d:u*'
 
 config interface 'trusted'
 	option proto 'none'
@@ -170,10 +173,26 @@ config bridge-vlan 'aeolus_vlan30'
 	option device 'br-lan'
 	option vlan '30'
 	list ports 'wan:t'
+	list ports 'avp43ace17d:u*'
+
+config device 'aeolus_n43ace17d_p'
+	option type 'veth'
+	option name 'avp43ace17d'
+	option peer_name 'anp43ace17d'
+
+config device 'aeolus_n43ace17d_f'
+	option type 'veth'
+	option name 'avf43ace17d'
+	option peer_name 'anf43ace17d'
+
+config device 'aeolus_n43ace17d'
+	option type 'bridge'
+	option name 'br-n43ace17d'
+	option bridge_empty '1'
 
 config interface 'aeolus_sweet_lab'
 	option proto 'none'
-	option device 'br-lan.30'
+	option device 'br-n43ace17d'
 
 package system
 
@@ -208,6 +227,27 @@ config agent 'agent'
 	option url 'https://aeolus.symtus.com:8443'
 	option uplink 'wan'
 	option poll '30'
+
+config switch 'aeolus_n43ace17d'
+	option network 'sweet-lab'
+	option bridge 'br-n43ace17d'
+	option mode 'report'
+	option primary 'anp43ace17d'
+	option primary_vlan '30'
+	option fallback 'anf43ace17d'
+	option fallback_vlan '20'
+
+config probe 'aeolus_vlan20'
+	option vlan '20'
+	option device 'wan'
+	option tagged '1'
+	option interval '30'
+
+config probe 'aeolus_vlan30'
+	option vlan '30'
+	option device 'wan'
+	option tagged '1'
+	option interval '30'
 
 package usteer
 

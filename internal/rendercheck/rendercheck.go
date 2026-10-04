@@ -9,6 +9,7 @@ package rendercheck
 
 import (
 	"fmt"
+	"hash/fnv"
 	"maps"
 	"regexp"
 	"slices"
@@ -140,12 +141,25 @@ const (
 // startSection names the interfaces StartInterface makes.
 var startSection = regexp.MustCompile(`^aeolus_vlan[0-9]+_tunnels$`)
 
+// NetHash names a network's own bridge and veth pairs (0061): FNV-1a of its
+// name, as 8 hex digits, as the agent makes it.
+func NetHash(id string) string {
+	h := fnv.New32a()
+	h.Write([]byte(id))
+	return fmt.Sprintf("%08x", h.Sum32())
+}
+
+// VLANEnd is the VLAN end of a network's veth pair, which Aeolus puts in the
+// uplink's bridge (0061): av, p or f for the slot, and the network's hash.
+var VLANEnd = regexp.MustCompile(`^av[pf][0-9a-f]{8}$`)
+
 type checker struct {
 	c        *uci.Config
 	ap       string // the AP's ID, or "" to leave its segment MACs unchecked
 	problems []string
 	noNet    bool         // "package network is missing" was said
 	starts   map[int]bool // the VLANs whose start interface was checked (0063)
+	plans    []string     // the prober's plans for networks with a fallback (0061)
 }
 
 func (k *checker) add(format string, args ...any) {
@@ -731,7 +745,7 @@ func (k *checker) tunnelPort(where, p string, maps map[string]any, bridge *uci.S
 		at := where + ".vxlan." + vlan
 		vni := text(m["vni"])
 		cid, _ := m["tunnel"].(string)
-		if k.tunnel(at, "primary", m, obj(concentrators, cid)) == "" {
+		if k.tunnel(at, "primary", m, obj(concentrators, cid), true) == "" {
 			continue
 		}
 		member := p
@@ -791,6 +805,10 @@ func (k *checker) transports(id string, n map[string]any, concentrators map[stri
 		}
 		return
 	}
+	if obj(obj(n, "transport"), "fallback")["type"] != nil {
+		k.switching(id, n, concentrators)
+		return
+	}
 	for _, slot := range []string{"primary", "fallback"} {
 		t := obj(obj(n, "transport"), slot)
 		where := "network." + id + ".transport." + slot
@@ -814,7 +832,7 @@ func (k *checker) transports(id string, n map[string]any, concentrators map[stri
 			}
 			path = "." + vlan
 		case "vxlan":
-			path = k.tunnel(where, slot, t, obj(concentrators, text(t["concentrator"])))
+			path = k.tunnel(where, slot, t, obj(concentrators, text(t["concentrator"])), true)
 		}
 		if slot != "primary" || path == "" {
 			continue
@@ -830,11 +848,104 @@ func (k *checker) transports(id string, n map[string]any, concentrators map[stri
 	}
 }
 
+// switching checks a network with a fallback (0061): a bridge of its own,
+// br-n and its hash, which its interface is on and in which neither
+// transport is configured, as the prober attaches the one that carries the
+// network; for a VLAN transport, a veth pair whose VLAN end is in the
+// uplink's bridge, untagged in the VLAN; for a VXLAN transport, its tunnel,
+// with no bridge of its own; and the prober's plan, which names them all.
+func (k *checker) switching(id string, n map[string]any, concentrators map[string]any) {
+	net := k.c.Package("network")
+	h := NetHash(id)
+	sect, br := "aeolus_n"+h, "br-n"+h
+	k.plans = append(k.plans, sect)
+	b := net.Named(sect)
+	if b == nil || b.Type != "device" || value(b, "type") != "bridge" || value(b, "name") != br {
+		k.add("network.%s: want a bridge %s of the network's own, as it has a fallback (0061)", sect, br)
+		b = nil
+	} else if p := b.List("ports"); len(p) > 0 {
+		k.add("network.%s: the bridge has %v configured, but the prober attaches the transport that carries the network, so neither may be (0061)", sect, p)
+	}
+	if iface := net.Named(InterfaceName(id)); iface == nil || iface.Type != "interface" {
+		k.add("network.%s: no interface %s", id, InterfaceName(id))
+	} else if dev := value(iface, "device"); dev != br {
+		k.add("network.%s: interface %s is on %q, want the network's own bridge %s (0061)", id, iface.Name, dev, br)
+	}
+	uplink := ""
+	if a := k.c.Package("aeolus").Named("agent"); a != nil {
+		uplink = value(a, "uplink")
+	}
+	var up *uci.Section
+	for _, d := range net.OfType("device") {
+		if value(d, "type") == "bridge" && slices.Contains(d.List("ports"), uplink) {
+			up = d
+		}
+	}
+	at := "aeolus." + sect
+	plan := k.c.Package("aeolus").Named(sect)
+	if plan == nil || plan.Type != "switch" {
+		k.add("%s: no plan for the prober, which attaches the transport that carries network %s (0061)", at, id)
+		plan = nil
+	} else {
+		k.option(at, plan, "network", id)
+		k.option(at, plan, "bridge", br)
+		k.option(at, plan, "mode", "report")
+	}
+	mac := ""
+	for _, slot := range []string{"primary", "fallback"} {
+		t := obj(obj(n, "transport"), slot)
+		where := "network." + id + ".transport." + slot
+		s := slot[:1]
+		switch t["type"] {
+		case "vlan":
+			vlan := text(t["vlan"])
+			end, peer := "av"+s+h, "an"+s+h
+			if v := net.Named(sect + "_" + s); v == nil || v.Type != "device" || value(v, "type") != "veth" || value(v, "name") != end || value(v, "peer_name") != peer {
+				k.add("network.%s_%s: want a veth pair, %s and %s, for VLAN %s (0061)", sect, s, end, peer, vlan)
+			}
+			if up == nil || !slices.Contains(up.List("ports"), end) {
+				k.add("%s: the veth's VLAN end %s is not in the uplink's bridge", where, end)
+			}
+			untagged := false
+			for _, bv := range net.OfType("bridge-vlan") {
+				if value(bv, "vlan") == vlan && slices.Contains(bv.List("ports"), end+":u*") {
+					untagged = true
+				}
+			}
+			if !untagged {
+				k.add("%s: the veth's VLAN end %s is not untagged in VLAN %s", where, end, vlan)
+			}
+			if plan != nil {
+				k.option(at, plan, slot, peer)
+				k.option(at, plan, slot+"_vlan", vlan)
+			}
+			if mac == "" {
+				v, _ := strconv.Atoi(vlan)
+				mac = SegmentMAC(k.ap, "vlan", v)
+			}
+		case "vxlan":
+			vni := text(t["vni"])
+			k.tunnel(where, slot, t, obj(concentrators, text(t["concentrator"])), false)
+			if plan != nil {
+				k.option(at, plan, slot, TunnelName(vni))
+				k.option(at, plan, slot+"_vni", vni)
+			}
+			if mac == "" {
+				v, _ := strconv.Atoi(vni)
+				mac = SegmentMAC(k.ap, "vni", v)
+			}
+		}
+	}
+	if b != nil && mac != "" {
+		k.option("network."+sect, b, "macaddr", mac)
+	}
+}
+
 // tunnel checks a VXLAN transport's tunnel (0054): the interface named for
 // its VNI, to the concentrator, started only for the primary; its bridge;
 // the firewall rule that lets it in; and the MSS clamp below 1500. It
 // returns the bridge the network's interface goes on.
-func (k *checker) tunnel(where, slot string, t, conc map[string]any) string {
+func (k *checker) tunnel(where, slot string, t, conc map[string]any, bridged bool) string {
 	net := k.c.Package("network")
 	vni := text(t["vni"])
 	address := strings.Trim(text(conc["address"]), "[]")
@@ -903,11 +1014,16 @@ func (k *checker) tunnel(where, slot string, t, conc map[string]any) string {
 		k.add("%s: the fallback's tunnel is started; it waits until the AP switches to it (0054)", at)
 	}
 
-	bridge := "br-vx" + vni
-	if b := net.Named(name + "_br"); b == nil || b.Type != "device" || value(b, "type") != "bridge" || value(b, "name") != bridge {
-		k.add("network.%s_br: want a bridge %s for the tunnel", name, bridge)
-	} else if !slices.Contains(b.List("ports"), name) {
-		k.add("network.%s_br: the bridge does not carry the tunnel %s", name, name)
+	// A tunnel of a network with a fallback has no bridge of its own: the
+	// prober attaches it to the network's (0061).
+	bridge := name
+	if bridged {
+		bridge = "br-vx" + vni
+		if b := net.Named(name + "_br"); b == nil || b.Type != "device" || value(b, "type") != "bridge" || value(b, "name") != bridge {
+			k.add("network.%s_br: want a bridge %s for the tunnel", name, bridge)
+		} else if !slices.Contains(b.List("ports"), name) {
+			k.add("network.%s_br: the bridge does not carry the tunnel %s", name, name)
+		}
 	}
 
 	fw := k.c.Package("firewall")
@@ -1098,10 +1214,66 @@ func (k *checker) probes(doc map[string]any) {
 			k.add("%s: guards %v, want %v", where, got, guards[p])
 		}
 	}
+	// The VLAN transports of networks with a fallback (0061), each probed
+	// on the uplink from the VLAN's own MAC, tagged as the uplink carries it.
+	onVLAN := map[string][]string{}
+	for _, id := range keys(obj(doc, "network")) {
+		n := obj(obj(doc, "network"), id)
+		if n["enabled"] == false || obj(obj(n, "transport"), "fallback")["type"] == nil {
+			continue
+		}
+		for _, slot := range []string{"primary", "fallback"} {
+			t := obj(obj(n, "transport"), slot)
+			if t["type"] != "vlan" {
+				continue
+			}
+			vlan := text(t["vlan"])
+			if _, ok := onVLAN[vlan]; !ok {
+				onVLAN[vlan] = []string{}
+			}
+			if a, ok := t["probe"].(string); ok && !slices.Contains(onVLAN[vlan], a) {
+				onVLAN[vlan] = append(onVLAN[vlan], a)
+			}
+		}
+	}
+	uplink := ""
+	if s := a.Named("agent"); a != nil && s != nil {
+		uplink = value(s, "uplink")
+	}
+	for _, vlan := range slices.Sorted(maps.Keys(onVLAN)) {
+		name := "aeolus_vlan" + vlan
+		expected[name] = true
+		where := "aeolus." + name
+		pr := a.Named(name)
+		if pr == nil || pr.Type != "probe" {
+			k.add("%s: no probe for VLAN %s, which a network with a fallback uses (0061)", where, vlan)
+			continue
+		}
+		k.option(where, pr, "vlan", vlan)
+		k.option(where, pr, "device", uplink)
+		tagged := "0"
+		for _, bv := range net.OfType("bridge-vlan") {
+			if value(bv, "vlan") == vlan && slices.Contains(bv.List("ports"), uplink+":t") {
+				tagged = "1"
+			}
+		}
+		k.option(where, pr, "tagged", tagged)
+		k.option(where, pr, "interval", "30")
+		if got := pr.List("address"); !sameSet(got, onVLAN[vlan]) {
+			k.add("%s: probe addresses are %v, want %v", where, got, onVLAN[vlan])
+		}
+		if k.ap != "" {
+			v, _ := strconv.Atoi(vlan)
+			k.option(where, pr, "mac", SegmentMAC(k.ap, "vlan", v))
+		}
+	}
+	for _, name := range k.plans {
+		expected[name] = true
+	}
 	if a != nil {
 		for _, s := range a.Sections {
 			if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {
-				k.add("aeolus.%s: no tunnel or tunnel port calls for it", s.Name)
+				k.add("aeolus.%s: no tunnel, tunnel port or network with a fallback calls for it", s.Name)
 			}
 		}
 	}
