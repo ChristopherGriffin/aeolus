@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -154,6 +155,52 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 			}
 			if !reflect.DeepEqual(have, want) {
 				t.Errorf("%s: %s.%s changed:\n got %v\nwant %v", c.name, pkg, name, have, want)
+			}
+		}
+	}
+}
+
+// In ucode, a function can only name a top-level function declared above it:
+// a call to one declared below compiles, and fails only when it runs, with
+// "access to undeclared variable" (v0.28.0's agent, on every start). The
+// agent's own code is not run in CI, so each call is checked against the
+// order of declarations here instead.
+func TestAgentCallsOnlyWhatIsDeclaredAbove(t *testing.T) {
+	decl := regexp.MustCompile(`^(?:export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	call := regexp.MustCompile(`(^|[^A-Za-z0-9_.$])([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober"}
+	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
+	for _, m := range mods {
+		rel, _ := filepath.Rel(agentDir, m)
+		files = append(files, filepath.ToSlash(rel))
+	}
+	for _, f := range files {
+		raw, err := os.ReadFile(filepath.Join(agentDir, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(string(raw), "\n")
+		at := map[string]int{} // a top-level function -> the line it is declared on
+		for i, l := range lines {
+			if m := decl.FindStringSubmatch(l); m != nil {
+				at[m[1]] = i
+			}
+		}
+		within := "" // the top-level function the line is in
+		for i, l := range lines {
+			if m := decl.FindStringSubmatch(l); m != nil {
+				within = m[1]
+			} else if !strings.HasPrefix(l, "\t") && !strings.HasPrefix(l, "}") && strings.TrimSpace(l) != "" {
+				within = "" // top-level code runs after the declarations above it
+			}
+			if within == "" {
+				continue
+			}
+			code, _, _ := strings.Cut(l, "//")
+			for _, m := range call.FindAllStringSubmatch(code, -1) {
+				if d, ok := at[m[2]]; ok && d > i && m[2] != within {
+					t.Errorf("%s:%d: %s calls %s, which is declared below it (line %d), so the call fails when it runs", f, i+1, within, m[2], d+1)
+				}
 			}
 		}
 	}

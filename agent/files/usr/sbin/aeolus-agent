@@ -147,24 +147,28 @@ function describe(r) {
 	return r.error ?? sprintf('HTTP %d %s', r.status, r.json?.error ?? '');
 }
 
+// mgmt is the status of the interface with the AP's default route. An
+// interface whose routes go in a table of their own, such as the one tunnels
+// start from on a VLAN (0063), has a default route only there, and is not it.
+function mgmt() {
+	for (let i in bus.call('network.interface', 'dump')?.interface ?? [])
+		if (!i.ip4table)
+			for (let r in i.route ?? [])
+				if (r.target == '0.0.0.0' && r.mask == 0)
+					return i;
+	return null;
+}
+
 // mgmt_device is the device that holds the default route: the one the AP
 // reaches the manager through, and the MAC the DHCP server sees (0040).
 function mgmt_device() {
-	for (let i in bus.call('network.interface', 'dump')?.interface ?? [])
-		for (let r in i.route ?? [])
-			if (r.target == '0.0.0.0' && r.mask == 0 && i.l3_device)
-				return i.l3_device;
-	return 'br-lan';
+	return mgmt()?.l3_device ?? 'br-lan';
 }
 
 // mgmt_interface is the interface that holds the default route, as netifd
 // names it ("lan"): the tunnels' underlay (0054).
 function mgmt_interface() {
-	for (let i in bus.call('network.interface', 'dump')?.interface ?? [])
-		for (let r in i.route ?? [])
-			if (r.target == '0.0.0.0' && r.mask == 0)
-				return i.interface;
-	return null;
+	return mgmt()?.interface;
 }
 
 // has_vxlan and has_nft_bridge say whether the packages VXLAN tunnels need
@@ -190,6 +194,12 @@ function has_bss_transition() {
 
 function has_nft_bridge() {
 	return system('apk info -e kmod-nft-bridge >/dev/null 2>&1') == 0;
+}
+
+// has_prober says whether the prober can run: it needs ucode's socket
+// module (0059), which the installer adds.
+function has_prober() {
+	return !!fs.stat('/usr/lib/ucode/socket.so');
 }
 
 // has_veth says whether kmod-veth is installed, which a network with a
@@ -548,12 +558,6 @@ function ports_state() {
 	return slice(out, 0, 32);
 }
 
-// has_prober says whether the prober can run: it needs ucode's socket
-// module (0059), which the installer adds.
-function has_prober() {
-	return !!fs.stat('/usr/lib/ucode/socket.so');
-}
-
 // probes reads what the prober found (0059), if it is recent: by VNI, how
 // each tunnel is doing, and the ports the loop guard took off their tunnels.
 function probes() {
@@ -648,7 +652,8 @@ function probe_news() {
 	return join(',', v) + ';' + join(',', l);
 }
 
-function report_state(running, token) {
+// state_report is what the AP tells the manager about itself (0039).
+function state_report(running) {
 	let b = bus.call('system', 'board') ?? {};
 	let radios = [];
 	let status = bus.call('network.wireless', 'status') ?? {};
@@ -685,7 +690,11 @@ function report_state(running, token) {
 		report.transports = tr;
 	if (vp)
 		report.vlan_probes = vp;
-	let res = http('POST', '/v1/ap/state', report, token);
+	return report;
+}
+
+function report_state(running, token) {
+	let res = http('POST', '/v1/ap/state', state_report(running), token);
 	if (res.status != 200)
 		fail('state report: %s', describe(res));
 }
@@ -772,6 +781,11 @@ function main() {
 switch (ARGV[0]) {
 case 'facts':
 	print(sprintf('%.J\n', facts()));
+	break;
+// state prints the state report and the facts the agent renders with, and
+// sends nothing: it runs the agent's own code where it can be seen.
+case 'state':
+	print(sprintf('%.J\n', { report: state_report(running_version()), render: render_facts({}, null) }));
 	break;
 case 'ping': {
 	let r = http('GET', '/healthz');
