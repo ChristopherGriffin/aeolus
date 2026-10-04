@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-10-04
-- Proposed by: Griff: 0020's rule that APs detect the VLANs on their trunk, and the manager flags a VLAN that is expected but missing; written up by Claude
+- Proposed by: Griff: 0020's rule that APs detect the VLANs on their trunk, and the manager flags a VLAN that is expected but missing. Since an AP can't see a VLAN it doesn't carry, it tells when one it carries, for a port or an SSID, has no frames coming in from the uplink: that VLAN isn't on the switch port. Written up by Claude
 - Refines: 0020, 0059, 0060, 0061
 - Resolves: 0020's first open point, how APs detect VLANs
 
@@ -46,56 +46,74 @@
   - a port's VLANs: an access port's, and a trunk's untagged and tagged ones;
   - the VLAN a tunnel starts from (0063).
 - The AP's own networks, which Aeolus doesn't manage, are not watched (VLAN 10 in the lab).
+- The renderer writes the list into the prober's plan.
 
 ### How the AP tells
 
-- **A probe on each VLAN,** as 0061's VLAN probes:
-  - sent on the uplink, tagged as the uplink carries the VLAN;
-  - from the VLAN's own MAC (0060), every 30 seconds;
-  - each answer's VLAN read from `PACKET_AUXDATA`.
-- **No lease, unless the VLAN carries a network with a fallback.** Taking an address on every VLAN, on every AP, would spend a pool for nothing. So the probe stops at the DHCP offer:
-  - The offer shows that a DHCP server answers on the VLAN, and it names the gateway.
-  - The probe then asks the gateway by ARP, from 0.0.0.0 as 0059's probes do. It sends a fresh discover every 10 intervals.
-  - With no offer, it sends an echo to IPv6 all-nodes, from the link-local address the VLAN's MAC makes.
-  - A VLAN transport of a network with a fallback keeps its lease (0061): the prober uses it to judge a switch.
-- **What it hears.** One socket on the uplink takes the incoming broadcasts of every VLAN. A broadcast that comes in tagged with a VLAN shows that the switch port carries that VLAN, even when nothing answers the probe.
-  - The filter keeps only broadcasts, so the prober reads ARP requests and DHCP discovers, not clients' traffic.
-  - The prober notes when each VLAN was last heard.
-- **LLDP, when the switch sends it.** The same socket takes LLDP frames. The prober keeps the newest: the switch's name, its port and the port's description, the native VLAN, and the VLANs it names, if it sends VLAN Name TLVs.
+- **A VLAN is there if frames come in on it.**
+  - The prober listens on the uplink for incoming frames tagged with the VLAN, or untagged for a VLAN the uplink carries untagged.
+  - Such a frame came from the switch. The AP's own frames, its clients' included, leave as outgoing (`packet_type` 4), and don't count.
+  - The socket's filter keeps:
+    - broadcasts and multicasts: ARP, DHCP, OSPF, mDNS, IPv6 neighbour discovery;
+    - frames to the AP's own MACs on the VLANs (0060), where the answers to a nudge come.
+
+    Clients' unicast traffic is not read.
+  - It listens in spells: once a minute, until every watched VLAN has been heard, and for at most 10 seconds. On busy VLANs, such as the lab's, a spell is over in well under a second.
+- **A quiet VLAN is nudged before it is called silent.** A VLAN that wasn't heard in a spell gets three frames in the next one, from its own MAC:
+  - a DHCP discover;
+  - an ARP, from 0.0.0.0 as 0059's probes ask, to the gateway the VLAN's last DHCP answer named;
+  - an echo to IPv6 all-nodes, from the link-local address its MAC makes.
+
+  An answer comes in on the VLAN, so it counts as heard. No lease is taken.
+- **A VLAN not heard for three minutes running, nudged meanwhile, is silent.** One heard within the last three minutes is present. One watched for less than three minutes is not known yet.
+- **The VLAN transports of networks with a fallback are probed as before** (0061), with their leases, as switching needs. Their answers count as heard too.
+- **LLDP, when the switch sends it.** The same socket takes LLDP frames. The prober keeps the newest:
+  - the switch's name;
+  - its port, and the port's description;
+  - the native VLAN;
+  - the VLANs it names, if it sends VLAN Name TLVs.
 
 ### What it reports, and what the manager shows
 
-- **Each watched VLAN, in the state report's `vlan_probes` (0061),** with two new fields:
-  - `heard_ago`: seconds since a frame on that VLAN came in, or null;
-  - `lldp`: whether the switch's LLDP names the VLAN, when it names any.
-- **The uplink's neighbour,** as `uplink_neighbor`: the switch's name, its port and the port's description, the native VLAN, the VLANs it names, and seconds since its last LLDP frame.
-- **The unused `vlans` field goes.** It is the report's list of VLANs seen on the uplink, which no agent ever sent.
-- **The manager judges each VLAN:**
+- **The state report's `uplink_vlans`:** each watched VLAN with:
+  - whether the uplink carries it tagged;
+  - its verdict (`present`, `silent` or `unknown`);
+  - seconds since it was last heard.
 
-  | Judgment | When | Means |
+  The unused `vlans` field goes. It was the report's list of VLANs seen on the uplink, which no agent ever sent.
+- **The uplink's neighbour, `uplink_neighbor`:**
+  - the switch's name;
+  - its port, and the port's description;
+  - the native VLAN;
+  - the VLANs it names;
+  - seconds since its last LLDP frame.
+- **The manager judges each VLAN, with LLDP where it helps:**
+
+  | Judgment | When | Says |
   |---|---|---|
-  | **answering** | the probe's verdict is `up` | It reaches the AP. |
-  | **heard** | no answer, but a frame came in on it within three intervals | It reaches the AP, but nothing answers the probe: no DHCP server, and no gateway that answers. |
-  | **missing** | the switch's LLDP names its VLANs, and not this one | The switch port doesn't carry it. |
-  | **silent** | none of the above, after three intervals | It may not be on the switch port. A VLAN with no DHCP, no gateway and no chatter looks the same, so the manager says "may". |
+  | **present** | heard within three minutes | — |
+  | **missing** | silent, and the switch's LLDP names VLANs but not this one | The switch port doesn't carry VLAN N. |
+  | **silent** | silent, and LLDP names no VLANs | Nothing comes in on VLAN N: it most likely isn't on the switch port. |
+  | **quiet** | silent, but the switch's LLDP names it | The switch port carries VLAN N, but nothing on it answers. |
 
-- **A warning, not a hold.** A missing or silent VLAN is a fault on the switch, not in the AP's config, so the config is sent as before.
-  - The AP's overview warns, in one line for each VLAN: which VLAN, who needs it (the networks, ports and tunnels), and, from LLDP, which switch port to look at.
+- **A warning, not a hold.** A missing VLAN is a fault on the switch, not in the AP's config, so the config is sent as before.
+  - The AP's overview warns, one line for each such VLAN. The line says which VLAN, who needs it (the networks, ports and tunnels), and, from LLDP, which switch port to look at.
   - Interfaces › Ports shows the uplink's VLANs with their judgment, and its neighbour.
 
 ## Consequences
 
-- **Every watched VLAN costs the AP:**
-  - a probe socket;
-  - a frame every 30 seconds;
-  - a DHCP discover every 5 minutes.
+- **Watching costs the AP little:**
+  - one socket on the uplink;
+  - a spell of at most 10 seconds a minute;
+  - three frames a minute for each quiet VLAN.
 
-  It costs no address.
-- **The uplink's broadcasts are read by the prober,** at the rate the lab showed, tens a second. The lab check measures its CPU.
-- **A switch that sends VLAN Name TLVs turns "silent" into "missing",** and a quiet VLAN it names is no longer silent.
-- **The AP still can't see VLANs it doesn't carry.** Nothing here tells what else the switch port carries, but LLDP's list.
+  It takes no address, and sends nothing on a VLAN that is busy.
+- **A missing VLAN shows within about three minutes** of the AP carrying it, or of its going.
+- **A VLAN with nothing on it off the AP looks silent,** as there is nothing to hear and nothing to answer. Its clients can't reach anything off the AP anyway, so the warning holds.
+- **The AP still can't see a VLAN it doesn't carry.** Nothing here tells what else the switch port carries, but LLDP's list.
 
 ## Not now
 
-- **Switching a single-transport VLAN network's clients away when its VLAN is missing.** That network has nowhere to go: only the manager's warning helps.
+- **Checking a VLAN before anything uses it,** by carrying it on the uplink alone, with no port or SSID. Untested: whether the AP then sees it.
+- **Moving a single-transport VLAN network's clients when its VLAN is missing.** That network has nowhere to go. Only the manager's warning helps.
 - **Setting the switch's VLANs.** Aeolus manages APs.
