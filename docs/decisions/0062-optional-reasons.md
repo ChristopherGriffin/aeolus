@@ -1,8 +1,8 @@
 # 0062. A change needs no reason
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
-- Proposed by: Griff: typing a reason for every change is a chore, so the log should simply record the changes made, by whom and when; written up by Claude
+- Proposed by: Griff: typing a reason for every change is a chore, so the log should simply record the changes made, by whom and when; written up by Claude, and accepted with the merge
 - Refines: 0026, 0031, 0042
 
 ## Context
