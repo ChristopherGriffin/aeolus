@@ -83,6 +83,49 @@ Only two things go out, each when a person starts it:
   - Check whether `apk` takes the manager's certificate from beside the CA bundle.
 - **Time:** render `system.ntp` with its rebind exemption. Check that `rutm50.symtus.com` resolves and ntpd uses it, and that no pool server is left.
 
+## As built
+
+- **`internal/feeds`**, mounted at `/feeds/` on the manager's port. It needs no token.
+  - **What it answers:** only `GET` and `HEAD`, for paths of at most 16 parts, each letters, digits and `._+~-`, starting with a letter or digit.
+  - **Indexes and files:** an index is a name ending in `.adb`, `.json`, `.sig` or `.asc`, or starting with `Packages` or `sha256sums`. Anything else is a file that never changes.
+  - **Fetching:** one fetch a path, however many ask; it finishes for the cache even when the request that started it goes away. A file is at most 256 MB, and its length must match what the server said.
+  - **The cache:**
+    - It lives in `/var/lib/aeolus/feeds`, within 2 GB by default.
+    - It's read back when the manager starts.
+    - The least recently served goes first, never the file just fetched.
+- **On the AP:**
+  - **`/usr/libexec/aeolus-packages`** is shared by `install.sh` and the agent:
+    - `feeds` points the feeds at the manager. It moves a feed from OpenWrt's tree, or from a manager the AP knew before, and puts the manager's certificate in `/etc/ssl/certs`, where uclient-fetch, which `apk` fetches with, finds it.
+    - `install` installs and configures the packages as `install.sh` did. It records what it installed in `/etc/aeolus/packages`.
+    - `restore` installs again what that list names and is missing. It runs only while `/usr/lib/aeolus/packages`, which a sysupgrade wipes, is gone.
+    - An AP installed before this records what it has, and installs nothing.
+  - **The agent** runs `feeds` when it starts. While a restore is due, it starts one in the background every hour. A restore restarts the network if it installed vxlan, and the agent if it installed ucode-mod-socket.
+  - **The sysupgrade keep list** now holds the agent's programs, its init script and start link, the package script, the ntp hook and the manager's certificate, as well as `/etc/aeolus` and its config. Before, only those two were kept, so a sysupgrade lost the agent.
+  - **`/etc/hotplug.d/ntp/50-aeolus`** writes ntpd's last word to `/var/run/aeolus/time.json`. The agent reports it as `time`, with the servers from ntpd's command line.
+  - **The renderer:**
+    - When `system.ntp` is unset, it drops the servers ending in `.openwrt.pool.ntp.org`, and keeps any other.
+    - It adds `dhcp` to the packages it renders. Into dnsmasq's `rebind_domain` it puts the manager's host from the agent's URL, and each NTP and syslog host that is a name. It records them in `aeolus.agent.rebind`, so it can take them out when they are no longer used.
+- **The manager's render check** refuses OpenWrt's pool left in place, and a time or syslog host name missing from `rebind_domain` where the AP runs dnsmasq.
+- **The UI:** a clock warning on the AP page, when ntpd says the clock isn't synchronized, or the AP has no time server.
+- **The CI check** is `TestNoInternetAddresses` in `internal/ui`. Three addresses are allowed:
+  - the SVG namespace;
+  - OpenWrt's release tree, which the package script rewrites;
+  - the manager in `install.sh`'s example.
+
+### Checked
+
+- **Tests:**
+  - **The cache:** fetched once and then served; twenty at once making one fetch; an index fetched again after a day, and kept when offline; 502 for what was never fetched; only OpenWrt's tree answered; least-recently-used eviction; read back on reopening; and `serve` mounting it without a token.
+  - **The API:** a report's clock, accepted and refused.
+- **On OpenWrtnight:**
+  - **`apk` and the manager's certificate:** with the certificate in `/etc/ssl/certs`, `apk` fetched from the manager over HTTPS. Without it, uclient-fetch exited 5, a certificate error. So the cache stays on HTTPS.
+  - **The renderer**, run with ucode for the render cases:
+    - without `system.ntp`, the pool servers are gone and only the manager's name is in `rebind_domain`;
+    - the clamp files are unchanged.
+  - **The package script,** on copies of its files: the feeds were moved and a second run changed nothing; a feed for another manager was moved; an older AP's packages were recorded; and a package that couldn't be installed left the restore due.
+  - **The agent:** its read-only `state` showed `time` from the hook, with ntpd's two servers, `rutm50.symtus.com` and 10.0.1.253.
+- **The lab plan's live checks follow the release.**
+
 ## Not now
 
 - **Renewing the manager's certificate locally,** before 2028-09-26: its own decision, well before then.

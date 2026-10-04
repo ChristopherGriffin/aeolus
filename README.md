@@ -32,6 +32,7 @@ Each milestone ends in something checkable before the next starts.
 
 - `aeolus-update` builds and installs the newest release, and restarts the service.
 - `journalctl -u aeolus -f` follows the manager's log.
+- **The feed cache** (0069) is in `/var/lib/aeolus/feeds`, up to 2 GB. APs fetch OpenWrt's packages through it, so the manager is the only one that reaches OpenWrt's server, once for each file. Deleting the directory, with the service stopped, empties it.
 - A lost token (0043):
   ```sh
   systemctl stop aeolus

@@ -40,7 +40,7 @@ has() {
 feeds() {
 	url=$(uci -q get aeolus.agent.url) || return 1
 	url=${url%/}
-	if [ -f /etc/aeolus/manager.crt ] && [ "$(md5sum </etc/aeolus/manager.crt)" != "$(md5sum <$CERT 2>/dev/null)" ]; then
+	if [ -f /etc/aeolus/manager.crt ] && { [ ! -f $CERT ] || [ "$(md5sum </etc/aeolus/manager.crt)" != "$(md5sum <$CERT)" ]; }; then
 		cp /etc/aeolus/manager.crt $CERT
 	fi
 	[ -f $FEEDS ] || return 0
