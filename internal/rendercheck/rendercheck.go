@@ -677,7 +677,22 @@ func (k *checker) tunnelPort(where, p string, maps map[string]any, bridge *uci.S
 		if b := net.Named(TunnelName(vni) + "_br"); b == nil || !slices.Contains(b.List("ports"), member) {
 			k.add("%s: %s is not in the tunnel's bridge br-vx%s", at, member, vni)
 		}
+		if !k.held("br-vx" + vni) {
+			k.add("%s: no interface is on the tunnel's bridge br-vx%s, so netifd never makes it and %s is on nothing; want network.%s_ports, proto none, on it", at, vni, member, TunnelName(vni))
+		}
 	}
+}
+
+// held says whether an interface that takes no address is on a bridge.
+// netifd makes a bridge only for an interface on it: a network's, or for a
+// VNI that only ports carry, one of its own (0058).
+func (k *checker) held(bridge string) bool {
+	for _, s := range k.c.Package("network").OfType("interface") {
+		if value(s, "device") == bridge && value(s, "proto") == "none" {
+			return true
+		}
+	}
+	return false
 }
 
 // portEntry says what a bridge-vlan entry's flags make of the VLAN.

@@ -176,6 +176,10 @@ config device 'aeolus_port_lan3_30'
 	option vid '30'
 	option name 'lan3.30'
 
+config interface 'aeolus_30_ports'
+	option proto 'none'
+	option device 'br-vx30'
+
 package system
 
 config system

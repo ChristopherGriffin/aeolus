@@ -593,6 +593,9 @@ config device 'aeolus_50_br'
 	option name 'br-vx50'
 	list ports 'aeolus_50'
 	list ports 'lan3'
+config interface 'aeolus_50_ports'
+	option proto 'none'
+	option device 'br-vx50'
 config interface 'aeolus_10'
 	option proto 'vxlan'
 	option peeraddr '1.1.1.2'
@@ -605,6 +608,9 @@ config device 'aeolus_10_br'
 	option name 'br-vx10'
 	list ports 'aeolus_10'
 	list ports 'lan3.10'
+config interface 'aeolus_10_ports'
+	option proto 'none'
+	option device 'br-vx10'
 config device 'aeolus_port_lan3_10'
 	option type '8021q'
 	option ifname 'lan3'
@@ -651,6 +657,12 @@ config guard 'aeolus_guard_lan3'
 		{"untagged not bridged", "list ports 'lan3'\n", "", "ports.lan3.vxlan.untagged: lan3 is not in the tunnel's bridge br-vx50"},
 		{"tagged not bridged", "list ports 'lan3.10'\n", "", "ports.lan3.vxlan.10: lan3.10 is not in the tunnel's bridge br-vx10"},
 		{"wrong VLAN device", "option vid '10'\n\toption name 'lan3.10'", "option vid '11'\n\toption name 'lan3.10'", "network.aeolus_port_lan3_10: want an 802.1Q device lan3.10, VLAN 10 on lan3"},
+		// netifd makes a bridge only for an interface on it, so a VNI only
+		// ports carry needs one of its own, with no address.
+		{"bridge not held", "config interface 'aeolus_10_ports'\n\toption proto 'none'\n\toption device 'br-vx10'\n", "",
+			"ports.lan3.vxlan.10: no interface is on the tunnel's bridge br-vx10, so netifd never makes it and lan3.10 is on nothing"},
+		{"bridge held with an address", "config interface 'aeolus_50_ports'\n\toption proto 'none'", "config interface 'aeolus_50_ports'\n\toption proto 'dhcp'",
+			"ports.lan3.vxlan.untagged: no interface is on the tunnel's bridge br-vx50"},
 		{"tunnel not started", "option vid '10'\n\toption mtu '1500'\n\toption tunlink 'lan'", "option vid '10'\n\toption mtu '1500'\n\toption tunlink 'lan'\n\toption auto '0'", "the primary's tunnel is not started"},
 	} {
 		if !strings.Contains(good, c.old) {

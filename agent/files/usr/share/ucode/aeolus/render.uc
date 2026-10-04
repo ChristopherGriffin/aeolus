@@ -310,6 +310,27 @@ function tunnel_port(cfg, p, set, bridge, up, intent, facts, errors, keep) {
 	}
 }
 
+// hold_bridges puts an interface on each started tunnel's bridge that no
+// network's interface is on: a VNI that only ports carry (0058). netifd makes
+// a bridge only for an interface on it, so without one the bridge is never
+// made, and its ports are on nothing. The interface takes no address. A
+// fallback's bridge waits, as its tunnel does.
+function hold_bridges(n, keep) {
+	let used = {};
+	for (let s in of_type(n, 'interface'))
+		if (keep[s['.name']] || !owned(s['.name']))
+			used[s.device] = true;
+	for (let d in of_type(n, 'device')) {
+		let vni = match(d['.name'], /^aeolus_([0-9]+)_br$/)?.[1];
+		let t = vni ? n['aeolus_' + vni] : null;
+		if (!t || !keep[d['.name']] || t.auto == '0' || used[d.name])
+			continue;
+		let name = `aeolus_${vni}_ports`;
+		put(n, name, 'interface', { proto: 'none', device: d.name });
+		keep[name] = true;
+	}
+}
+
 // ports applies the intent's Ethernet port settings (0053): a port's VLANs,
 // as its entries in the bridge's bridge-vlan sections, and whether it is on.
 // Only ports in the uplink's bridge count; the uplink itself is the AP's
@@ -617,6 +638,7 @@ function render(intent, current, facts) {
 	radios(cfg.wireless, intent, facts ?? {});
 	networks(cfg, intent, facts ?? {}, errors, keep);
 	ports(cfg, intent, facts ?? {}, errors, keep);
+	hold_bridges(cfg.network, keep);
 	// What Aeolus made earlier and no longer needs goes. The prober's plan
 	// follows what is left, and then goes the same way.
 	for (let pkg in [cfg.wireless, cfg.network, cfg.firewall])
