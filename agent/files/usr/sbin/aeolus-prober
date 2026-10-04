@@ -347,6 +347,11 @@ function apply_plan(p) {
 	}
 }
 
+// what names a probe in the log: its tunnel, or its VLAN (0061).
+function what(t) {
+	return t.plan.vlan ? `VLAN ${t.plan.vlan}` : `tunnel ${t.plan.device}`;
+}
+
 // host is the name the AP's lease on a tunnel's segment carries.
 function host(t) {
 	if (t.plan.vlan)
@@ -374,7 +379,7 @@ function dhcp_tick(t, at) {
 		return tx(t, probe.dhcp(t.src, type, d.xid, o));
 	};
 	if (d.lease && at >= d.lease.at + d.lease.lease) {
-		note('tunnel %s: its lease on %s ran out', t.plan.device, d.lease.address);
+		note('%s: its lease on %s ran out', what(t), d.lease.address);
 		d.lease = null;
 		d.state = 'init';
 		d.tries = 0;
@@ -426,9 +431,9 @@ function dhcp_answer(t, r) {
 		d.tries = 0;
 		d.next = at;
 		if (was != r.address)
-			log('tunnel %s: leased %s from %s, gateway %s', t.plan.device, r.address, d.lease.server ?? '?', r.router ?? 'none');
+			log('%s: leased %s from %s, gateway %s', what(t), r.address, d.lease.server ?? '?', r.router ?? 'none');
 	} else if (r.type == 'nak') {
-		note('tunnel %s: %s refused the lease on %s', t.plan.device, r.server ?? 'the DHCP server', d.lease?.address ?? d.offer?.address ?? '?');
+		note('%s: %s refused the lease on %s', what(t), r.server ?? 'the DHCP server', d.lease?.address ?? d.offer?.address ?? '?');
 		d.lease = null;
 		d.offer = null;
 		d.state = 'init';

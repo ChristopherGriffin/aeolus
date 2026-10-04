@@ -44,6 +44,7 @@ export async function networksTab(ctx, id, page) {
 			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox, lib) }, 'Add a network')),
 		addBox,
 		steeringStatus(ctx, reports),
+		transportsStatus(reports),
 	];
 }
 
@@ -273,6 +274,52 @@ function steeringStatus(ctx, reports) {
 		h('h2', null, 'Band steering on each AP', h('span', { class: 'note' }, 'as each last reported; moves are counted since usteer started')),
 		h('table', { class: 'list' },
 			h('tr', null, ['AP', 'usteer', 'Steering', 'Steered networks now', 'Reported'].map((c) => h('th', null, c))),
+			rows));
+}
+
+// How each verdict of a network's transport is shown (0059, 0061).
+const VERDICT = {
+	up: ['ok', 'answering'], down: ['bad', 'down'], unverified: ['warn', 'unverified'],
+	unknown: ['idle', 'starting'], off: ['idle', 'standing by'],
+};
+
+// transportsStatus shows, for each network with a fallback on each AP here,
+// which transport carries it and how each is doing, by the AP's prober
+// (0061): a VLAN transport probed on the uplink, a VXLAN one on its tunnel.
+// Until switching is built, the primary carries it.
+function transportsStatus(reports) {
+	const rows = [];
+	for (const { ap, cfg } of reports) {
+		const st = cfg?.condition?.state;
+		const report = st?.report;
+		const vlans = new Map((report?.vlan_probes || []).map((v) => [v.vlan, v.probe]));
+		const tunnels = new Map((report?.vxlan?.tunnels || []).map((t) => [t.vni, t.probe]));
+		for (const [id, s] of Object.entries(report?.transports || {}).sort()) {
+			const n = cfg.document?.network?.[id];
+			const how = (slot) => {
+				const t = n?.transport?.[slot];
+				const [cls, word] = VERDICT[s[slot]] || ['idle', s[slot] || 'not reported'];
+				const p = t?.type === 'vlan' ? vlans.get(t.vlan) : t?.type === 'vxlan' ? tunnels.get(t.vni) : null;
+				return [
+					h('span', { class: 'chip ' + cls }, `${!t ? slot : t.type === 'vlan' ? 'VLAN ' + t.vlan : 'VNI ' + t.vni}: ${word}`),
+					p?.lease && h('div', { class: 'sub' }, `leased ${p.lease.address}${p.lease.server ? ' from ' + p.lease.server : ''}`),
+				];
+			};
+			rows.push(h('tr', null,
+				h('td', null, rows.length === 0 || rows[rows.length - 1].dataset.ap !== ap.id ? link(`/aps/${encodeURIComponent(ap.id)}`, ap.name) : null),
+				h('td', null, n?.ssid || id),
+				h('td', null, s.active === 'none' ? h('span', { class: 'chip bad' }, 'nothing') : s.active),
+				h('td', null, how('primary')),
+				h('td', null, how('fallback')),
+				h('td', null, ago(st.at))));
+			rows[rows.length - 1].dataset.ap = ap.id;
+		}
+	}
+	if (!rows.length) return null;
+	return h('section', { class: 'panel' },
+		h('h2', null, 'Transports on each AP', h('span', { class: 'note' }, 'networks with a fallback, as each AP last reported')),
+		h('table', { class: 'list' },
+			h('tr', null, ['AP', 'Network', 'Carried by', 'Primary', 'Fallback', 'Reported'].map((c) => h('th', null, c))),
 			rows));
 }
 

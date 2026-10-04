@@ -3,6 +3,7 @@
 	"current": "pumphouse-current.json",
 	"facts": {
 		"prober": true,
+		"veth": true,
 		"ap": "ap-a0046021365e",
 		"uplink": "wan",
 		"management": "lan",

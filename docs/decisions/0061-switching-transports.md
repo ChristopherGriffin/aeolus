@@ -101,3 +101,30 @@
   - Attached again, it stayed through a network reload.
 - **A switch, break before make,** between that veth end and a VXLAN tunnel device (a dynamic interface on VNI 999, which the Arista doesn't map). The bridge held one of them at a time, both ways. Both devices kept their indexes, and the tunnel stayed up.
 - **The three IoT clients stayed associated through it all,** across two network reloads.
+
+## As built: part 1, report mode
+
+Built in two parts. Part 1 renders a network with a fallback as described above, attaches its primary, and probes and reports both transports. Nothing switches until part 2, which brings `transport.switching`, HA mode, failback and hold-down.
+
+- **Names:** a network's hash is FNV-1a of its name, as 8 hex digits.
+  - Its bridge is `br-n<hash>`, in a section `aeolus_n<hash>`.
+  - Its veth pairs are in sections `aeolus_n<hash>_p` and `_f`, with the VLAN end `av<p|f><hash>` and the network end `an<p|f><hash>`.
+  - Network names `n` and 8 hex digits, alone or followed by a hyphen, are reserved.
+- **The render:**
+  - The network's bridge takes the primary's segment MAC (0060).
+  - A tunnel of such a network has no bridge of its own, and the MSS clamp follows it into the network's bridge.
+  - The veth's VLAN end is a port of the uplink's bridge, untagged in its VLAN. Aeolus takes these ends out of every bridge and VLAN at each render, and puts back those still wanted.
+  - The prober's plan is a `switch` section, `aeolus_n<hash>`, naming the bridge, each transport's device, and its VNI or VLAN.
+  - Each VLAN transport gets a `probe` section, `aeolus_vlan<N>`: on the uplink, `tagged` as the uplink carries the VLAN, from the VLAN's MAC, every 30 seconds.
+- **Held:**
+  - an AP whose prober can't run (no ucode-mod-socket);
+  - a VLAN transport on an AP without kmod-veth, which the installer now adds;
+  - a VNI a port carries that is a tunnel of a network with a fallback.
+- **The prober:**
+  - It attaches with `add_device` and `link-ext` false. It looks every 2 seconds, so whatever took the primary out, a reload or a tunnel made again, is put right at once, and it takes the fallback out first if it finds it in.
+  - The agent sends it a SIGHUP after each apply, which has it read its plan at once.
+  - A VLAN probe sends its frames tagged on the uplink and reads the answers' VLAN from `PACKET_AUXDATA`. A VLAN the uplink's bridge doesn't carry can't be probed, as the switch chip drops it; the render probes only VLANs the uplink carries.
+  - It reports each network's active transport and both verdicts. The agent sends them as the state report's `transports`, with the VLAN probes as `vlan_probes`.
+- **Checked on OpenWrtnight,** with the prober run by hand:
+  - VLAN 20 probed tagged on `wan` leased 192.168.20.80 and found the gateway in 6 ms, at about 0.15% CPU.
+  - On a test bridge with two test tunnels, the prober took out a fallback it found in the bridge, put the primary in, put it back 3 seconds after it was taken out by hand, and swapped the two within a second of a changed plan and a SIGHUP.

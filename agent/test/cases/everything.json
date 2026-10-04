@@ -4,6 +4,7 @@
 	"stale": ["aeolus_gone_radio0"],
 	"facts": {
 		"prober": true,
+		"veth": true,
 		"uplink": "wan",
 		"radios": {
 			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },

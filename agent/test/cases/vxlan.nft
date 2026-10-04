@@ -4,9 +4,9 @@ delete table bridge aeolus
 table bridge aeolus {
 	chain forward {
 		type filter hook forward priority filter; policy accept;
-		meta ibrname "br-vx50" ether type ip tcp flags & (syn | rst) == syn tcp option maxseg size > 1410 tcp option maxseg size set 1410
-		meta ibrname "br-vx50" ether type ip6 tcp flags & (syn | rst) == syn tcp option maxseg size > 1390 tcp option maxseg size set 1390
-		meta ibrname "br-vx10" ether type ip tcp flags & (syn | rst) == syn tcp option maxseg size > 1410 tcp option maxseg size set 1410
-		meta ibrname "br-vx10" ether type ip6 tcp flags & (syn | rst) == syn tcp option maxseg size > 1390 tcp option maxseg size set 1390
+		meta ibrname "br-n626092f4" ether type ip tcp flags & (syn | rst) == syn tcp option maxseg size > 1410 tcp option maxseg size set 1410
+		meta ibrname "br-n626092f4" ether type ip6 tcp flags & (syn | rst) == syn tcp option maxseg size > 1390 tcp option maxseg size set 1390
+		meta ibrname "br-n9e7a4f34" ether type ip tcp flags & (syn | rst) == syn tcp option maxseg size > 1410 tcp option maxseg size set 1410
+		meta ibrname "br-n9e7a4f34" ether type ip6 tcp flags & (syn | rst) == syn tcp option maxseg size > 1390 tcp option maxseg size set 1390
 	}
 }

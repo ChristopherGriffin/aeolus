@@ -192,6 +192,12 @@ function has_nft_bridge() {
 	return system('apk info -e kmod-nft-bridge >/dev/null 2>&1') == 0;
 }
 
+// has_veth says whether kmod-veth is installed, which a network with a
+// fallback needs for a VLAN transport (0061).
+function has_veth() {
+	return system('apk info -e kmod-veth >/dev/null 2>&1') == 0;
+}
+
 // write_clamp makes the MSS clamp's file from the network config (0054) and
 // says whether it changed, so the caller can have fw4 load it. With no
 // tunnel to clamp, the table it loaded before is removed too.
@@ -269,7 +275,7 @@ function render_facts(intent, ap) {
 	return {
 		uplink: settings().uplink, management: mgmt_interface(), radios: radios,
 		timezone: posix_tz(intent.system?.tz), vxlan: vxlan_loaded(), nft_bridge: has_nft_bridge(),
-		bss_transition: has_bss_transition(), ap: ap, prober: has_prober(),
+		bss_transition: has_bss_transition(), ap: ap, prober: has_prober(), veth: has_veth(),
 	};
 }
 

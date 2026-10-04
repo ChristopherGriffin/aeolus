@@ -330,6 +330,8 @@ function switching(cfg, id, net, intent, facts, errors, keep, uplink) {
 			let bridge = uplink();
 			if (!bridge)
 				continue;
+			if (!facts.veth)
+				push(errors, `${where}: a VLAN transport of a network with a fallback needs kmod-veth, which is not installed on this AP (apk add kmod-veth)`);
 			ensure_vlan(n, bridge, facts.uplink, t.vlan, keep);
 			let s = substr(slot, 0, 1), name = `${sect}_${s}`;
 			put(n, name, 'device', { type: 'veth', name: `av${s}${h}`, peer_name: `an${s}${h}` });
@@ -808,7 +810,8 @@ function clamp(network, aeolus) {
 // has loaded the vxlan package, nft_bridge: whether kmod-nft-bridge is
 // installed, bss_transition: whether hostapd has 802.11v, null if not known,
 // ap: the AP's ID, which its segment MACs are made from (0060), prober:
-// whether the prober can run, which a network with a fallback needs (0061) }.
+// whether the prober can run, which a network with a fallback needs, and
+// veth: whether kmod-veth is installed, for its VLAN transports (0061) }.
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)
