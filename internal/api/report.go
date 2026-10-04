@@ -201,16 +201,18 @@ type vxlanState struct {
 }
 
 // tunnelState is one tunnel: its VNI, the concentrator's address and port,
-// its MTU, whether it is up, or standing by as a fallback, and what the
-// prober found.
+// its MTU, the VLAN it starts from and the AP's address there (0063),
+// whether it is up, or standing by as a fallback, and what the prober found.
 type tunnelState struct {
-	VNI     int         `json:"vni"`
-	Peer    string      `json:"peer"`
-	Port    int         `json:"port"`
-	MTU     int         `json:"mtu"`
-	Up      bool        `json:"up"`
-	Standby bool        `json:"standby,omitempty"`
-	Probe   *probeState `json:"probe,omitempty"`
+	VNI         int         `json:"vni"`
+	Peer        string      `json:"peer"`
+	Port        int         `json:"port"`
+	MTU         int         `json:"mtu"`
+	FromVLAN    int         `json:"from_vlan,omitempty"`
+	FromAddress string      `json:"from_address,omitempty"`
+	Up          bool        `json:"up"`
+	Standby     bool        `json:"standby,omitempty"`
+	Probe       *probeState `json:"probe,omitempty"`
 }
 
 // probeState is what the prober found for a tunnel (0059): its verdict, how
@@ -369,6 +371,9 @@ func (st *stateReport) check() error {
 		for _, t := range x.Tunnels {
 			if t.VNI < 1 || t.VNI > 16777215 || t.Port < 1 || t.Port > 65535 || t.MTU < 0 || t.MTU > 9000 || net.ParseIP(t.Peer) == nil {
 				return badRequest("vxlan: each tunnel has a VNI from 1 to 16777215, its peer's IP address, a port and an MTU of at most 9000")
+			}
+			if t.FromVLAN < 0 || t.FromVLAN > 4094 || (t.FromAddress != "" && (t.FromVLAN == 0 || net.ParseIP(t.FromAddress).To4() == nil)) {
+				return badRequest("vxlan: a tunnel starts from a VLAN from 1 to 4094, and the AP's address there is an IPv4 address")
 			}
 			if err := t.Probe.check(); err != nil {
 				return err

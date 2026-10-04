@@ -206,6 +206,7 @@ func TestFieldPaths(t *testing.T) {
 		"ports.lan3.vxlan.untagged.tunnel":      change.Locations,
 		"network.vlan2go.ssid":                  change.Services,
 		"concentrators.arista.probe_interval":   change.Locations,
+		"concentrators.arista.underlay_vlan":    change.Locations,
 		"network.sweet.transport.primary.probe": change.Services,
 		"ports.lan3.vxlan.30.probe":             change.Locations,
 	}
@@ -232,6 +233,8 @@ func TestFieldPaths(t *testing.T) {
 		"network.vlan20.ssid":         ErrUnknownField,
 		"network.port-lan3.ssid":      ErrUnknownField,
 		"ports.lan3.vxlan.tagged.vni": ErrUnknownField,
+		// And for the interface a tunnel starts from on a VLAN (0063).
+		"network.vlan20-tunnels.ssid": ErrUnknownField,
 	}
 	for p, want := range bad {
 		if _, err := s.Field(p); !errors.Is(err, want) {

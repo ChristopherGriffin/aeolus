@@ -86,6 +86,7 @@ var Coverage = map[string]string{
 	"concentrators.*.port":           "",
 	"concentrators.*.mtu":            "",
 	"concentrators.*.probe_interval": "",
+	"concentrators.*.underlay_vlan":  "",
 }
 
 const layout = "depends on the device's port layout; checked with the agent in M5"
@@ -124,11 +125,27 @@ const (
 	clampPath    = "/etc/aeolus/clamp.nft"
 )
 
+// StartInterface is the interface tunnels start from on a VLAN of the
+// uplink (0063). Its routes are in table StartTable plus the VLAN, and it is
+// in the firewall zone StartZone.
+func StartInterface(vlan int) string {
+	return fmt.Sprintf("aeolus_vlan%d_tunnels", vlan)
+}
+
+const (
+	StartTable = 1000
+	StartZone  = "aeolus_ul"
+)
+
+// startSection names the interfaces StartInterface makes.
+var startSection = regexp.MustCompile(`^aeolus_vlan[0-9]+_tunnels$`)
+
 type checker struct {
 	c        *uci.Config
 	ap       string // the AP's ID, or "" to leave its segment MACs unchecked
 	problems []string
-	noNet    bool // "package network is missing" was said
+	noNet    bool         // "package network is missing" was said
+	starts   map[int]bool // the VLANs whose start interface was checked (0063)
 }
 
 func (k *checker) add(format string, args ...any) {
@@ -605,6 +622,58 @@ func (k *checker) ports(want, concentrators map[string]any) {
 	}
 }
 
+// start checks, once for each VLAN, the interface tunnels start from there
+// (0063): on the uplink's bridge at that VLAN, its address by DHCP, its
+// routes in a table of their own and its DNS servers unused, in a zone that
+// rejects what comes in and what it would forward.
+func (k *checker) start(vlan int) {
+	if k.starts[vlan] {
+		return
+	}
+	if k.starts == nil {
+		k.starts = map[int]bool{}
+	}
+	k.starts[vlan] = true
+	name := StartInterface(vlan)
+	at := "network." + name
+	s := k.c.Package("network").Named(name)
+	if s == nil || s.Type != "interface" {
+		k.add("%s: no interface for the tunnels that start from VLAN %d (0063)", at, vlan)
+		return
+	}
+	k.option(at, s, "proto", "dhcp")
+	if dev := value(s, "device"); !strings.HasSuffix(dev, "."+strconv.Itoa(vlan)) || strings.HasPrefix(dev, "aeolus_") {
+		k.add("%s: device is %q, want VLAN %d on the uplink's bridge", at, dev, vlan)
+	}
+	carried := false
+	for _, bv := range k.c.Package("network").OfType("bridge-vlan") {
+		if value(bv, "vlan") == strconv.Itoa(vlan) {
+			carried = true
+		}
+	}
+	if !carried {
+		k.add("%s: VLAN %d is not in the network config, so the uplink does not carry it", at, vlan)
+	}
+	k.option(at, s, "ip4table", strconv.Itoa(StartTable+vlan))
+	k.option(at, s, "peerdns", "0")
+	fw := k.c.Package("firewall")
+	var zone *uci.Section
+	if fw != nil {
+		for _, z := range fw.OfType("zone") {
+			if value(z, "name") == StartZone {
+				zone = z
+			}
+		}
+	}
+	if zone == nil || !slices.Contains(zone.List("network"), name) {
+		k.add("firewall: want %s in the zone %s, which keeps what comes in on VLAN %d out of the AP (0063)", name, StartZone, vlan)
+		return
+	}
+	for _, opt := range []string{"input", "forward"} {
+		k.option("firewall."+zone.Name, zone, opt, "REJECT")
+	}
+}
+
 // underlayMTU is the MTU of the interface a tunnel runs over, as the AP's
 // config sets it (0056): the interface's own mtu, or else its device's, or
 // else, for a VLAN on a device (br-lan.1), that device's. Where nothing
@@ -813,6 +882,19 @@ func (k *checker) tunnel(where, slot string, t, conc map[string]any) string {
 				where, int(mtu), int(mtu)+overhead, link, under)
 		}
 	}
+	// Where it starts (0063): the management interface, or the interface of
+	// Aeolus's own on the VLAN the tunnel names.
+	start := 0
+	if v, ok := conc["underlay_vlan"].(float64); ok {
+		start = int(v)
+	}
+	if link := value(s, "tunlink"); start > 0 && link != StartInterface(start) {
+		k.add("%s: tunlink is %q, want %s, as the tunnel starts from VLAN %d (0063)", at, link, StartInterface(start), start)
+	} else if start > 0 {
+		k.start(start)
+	} else if startSection.MatchString(link) {
+		k.add("%s: the tunnel starts from %s, want the management interface (0063)", at, link)
+	}
 	auto := value(s, "auto") != "0"
 	if slot == "primary" && !auto {
 		k.add("%s: the primary's tunnel is not started", at)
@@ -840,7 +922,9 @@ func (k *checker) tunnel(where, slot string, t, conc map[string]any) string {
 		for opt, want := range map[string]string{"proto": "udp", "src_ip": address, "dest_port": port, "target": "ACCEPT"} {
 			k.option("firewall."+rule, r, opt, want)
 		}
-		if value(r, "src") == "" {
+		if start > 0 {
+			k.option("firewall."+rule, r, "src", StartZone)
+		} else if value(r, "src") == "" {
 			k.add("firewall.%s: src is missing, want the management interface's zone", rule)
 		}
 	}

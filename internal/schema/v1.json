@@ -102,10 +102,10 @@
       "description": "An address on the segment for the AP to ask, by ARP, whether its traffic gets across: normally the segment's gateway (0059). Unset, the AP asks any IPv6 host there."
     },
     "networkId": {
-      "description": "A network's name. It starts with a letter, and vlan<number> and port-<anything> are kept for the names Aeolus gives its own sections on an AP (0054).",
+      "description": "A network's name. It starts with a letter, and vlan<number>, vlan<number>-<anything> and port-<anything> are kept for the names Aeolus gives its own sections on an AP (0054, 0063).",
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{0,31}$",
-      "not": { "pattern": "^(vlan[0-9]+$|port-)" }
+      "not": { "pattern": "^(vlan[0-9]+($|-)|port-)" }
     },
     "vlan": { "type": "integer", "minimum": 1, "maximum": 4094 },
     "ip": { "type": "string", "pattern": "^[0-9A-Fa-f:.]+$" },
@@ -248,7 +248,8 @@
         "address": { "$ref": "#/$defs/ipAddress" },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "mtu": { "type": "integer", "minimum": 1280, "maximum": 9000, "description": "The largest frame the tunnel carries. Unset, it is the default: 1450 over IPv4 and 1430 over IPv6, which a 1500-byte path carries (0056). Larger needs the AP's uplink to carry it plus 50 bytes, or 70 over IPv6." },
-        "probe_interval": { "type": "integer", "minimum": 5, "maximum": 300, "default": 30, "description": "Seconds between the AP's probes of each VNI on the tunnel, which keep it open at the concentrator and show whether it works (0059); three missed in a row and it is down." }
+        "probe_interval": { "type": "integer", "minimum": 5, "maximum": 300, "default": 30, "description": "Seconds between the AP's probes of each VNI on the tunnel, which keep it open at the concentrator and show whether it works (0059); three missed in a row and it is down." },
+        "underlay_vlan": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "Where the tunnel starts on the AP (0063): 0, or unset, for the management VLAN; otherwise a VLAN on the AP's uplink, where the AP takes an address by DHCP for its tunnels." }
       },
       "required": ["address", "port"]
     },

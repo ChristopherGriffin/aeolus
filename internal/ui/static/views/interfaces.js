@@ -27,12 +27,12 @@ const FIELDS = ['enabled', 'mode', 'untagged', 'tagged'];
 
 const RELOAD = "Applying reloads each AP's network: wired clients on this port drop briefly. An AP that can no longer reach Aeolus puts its old settings back within 90 seconds.";
 
-// A tunnel's fields, in order, and where a new one starts (0055). Its MTU
-// and probe interval are left to their defaults unless someone sets them
-// (0056, 0059).
-const TUNNEL = ['address', 'port', 'mtu', 'probe_interval'];
+// A tunnel's fields, in order, and where a new one starts (0055). Its MTU,
+// probe interval and where it starts on the AP are left to their defaults
+// unless someone sets them (0056, 0059, 0063).
+const TUNNEL = ['address', 'port', 'mtu', 'probe_interval', 'underlay_vlan'];
 const TUNNEL_START = { port: 4789 };
-const DEFAULTED = new Set(['mtu', 'probe_interval']);
+const DEFAULTED = new Set(['mtu', 'probe_interval', 'underlay_vlan']);
 
 // defaultMTU is a tunnel's MTU when none is set: what a 1500-byte uplink
 // carries once VXLAN's headers are added (0056).
@@ -106,7 +106,10 @@ function tunnelCard(ctx, d, here, nodeName, name, fields, edit) {
 			h('div', { class: 'value' }, `default, ${defaultMTU(fields[`concentrators.${name}.address`]?.value)}`)),
 		!fields[ivPath] && h('div', { class: 'row' },
 			h('div', { class: 'label' }, 'Probe interval'),
-			h('div', { class: 'value' }, 'default, 30 s'))));
+			h('div', { class: 'value' }, 'default, 30 s')),
+		!fields[`concentrators.${name}.underlay_vlan`] && h('div', { class: 'row' },
+			h('div', { class: 'label' }, 'Starts from'),
+			h('div', { class: 'value' }, 'the management VLAN'))));
 	close();
 	return h('section', { class: 'panel' },
 		h('h2', null, name,
@@ -162,6 +165,7 @@ function tunnelForm(ctx, d, here, nodeName, name, fields, fresh, close) {
 	// AP's uplink must carry (0056).
 	const mtuEl = rows.get(prefix + 'mtu')?.it.el;
 	if (mtuEl) mtuEl.placeholder = 'default: 1450 (1430 over IPv6)';
+	startChoice(prefix + 'underlay_vlan', fields, inputs, rows);
 	const out = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
 	const review = async () => {
@@ -208,6 +212,40 @@ function tunnelForm(ctx, d, here, nodeName, name, fields, fresh, close) {
 			h('button', { type: 'button', class: 'button primary', onclick: review }, 'Review changes'),
 			h('button', { type: 'button', class: 'button', onclick: close }, 'Cancel')),
 		out);
+}
+
+// startChoice makes where a tunnel starts on the AP a choice (0063): the
+// management VLAN, the default, which is 0; or a VLAN of the uplink, by its
+// number. It stands in for the plain number box of the field at path.
+function startChoice(path, fields, inputs, rows) {
+	const r = rows.get(path);
+	if (!r || !inputs.has(path)) return;   // locked above: the box stays, shut
+	const cur = fields[path]?.value || 0;
+	const box = r.it.el;
+	const radios = 'start-' + path;
+	const mgmt = h('input', { type: 'radio', name: radios, checked: !cur });
+	const onVLAN = h('input', { type: 'radio', name: radios, checked: !!cur });
+	box.value = cur ? String(cur) : '';
+	box.placeholder = '1 to 4094';
+	box.disabled = !cur;
+	mgmt.addEventListener('change', () => { box.disabled = true; });
+	onVLAN.addEventListener('change', () => { box.disabled = false; box.focus(); });
+	const row = h('div', { class: 'field start' },
+		h('span', { class: 'label' }, 'Starts from'),
+		h('label', { class: 'choice' }, mgmt, ' the management VLAN'),
+		h('label', { class: 'choice' }, onVLAN, ' VLAN ', box));
+	r.row.replaceWith(row);
+	rows.set(path, { it: r.it, row });
+	inputs.set(path, {
+		el: box,
+		changed: () => (mgmt.checked ? cur !== 0 : true),
+		read: () => {
+			if (mgmt.checked) return 0;
+			const v = Number(box.value);
+			if (!Number.isInteger(v) || v < 1 || v > 4094) throw new Error('give a VLAN from 1 to 4094, or pick the management VLAN');
+			return v === cur ? undefined : v;
+		},
+	});
 }
 
 // tunnelRows joins what an AP's config asks for, by its networks and its
@@ -315,9 +353,14 @@ function tunnelState(report, t) {
 	if (report.vxlan.installed === false) return h('span', { class: 'chip warn' }, 'vxlan is not installed (apk add vxlan)');
 	if (report.vxlan.loaded === false) return h('span', { class: 'chip warn' }, 'vxlan is installed, but netifd has not loaded it: restart the network');
 	if (!t) return h('span', { class: 'sub' }, 'not on the AP yet');
-	if (t.up) return h('span', { class: 'chip ok' }, 'up');
-	if (t.standby) return h('span', { class: 'chip idle' }, 'standing by');
-	return h('span', { class: 'chip warn' }, 'down');
+	// Where it starts, when that is a VLAN (0063): the AP's address there,
+	// or that DHCP has not given one, which keeps the tunnel down.
+	const from = t.from_vlan
+		? h('div', { class: 'sub' }, t.from_address ? `from VLAN ${t.from_vlan}, ${t.from_address}` : `no address on VLAN ${t.from_vlan}: does DHCP answer there?`)
+		: null;
+	if (t.up) return [h('span', { class: 'chip ok' }, 'up'), from];
+	if (t.standby) return [h('span', { class: 'chip idle' }, 'standing by'), from];
+	return [h('span', { class: 'chip warn' }, 'down'), from];
 }
 
 async function ethernet(ctx, here, page, ap, edit) {
