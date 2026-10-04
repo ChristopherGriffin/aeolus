@@ -66,11 +66,45 @@
 
 ## Consequences
 
-- **The manager's binary grows** by the compressed OUI table, about 600 kB.
+- **The manager's binary grows** by the compressed OUI table, about 400 kB.
 - **Device types are guesses.** A tab that says what each guess went on is honest about it.
 - **Names and fingerprints from the AP's own networks reach the manager too,** as clients' MACs already do (0066).
+- **The manager goes first.** It refuses a report with fields it doesn't know, so an AP with this prober can't report to an older manager. Roll the manager out, then the APs.
 
 ## Not now
 
 - **802.11r per client:** needs hostapd to tell the key management, by ubus or a fuller build.
 - Clients' history, and acting on clients (0066).
+
+## As built
+
+- **The OUI table:** `internal/oui/oui.txt.gz`, made by `go run ./internal/oui/gen` from the IEEE's `oui.csv`. It holds 40,296 MA-L prefixes, 386 kB compressed, read into memory on first use. The generator refuses a list of fewer than 10,000.
+- **The guess:** `internal/identify`, in tables of host names, vendor classes, four fingerprints (Apple, two Android, Windows), and makers.
+  - Apple's maker gives the OS "Apple", and a private MAC gives "phone, tablet or computer". Each only fills what's still blank.
+  - `basis` names only the evidence that filled something: "host name", "DHCP vendor class", "DHCP fingerprint", "maker" or "private MAC".
+- **The prober:**
+  - It opens the DHCP watch's socket on every Wi-Fi interface, keeping by MAC what each client says of itself. Requests going out are skipped, as in 0065.
+  - It takes ARP only as it comes in from a client. The bridge floods the segment's ARP out to every Wi-Fi interface, and taken as it was, every wired host would have been kept.
+  - What it keeps of a client is forgotten an hour after the client leaves.
+  - Features come from `hostapd.<ifname> get_clients` at each scan:
+    - `gen` from `eht`, `he`, `vht`, `ht`;
+    - k from any non-zero RRM byte;
+    - v from bit 3 of the third extended-capabilities byte;
+    - w from `mfp`.
+- **The report** grows to at most 512 kB, room for 256 clients. The manager checks the new fields: `vendor_class` printable and at most 64 bytes, `params` at most 64 numbers, and `gen` one of the four or none.
+- **The tab:**
+  - The Client cell's second line is the maker, without "Inc." and the like, or "private MAC", then the guess. Its tooltip says what the guess went on.
+  - **Wi-Fi** shows the generation, then chips k, v, w and "r?". Each chip's tooltip names the feature.
+  - **Retries** is a chip, "N % retried", coloured by the worse of retried and failed, with "N % failed" beneath when there are any.
+  - The search takes maker, kind and OS.
+
+### Checked
+
+- **On OpenWrtnight,** with the new prober for a few minutes:
+  - Two Espressif clients showed `gen` n with WMM; a third showed none, a/b/g, which hostapd confirmed (`ht` and `wmm` false).
+  - None showed k, v or w.
+  - Two had their addresses from ARP within a minute, on the AP's own `Sweet_Spot_IoT`.
+  - Host names and fingerprints wait for each client's next DHCP renewal.
+- **The probe tests,** on OpenWrtnight, read a vendor class and parameter list from a discover.
+- **Harness:** the tab with a private-MAC iPhone ("private MAC · phone, iOS", Wi-Fi 6, k v w), a legacy Espressif ("Espressif · iot, Linux", a/b/g, 2 % failed) and a Wi-Fi 4 one.
+- **The v0.33.0 manager** refused the new prober's report: "unknown field vendor_class". Hence the manager goes first.
