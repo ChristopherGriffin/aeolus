@@ -18,9 +18,9 @@
 ## Decision
 
 - **A tunnel says where it starts.** This is a new field on the tunnel, `concentrators.<name>.underlay_vlan`. Like the tunnel's other fields, it is set in Locations and inherits down (0055).
-  - Unset, the default: the management VLAN, as now.
-  - A VLAN number: the tunnel starts from that VLAN on the uplink.
-- **In the UI**, the tunnel's editor (Interfaces › Tunnels) gains "Starts from": a radio button for "the management VLAN" (the default), or "VLAN" with a box for its number.
+  - Unset, the default: the management VLAN, as now. 0 says the same, so a folder or AP can choose the management VLAN over a VLAN set above it.
+  - A VLAN number, 1 to 4094: the tunnel starts from that VLAN on the uplink.
+- **In the UI**, the tunnel's editor (Interfaces › Tunnels) gains "Starts from": a radio button for "the management VLAN" (the default, saved as 0), or "VLAN" with a box for its number. The Tunnels table shows, under each tunnel's state, the VLAN it starts from and the AP's address there, or that it has none yet.
 - **On the AP, the VLAN gets an interface of Aeolus's own,** `aeolus_vlan<N>_tunnels`:
   - It sits on the uplink's bridge at that VLAN, which is tagged on the uplink as a network's VLAN is.
   - Its address comes from DHCP.
@@ -39,6 +39,8 @@
 - **Several tunnels can start from one VLAN.** They share its interface. When no tunnel starts there any more, the interface, its zone, its table and its rule go.
 - **Held, or reported:**
   - an AP whose uplink isn't a trunk it can tag: the config is held, as for a VLAN network;
+  - a VLAN that is the AP's management VLAN: held, since tunnels start from it anyway;
+  - a tunnel to an IPv6 concentrator: held for now. Its start would need an IPv6 address and routes of its own on that VLAN;
   - no DHCP answer on that VLAN: the tunnel can't start. The state report says "no address on VLAN 20", and the verdict is `down`, with the concentrator unreachable.
 
   A static address per AP can come later, if a site needs it.
@@ -67,3 +69,13 @@ Run on OpenWrtnight on 2026-10-04 with temporary interfaces only (`ubus call net
    - From the manager host (192.168.20.60, on VLAN 20), the AP's 192.168.20.74 rejected a ping, and TCP 22, 80, 443 and 8443. Its management address still answered SSH.
    - The AP's firewall already rejects input from interfaces outside its zones. The build's zone makes that explicit, with the one rule the test needed: the tunnel's UDP 4789 from its concentrator, on that VLAN.
 4. **Putting things back re-created VNI 10's tunnel device,** and the v0.26.1 prober followed it on its own: VNI 10 `up` again, at 0% CPU.
+
+## As built
+
+- **The interface:** `aeolus_vlan<N>_tunnels` is proto `dhcp` on `<uplink bridge>.<N>`, with `ip4table` 1000 + N and `peerdns 0`. It is in the zone `aeolus_ul`, which rejects input and forwarding. The tunnels' rules let them in from their concentrators on that zone.
+- **The render check** wants all of that, the tunnel's `tunlink` on that interface, and its VLAN carried. A tunnel with no start VLAN must not start from such an interface.
+- **The prober** pings each concentrator with a raw socket bound to the device its tunnel starts from (`SO_BINDTODEVICE`), so the ping takes the tunnel's path. An answer counts only on the socket its ping went out on.
+- **Checked on OpenWrtnight,** with a dynamic interface on VLAN 20 (`ip4table` 1020) and the prober run by hand for two test tunnels to 1.1.1.2, one starting from VLAN 20 and one from the management VLAN:
+  - each one's pings left on its own VLAN (from 192.168.20.76 and from 192.168.1.38), and each got its own answers;
+  - with the VLAN 20 interface gone, the first lost the concentrator and the second kept it.
+- **A new agent test case,** `underlay`, renders two networks over two concentrators that both start from VLAN 30, and removes an earlier VLAN 40 interface. It was rendered on the AP, and the render check passes it.

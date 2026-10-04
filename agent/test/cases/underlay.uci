@@ -1,0 +1,316 @@
+package wireless
+
+config wifi-device 'radio0'
+	option type 'mac80211'
+	option path 'soc/1b500000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0'
+	option band '5g'
+	option channel '149'
+	option htmode 'VHT80'
+	option disabled '0'
+	option ucentral_path '/radios/1'
+	option txantenna '15'
+	option rxantenna '15'
+	option noscan '1'
+	option country 'US'
+	option legacy_rates '0'
+	option maxassoc_ignore_probe '0'
+	option reconf '1'
+	option acs_exclude_dfs '0'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option path 'soc/1b700000.pcie/pci0001:00/0001:00:00.0/0001:01:00.0'
+	option band '2g'
+	option channel '6'
+	option htmode 'HT20'
+	option disabled '0'
+	option ucentral_path '/radios/0'
+	option txantenna '15'
+	option rxantenna '15'
+	option noscan '1'
+	option country 'US'
+	option legacy_rates '0'
+	option maxassoc_ignore_probe '0'
+	option reconf '1'
+	option acs_exclude_dfs '0'
+
+config wifi-iface 'iot24'
+	option device 'radio1'
+	option network 'iot'
+	option mode 'ap'
+	option ssid 'Sweet_Spot_IoT'
+	option encryption 'psk2'
+	option key 'fixture-key-iot24'
+
+config wifi-iface 'trusted_radio0'
+	option device 'radio0'
+	option network 'trusted'
+	option mode 'ap'
+	option ssid 'Sweet Spot'
+	option encryption 'psk2'
+	option key 'fixture-key-trusted_radio0'
+	option ieee80211r '1'
+	option ft_over_ds '0'
+	option ft_psk_generate_local '1'
+
+config wifi-iface 'trusted_radio1'
+	option device 'radio1'
+	option network 'trusted'
+	option mode 'ap'
+	option ssid 'Sweet Spot'
+	option encryption 'psk2'
+	option key 'fixture-key-trusted_radio1'
+	option ieee80211r '1'
+	option ft_over_ds '0'
+	option ft_psk_generate_local '1'
+
+config wifi-iface 'aeolus_lab_radio0'
+	option device 'radio0'
+	option mode 'ap'
+	option network 'aeolus_lab'
+	option ssid 'Aeolus Lab'
+	option encryption 'psk2'
+	option key 'fixture-passphrase-1'
+
+config wifi-iface 'aeolus_lab_radio1'
+	option device 'radio1'
+	option mode 'ap'
+	option network 'aeolus_lab'
+	option ssid 'Aeolus Lab'
+	option encryption 'psk2'
+	option key 'fixture-passphrase-1'
+
+config wifi-iface 'aeolus_things_radio1'
+	option device 'radio1'
+	option mode 'ap'
+	option network 'aeolus_things'
+	option ssid 'Aeolus Things'
+	option encryption 'psk2'
+	option key 'fixture-passphrase-2'
+
+package network
+
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option ifname 'lo'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option dhcp_default_duid '0004fixture'
+	option ula_prefix 'fd59:2068:3844::/48'
+	option packet_steering '1'
+
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'lan1'
+	list ports 'lan2'
+	list ports 'lan3'
+	list ports 'lan4'
+	list ports 'wan'
+	option ipv6 '0'
+
+config interface 'lan'
+	option device 'br-lan.1'
+	option proto 'dhcp'
+	option multipath 'off'
+
+config bridge-vlan 'vlan1'
+	option device 'br-lan'
+	option vlan '1'
+	list ports 'wan:u*'
+	list ports 'lan1:u*'
+	list ports 'lan2:u*'
+	list ports 'lan3:u*'
+	list ports 'lan4:u*'
+
+config bridge-vlan 'vlan10'
+	option device 'br-lan'
+	option vlan '10'
+	list ports 'wan:t'
+
+config interface 'iot'
+	option proto 'none'
+	option device 'br-lan.10'
+
+config bridge-vlan 'vlan20'
+	option device 'br-lan'
+	option vlan '20'
+	list ports 'wan:t'
+
+config interface 'trusted'
+	option proto 'none'
+	option device 'br-lan.20'
+
+config bridge-vlan 'aeolus_vlan30'
+	option device 'br-lan'
+	option vlan '30'
+	list ports 'wan:t'
+
+config interface 'aeolus_vlan30_tunnels'
+	option proto 'dhcp'
+	option device 'br-lan.30'
+	option ip4table '1030'
+	option peerdns '0'
+
+config interface 'aeolus_50'
+	option proto 'vxlan'
+	option vid '50'
+	option port '4789'
+	option mtu '1450'
+	option tunlink 'aeolus_vlan30_tunnels'
+	option peeraddr '1.1.1.2'
+
+config device 'aeolus_50_br'
+	option type 'bridge'
+	option name 'br-vx50'
+	option bridge_empty '1'
+	list ports 'aeolus_50'
+	option macaddr '02:21:36:5e:00:50'
+
+config interface 'aeolus_lab'
+	option proto 'none'
+	option device 'br-vx50'
+
+config interface 'aeolus_60'
+	option proto 'vxlan'
+	option vid '60'
+	option port '4789'
+	option mtu '1450'
+	option tunlink 'aeolus_vlan30_tunnels'
+	option peeraddr '10.9.9.9'
+
+config device 'aeolus_60_br'
+	option type 'bridge'
+	option name 'br-vx60'
+	option bridge_empty '1'
+	list ports 'aeolus_60'
+	option macaddr '02:21:36:5e:00:60'
+
+config interface 'aeolus_things'
+	option proto 'none'
+	option device 'br-vx60'
+
+package system
+
+config system
+	option hostname 'OpenWrtnight'
+	option timezone 'GMT0'
+	option zonename 'UTC'
+	option ttylogin '0'
+	option log_size '128'
+	option urandom_seed '0'
+	option compat_version '1.1'
+	option log_proto 'udp'
+	option conloglevel '8'
+	option cronloglevel '7'
+
+config timeserver 'ntp'
+	list server '0.openwrt.pool.ntp.org'
+	list server '1.openwrt.pool.ntp.org'
+	list server '2.openwrt.pool.ntp.org'
+	list server '3.openwrt.pool.ntp.org'
+
+config led 'led_wan'
+	option name 'WAN'
+	option sysfs 'white:wan'
+	option trigger 'netdev'
+	option mode 'link tx rx'
+	option dev 'wan'
+
+package aeolus
+
+config agent 'agent'
+	option url 'https://aeolus.symtus.com:8443'
+	option uplink 'wan'
+	option poll '60'
+
+config probe 'aeolus_50'
+	option vni '50'
+	option interval '30'
+	option mac '02:21:36:5e:00:50'
+
+config probe 'aeolus_60'
+	option vni '60'
+	option interval '30'
+	option mac '02:21:36:5e:00:60'
+
+package usteer
+
+config usteer
+	option network 'lan'
+	option syslog '1'
+	option local_mode '0'
+	option ipv6 '0'
+	option debug_level '2'
+	option band_steering_interval '0'
+
+package snmpd
+
+config snmpd 'general'
+	option enabled '0'
+
+package firewall
+
+config defaults
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	option synflood_protect '1'
+
+config zone
+	option name 'lan'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	list network 'lan'
+
+config zone
+	option name 'wan'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'DROP'
+	option masq '1'
+	option mtu_fix '1'
+
+config forwarding
+	option src 'lan'
+	option dest 'wan'
+
+config rule
+	option name 'Allow-Ping'
+	option src 'wan'
+	option proto 'icmp'
+	option icmp_type 'echo-request'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config zone 'aeolus_zone_ul'
+	option name 'aeolus_ul'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	list network 'aeolus_vlan30_tunnels'
+
+config rule 'aeolus_vxlan_50'
+	option name 'Aeolus VXLAN 50'
+	option src 'aeolus_ul'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+
+config include 'aeolus_clamp'
+	option type 'nftables'
+	option path '/etc/aeolus/clamp.nft'
+	option position 'ruleset-append'
+
+config rule 'aeolus_vxlan_60'
+	option name 'Aeolus VXLAN 60'
+	option src 'aeolus_ul'
+	option proto 'udp'
+	option src_ip '10.9.9.9'
+	option dest_port '4789'
+	option target 'ACCEPT'

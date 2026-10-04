@@ -548,6 +548,110 @@ config probe 'aeolus_5000'
 	}
 }
 
+// A tunnel can start from a VLAN of the uplink (0063): from an interface of
+// Aeolus's own there, with an address by DHCP, routes in a table of their
+// own and no DNS servers taken, in a zone that rejects what comes in, which
+// is where the tunnel's rule lets it in from.
+func TestTunnelStartsFromAVLAN(t *testing.T) {
+	var doc map[string]any
+	parse := func(underlay int) {
+		t.Helper()
+		if err := json.Unmarshal([]byte(fmt.Sprintf(`{"network": {"sweet": {"transport": {
+			"primary": {"type": "vxlan", "concentrator": "arista", "vni": 50}}}},
+			"concentrators": {"arista": {"address": "1.1.1.2", "port": 4789, "mtu": 1500, "underlay_vlan": %d}}}`, underlay)), &doc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parse(20)
+	check := func(text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	const good = `package wireless
+package network
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	option mtu '9000'
+config interface 'lan'
+	option proto 'dhcp'
+	option device 'br-lan.1'
+config bridge-vlan 'vlan20'
+	option device 'br-lan'
+	option vlan '20'
+config interface 'aeolus_vlan20_tunnels'
+	option proto 'dhcp'
+	option device 'br-lan.20'
+	option ip4table '1020'
+	option peerdns '0'
+config interface 'aeolus_50'
+	option proto 'vxlan'
+	option peeraddr '1.1.1.2'
+	option vid '50'
+	option mtu '1500'
+	option tunlink 'aeolus_vlan20_tunnels'
+config device 'aeolus_50_br'
+	option type 'bridge'
+	option name 'br-vx50'
+	list ports 'aeolus_50'
+config interface 'aeolus_sweet'
+	option proto 'none'
+	option device 'br-vx50'
+package firewall
+config zone 'aeolus_zone_ul'
+	option name 'aeolus_ul'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	list network 'aeolus_vlan20_tunnels'
+config rule 'aeolus_vxlan_50'
+	option src 'aeolus_ul'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+package aeolus
+config probe 'aeolus_50'
+	option vni '50'
+	option interval '30'
+`
+	if got := check(good); got != "" {
+		t.Fatalf("problems with the right config: %s", got)
+	}
+	for _, c := range []struct{ name, old, new, want string }{
+		{"from management", "option tunlink 'aeolus_vlan20_tunnels'", "option tunlink 'lan'",
+			`network.aeolus_50: tunlink is "lan", want aeolus_vlan20_tunnels, as the tunnel starts from VLAN 20 (0063)`},
+		{"no interface", "config interface 'aeolus_vlan20_tunnels'", "config interface 'other'", "network.aeolus_vlan20_tunnels: no interface for the tunnels that start from VLAN 20"},
+		{"another VLAN", "option device 'br-lan.20'", "option device 'br-lan.30'", `device is "br-lan.30", want VLAN 20 on the uplink's bridge`},
+		{"not carried", "option vlan '20'", "option vlan '21'", "VLAN 20 is not in the network config"},
+		{"static", "option proto 'dhcp'\n\toption device 'br-lan.20'", "option proto 'static'\n\toption device 'br-lan.20'", `proto is "static", want "dhcp"`},
+		{"main table", "\toption ip4table '1020'\n", "", `network.aeolus_vlan20_tunnels: ip4table is missing, want "1020"`},
+		{"its DNS", "\toption peerdns '0'\n", "", `network.aeolus_vlan20_tunnels: peerdns is missing, want "0"`},
+		{"no zone", "list network 'aeolus_vlan20_tunnels'", "list network 'lan'", "firewall: want aeolus_vlan20_tunnels in the zone aeolus_ul"},
+		{"open zone", "option input 'REJECT'", "option input 'ACCEPT'", `firewall.aeolus_zone_ul: input is "ACCEPT", want "REJECT"`},
+		{"let in elsewhere", "option src 'aeolus_ul'", "option src 'lan'", `firewall.aeolus_vxlan_50: src is "lan", want "aeolus_ul"`},
+	} {
+		if !strings.Contains(good, c.old) {
+			t.Fatalf("%s: fixture lacks %q", c.name, c.old)
+		}
+		if got := check(strings.Replace(good, c.old, c.new, 1)); !strings.Contains(got, c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.name, c.want, got)
+		}
+	}
+	// 0 is the management VLAN, as unset is.
+	parse(0)
+	if got := check(good); !strings.Contains(got, "network.aeolus_50: the tunnel starts from aeolus_vlan20_tunnels, want the management interface (0063)") {
+		t.Fatalf("the management VLAN: %s", got)
+	}
+	if got := check(strings.Replace(good, "option tunlink 'aeolus_vlan20_tunnels'", "option tunlink 'lan'", 1)); strings.Contains(got, "tunlink") || strings.Contains(got, "starts from") {
+		t.Fatalf("from management, as it should: %s", got)
+	}
+}
+
 // A tunnel port is out of the uplink's bridge, and carries its VNIs on their
 // tunnels' bridges: the port for the untagged one, an 802.1Q device of it
 // for each tagged one (0058).

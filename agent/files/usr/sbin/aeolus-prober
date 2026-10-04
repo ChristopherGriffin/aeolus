@@ -144,9 +144,12 @@ function plan() {
 		if (!n)
 			return;
 		let peer = n.peeraddr ?? n.peer6addr;
+		// A tunnel that starts from a VLAN (0063) pings its concentrator from
+		// that VLAN's device, the path the tunnel takes.
+		let start = match(n.tunlink ?? '', /^aeolus_vlan[0-9]+_tunnels$/) ? c.get('network', n.tunlink, 'device') : null;
 		tunnels['' + vni] = {
 			device: 'aeolus_' + vni, bridge: 'br-vx' + vni,
-			peer: peer ? replace(peer, /^\[|\]$/g, '') : null, six: n.peer6addr != null,
+			peer: peer ? replace(peer, /^\[|\]$/g, '') : null, six: n.peer6addr != null, start: start,
 			interval: max(5, min(300, int(s.interval ?? '30') || 30)),
 			address: sort(list(s.address)),
 			mac: s.mac,
@@ -166,10 +169,17 @@ function plan() {
 }
 
 let tun = {};      // VNI -> { plan, sock, index, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
-let peers = {};    // concentrator address -> { six, interval, sent, seq, ok, rtt, since, next }
+let peers = {};    // concentrator address, and where it is pinged from -> { addr, start, six, interval, sent, seq, ok, rtt, since, next }
 let guards = {};   // port -> { plan, devices: [{ name, sock, index, mac }], next }
 let loops = {};    // port -> { port, device, vni, came_in, at }
-let raw4 = null, raw6 = null, guard_rx = null;
+let raws = {};     // "4" or "6", and the device it is bound to -> { sock, six, start }
+let guard_rx = null;
+
+// peer_key names a tunnel's concentrator as it is pinged: by its address,
+// and the device it is pinged from when the tunnel starts from a VLAN.
+function peer_key(t) {
+	return t.start ? `${t.peer}%${t.start}` : t.peer;
+}
 
 function close(s) {
 	s?.close();
@@ -250,14 +260,16 @@ function apply_plan(p) {
 			dhcp: kept[vni] ?? { state: 'init', xid: xid(), tries: 0, next: now(), offer: null, lease: null } };
 	let want = {};
 	for (let vni, t in p.tunnels)
-		if (t.peer)
-			want[t.peer] = min(want[t.peer] ?? 300, t.interval);
-	for (let a in keys(peers))
-		if (!(a in want))
-			delete peers[a];
-	for (let a, interval in want) {
-		peers[a] ??= { six: index(a, ':') >= 0, sent: {}, seq: 0, ok: null, rtt: null, since: now(), next: now() };
-		peers[a].interval = interval;
+		if (t.peer) {
+			let k = peer_key(t);
+			want[k] = { addr: t.peer, start: t.start, interval: min(want[k]?.interval ?? 300, t.interval) };
+		}
+	for (let k in keys(peers))
+		if (!(k in want))
+			delete peers[k];
+	for (let k, w in want) {
+		peers[k] ??= { addr: w.addr, start: w.start, six: index(w.addr, ':') >= 0, sent: {}, seq: 0, ok: null, rtt: null, since: now(), next: now() };
+		peers[k].interval = w.interval;
 	}
 	// A port whose settings changed, or that left its tunnels, gets a fresh
 	// start: the loop guard lets it go.
@@ -437,16 +449,39 @@ function on_tunnel(t) {
 	}
 }
 
-function ping(a, p, at) {
-	let s = p.six
-		? (raw6 ??= socket.create(socket.AF_INET6, socket.SOCK_RAW, 58))
-		: (raw4 ??= socket.create(socket.AF_INET, socket.SOCK_RAW, 1));
+// raw is the socket a concentrator is pinged with: one for each address
+// family, and for each VLAN device a tunnel starts from (0063), bound to it,
+// so the ping takes the tunnel's path. Without that device, there is none.
+function raw(six, start) {
+	let k = (six ? '6' : '4') + (start ? '%' + start : '');
+	if (!raws[k]) {
+		let s = socket.create(six ? socket.AF_INET6 : socket.AF_INET, socket.SOCK_RAW, six ? 58 : 1);
+		if (s && start && !s.setopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, start)) {
+			s.close();
+			s = null;
+		}
+		if (!s)
+			return null;
+		raws[k] = { sock: s, six: six, start: start };
+	}
+	return raws[k].sock;
+}
+
+function ping(p, at) {
+	let s = raw(p.six, p.start);
 	if (!s)
 		return;
 	p.seq = (p.seq + 1) & 0xffff;
 	let data = p.six ? probe.echo6_plain(ID, p.seq) : probe.echo4(ID, p.seq);
-	if (s.send(data, 0, { family: p.six ? socket.AF_INET6 : socket.AF_INET, address: a, port: 0 }) != null)
+	if (s.send(data, 0, { family: p.six ? socket.AF_INET6 : socket.AF_INET, address: p.addr, port: 0 }) != null)
 		p.sent[p.seq] = now();
+	else if (p.start) {
+		// A VLAN device made again leaves the socket bound to the old one:
+		// the next ping makes another.
+		let k = (p.six ? '6' : '4') + '%' + p.start;
+		close(raws[k]?.sock);
+		delete raws[k];
+	}
 	for (let k in keys(p.sent))
 		if (at - p.sent[k] > 3 * p.interval)
 			delete p.sent[k];
@@ -457,18 +492,21 @@ function same(a, b) {
 	return a == b || (index(a, ':') >= 0 && index(b ?? '', ':') >= 0 && probe.ip6(a) == probe.ip6(b));
 }
 
-function on_raw(s, six) {
+// on_raw takes the answers to pings on one socket. A socket bound to no
+// device sees the answers that come in on a VLAN too, so an answer counts
+// only for the pings sent on the socket it came in on.
+function on_raw(r) {
 	let pkt, from = {};
-	while ((pkt = s.recv(2048, socket.MSG_DONTWAIT, from)) != null) {
-		let r = six ? probe.echo6_plain_answer(pkt, ID) : probe.echo4_answer(pkt, ID);
-		if (!r)
+	while ((pkt = r.sock.recv(2048, socket.MSG_DONTWAIT, from)) != null) {
+		let a = r.six ? probe.echo6_plain_answer(pkt, ID) : probe.echo4_answer(pkt, ID);
+		if (!a)
 			continue;
-		let addr = six ? from.address : r.from;
-		for (let a, p in peers)
-			if (same(a, addr) && p.sent[r.seq] != null) {
+		let addr = r.six ? from.address : a.from;
+		for (let k, p in peers)
+			if (p.six == r.six && p.start == r.start && same(p.addr, addr) && p.sent[a.seq] != null) {
 				p.ok = now();
-				p.rtt = (p.ok - p.sent[r.seq]) * 1000;
-				delete p.sent[r.seq];
+				p.rtt = (p.ok - p.sent[a.seq]) * 1000;
+				delete p.sent[a.seq];
 			}
 	}
 }
@@ -512,7 +550,7 @@ function on_guard() {
 function results(at) {
 	let tunnels = {};
 	for (let vni, t in tun) {
-		let p = peers[t.plan.peer];
+		let p = t.plan.peer ? peers[peer_key(t.plan)] : null;
 		let span = 3 * t.plan.interval;
 		let v = t.running
 			? probe.verdict({ interval: t.plan.interval, started: t.started, answered: t.answered, underlay: p?.ok }, at)
@@ -580,9 +618,9 @@ function main() {
 				send_probes(t, at);
 				t.next = at + t.plan.interval;
 			}
-		for (let a, pe in peers)
+		for (let k, pe in peers)
 			if (at >= pe.next) {
-				ping(a, pe, at);
+				ping(pe, at);
 				pe.next = at + pe.interval;
 			}
 		for (let port, g in guards)
@@ -613,9 +651,13 @@ function main() {
 				by_fd[tun[vni].sock.fileno()] = vni;
 				push(polls, [tun[vni].sock, socket.POLLIN]);
 			}
-		for (let s in [raw4, raw6, guard_rx])
-			if (s)
-				push(polls, [s, socket.POLLIN]);
+		let by_raw = {};
+		for (let k, r in raws) {
+			by_raw[r.sock.fileno()] = k;
+			push(polls, [r.sock, socket.POLLIN]);
+		}
+		if (guard_rx)
+			push(polls, [guard_rx, socket.POLLIN]);
 		if (!length(polls)) {
 			sleep(wait);
 			continue;
@@ -634,10 +676,8 @@ function main() {
 					close(t.sock);
 					t.sock = null;
 				}
-			} else if (raw4 && fd == raw4.fileno())
-				on_raw(raw4, false);
-			else if (raw6 && fd == raw6.fileno())
-				on_raw(raw6, true);
+			} else if (by_raw[fd] != null)
+				on_raw(raws[by_raw[fd]]);
 			else if (guard_rx && fd == guard_rx.fileno())
 				on_guard();
 		}

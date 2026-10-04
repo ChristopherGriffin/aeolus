@@ -168,11 +168,45 @@ function iface_options(net, radio, network, btm) {
 	return o;
 }
 
+// The interfaces tunnels start from on a VLAN (0063): their routing tables
+// are 1000 plus the VLAN, clear of the kernel's own, and they share a zone.
+const START_TABLE = 1000;
+const START_ZONE = 'aeolus_ul';
+
+// start_on_vlan makes the interface that tunnels start from on a VLAN of the
+// uplink (0063), and returns its name. The VLAN is tagged on the uplink, and
+// the interface takes an address by DHCP. Its routes go in a table of their
+// own, so only the tunnels use its gateway, and its DNS servers are not
+// used. Its zone rejects what comes in but the tunnels' own rules, so a VLAN
+// that also carries clients gives them no way into the AP.
+function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
+	let n = cfg.network, fw = cfg.firewall;
+	let bridge = uplink_bridge(n, facts.uplink, errors);
+	if (!bridge)
+		return null;
+	let device = `${bridge}.${vlan}`;
+	if (n[facts.management]?.device == device) {
+		push(errors, `${where}: VLAN ${vlan} is the management VLAN here, which tunnels start from anyway; set it to the management VLAN`);
+		return null;
+	}
+	ensure_vlan(n, bridge, facts.uplink, vlan, keep);
+	let name = `aeolus_vlan${vlan}_tunnels`;
+	put(n, name, 'interface', { proto: 'dhcp', device: device, ip4table: START_TABLE + vlan, peerdns: 0 });
+	keep[name] = true;
+	let nets = keep.aeolus_zone_ul ? list(fw.aeolus_zone_ul.network) : [];
+	if (index(nets, name) < 0)
+		push(nets, name);
+	put(fw, 'aeolus_zone_ul', 'zone', { name: START_ZONE, input: 'REJECT', output: 'ACCEPT', forward: 'REJECT', network: nets });
+	keep.aeolus_zone_ul = true;
+	return name;
+}
+
 // tunnel renders a VXLAN transport (0054): an interface named for the VNI,
-// which is also its device, to the concentrator over the management
-// interface; its own bridge, which the network's Wi-Fi joins; a firewall
-// rule letting it in; and below an MTU of 1500, the MSS clamp. A fallback's
-// tunnel is not started until the AP switches to it. It returns the bridge.
+// which is also its device, to the concentrator from the management
+// interface, or from a VLAN of the uplink (0063); its own bridge, which the
+// network's Wi-Fi joins; a firewall rule letting it in; and below an MTU of
+// 1500, the MSS clamp. A fallback's tunnel is not started until the AP
+// switches to it. It returns the bridge.
 function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
 	let n = cfg.network, fw = cfg.firewall;
 	if (!facts.vxlan) {
@@ -189,8 +223,20 @@ function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
 		push(errors, `${where}: the AP's management interface is not known`);
 		return null;
 	}
+	// Where it starts: the management interface, or a VLAN (0063).
+	let from = facts.management, zone = null;
+	if (conc.underlay_vlan) {
+		if (six) {
+			push(errors, `${where}: a tunnel to an IPv6 concentrator starts from the management VLAN for now (0063)`);
+			return null;
+		}
+		from = start_on_vlan(cfg, where, conc.underlay_vlan, facts, errors, keep);
+		if (!from)
+			return null;
+		zone = START_ZONE;
+	}
 	let name = 'aeolus_' + t.vni;
-	let o = { proto: six ? 'vxlan6' : 'vxlan', vid: t.vni, port: conc.port, mtu: conc.mtu, tunlink: facts.management };
+	let o = { proto: six ? 'vxlan6' : 'vxlan', vid: t.vni, port: conc.port, mtu: conc.mtu, tunlink: from };
 	o[six ? 'peer6addr' : 'peeraddr'] = address;
 	if (slot != 'primary')
 		o.auto = 0;
@@ -205,10 +251,10 @@ function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
 		macaddr: segment_mac(facts.ap, 'vni', t.vni),
 	});
 	keep[name] = keep[name + '_br'] = true;
-	let zone = filter(of_type(fw, 'zone'), z => index(list(z.network), facts.management) >= 0)[0];
+	zone ??= filter(of_type(fw, 'zone'), z => index(list(z.network), facts.management) >= 0)[0]?.name;
 	if (zone)
 		put(fw, 'aeolus_vxlan_' + t.vni, 'rule', {
-			name: 'Aeolus VXLAN ' + t.vni, src: zone.name, proto: 'udp',
+			name: 'Aeolus VXLAN ' + t.vni, src: zone, proto: 'udp',
 			src_ip: address, dest_port: conc.port, target: 'ACCEPT',
 		});
 	else

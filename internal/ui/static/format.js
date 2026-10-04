@@ -39,7 +39,7 @@ const NETWORK = {
 
 const SLOT = { type: 'type', vlan: 'VLAN', concentrator: 'tunnel', vni: 'VNI', probe: 'probe address' };
 
-const TUNNEL = { address: 'Far end (IP)', port: 'Port', mtu: 'MTU', probe_interval: 'Probe interval' };
+const TUNNEL = { address: 'Far end (IP)', port: 'Port', mtu: 'MTU', probe_interval: 'Probe interval', underlay_vlan: 'Starts from' };
 
 // A tunnel port's VNI's fields (0058, 0059).
 const PORT_VNI = { tunnel: 'tunnel', vni: 'VNI', probe: 'probe address' };
@@ -82,6 +82,8 @@ export function value(path, v, names) {
 	if (last === 'type' && path.includes('.transport.')) return v === 'vxlan' ? 'VXLAN' : 'VLAN';
 	if (path.startsWith('ports.') && last === 'mode') return MODE[v] || v;
 	if (path.startsWith('ports.') && last === 'untagged' && v === 0) return 'none';
+	// Where a tunnel starts on the AP (0063): 0 is the management VLAN.
+	if (last === 'underlay_vlan' && typeof v === 'number') return v ? 'VLAN ' + v : 'the management VLAN';
 	if (v == null) return '—';
 	return String(v);
 }

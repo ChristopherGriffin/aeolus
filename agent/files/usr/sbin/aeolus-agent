@@ -555,8 +555,9 @@ function probes() {
 // vxlan_state says what the AP's tunnels are doing (0054): whether the
 // packages they need are there, the MTU its uplink carries now, which the
 // tunnels run over (0056), and for each tunnel Aeolus made, its VNI, peer,
-// port and MTU, whether it is up, or standing by as a fallback, and what
-// the prober found (0059); and the ports the loop guard took off.
+// port and MTU, the VLAN it starts from and the AP's address there (0063),
+// whether it is up, or standing by as a fallback, and what the prober found
+// (0059); and the ports the loop guard took off.
 function vxlan_state() {
 	let found = probes();
 	let tunnels = [];
@@ -569,6 +570,15 @@ function vxlan_state() {
 			vni: int(vni), peer: s.peeraddr ?? s.peer6addr ?? '', port: int(s.port ?? '4789'),
 			mtu: int(s.mtu ?? '0'), up: up, standby: !up && s.auto == '0',
 		};
+		// A tunnel that starts from a VLAN (0063): which, and the AP's address
+		// there, which it has only once DHCP answers.
+		let start = match(s.tunlink ?? '', /^aeolus_vlan([0-9]+)_tunnels$/);
+		if (start) {
+			t.from_vlan = int(start[1]);
+			let a = bus.call(`network.interface.${s.tunlink}`, 'status')?.['ipv4-address']?.[0]?.address;
+			if (a)
+				t.from_address = a;
+		}
 		let f = found?.tunnels?.[vni];
 		if (f)
 			t.probe = {

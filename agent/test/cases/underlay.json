@@ -1,0 +1,35 @@
+{
+	"about": "PumphouseAP with tunnels that start from a VLAN of the uplink (0063): the lab network runs over VNI 50 to the Arista and the IoT network over VNI 60 to another concentrator, both starting from VLAN 30, which the uplink does not carry yet. They share the interface on VLAN 30, its routing table and its zone. An interface Aeolus made earlier on VLAN 40, which nothing starts from now, goes.",
+	"current": "pumphouse-current.json",
+	"extra": {
+		"network": {
+			"aeolus_vlan40_tunnels": { ".anonymous": false, ".type": "interface", ".name": "aeolus_vlan40_tunnels", ".index": 9, "proto": "dhcp", "device": "br-lan.40", "ip4table": "1040", "peerdns": "0" }
+		}
+	},
+	"kept": [],
+	"gone": ["network.aeolus_vlan40_tunnels"],
+	"facts": {
+		"ap": "ap-a0046021365e",
+		"uplink": "wan",
+		"management": "lan",
+		"vxlan": true,
+		"nft_bridge": true,
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		}
+	},
+	"intent": {
+		"system": { "country": "US", "poll": 60 },
+		"network": {
+			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1",
+				"transport": { "primary": { "type": "vxlan", "concentrator": "arista", "vni": 50 } } },
+			"things": { "ssid": "Aeolus Things", "security": "wpa2-psk", "passphrase": "fixture-passphrase-2", "bands": ["2g"],
+				"transport": { "primary": { "type": "vxlan", "concentrator": "core", "vni": 60 } } }
+		},
+		"concentrators": {
+			"arista": { "address": "1.1.1.2", "port": 4789, "mtu": 1450, "underlay_vlan": 30 },
+			"core": { "address": "10.9.9.9", "port": 4789, "mtu": 1450, "underlay_vlan": 30 }
+		}
+	}
+}
