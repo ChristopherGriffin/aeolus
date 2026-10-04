@@ -15,6 +15,8 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/identify"
+	"github.com/ChristopherGriffin/aeolus/internal/oui"
 	"github.com/ChristopherGriffin/aeolus/internal/rendercheck"
 	"github.com/ChristopherGriffin/aeolus/internal/uci"
 )
@@ -23,7 +25,7 @@ import (
 
 const (
 	maxUCI    = 256 << 10
-	maxReport = 64 << 10
+	maxReport = 512 << 10 // room for 256 clients (0066, 0067)
 	maxError  = 2048
 )
 
@@ -228,6 +230,42 @@ type wifiClient struct {
 	Address    string   `json:"address"`
 	Host       string   `json:"host"`
 	DHCP       string   `json:"dhcp"`
+	// What it said of itself in DHCP, and the 802.11 features its
+	// association showed (0067).
+	VendorClass string `json:"vendor_class"`
+	Params      string `json:"params"`
+	Gen         string `json:"gen"`
+	K           *bool  `json:"k"`
+	V           *bool  `json:"v"`
+	W           *bool  `json:"w"`
+	MBO         *bool  `json:"mbo"`
+	WMM         *bool  `json:"wmm"`
+	// Added by the manager when the report arrives (0067): the maker by
+	// OUI, whether the MAC is private, and a guess at what the device is.
+	Maker   string `json:"maker,omitempty"`
+	Private bool   `json:"private,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	OS      string `json:"os,omitempty"`
+	Basis   string `json:"basis,omitempty"`
+}
+
+// gens are the 802.11 generations a client can show: n, ac, ax and be, or
+// none, for a/b/g (0067).
+var gens = map[string]bool{"": true, "n": true, "ac": true, "ax": true, "be": true}
+
+// paramsRE is a DHCP parameter request list, as the prober writes it.
+var paramsRE = regexp.MustCompile(`^([0-9]{1,3}(,[0-9]{1,3}){0,63})?$`)
+
+// identify adds to each client what the manager knows of it (0067): its
+// maker, by OUI; whether its MAC is private; and a guess at its kind and
+// operating system, with what the guess went on.
+func (st *stateReport) identify() {
+	for i := range st.Clients {
+		c := &st.Clients[i]
+		c.Maker, c.Private = oui.Lookup(c.MAC)
+		g := identify.Of(identify.Evidence{Host: c.Host, VendorClass: c.VendorClass, Params: c.Params, Maker: c.Maker, Private: c.Private})
+		c.Kind, c.OS, c.Basis = g.Kind, g.OS, g.Basis
+	}
 }
 
 // The verdicts of the DHCP watch on a client (0065); "" off Aeolus's networks.
@@ -243,7 +281,8 @@ func (c wifiClient) check() error {
 		(c.Band != "" && !bands[c.Band]) || !inRange(c.Signal, -150, 50) || !inRange(c.SignalAvg, -150, 50) ||
 		!rate(c.RxRate) || !rate(c.TxRate) || !inRange(c.RxMCS, 0, 31) || !inRange(c.TxMCS, 0, 31) || !inRange(c.RxNSS, 0, 16) || !inRange(c.TxNSS, 0, 16) ||
 		c.RxBytes < 0 || c.TxBytes < 0 || c.RxPackets < 0 || c.TxPackets < 0 || c.TxRetries < 0 || c.TxFailed < 0 || c.Connected < 0 || c.InactiveMS < 0 ||
-		(c.Address != "" && (ip == nil || ip.To4() == nil)) || len(c.Host) > 64 || !printable(c.Host) || !clientDHCP[c.DHCP] {
+		(c.Address != "" && (ip == nil || ip.To4() == nil)) || len(c.Host) > 64 || !printable(c.Host) || !clientDHCP[c.DHCP] ||
+		len(c.VendorClass) > 64 || !printable(c.VendorClass) || !paramsRE.MatchString(c.Params) || !gens[c.Gen] {
 		return bad
 	}
 	return nil
@@ -870,6 +909,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err := unadopted(s.log.Snapshot(), c.ap); err != nil {
 		return err
 	}
+	req.identify()
 	report, err := json.Marshal(req)
 	if err != nil {
 		return err

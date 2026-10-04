@@ -203,6 +203,13 @@ let end81 = index(substr(d81, 282), chr(255)) + 282;
 let fq = chr(4, 0, 0, 5) + 'phone' + chr(4) + 'home' + chr(0);
 d81 = substr(d81, 0, end81) + chr(81, length(fq)) + fq + substr(d81, end81);
 print('dhcp seen: a host name as an FQDN ', probe.dhcp_seen(d81)?.host, '\n');
+// A client that names its DHCP software (option 60), with the options it
+// asks for (55) (0067).
+let d60 = probe.dhcp(SEG, 'discover', 0x12345678, {});
+let end60 = index(substr(d60, 282), chr(255)) + 282;
+d60 = substr(d60, 0, end60) + chr(60, 15) + 'android-dhcp-14' + substr(d60, end60);
+let s60 = probe.dhcp_seen(d60);
+print('dhcp seen: a vendor class and parameter list ', s60?.vendor_class, ' ', s60?.params, '\n');
 print('dhcp seen: an arp reply ', probe.dhcp_seen(reply), '\n');
 print('arp seen: a reply ', probe.arp_seen(reply), '\n');
 print('arp seen: a probe from 0.0.0.0 ', probe.arp_seen(arp), '\n');

@@ -215,7 +215,8 @@ func TestStateReports(t *testing.T) {
 			map[string]any{"mac": "7e:2a:ea:9b:2b:8f", "network": "lab", "ssid": "Aeolus Lab", "band": "5g", "signal": -49, "signal_avg": -50,
 				"rx_rate": 72.2, "rx_mcs": 7, "rx_nss": nil, "tx_rate": 43.3, "tx_mcs": 4, "tx_nss": nil, "rx_bytes": 83667838, "tx_bytes": 1972710,
 				"rx_packets": 22380, "tx_packets": 23095, "tx_retries": 12, "tx_failed": 0, "connected": 47, "inactive_ms": 40,
-				"address": "192.168.20.61", "host": "Griffs-phone", "dhcp": "ok"},
+				"address": "192.168.20.61", "host": "Griffs-iPhone", "dhcp": "ok",
+				"vendor_class": nil, "params": "1,121,3,6,15,108,114,119,252,95,44,46", "gen": "ax", "k": true, "v": true, "w": true, "mbo": false, "wmm": true},
 			map[string]any{"mac": "aa:bb:cc:dd:ee:06", "network": nil, "ssid": "Sweet_Spot_IoT", "band": "2g", "signal": -87, "signal_avg": nil,
 				"rx_rate": 90.0, "rx_mcs": nil, "rx_nss": nil, "tx_rate": 120.0, "tx_mcs": nil, "tx_nss": nil, "rx_bytes": 2612304, "tx_bytes": 1972710,
 				"rx_packets": 1, "tx_packets": 1, "tx_retries": 0, "tx_failed": 0, "connected": 90259, "inactive_ms": 1290,
@@ -278,6 +279,8 @@ func TestStateReports(t *testing.T) {
 		"client signal": {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "signal": -200}}},
 		"client dhcp":   {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "dhcp": "maybe"}}},
 		"client host":   {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "host": "a\tb"}}},
+		"client gen":    {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "gen": "wifi7"}}},
+		"client params": {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "params": "1;3;6"}}},
 		"active":        {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
 		"network":       {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},
 		"unknown":       {"version": 1, "temperature": 40},
@@ -323,6 +326,16 @@ func TestStateReports(t *testing.T) {
 	ports, _ := state["ports"].([]any)
 	tunnels, _ := state["vxlan"].(map[string]any)["tunnels"].([]any)
 	loops, _ := state["vxlan"].(map[string]any)["loops"].([]any)
+	// The manager adds what it knows of each client (0067): a private MAC and
+	// an iPhone by its name; the AP's own client's private MAC too.
+	clients, _ := state["clients"].([]any)
+	if len(clients) != 2 {
+		t.Fatalf("clients: %v", state["clients"])
+	}
+	phone := clients[0].(map[string]any)
+	if phone["private"] != true || phone["maker"] != nil || phone["kind"] != "phone" || phone["os"] != "iOS" || phone["basis"] != "host name" {
+		t.Errorf("the phone as stored: %v", phone)
+	}
 	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["uplink_vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 3 || len(loops) != 1 {
 		t.Fatalf("condition = %v", cond)
 	}
