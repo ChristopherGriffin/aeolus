@@ -1,2 +1,11 @@
 /etc/aeolus/
 /etc/config/aeolus
+/etc/init.d/aeolus
+/etc/rc.d/S99aeolus
+/etc/hotplug.d/ntp/50-aeolus
+/etc/ssl/certs/aeolus-manager.crt
+/usr/sbin/aeolus-agent
+/usr/sbin/aeolus-prober
+/usr/libexec/aeolus-packages
+/usr/share/ucode/aeolus/
+/lib/upgrade/keep.d/aeolus

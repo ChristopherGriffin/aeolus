@@ -210,6 +210,8 @@ func TestStateReports(t *testing.T) {
 			"duplicates": []any{map[string]any{"servers": []string{"192.168.20.254", "192.168.20.99"}, "client": "aa:bb:cc:dd:ee:02", "ago": 300}},
 			"without":    []any{map[string]any{"mac": "aa:bb:cc:dd:ee:03", "joined_ago": 120, "address": "192.168.20.55"}, map[string]any{"mac": "aa:bb:cc:dd:ee:04", "joined_ago": 90, "address": nil}},
 		}},
+		// Its clock, as ntpd last said (0069).
+		"time": map[string]any{"synced": true, "stratum": 3, "offset": -0.0012, "ago": 40, "servers": []string{"rutm50.symtus.com", "10.0.1.253"}},
 		// Every Wi-Fi client (0066): one on an Aeolus network, one on the AP's own.
 		"clients": []any{
 			map[string]any{"mac": "7e:2a:ea:9b:2b:8f", "network": "lab", "ssid": "Aeolus Lab", "band": "5g", "signal": -49, "signal_avg": -50,
@@ -281,6 +283,8 @@ func TestStateReports(t *testing.T) {
 		"client host":   {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "host": "a\tb"}}},
 		"client gen":    {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "gen": "wifi7"}}},
 		"client params": {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "params": "1;3;6"}}},
+		"time stratum":  {"version": 1, "time": map[string]any{"synced": true, "stratum": 17}},
+		"time servers":  {"version": 1, "time": map[string]any{"servers": []string{"a\tb"}}},
 		"active":        {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
 		"network":       {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},
 		"unknown":       {"version": 1, "temperature": 40},

@@ -48,6 +48,7 @@ export async function apPage(ctx, id, tab, sub) {
 			h('strong', null, 'Its config breaks these rules, so it is not sent'),
 			h('ul', null, cfg.check.problems.map((p) => h('li', null, p)))),
 		tunnelTrouble(cfg, base),
+		clockTrouble(cfg, base),
 		tabBar(base, TABS, tab),
 	];
 	if (tab === 'overview') {
@@ -96,6 +97,22 @@ function tunnelTrouble(cfg, base) {
 			}),
 			dhcp.map((line) => h('li', null, line + '.'))),
 		h('div', null, link(`${base}/interfaces/tunnels`, 'Interfaces › Tunnels'), ' · ', link(`${base}/interfaces/ethernet`, 'Interfaces › Ethernet'), ' · ', link(`${base}/networks`, 'Networks')));
+}
+
+// clockTrouble warns of an AP whose clock isn't synchronized, or that has no
+// time server to ask (0069): its TLS to the manager, and every time it
+// reports, depend on the clock. The site's own time servers are set under
+// System, or given by its DHCP.
+function clockTrouble(cfg, base) {
+	const t = cfg.condition?.state?.report?.time;
+	if (!t) return null;
+	const says = t.synced === false
+		? `Its clock isn't synchronized: ntpd ${t.servers?.length ? `asks ${t.servers.join(', ')}` : 'has no time server'}.`
+		: t.synced == null && !t.servers?.length ? 'It has no time server, so its clock is never set.' : null;
+	if (!says) return null;
+	return h('div', { class: 'banner problems' },
+		h('strong', null, 'Its clock needs a look'),
+		h('div', null, says, ' Set its time servers under ', link(`${base}/system`, 'System'), ", or have the site's DHCP give one."));
 }
 
 function statusPanel(st, cfg, cond) {

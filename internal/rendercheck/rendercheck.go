@@ -1429,6 +1429,47 @@ func (k *checker) system(sys map[string]any) {
 		if !sameSet(got, ntp) {
 			k.add("system.ntp: servers are %v, want %v", got, ntp)
 		}
+	} else if t := p.Named("ntp"); t != nil && t.Type == "timeserver" {
+		// Never OpenWrt's internet pool (0069).
+		for _, v := range t.List("server") {
+			if strings.HasSuffix(v, ".openwrt.pool.ntp.org") {
+				k.add("system.ntp: OpenWrt's internet pool is still set (%s)", v)
+				break
+			}
+		}
+	}
+	k.rebind(sys)
+}
+
+// hostName matches a DNS name, not an address.
+var hostName = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$`)
+var dotted = regexp.MustCompile(`^[0-9.]+$`)
+
+// rebind checks that each name the AP's time servers and syslog host are
+// given by may resolve to a private address (0069): dnsmasq's rebind
+// protection lists it in rebind_domain, where the AP runs dnsmasq.
+func (k *checker) rebind(sys map[string]any) {
+	d := k.c.Package("dhcp")
+	if d == nil {
+		return
+	}
+	all := d.OfType("dnsmasq")
+	if len(all) == 0 {
+		return
+	}
+	names := list(sys["ntp"])
+	if syslog, ok := sys["syslog"].(string); ok {
+		host, _ := splitHostPort(syslog)
+		names = append(names, host)
+	}
+	have := map[string]bool{}
+	for _, n := range all[0].List("rebind_domain") {
+		have[n] = true
+	}
+	for _, n := range names {
+		if hostName.MatchString(n) && !dotted.MatchString(n) && !have[n] {
+			k.add("dnsmasq: %s, which the AP uses, is not in rebind_domain, so it cannot resolve to a private address", n)
+		}
 	}
 }
 
