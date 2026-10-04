@@ -878,16 +878,20 @@ function dhcp_scan(at) {
 				delete n.clients[mac];
 }
 
-// on_dhcp reads what crossed a Wi-Fi interface (0065). A client's request is
-// kept by its transaction ID, once: the bridge floods a broadcast request to
-// the network's other clients too. An answer goes with its request, by
-// server, and a second server answering one request is a duplicate. An ack
-// gives a client its address; so does its ARP.
+// on_dhcp reads what crossed a Wi-Fi interface (0065). A request counts when
+// it comes in from a client: the bridge floods the segment's other
+// broadcast requests out to the Wi-Fi clients too, and one client's to the
+// others. It is kept by its transaction ID. An answer goes with its request,
+// by server, and a second server answering one request is a duplicate; any
+// answer shows its server, whoever it answers on the segment. An ack gives a
+// client its address; so does its ARP.
 function on_dhcp(w, at) {
-	let n = dhcp_net(w.network), f;
-	while ((f = w.sock.recv(2048, socket.MSG_DONTWAIT)) != null) {
-		let d = probe.dhcp_seen(f);
+	let n = dhcp_net(w.network), m;
+	while ((m = w.sock.recvmsg(2048, 0, socket.MSG_DONTWAIT)) != null) {
+		let f = m.data, d = probe.dhcp_seen(f);
 		if (d && d.op == 1) {
+			if (m.address?.packet_type == 4)
+				continue;   // going out: not this network's Wi-Fi client asking
 			if (d.type in ['discover', 'request', 'inform'] && !n.requests['' + d.xid])
 				n.requests['' + d.xid] = { at: at, client: d.client, type: d.type, answers: {}, duplicate: null };
 			n.asked[d.client] = at;
