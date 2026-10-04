@@ -667,6 +667,64 @@ config guard 'aeolus_guard_lan3'
 	}
 }
 
+// The MAC an AP uses on a segment says which AP and which segment (0060).
+func TestSegmentMAC(t *testing.T) {
+	for _, c := range []struct {
+		ap, kind string
+		n        int
+		want     string
+	}{
+		{"ap-a0046021365e", "vni", 50, "02:21:36:5e:00:50"},
+		{"ap-a0046021365e", "vni", 1234, "02:21:36:5e:12:34"},
+		{"ap-a0046021365e", "vni", 9999, "02:21:36:5e:99:99"},
+		{"ap-a0046021365e", "vni", 10000, "0a:21:36:5e:27:10"},
+		{"ap-a0046021365e", "vni", 70000, "0a:21:36:5e:11:70"},
+		{"ap-a0046021365e", "vlan", 20, "06:21:36:5e:00:20"},
+		{"ap-a0046021365e", "vlan", 4094, "06:21:36:5e:40:94"},
+		{"office-ap", "vni", 50, ""},
+		{"ap-A0046021365E", "vni", 50, ""},
+	} {
+		if got := SegmentMAC(c.ap, c.kind, c.n); got != c.want {
+			t.Errorf("SegmentMAC(%q, %s, %d) = %q, want %q", c.ap, c.kind, c.n, got, c.want)
+		}
+	}
+}
+
+// Checked for an AP, a tunnel's bridge and its probe take the AP's MAC for
+// the segment (0060).
+func TestTheTunnelsMACIsTheAPs(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(intent), &doc); err != nil {
+		t.Fatal(err)
+	}
+	check := func(text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(CheckAP(doc, c, "ap-a0046021365e"), "\n")
+	}
+	got := check(rendered)
+	for _, want := range []string{
+		"network.aeolus_20_br: macaddr is missing, want \"02:21:36:5e:00:20\"",
+		"aeolus.aeolus_20: mac is missing, want \"02:21:36:5e:00:20\"",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want %q in:\n%s", want, got)
+		}
+	}
+	good := strings.Replace(strings.Replace(rendered,
+		"option name 'br-vx20'", "option name 'br-vx20'\n\toption macaddr '02:21:36:5e:00:20'", 1),
+		"option interval '20'", "option interval '20'\n\toption mac '02:21:36:5e:00:20'", 1)
+	if got := check(good); got != "" {
+		t.Fatalf("problems with the AP's MACs: %s", got)
+	}
+	if got := check(strings.Replace(good, "macaddr '02:21:36:5e:00:20'", "macaddr '02:21:36:5e:00:21'", 1)); !strings.Contains(got, "macaddr is \"02:21:36:5e:00:21\"") {
+		t.Fatalf("another MAC: %s", got)
+	}
+}
+
 func TestAWrongKeyIsNeverQuoted(t *testing.T) {
 	got := strings.Join(check(t, strings.Replace(rendered, "option key '"+pass+"'", "option key 'wrong-passphrase-1'", 1)), "\n")
 	if !strings.Contains(got, "key does not match the passphrase") {

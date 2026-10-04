@@ -78,6 +78,36 @@ for (let c in [
 ])
 	print('verdict ', c[0], ': ', probe.verdict({ interval: 30, started: 0, ...c[1] }, c[2]), '\n');
 
+// The AP's MACs on the segments it probes (0060).
+for (let c in [['vni', 50], ['vni', 1234], ['vni', 10000], ['vni', 70000], ['vlan', 20]])
+	print('segment mac ', c[0], ' ', c[1], ': ', probe.segment_mac('ap-a0046021365e', c[0], c[1]), '\n');
+print('segment mac of no AP: ', probe.segment_mac('office-ap', 'vni', 50), '\n');
+
+// An ARP probe from the address the AP leased.
+print('arp probe from a lease ', hexs(probe.arp_probe('02:21:36:5e:00:50', '192.168.50.1', '192.168.50.6')), '\n');
+
+// DHCP as it goes out: a discover, the request for an offer, a release.
+const SEG = '02:21:36:5e:00:50';
+print('dhcp discover ', hexs(probe.dhcp(SEG, 'discover', 0x12345678, { host: 'OpenWrtnight-vni50' })), '\n');
+print('dhcp request ', hexs(probe.dhcp(SEG, 'request', 0x12345678, { requested: '192.168.50.6', server: '192.168.50.254', host: 'OpenWrtnight-vni50' })), '\n');
+print('dhcp renew ', hexs(probe.dhcp(SEG, 'request', 0x0abcdef0, { ciaddr: '192.168.50.6', host: 'OpenWrtnight-vni50' })), '\n');
+print('dhcp release ', hexs(probe.dhcp(SEG, 'release', 0x0abcdef0, { ciaddr: '192.168.50.6', server: '192.168.50.254', to: '192.168.50.254' })), '\n');
+
+// An offer, as the lab's DHCP server sends one.
+let bootp = bytes([2, 1, 6, 0, 0x12, 0x34, 0x56, 0x78, 0, 0, 0x80, 0, 0, 0, 0, 0, 192, 168, 50, 6, 0, 0, 0, 0, 0, 0, 0, 0,
+	0x02, 0x21, 0x36, 0x5e, 0x00, 0x50]);
+while (length(bootp) < 236)
+	bootp += chr(0);
+bootp += bytes([99, 130, 83, 99, 53, 1, 2, 54, 4, 192, 168, 50, 254, 51, 4, 0, 1, 0x51, 0x80,
+	1, 4, 255, 255, 255, 0, 3, 4, 192, 168, 50, 1, 255]);
+let udp = bytes([0, 67, 0, 68]) + bytes([(8 + length(bootp)) >> 8, (8 + length(bootp)) & 255, 0, 0]) + bootp;
+let offer = bytes([0x02, 0x21, 0x36, 0x5e, 0x00, 0x50, 0x28, 0xe7, 0x1d, 0xca, 0x29, 0x13, 0x08, 0x00,
+	0x45, 0, (20 + length(udp)) >> 8, (20 + length(udp)) & 255, 0, 0, 0, 0, 64, 17, 0, 0,
+	192, 168, 50, 254, 192, 168, 50, 6]) + udp;
+print('dhcp offer ', probe.dhcp_reply(offer, 0x12345678), '\n');
+print('dhcp offer to another xid ', probe.dhcp_reply(offer, 0x12345679), '\n');
+print('an arp reply is no dhcp ', probe.dhcp_reply(reply, 0x12345678), '\n');
+
 // Every jump in the filters lands inside them.
 for (let name, prog in { overlay: probe.OVERLAY_FILTER, guard: probe.GUARD_FILTER }) {
 	let ok = true;

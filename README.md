@@ -102,6 +102,8 @@ Each milestone ends in something checkable before the next starts.
 | [0057](docs/decisions/0057-apply-safety.md) | An apply keeps the Wi-Fi up, and what an AP lacks is held |
 | [0058](docs/decisions/0058-tunnel-ports.md) | Ethernet ports on tunnels |
 | [0059](docs/decisions/0059-tunnel-probes.md) | Tunnel probes, the loop guard, and switching transports (step 1 built: probes, keepalive and the loop guard) |
+| [0060](docs/decisions/0060-probe-addresses.md) | Each AP takes an address on the segments it probes (proposed) |
+| [0061](docs/decisions/0061-switching-transports.md) | Switching a network between its transports (proposed) |
 
 ## Open questions
 

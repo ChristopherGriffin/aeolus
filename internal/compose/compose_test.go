@@ -150,6 +150,27 @@ func TestTunnelsAreLocationSettings(t *testing.T) {
 }
 
 // A tunnel port's VNIs are held where the AP could not carry them (0058).
+// Above 9999, the AP's MAC on a segment ends in the VNI's last 16 bits, so
+// two such VNIs that agree there are held at one AP (0060).
+func TestSegmentMACsDoNotClash(t *testing.T) {
+	doc := map[string]any{
+		"concentrators": map[string]any{"dc": map[string]any{"address": "1.1.1.2", "port": float64(4789), "mtu": float64(1450)}},
+		"network": map[string]any{
+			"a": map[string]any{"transport": map[string]any{"primary": map[string]any{"type": "vxlan", "concentrator": "dc", "vni": float64(10050)}}},
+			"b": map[string]any{"transport": map[string]any{"primary": map[string]any{"type": "vxlan", "concentrator": "dc", "vni": float64(10050 + 65536)}}},
+			"c": map[string]any{"transport": map[string]any{"primary": map[string]any{"type": "vxlan", "concentrator": "dc", "vni": float64(50)}}},
+		},
+	}
+	got := strings.Join(tunnelProblems(doc), "\n")
+	if !strings.Contains(got, "VNI 10050 and VNI 75586 would give this AP one MAC on both segments") {
+		t.Fatalf("problems: %s", got)
+	}
+	delete(doc["network"].(map[string]any), "b")
+	if got := tunnelProblems(doc); len(got) != 0 {
+		t.Fatalf("problems without the clash: %v", got)
+	}
+}
+
 func TestTunnelPorts(t *testing.T) {
 	s, sch := site(t)
 	set := func(tree change.TreeName, node, path string, v any) {

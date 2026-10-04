@@ -265,22 +265,35 @@ function probeState(report, t, at) {
 	const under = p.underlay === true ? `${t.peer} answers pings${p.underlay_ms != null ? ` in ${p.underlay_ms} ms` : ''}`
 		: p.underlay === false ? `${t.peer} does not answer pings` : `${t.peer}`;
 	const last = p.from ? `${p.from} answered${p.rtt_ms != null ? ` in ${p.rtt_ms} ms` : ''}${p.answered_ago != null ? `, ${secondsAgo(p.answered_ago, at)}` : ''}` : '';
+	// The address the AP leased on the segment, which its probes come from (0060).
+	const lease = p.lease ? `leased ${p.lease.address}${p.lease.server ? ` from ${p.lease.server}` : ''}${p.lease.router ? `, gateway ${p.lease.router}` : ''}, ${leaseLeft(p.lease.expires_in, at)}` : '';
 	const show = (label, cls, ...notes) => [h('span', { class: 'chip ' + cls }, label), notes.filter(Boolean).map((n) => h('div', { class: 'sub' }, n))];
 	switch (p.verdict) {
 	case 'up':
-		return show('answering', 'ok', last);
+		return show('answering', 'ok', last, lease);
 	case 'down':
 		if (p.underlay === false) return show('down', 'bad', `cannot reach ${t.peer}`);
-		return show('down', 'bad', p.from ? `stopped answering: ${last}` : `${under}, but nothing on VNI ${t.vni} answers: is the VNI mapped there?`);
+		return show('down', 'bad', p.from ? `stopped answering: ${last}` : `${under}, but nothing on VNI ${t.vni} answers: is the VNI mapped there?`, lease);
 	case 'unverified':
 		return show('unverified', 'warn', `${under}, but nothing asked on VNI ${t.vni} (${(p.asks || []).join(', ')}) has answered`,
 			(p.asks || []).includes('ff02::1')
-				? 'Set a probe address, normally the segment\'s gateway.'
-				: 'Is the probe address on the segment, and does it answer ARP?');
+				? 'No DHCP server answered on the segment either: set a probe address, normally its gateway.'
+				: 'Is the probe address on the segment, and does it answer ARP?', lease);
 	case 'unknown':
 		return show('starting', 'idle', `probing every ${p.interval} s`);
 	}
 	return show('not running', 'idle');
+}
+
+// leaseLeft says how long a lease has left now, given what it had left when
+// the AP reported at.
+function leaseLeft(s, at) {
+	const left = Math.max(0, s - Math.round((Date.now() - new Date(at ?? Date.now()).getTime()) / 1000));
+	if (left === 0) return 'ran out';
+	if (left < 60) return left + ' s left';
+	if (left < 3600) return Math.round(left / 60) + ' min left';
+	if (left < 86400) return Math.round(left / 3600) + ' h left';
+	return Math.round(left / 86400) + ' d left';
 }
 
 // loopBanner names the tunnel ports the loop guard took off their tunnels on

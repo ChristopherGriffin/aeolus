@@ -252,14 +252,17 @@ function posix_tz(zone) {
 	return null;
 }
 
-function render_facts(intent) {
+// render_facts is what the renderer needs to know of the AP. ap is its ID,
+// as the manager gives it with the config; its segment MACs are made from
+// it (0060).
+function render_facts(intent, ap) {
 	let radios = {};
 	for (let r in radio_list())
 		radios[r.radio] = { htmodes: r.htmodes };
 	return {
 		uplink: settings().uplink, management: mgmt_interface(), radios: radios,
 		timezone: posix_tz(intent.system?.tz), vxlan: vxlan_loaded(), nft_bridge: has_nft_bridge(),
-		bss_transition: has_bss_transition(),
+		bss_transition: has_bss_transition(), ap: ap,
 	};
 }
 
@@ -427,7 +430,7 @@ let attempted = {};
 function converge(poll, token) {
 	let version = poll.version;
 	let intent = poll.config;
-	let out = render(intent, current(), render_facts(intent));
+	let out = render(intent, current(), render_facts(intent, poll.ap));
 	for (let e in out.errors)
 		fail('render: %s', e);
 	// After a start the whole config comes again, even unchanged. Where it
@@ -571,7 +574,7 @@ function vxlan_state() {
 			t.probe = {
 				verdict: f.verdict, interval: f.interval, asks: slice(f.asks ?? [], 0, 8),
 				underlay: f.underlay, underlay_ms: f.underlay_ms, from: f.from, rtt_ms: f.rtt_ms,
-				answered_ago: f.answered_ago,
+				answered_ago: f.answered_ago, lease: f.lease,
 			};
 		push(tunnels, t);
 	});

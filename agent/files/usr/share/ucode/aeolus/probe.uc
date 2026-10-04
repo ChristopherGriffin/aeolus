@@ -1,4 +1,5 @@
-// The prober's frames, and how it judges a tunnel (0059).
+// The prober's frames, and how it judges a tunnel (0059); the MAC an AP
+// uses on each segment, and the DHCP it takes its address there with (0060).
 //
 // Pure: it builds and reads frames, and never touches a socket or a file, so
 // the same code runs on the AP and in CI (agent/test/probe.uc).
@@ -15,23 +16,29 @@ const GUARD_MARK = 'aeolus-loop';
 const PAYLOAD = 'aeolus59';
 
 // OVERLAY_FILTER keeps, of everything on a tunnel device, only what answers
-// a probe: incoming ARP replies, and incoming ICMPv6 echo replies. The rest
-// of the tunnel's traffic, clients' included, never reaches the prober.
-// Classic BPF, [code, jt, jf, k]; jumps count from the next instruction.
+// a probe: incoming ARP replies, incoming ICMPv6 echo replies, and incoming
+// DHCP answers (IPv4 UDP to port 68, 0060). The rest of the tunnel's
+// traffic, clients' included, never reaches the prober. Classic BPF,
+// [code, jt, jf, k]; jumps count from the next instruction.
 const OVERLAY_FILTER = [
 	[0x20, 0, 0, 0xfffff004],   //  0  A = packet type
-	[0x15, 9, 0, 4],            //  1  outgoing: drop
+	[0x15, 14, 0, 4],           //  1  outgoing: drop
 	[0x28, 0, 0, 12],           //  2  A = EtherType
 	[0x15, 0, 2, 0x0806],       //  3  not ARP: to 6
 	[0x28, 0, 0, 20],           //  4  A = ARP operation
-	[0x15, 6, 5, 2],            //  5  a reply: keep; else drop
-	[0x15, 0, 4, 0x86dd],       //  6  not IPv6: drop
+	[0x15, 11, 10, 2],          //  5  a reply: keep; else drop
+	[0x15, 0, 4, 0x86dd],       //  6  not IPv6: to 11
 	[0x30, 0, 0, 20],           //  7  A = next header
-	[0x15, 0, 2, 58],           //  8  not ICMPv6: drop
+	[0x15, 0, 7, 58],           //  8  not ICMPv6: drop
 	[0x30, 0, 0, 54],           //  9  A = ICMPv6 type
-	[0x15, 1, 0, 129],          // 10  an echo reply: keep
-	[0x06, 0, 0, 0],            // 11  drop
-	[0x06, 0, 0, 0x40000],      // 12  keep
+	[0x15, 6, 5, 129],          // 10  an echo reply: keep; else drop
+	[0x15, 0, 4, 0x0800],       // 11  not IPv4: drop
+	[0x30, 0, 0, 23],           // 12  A = IP protocol
+	[0x15, 0, 2, 17],           // 13  not UDP: drop
+	[0x28, 0, 0, 36],           // 14  A = UDP destination port
+	[0x15, 1, 0, 68],           // 15  DHCP's client port: keep
+	[0x06, 0, 0, 0],            // 16  drop
+	[0x06, 0, 0, 0x40000],      // 17  keep
 ];
 
 // GUARD_FILTER keeps incoming loop guard frames, on any device.
@@ -54,6 +61,14 @@ function u16(n) {
 
 function get16(s, at) {
 	return ord(s, at) << 8 | ord(s, at + 1);
+}
+
+function u32(n) {
+	return u16((n >> 16) & 0xffff) + u16(n & 0xffff);
+}
+
+function get32(s, at) {
+	return get16(s, at) << 16 | get16(s, at + 2);
 }
 
 function pad(f) {
@@ -123,12 +138,90 @@ function checksum(data) {
 	return ~sum & 0xffff;
 }
 
-// arp_probe asks who has target, from 0.0.0.0, as a host checks an address
-// before it uses one (RFC 5227), so the AP needs no address on the segment.
-function arp_probe(src, target) {
+// segment_mac is the MAC an AP uses on one segment it probes (0060): 02 for
+// a VNI, its number in decimal digits; 06 for a VLAN, the same; 0a for a VNI
+// above 9999, its last 16 bits in hex. Between them, the last three bytes of
+// the AP's own MAC, read from its ID ("ap-a0046021365e"). Null for an ID
+// that is not an AP's.
+function segment_mac(ap, kind, n) {
+	let m = match(ap ?? '', /^ap-[0-9a-f]{6}([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/);
+	if (!m || n == null)
+		return null;
+	n = int(n);
+	if (n < 0)
+		return null;
+	let tail = kind == 'vlan' || n <= 9999 ? sprintf('%04d', n) : sprintf('%04x', n & 0xffff);
+	return sprintf('%s:%s:%s:%s:%s:%s', kind == 'vlan' ? '06' : n <= 9999 ? '02' : '0a',
+		m[1], m[2], m[3], substr(tail, 0, 2), substr(tail, 2, 2));
+}
+
+// arp_probe asks who has target. Without an address of its own, the AP asks
+// from 0.0.0.0, as a host checks an address before it uses one (RFC 5227);
+// with a lease (0060), from the address it holds.
+function arp_probe(src, target, from) {
 	return pad(mac('ff:ff:ff:ff:ff:ff') + mac(src) + u16(0x0806) +
 		u16(1) + u16(0x0800) + chr(6) + chr(4) + u16(1) +
-		mac(src) + ip4('0.0.0.0') + mac('00:00:00:00:00:00') + ip4(target));
+		mac(src) + ip4(from ?? '0.0.0.0') + mac('00:00:00:00:00:00') + ip4(target));
+}
+
+// The DHCP messages the prober sends (0060).
+const DHCP = { discover: 1, request: 3, release: 7 };
+
+// dhcp builds a DHCP message from src, as a whole frame sent straight on a
+// segment: a discover, a request or a release, with xid, and o: the address
+// held (ciaddr, when renewing or releasing), the offer a request takes up
+// (requested, server), where to send it (to, broadcast by default) and the
+// host name it asks with (host).
+function dhcp(src, type, xid, o) {
+	let held = o?.ciaddr ?? '0.0.0.0';
+	let msg = chr(1) + chr(1) + chr(6) + chr(0) + u32(xid) + u16(0) + u16(o?.ciaddr ? 0 : 0x8000) +
+		ip4(held) + ip4('0.0.0.0') + ip4('0.0.0.0') + ip4('0.0.0.0') + mac(src);
+	while (length(msg) < 236)
+		msg += chr(0);
+	msg += bytes([99, 130, 83, 99, 53, 1, DHCP[type]]) + chr(61) + chr(7) + chr(1) + mac(src);
+	if (o?.requested)
+		msg += chr(50) + chr(4) + ip4(o.requested);
+	if (o?.server)
+		msg += chr(54) + chr(4) + ip4(o.server);
+	if (type != 'release')
+		msg += bytes([55, 4, 1, 3, 51, 54]);   // the mask, router, lease time and server
+	if (o?.host)
+		msg += chr(12) + chr(length(o.host)) + o.host;
+	msg += chr(255);
+	while (length(msg) < 300)
+		msg += chr(0);
+	let udp = u16(68) + u16(67) + u16(8 + length(msg)) + u16(0) + msg;
+	let ip = bytes([0x45, 0]) + u16(20 + length(udp)) + u16(0) + u16(0) + chr(64) + chr(17) + u16(0) +
+		ip4(held) + ip4(o?.to ?? '255.255.255.255');
+	ip = substr(ip, 0, 10) + u16(checksum(ip)) + substr(ip, 12);
+	return mac('ff:ff:ff:ff:ff:ff') + mac(src) + u16(0x0800) + ip + udp;
+}
+
+// dhcp_reply reads a DHCP answer to xid: {type: offer, ack or nak, address,
+// server, router, mask, lease in seconds}, or null.
+function dhcp_reply(f, xid) {
+	if (length(f) < 34 || get16(f, 12) != 0x0800 || ord(f, 23) != 17)
+		return null;
+	let u = 14 + (ord(f, 14) & 15) * 4, b = u + 8;
+	if (length(f) < b + 240 || get16(f, u + 2) != 68 || ord(f, b) != 2 || get32(f, b + 4) != xid || get32(f, b + 236) != 0x63825363)
+		return null;
+	let opts = {};
+	for (let at = b + 240; at + 1 < length(f) && ord(f, at) != 255; ) {
+		if (ord(f, at) == 0) {
+			at++;
+			continue;
+		}
+		opts[ord(f, at)] = substr(f, at + 2, ord(f, at + 1));
+		at += 2 + ord(f, at + 1);
+	}
+	let type = { '2': 'offer', '5': 'ack', '6': 'nak' }[opts[53] != null ? '' + ord(opts[53], 0) : ''];
+	if (!type)
+		return null;
+	let ip = (k) => length(opts[k] ?? '') >= 4 ? ip4_text(opts[k], 0) : null;
+	return {
+		type: type, address: ip4_text(f, b + 16), server: ip(54), router: ip(3), mask: ip(1),
+		lease: length(opts[51] ?? '') >= 4 ? get32(opts[51], 0) : null,
+	};
 }
 
 // echo6 asks every IPv6 host on the segment (ff02::1) to answer, from the
@@ -233,7 +326,7 @@ function verdict(t, now) {
 // that follows an exported function declaration.
 export {
 	GUARD_DST, GUARD_TYPE, OVERLAY_FILTER, GUARD_FILTER,
-	mac_text, ip6, ip6_text, checksum, arp_probe, echo6, answer,
+	mac_text, ip6, ip6_text, checksum, segment_mac, arp_probe, dhcp, dhcp_reply, echo6, answer,
 	echo4, echo4_answer, echo6_plain, echo6_plain_answer,
 	guard_frame, guard_seen, verdict
 };

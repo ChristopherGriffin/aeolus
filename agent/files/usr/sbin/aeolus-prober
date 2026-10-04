@@ -2,9 +2,11 @@
 // aeolus-prober: the Aeolus agent's prober (0059).
 //
 // For each tunnel Aeolus made, it probes the tunnel's segment every
-// interval, straight on the tunnel device: an ARP probe to each probe
-// address set, or else an echo to IPv6 all-nodes. Only answers that come
-// back in on that device count. The probes are the tunnel's keepalive too:
+// interval, straight on the tunnel device. It takes a DHCP lease there, from
+// the AP's own MAC for the segment (0060), and asks by ARP the probe
+// addresses set, or else the gateway its lease names, or else the DHCP
+// server; with no lease, it sends an echo to IPv6 all-nodes. Only answers
+// that come back in on that device count. The probes are the tunnel's keepalive too:
 // a concentrator that learns tunnel ends from traffic keeps this AP. It
 // pings each concentrator over the management interface as well, to tell an
 // unreachable concentrator from a VNI that does not answer.
@@ -49,6 +51,9 @@ const PLAN_EVERY = 10;                       // seconds between looks at the pla
 
 let bus = connect();
 openlog('aeolus-prober', LOG_PID, LOG_DAEMON);
+
+// The name the AP gives with its leases, as a DHCP host name allows.
+const HOST = replace(trim(fs.readfile('/proc/sys/kernel/hostname') ?? '') || 'aeolus', /[^A-Za-z0-9-]/g, '-');
 
 function log(fmt, ...args) {
 	syslog(LOG_INFO, fmt, ...args);
@@ -130,6 +135,7 @@ function plan() {
 			peer: peer ? replace(peer, /^\[|\]$/g, '') : null, six: n.peer6addr != null,
 			interval: max(5, min(300, int(s.interval ?? '30') || 30)),
 			address: sort(list(s.address)),
+			mac: s.mac,
 		};
 	});
 	c.foreach('network', 'device', d => {
@@ -145,7 +151,7 @@ function plan() {
 	return { tunnels: tunnels, guards: guards };
 }
 
-let tun = {};      // VNI -> { plan, sock, src, running, started, answered, from, rtt, sent, seq, next, said }
+let tun = {};      // VNI -> { plan, sock, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
 let peers = {};    // concentrator address -> { six, interval, sent, seq, ok, rtt, since, next }
 let guards = {};   // port -> { plan, devices: [{ name, sock, mac }], next }
 let loops = {};    // port -> { port, device, vni, came_in, at }
@@ -205,15 +211,29 @@ function release(port) {
 	save_shut();
 }
 
+// A DHCP transaction ID of the prober's own.
+function xid() {
+	return math.rand() & 0x7fffffff;
+}
+
 function apply_plan(p) {
+	let kept = {};
 	for (let vni in keys(tun))
 		if (sprintf('%J', tun[vni].plan) != sprintf('%J', p.tunnels[vni])) {
-			close(tun[vni].sock);
+			let t = tun[vni], l = t.dhcp.lease, next = p.tunnels[vni];
+			// A tunnel that goes, or takes another MAC, gives its lease back
+			// (0060); one whose other settings change keeps it.
+			if (next && next.mac == t.plan.mac && next.device == t.plan.device)
+				kept[vni] = t.dhcp;
+			else if (l && t.sock && t.src)
+				t.sock.send(probe.dhcp(t.src, 'release', xid(), { ciaddr: l.address, server: l.server, to: l.server }));
+			close(t.sock);
 			delete tun[vni];
 		}
 	for (let vni, t in p.tunnels)
 		tun[vni] ??= { plan: t, sock: null, src: null, running: false, started: now(), answered: null,
-			from: null, rtt: null, sent: {}, seq: 0, next: now(), said: null };
+			from: null, rtt: null, sent: {}, seq: 0, next: now(), said: null,
+			dhcp: kept[vni] ?? { state: 'init', xid: xid(), tries: 0, next: now(), offer: null, lease: null } };
 	let want = {};
 	for (let vni, t in p.tunnels)
 		if (t.peer)
@@ -247,6 +267,94 @@ function apply_plan(p) {
 	}
 }
 
+// host is the name the AP's lease on a tunnel's segment carries.
+function host(t) {
+	return substr(`${HOST}-vni${match(t.plan.device, /([0-9]+)$/)?.[1] ?? ''}`, 0, 63);
+}
+
+// targets is what the probes ask on a tunnel's segment (0060): the probe
+// addresses set, which override; else the gateway the lease names; else the
+// DHCP server that gave it. Empty without a lease: then IPv6 all-nodes.
+function targets(t) {
+	let l = t.dhcp.lease;
+	if (length(t.plan.address))
+		return t.plan.address;
+	return l?.router ? [l.router] : l?.server ? [l.server] : [];
+}
+
+// dhcp_tick keeps the AP's lease on a tunnel's segment (0060): a discover
+// while it has none, every interval for three tries and every ten
+// intervals after; a request for an offer; and at half the lease, a renewal.
+function dhcp_tick(t, at) {
+	let d = t.dhcp;
+	let send = (type, o) => {
+		o.host = host(t);
+		return t.sock.send(probe.dhcp(t.src, type, d.xid, o));
+	};
+	if (d.lease && at >= d.lease.at + d.lease.lease) {
+		note('tunnel %s: its lease on %s ran out', t.plan.device, d.lease.address);
+		d.lease = null;
+		d.state = 'init';
+		d.tries = 0;
+		d.next = at;
+	}
+	if (at < d.next)
+		return;
+	if (d.lease) {
+		if (at >= d.lease.at + d.lease.lease / 2) {
+			d.xid = xid();
+			send('request', { ciaddr: d.lease.address });
+			d.next = at + max(60, d.lease.lease / 8);
+		}
+		return;
+	}
+	if (d.state == 'requesting' && d.offer && d.tries < 3)
+		send('request', { requested: d.offer.address, server: d.offer.server });
+	else {
+		d.state = 'init';
+		d.offer = null;
+		d.xid = xid();
+		send('discover', {});
+	}
+	d.tries++;
+	d.next = at + (d.tries <= 3 ? 1 : 10) * t.plan.interval;
+}
+
+// dhcp_answer takes a DHCP answer on a tunnel's segment, which shows the
+// segment works as any answer does: an offer is taken up, an ack is the
+// lease, a nak starts again.
+function dhcp_answer(t, r) {
+	let d = t.dhcp, at = now();
+	t.answered = at;
+	t.from = r.server ?? t.from;
+	if (r.type == 'offer' && !d.lease && d.state != 'requesting') {
+		d.state = 'requesting';
+		d.offer = r;
+		d.tries = 0;
+		t.sock.send(probe.dhcp(t.src, 'request', d.xid, { requested: r.address, server: r.server, host: host(t) }));
+		d.next = at + t.plan.interval;
+	} else if (r.type == 'ack') {
+		let was = d.lease?.address;
+		d.lease = {
+			address: r.address, server: r.server ?? d.offer?.server ?? d.lease?.server,
+			router: r.router, mask: r.mask, lease: max(60, r.lease ?? 3600), at: at,
+		};
+		d.state = 'bound';
+		d.offer = null;
+		d.tries = 0;
+		d.next = at;
+		if (was != r.address)
+			log('tunnel %s: leased %s from %s, gateway %s', t.plan.device, r.address, d.lease.server ?? '?', r.router ?? 'none');
+	} else if (r.type == 'nak') {
+		note('tunnel %s: %s refused the lease on %s', t.plan.device, r.server ?? 'the DHCP server', d.lease?.address ?? d.offer?.address ?? '?');
+		d.lease = null;
+		d.offer = null;
+		d.state = 'init';
+		d.tries = 0;
+		d.next = at;
+	}
+}
+
 function send_probes(t, at) {
 	let dev = t.plan.device;
 	if (!is_up(dev)) {
@@ -263,12 +371,16 @@ function send_probes(t, at) {
 		t.running = true;
 		t.started = at;
 	}
-	t.src = read(`/sys/class/net/${t.plan.bridge}/address`);
+	// The AP's MAC for the segment, which the bridge takes too (0060); an
+	// older plan without one uses the bridge's.
+	t.src = t.plan.mac ?? read(`/sys/class/net/${t.plan.bridge}/address`);
 	if (!t.src)
 		return;
-	if (length(t.plan.address)) {
-		for (let a in t.plan.address)
-			if (t.sock.send(probe.arp_probe(t.src, a)) != null)
+	dhcp_tick(t, at);
+	let ask = targets(t);
+	if (length(ask)) {
+		for (let a in ask)
+			if (t.sock.send(probe.arp_probe(t.src, a, t.dhcp.lease?.address)) != null)
 				t.sent['arp:' + a] = now();
 	} else {
 		let ll = linklocal(t.plan.bridge);
@@ -284,6 +396,11 @@ function send_probes(t, at) {
 function on_tunnel(t) {
 	let pkt;
 	while ((pkt = t.sock.recv(2048, socket.MSG_DONTWAIT)) != null) {
+		let r = probe.dhcp_reply(pkt, t.dhcp.xid);
+		if (r) {
+			dhcp_answer(t, r);
+			continue;
+		}
 		let a = probe.answer(pkt, t.src, ID);
 		if (!a)
 			continue;
@@ -378,12 +495,16 @@ function results(at) {
 		tunnels[vni] = {
 			verdict: v,
 			interval: t.plan.interval,
-			asks: length(t.plan.address) ? t.plan.address : ['ff02::1'],
+			asks: length(targets(t)) ? targets(t) : ['ff02::1'],
 			underlay: p == null ? null : p.ok != null && at - p.ok <= span ? true : at - p.since < span ? null : false,
 			underlay_ms: tenth(p?.rtt),
 			from: t.from,
 			rtt_ms: tenth(t.rtt),
 			answered_ago: t.answered != null ? int(at - t.answered) : null,
+			lease: t.dhcp.lease ? {
+				address: t.dhcp.lease.address, server: t.dhcp.lease.server, router: t.dhcp.lease.router,
+				expires_in: max(0, int(t.dhcp.lease.at + t.dhcp.lease.lease - at)),
+			} : null,
 		};
 	}
 	let lp = map(sort(keys(loops)), k => {

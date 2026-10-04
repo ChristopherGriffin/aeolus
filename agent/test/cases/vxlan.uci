@@ -157,6 +157,7 @@ config device 'aeolus_50_br'
 	option name 'br-vx50'
 	option bridge_empty '1'
 	list ports 'aeolus_50'
+	option macaddr '02:21:36:5e:00:50'
 
 config interface 'aeolus_lab'
 	option proto 'none'
@@ -176,6 +177,7 @@ config device 'aeolus_10_br'
 	option name 'br-vx10'
 	option bridge_empty '1'
 	list ports 'aeolus_10'
+	option macaddr '02:21:36:5e:00:10'
 
 config interface 'aeolus_things'
 	option proto 'none'
@@ -219,10 +221,12 @@ config probe 'aeolus_50'
 	option vni '50'
 	option interval '20'
 	list address '192.168.50.1'
+	option mac '02:21:36:5e:00:50'
 
 config probe 'aeolus_10'
 	option vni '10'
 	option interval '20'
+	option mac '02:21:36:5e:00:10'
 
 package usteer
 
