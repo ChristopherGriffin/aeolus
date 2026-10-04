@@ -195,14 +195,21 @@ function has_nft_bridge() {
 // write_clamp makes the MSS clamp's file from the network config (0054) and
 // says whether it changed, so the caller can have fw4 load it. With no
 // tunnel to clamp, the table it loaded before is removed too.
-function write_clamp(network) {
-	let text = clamp(network);
+function write_clamp(network, aeolus) {
+	let text = clamp(network, aeolus);
 	if (read(CLAMP) == trim(text))
 		return false;
 	store(CLAMP, text);
 	if (index(text, 'maxseg') < 0)
 		system('nft delete table bridge aeolus >/dev/null 2>&1');
 	return true;
+}
+
+// wake_prober has the prober read its plan now rather than within 10
+// seconds: a network with a fallback has no transport until the prober
+// attaches one (0061). A SIGHUP is the same number on every architecture.
+function wake_prober() {
+	bus.call('service', 'signal', { name: 'aeolus', instance: 'prober', signal: 1 });
 }
 
 function macs() {
@@ -262,7 +269,7 @@ function render_facts(intent, ap) {
 	return {
 		uplink: settings().uplink, management: mgmt_interface(), radios: radios,
 		timezone: posix_tz(intent.system?.tz), vxlan: vxlan_loaded(), nft_bridge: has_nft_bridge(),
-		bss_transition: has_bss_transition(), ap: ap,
+		bss_transition: has_bss_transition(), ap: ap, prober: has_prober(),
 	};
 }
 
@@ -313,8 +320,9 @@ function revert(pending) {
 			store('/etc/config/' + p, b);
 	}
 	system('reload_config');
-	if (write_clamp(cursor().get_all('network')))
+	if (write_clamp(cursor().get_all('network'), cursor().get_all('aeolus')))
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
+	wake_prober();
 	fs.unlink(PENDING);
 	fail('reverted to the config before version %s', pending.version);
 }
@@ -385,12 +393,13 @@ function apply(out, version, hash) {
 	for (let p in out.changed)
 		store('/etc/config/' + p, file(out.config[p]));
 	log('applying version %d: %s', version, join(', ', out.changed));
-	let clamped = write_clamp(out.config.network);
+	let clamped = write_clamp(out.config.network, out.config.aeolus);
 	system('reload_config');
 	// fw4 loads the clamp's file; it reloads by itself when its own config
 	// changed, so only a changed file alone needs a reload here.
 	if (clamped && index(out.changed, 'firewall') < 0)
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
+	wake_prober();
 	if (!confirm()) {
 		revert(pending);
 		return { ok: false, error: sprintf('lost the manager within %d seconds of applying; reverted', CONFIRM) };
@@ -596,6 +605,30 @@ function vxlan_state() {
 	};
 }
 
+// transports_state says, for each network with a fallback (0061), which
+// transport carries it now, and how each is doing, by the prober's verdicts.
+function transports_state() {
+	let out = {};
+	for (let id, s in probes()?.switches ?? {})
+		out[id] = { active: s.active, primary: s.primary, fallback: s.fallback };
+	return length(out) ? out : null;
+}
+
+// vlan_probes says what the prober found on the VLAN transports of networks
+// with a fallback (0061), as vxlan_state does for tunnels.
+function vlan_probes() {
+	let out = [];
+	for (let vlan, f in probes()?.vlans ?? {})
+		push(out, {
+			vlan: int(vlan), tagged: !!f.tagged, probe: {
+				verdict: f.verdict, interval: f.interval, asks: slice(f.asks ?? [], 0, 8),
+				underlay: f.underlay, underlay_ms: null, from: f.from, rtt_ms: f.rtt_ms,
+				answered_ago: f.answered_ago, lease: f.lease,
+			},
+		});
+	return length(out) ? slice(out, 0, 64) : null;
+}
+
 // probe_news is what, of the prober's results, is worth a state report as
 // soon as it changes: each tunnel's verdict, and the loops it found.
 function probe_news() {
@@ -603,6 +636,8 @@ function probe_news() {
 	if (!p)
 		return '';
 	let v = map(sort(keys(p.tunnels ?? {})), k => k + '=' + p.tunnels[k].verdict);
+	push(v, ...map(sort(keys(p.vlans ?? {})), k => 'vlan' + k + '=' + p.vlans[k].verdict));
+	push(v, ...map(sort(keys(p.switches ?? {})), k => k + ':' + p.switches[k].active));
 	let l = map(p.loops ?? [], x => x.port);
 	return join(',', v) + ';' + join(',', l);
 }
@@ -629,7 +664,7 @@ function report_state(running, token) {
 		}
 		push(radios, r);
 	}
-	let res = http('POST', '/v1/ap/state', {
+	let report = {
 		version: running ?? 0,
 		uptime: int(split(read('/proc/uptime') ?? '0', ' ')[0]),
 		openwrt: b.release?.version ?? '',
@@ -637,7 +672,14 @@ function report_state(running, token) {
 		steering: steering_state(),
 		ports: ports_state(),
 		vxlan: vxlan_state(),
-	}, token);
+	};
+	// Only where there are networks with a fallback (0061).
+	let tr = transports_state(), vp = vlan_probes();
+	if (tr)
+		report.transports = tr;
+	if (vp)
+		report.vlan_probes = vp;
+	let res = http('POST', '/v1/ap/state', report, token);
 	if (res.status != 200)
 		fail('state report: %s', describe(res));
 }
@@ -651,7 +693,7 @@ function main() {
 	signal('SIGINT', () => exit(0));
 	recover(read(TOKEN));
 	// The clamp's file is not kept over a sysupgrade, so make it again.
-	if (write_clamp(cursor().get_all('network')))
+	if (write_clamp(cursor().get_all('network'), cursor().get_all('aeolus')))
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
 	let running = running_version();
 	let assigned = false;

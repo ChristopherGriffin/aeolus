@@ -48,6 +48,7 @@ const SHUT = '/var/run/aeolus/shut.json';   // ports the loop guard took off the
 const GUARD_EVERY = 2;                       // seconds between loop guard frames
 const WRITE_EVERY = 5;                       // seconds between writes of the results
 const PLAN_EVERY = 10;                       // seconds between looks at the plan
+const ATTACH_EVERY = 2;                      // seconds between looks at the networks' bridges (0061)
 
 // A socket can wake the poll with an error and nothing to read. A read
 // reports the error and clears it; unread, the poll would return at once,
@@ -139,6 +140,17 @@ function plan() {
 	let c = confdir ? cursor(confdir) : cursor();
 	let tunnels = {}, guards = {}, vni_of = {};
 	c.foreach('aeolus', 'probe', s => {
+		// A VLAN transport of a network with a fallback (0061), probed on the
+		// uplink, tagged as the uplink carries the VLAN.
+		if (s.vlan) {
+			tunnels['vlan' + s.vlan] = {
+				device: s.device, vlan: +s.vlan, tagged: s.tagged == '1',
+				interval: max(5, min(300, int(s.interval ?? '30') || 30)),
+				address: sort(list(s.address)),
+				mac: s.mac,
+			};
+			return;
+		}
 		let vni = s.vni ?? match(s['.name'], /^aeolus_([0-9]+)$/)?.[1];
 		let n = vni ? c.get_all('network', 'aeolus_' + vni) : null;
 		if (!n)
@@ -165,10 +177,23 @@ function plan() {
 		if (s.port)
 			guards[s.port] = { devices: sort(list(s.device)), vnis: map(sort(list(s.device)), d => vni_of[d]) };
 	});
-	return { tunnels: tunnels, guards: guards };
+	// The networks with a fallback (0061): each one's bridge, the device of
+	// each of its transports, and which probe tells how each is doing.
+	let switches = {};
+	c.foreach('aeolus', 'switch', s => {
+		if (!s.network || !s.bridge)
+			return;
+		let key = slot => s[slot + '_vni'] ?? (s[slot + '_vlan'] ? 'vlan' + s[slot + '_vlan'] : null);
+		switches[s.network] = {
+			bridge: s.bridge, mode: s.mode ?? 'report', primary: s.primary, fallback: s.fallback,
+			probes: { primary: key('primary'), fallback: key('fallback') },
+		};
+	});
+	return { tunnels: tunnels, guards: guards, switches: switches };
 }
 
-let tun = {};      // VNI -> { plan, sock, index, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
+let tun = {};      // VNI, or vlan and the VLAN -> { plan, sock, index, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
+let sw = {};       // network -> { plan, active, said }
 let peers = {};    // concentrator address, and where it is pinged from -> { addr, start, six, interval, sent, seq, ok, rtt, since, next }
 let guards = {};   // port -> { plan, devices: [{ name, sock, index, mac }], next }
 let loops = {};    // port -> { port, device, vni, came_in, at }
@@ -235,6 +260,30 @@ function release(port) {
 	save_shut();
 }
 
+// tx sends a frame on a probe's socket. On the uplink, a VLAN probe's
+// frame carries the VLAN's tag where the uplink carries it tagged (0061).
+function tx(t, frame) {
+	if (t.plan.vlan && t.plan.tagged)
+		frame = substr(frame, 0, 12) + chr(0x81, 0x00, (t.plan.vlan >> 8) & 0x0f, t.plan.vlan & 0xff) + substr(frame, 12);
+	return t.sock.send(frame);
+}
+
+// rx reads the next frame for a probe, or null. A VLAN probe's socket on the
+// uplink sees every VLAN: the tag the kernel keeps beside each frame
+// (PACKET_AUXDATA) says whether it is this VLAN's (0061).
+function rx(t) {
+	if (!t.plan.vlan)
+		return t.sock.recv(2048, socket.MSG_DONTWAIT);
+	let m;
+	while ((m = t.sock.recvmsg(2048, 256, socket.MSG_DONTWAIT)) != null) {
+		let aux = filter(m.ancillary ?? [], x => x.type == socket.PACKET_AUXDATA)[0]?.data;
+		let tagged = aux != null && (aux.status & 0x10) != 0;   // TP_STATUS_VLAN_VALID
+		if (t.plan.tagged ? tagged && (aux.vlan_tci & 0xfff) == t.plan.vlan : !tagged)
+			return m.data;
+	}
+	return null;
+}
+
 // A DHCP transaction ID of the prober's own.
 function xid() {
 	return math.rand() & 0x7fffffff;
@@ -250,7 +299,7 @@ function apply_plan(p) {
 			if (next && next.mac == t.plan.mac && next.device == t.plan.device)
 				kept[vni] = t.dhcp;
 			else if (l && t.sock && t.src)
-				t.sock.send(probe.dhcp(t.src, 'release', xid(), { ciaddr: l.address, server: l.server, to: l.server }));
+				tx(t, probe.dhcp(t.src, 'release', xid(), { ciaddr: l.address, server: l.server, to: l.server }));
 			close(t.sock);
 			delete tun[vni];
 		}
@@ -271,6 +320,11 @@ function apply_plan(p) {
 		peers[k] ??= { addr: w.addr, start: w.start, six: index(w.addr, ':') >= 0, sent: {}, seq: 0, ok: null, rtt: null, since: now(), next: now() };
 		peers[k].interval = w.interval;
 	}
+	for (let id in keys(sw))
+		if (sprintf('%J', sw[id].plan) != sprintf('%J', p.switches?.[id]))
+			delete sw[id];
+	for (let id, s in p.switches ?? {})
+		sw[id] ??= { plan: s, active: null, said: null };
 	// A port whose settings changed, or that left its tunnels, gets a fresh
 	// start: the loop guard lets it go.
 	for (let port in keys(guards))
@@ -295,6 +349,8 @@ function apply_plan(p) {
 
 // host is the name the AP's lease on a tunnel's segment carries.
 function host(t) {
+	if (t.plan.vlan)
+		return substr(`${HOST}-vlan${t.plan.vlan}`, 0, 63);
 	return substr(`${HOST}-vni${match(t.plan.device, /([0-9]+)$/)?.[1] ?? ''}`, 0, 63);
 }
 
@@ -315,7 +371,7 @@ function dhcp_tick(t, at) {
 	let d = t.dhcp;
 	let send = (type, o) => {
 		o.host = host(t);
-		return t.sock.send(probe.dhcp(t.src, type, d.xid, o));
+		return tx(t, probe.dhcp(t.src, type, d.xid, o));
 	};
 	if (d.lease && at >= d.lease.at + d.lease.lease) {
 		note('tunnel %s: its lease on %s ran out', t.plan.device, d.lease.address);
@@ -357,7 +413,7 @@ function dhcp_answer(t, r) {
 		d.state = 'requesting';
 		d.offer = r;
 		d.tries = 0;
-		t.sock.send(probe.dhcp(t.src, 'request', d.xid, { requested: r.address, server: r.server, host: host(t) }));
+		tx(t, probe.dhcp(t.src, 'request', d.xid, { requested: r.address, server: r.server, host: host(t) }));
 		d.next = at + t.plan.interval;
 	} else if (r.type == 'ack') {
 		let was = d.lease?.address;
@@ -399,6 +455,8 @@ function send_probes(t, at) {
 	if (!t.sock) {
 		t.sock = packet(dev, probe.OVERLAY_FILTER);
 		t.index = index;
+		if (t.sock && t.plan.vlan)
+			t.sock.setopt(socket.SOL_PACKET, socket.PACKET_AUXDATA, 1);
 	}
 	if (!t.sock)
 		return;
@@ -415,12 +473,12 @@ function send_probes(t, at) {
 	let ask = targets(t);
 	if (length(ask)) {
 		for (let a in ask)
-			if (t.sock.send(probe.arp_probe(t.src, a, t.dhcp.lease?.address)) != null)
+			if (tx(t, probe.arp_probe(t.src, a, t.dhcp.lease?.address)) != null)
 				t.sent['arp:' + a] = now();
 	} else {
 		let ll = linklocal(t.plan.bridge);
 		t.seq = (t.seq + 1) & 0xffff;
-		if (ll && t.sock.send(probe.echo6(t.src, ll, ID, t.seq)) != null)
+		if (ll && tx(t, probe.echo6(t.src, ll, ID, t.seq)) != null)
 			t.sent['echo:' + t.seq] = now();
 	}
 	for (let k in keys(t.sent))
@@ -430,7 +488,7 @@ function send_probes(t, at) {
 
 function on_tunnel(t) {
 	let pkt;
-	while ((pkt = t.sock.recv(2048, socket.MSG_DONTWAIT)) != null) {
+	while ((pkt = rx(t)) != null) {
 		let r = probe.dhcp_reply(pkt, t.dhcp.xid);
 		if (r) {
 			dhcp_answer(t, r);
@@ -511,6 +569,28 @@ function on_raw(r) {
 	}
 }
 
+// attach keeps the transport that carries each network with a fallback in
+// the network's bridge (0061): the primary, until switching is built. The
+// other comes out first, so the two are never in at once. It looks every
+// few seconds, so whatever took the primary out, a reload or a tunnel made
+// again, is put right at once. With -n it only looks.
+function attach() {
+	for (let id, s in sw) {
+		let iface = 'network.interface.aeolus_' + replace(id, '-', '_');
+		let has = d => d != null && fs.stat(`/sys/class/net/${s.plan.bridge}/brif/${d}`) != null;
+		if (act && has(s.plan.fallback))
+			bus.call(iface, 'remove_device', { name: s.plan.fallback, 'link-ext': false });
+		if (act && !has(s.plan.primary) && s.plan.primary && fs.stat(`/sys/class/net/${s.plan.primary}`))
+			bus.call(iface, 'add_device', { name: s.plan.primary, 'link-ext': false });
+		s.active = has(s.plan.primary) ? 'primary' : has(s.plan.fallback) ? 'fallback' : 'none';
+		if (s.active != s.said) {
+			let how = s.active == 'primary' ? log : note;
+			how('network %s: %s', id, s.active == 'none' ? `no transport is in ${s.plan.bridge}` : `${s.active} ${s.plan[s.active]} is in ${s.plan.bridge}`);
+			s.said = s.active;
+		}
+	}
+}
+
 function send_guard(port, g, at) {
 	for (let i = 0; i < length(g.plan.devices); i++) {
 		let name = g.plan.devices[i];
@@ -548,23 +628,29 @@ function on_guard() {
 }
 
 function results(at) {
-	let tunnels = {};
+	let tunnels = {}, vlans = {}, verdict_of = {};
 	for (let vni, t in tun) {
 		let p = t.plan.peer ? peers[peer_key(t.plan)] : null;
+		// A VLAN probe has no concentrator: its underlay is the uplink's link.
+		let carrier = t.plan.vlan ? read(`/sys/class/net/${t.plan.device}/carrier`) == '1' : null;
 		let span = 3 * t.plan.interval;
 		let v = t.running
-			? probe.verdict({ interval: t.plan.interval, started: t.started, answered: t.answered, underlay: p?.ok }, at)
+			? probe.verdict({ interval: t.plan.interval, started: t.started, answered: t.answered, underlay: t.plan.vlan ? (carrier ? at : null) : p?.ok }, at)
 			: 'off';
 		if (v != t.said && t.said != null) {
 			let how = v == 'down' ? note : log;
-			how('tunnel %s (VNI %s): %s, was %s', t.plan.device, vni, v, t.said);
+			if (t.plan.vlan)
+				how('VLAN %d: %s, was %s', t.plan.vlan, v, t.said);
+			else
+				how('tunnel %s (VNI %s): %s, was %s', t.plan.device, vni, v, t.said);
 		}
 		t.said = v;
-		tunnels[vni] = {
+		verdict_of[vni] = v;
+		let r = {
 			verdict: v,
 			interval: t.plan.interval,
-			asks: length(targets(t)) ? targets(t) : ['ff02::1'],
-			underlay: p == null ? null : p.ok != null && at - p.ok <= span ? true : at - p.since < span ? null : false,
+			asks: length(targets(t)) ? targets(t) : t.plan.vlan ? [] : ['ff02::1'],
+			underlay: t.plan.vlan ? carrier : p == null ? null : p.ok != null && at - p.ok <= span ? true : at - p.since < span ? null : false,
 			underlay_ms: tenth(p?.rtt),
 			from: t.from,
 			rtt_ms: tenth(t.rtt),
@@ -574,12 +660,23 @@ function results(at) {
 				expires_in: max(0, int(t.dhcp.lease.at + t.dhcp.lease.lease - at)),
 			} : null,
 		};
+		if (t.plan.vlan) {
+			r.tagged = t.plan.tagged;
+			vlans['' + t.plan.vlan] = r;
+		} else
+			tunnels[vni] = r;
 	}
+	let switches = {};
+	for (let id, s in sw)
+		switches[id] = {
+			active: s.active ?? 'none', mode: s.plan.mode,
+			primary: verdict_of[s.plan.probes.primary] ?? 'unknown', fallback: verdict_of[s.plan.probes.fallback] ?? 'unknown',
+		};
 	let lp = map(sort(keys(loops)), k => {
 		let l = loops[k];
 		return { port: l.port, device: l.device, vni: l.vni, came_in: l.came_in, ago: int(at - l.at) };
 	});
-	store(out, sprintf('%J\n', { at: time(), tunnels: tunnels, loops: lp }));
+	store(out, sprintf('%J\n', { at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp }));
 }
 
 function main() {
@@ -600,7 +697,10 @@ function main() {
 	let p = plan(), sig = sprintf('%J', p);
 	apply_plan(p);
 	log('probing %d tunnels, guarding %d ports', length(keys(tun)), length(keys(guards)));
-	let next_plan = now() + PLAN_EVERY, next_write = now();
+	let next_plan = now() + PLAN_EVERY, next_write = now(), next_attach = now();
+	// The agent sends a SIGHUP when it has applied a config, so the plan,
+	// and a network's bridge made again, are taken up at once (0061).
+	signal('SIGHUP', () => { next_plan = 0; next_attach = 0; });
 	while (true) {
 		let at = now();
 		if (at >= next_plan) {
@@ -628,12 +728,16 @@ function main() {
 				send_guard(port, g, at);
 				g.next = at + GUARD_EVERY;
 			}
+		if (at >= next_attach) {
+			attach();
+			next_attach = at + ATTACH_EVERY;
+		}
 		if (at >= next_write) {
 			results(at);
 			next_write = at + WRITE_EVERY;
 		}
 		// Wait for answers until the next thing is due.
-		let due = min(next_plan, next_write);
+		let due = min(next_plan, next_write, length(sw) ? next_attach : next_write);
 		for (let vni, t in tun)
 			due = min(due, t.next);
 		for (let a, pe in peers)

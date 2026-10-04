@@ -184,6 +184,16 @@ type stateReport struct {
 	Steering   *steeringState            `json:"steering,omitempty"`
 	Ports      []portState               `json:"ports,omitempty"`
 	VXLAN      *vxlanState               `json:"vxlan,omitempty"`
+	VLANProbes []vlanProbe               `json:"vlan_probes,omitempty"`
+}
+
+// vlanProbe is what the prober found on a VLAN transport of a network with a
+// fallback (0061), probed on the uplink, tagged or not as the uplink carries
+// the VLAN.
+type vlanProbe struct {
+	VLAN   int         `json:"vlan"`
+	Tagged bool        `json:"tagged"`
+	Probe  *probeState `json:"probe"`
 }
 
 // vxlanState is what the AP's VXLAN tunnels are doing (0054): whether the
@@ -294,7 +304,8 @@ type radioState struct {
 }
 
 // transportState is one network's transports: which is carrying traffic, and
-// how each is doing (0020, 0022).
+// how each is doing (0020, 0022), by the prober's verdicts (0061). A
+// transport not started, a VXLAN fallback waiting, is off.
 type transportState struct {
 	Active   string `json:"active"`
 	Primary  string `json:"primary,omitempty"`
@@ -305,7 +316,7 @@ var (
 	verdicts = map[string]bool{"up": true, "down": true, "unverified": true, "unknown": true, "off": true}
 	bands    = map[string]bool{"2g": true, "5g": true, "6g": true}
 	actives  = map[string]bool{"primary": true, "fallback": true, "none": true}
-	healths  = map[string]bool{"": true, "up": true, "down": true, "unknown": true}
+	healths  = map[string]bool{"": true, "up": true, "down": true, "unknown": true, "unverified": true, "off": true}
 )
 
 func (st *stateReport) check() error {
@@ -394,7 +405,18 @@ func (st *stateReport) check() error {
 			return badRequest("%q is not a network ID", id)
 		}
 		if !actives[t.Active] || !healths[t.Primary] || !healths[t.Fallback] {
-			return badRequest("network %s: active is primary, fallback or none; health is up, down or unknown", id)
+			return badRequest("network %s: active is primary, fallback or none; health is up, down, unverified, unknown or off", id)
+		}
+	}
+	if len(st.VLANProbes) > 64 {
+		return badRequest("at most 64 VLAN probes")
+	}
+	for _, v := range st.VLANProbes {
+		if v.VLAN < 1 || v.VLAN > 4094 || v.Probe == nil {
+			return badRequest("vlan_probes: each has a VLAN from 1 to 4094 and what its probe found")
+		}
+		if err := v.Probe.check(); err != nil {
+			return err
 		}
 	}
 	return nil

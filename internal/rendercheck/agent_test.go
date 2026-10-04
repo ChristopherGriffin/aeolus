@@ -112,6 +112,9 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 		out := []any{}
 		for _, e := range list {
 			port, _, _ := strings.Cut(e.(string), ":")
+			if VLANEnd.MatchString(port) {
+				continue // a network's veth, which Aeolus puts in the bridge (0061)
+			}
 			if set, _ := ports[port].(map[string]any); set["mode"] != "access" && set["mode"] != "trunk" && set["mode"] != "tunnel" {
 				out = append(out, e)
 			}

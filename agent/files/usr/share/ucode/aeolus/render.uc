@@ -48,6 +48,19 @@ function interface_name(network) {
 	return 'aeolus_' + replace(network, '-', '_');
 }
 
+// net_hash names a network's own bridge and veth pairs (0061): FNV-1a of the
+// network's name, as 8 hex digits, so the names fit Linux's 15 characters.
+function net_hash(id) {
+	let h = 0x811c9dc5;
+	for (let i = 0; i < length(id); i++)
+		h = ((h ^ ord(id, i)) * 0x01000193) & 0xffffffff;
+	return sprintf('%08x', h);
+}
+
+// The VLAN end of a network's veth pair, which Aeolus puts in the uplink's
+// bridge (0061): av, p or f for the slot, and the network's hash.
+const VLAN_END = /^av[pf][0-9a-f]{8}$/;
+
 function of_type(pkg, typ) {
 	let out = filter(values(pkg), s => s['.type'] == typ);
 	sort(out, (a, b) => a['.index'] - b['.index']);
@@ -207,7 +220,7 @@ function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
 // network's Wi-Fi joins; a firewall rule letting it in; and below an MTU of
 // 1500, the MSS clamp. A fallback's tunnel is not started until the AP
 // switches to it. It returns the bridge.
-function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
+function tunnel(cfg, where, slot, t, conc, facts, errors, keep, bridged) {
 	let n = cfg.network, fw = cfg.firewall;
 	if (!facts.vxlan) {
 		push(errors, `${where}: VXLAN needs the vxlan package, which is not installed on this AP (apk add vxlan)`);
@@ -241,16 +254,21 @@ function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
 	if (slot != 'primary')
 		o.auto = 0;
 	put(n, name, 'interface', o);
-	let bridge = 'br-vx' + t.vni;
-	// Ports on the tunnel stay; ports() sets those it is told about (0058).
-	// The bridge takes the AP's MAC for the segment, so what answers the
-	// prober's DHCP and probes from it stays at the AP (0060).
-	let members = filter(list(n[name + '_br']?.ports), e => e != name);
-	put(n, name + '_br', 'device', {
-		type: 'bridge', name: bridge, bridge_empty: 1, ports: [name, ...members],
-		macaddr: segment_mac(facts.ap, 'vni', t.vni),
-	});
-	keep[name] = keep[name + '_br'] = true;
+	keep[name] = true;
+	// A tunnel of a network with a fallback is attached to the network's own
+	// bridge by the prober (0061); others have a bridge of their own.
+	let bridge = bridged === false ? name : 'br-vx' + t.vni;
+	if (bridged !== false) {
+		// Ports on the tunnel stay; ports() sets those it is told about
+		// (0058). The bridge takes the AP's MAC for the segment, so what
+		// answers the prober's DHCP and probes from it stays at the AP (0060).
+		let members = filter(list(n[name + '_br']?.ports), e => e != name);
+		put(n, name + '_br', 'device', {
+			type: 'bridge', name: bridge, bridge_empty: 1, ports: [name, ...members],
+			macaddr: segment_mac(facts.ap, 'vni', t.vni) || null,
+		});
+		keep[name + '_br'] = true;
+	}
 	zone ??= filter(of_type(fw, 'zone'), z => index(list(z.network), facts.management) >= 0)[0]?.name;
 	if (zone)
 		put(fw, 'aeolus_vxlan_' + t.vni, 'rule', {
@@ -270,23 +288,96 @@ function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
 	return bridge;
 }
 
+// leave_uplink takes the VLAN ends of veth pairs Aeolus made out of every
+// bridge and its VLANs; those still wanted join again (0061).
+function leave_uplink(n) {
+	for (let d in of_type(n, 'device'))
+		if (d.type == 'bridge' && length(filter(list(d.ports), e => match(e, VLAN_END))))
+			d.ports = filter(list(d.ports), e => !match(e, VLAN_END));
+	for (let v in of_type(n, 'bridge-vlan'))
+		if (length(filter(list(v.ports), e => match(split(e, ':')[0], VLAN_END))))
+			v.ports = filter(list(v.ports), e => !match(split(e, ':')[0], VLAN_END));
+}
+
+// join_uplink puts a veth's VLAN end in the uplink's bridge, untagged in its
+// VLAN, as a VLAN network's Wi-Fi is (0061).
+function join_uplink(n, bridge, end, vlan) {
+	let up = filter(of_type(n, 'device'), d => d.name == bridge)[0];
+	let v = filter(of_type(n, 'bridge-vlan'), x => x.device == bridge && x.vlan == '' + vlan)[0];
+	if (up && index(list(up.ports), end) < 0)
+		up.ports = [...list(up.ports), end];
+	if (v && index(list(v.ports), end + ':u*') < 0)
+		v.ports = [...list(v.ports), end + ':u*'];
+}
+
+// switching renders a network with a fallback (0061): a bridge of its own,
+// br-n and its hash, which its Wi-Fi joins and neither transport is
+// configured in. The prober attaches the transport that carries the network
+// at run time, and moves it when it switches. A VLAN transport reaches the
+// bridge through a veth pair whose configured end is in the uplink's bridge,
+// untagged in the VLAN; a VXLAN transport is its tunnel's device. The bridge
+// takes the primary's segment MAC (0060), and the prober's plan says which
+// device is which. It returns the bridge.
+function switching(cfg, id, net, intent, facts, errors, keep, uplink) {
+	let n = cfg.network, a = cfg.aeolus;
+	let h = net_hash(id), sect = 'aeolus_n' + h, br = 'br-n' + h;
+	if (!facts.prober)
+		push(errors, `network.${id}.transport: a network with a fallback needs the prober, and so ucode-mod-socket, which is not installed on this AP (0061)`);
+	let plan = { network: id, bridge: br, mode: 'report' }, mac = null;
+	for (let slot in ['primary', 'fallback']) {
+		let t = net.transport?.[slot], where = `network.${id}.transport.${slot}`;
+		if (t?.type == 'vlan') {
+			let bridge = uplink();
+			if (!bridge)
+				continue;
+			ensure_vlan(n, bridge, facts.uplink, t.vlan, keep);
+			let s = substr(slot, 0, 1), name = `${sect}_${s}`;
+			put(n, name, 'device', { type: 'veth', name: `av${s}${h}`, peer_name: `an${s}${h}` });
+			keep[name] = true;
+			join_uplink(n, bridge, `av${s}${h}`, t.vlan);
+			plan[slot] = `an${s}${h}`;
+			plan[slot + '_vlan'] = t.vlan;
+			mac ??= segment_mac(facts.ap, 'vlan', t.vlan);
+		} else if (t?.type == 'vxlan') {
+			let dev = tunnel(cfg, where, slot, t, intent.concentrators?.[t.concentrator], facts, errors, keep, false);
+			if (!dev)
+				continue;
+			plan[slot] = dev;
+			plan[slot + '_vni'] = t.vni;
+			mac ??= segment_mac(facts.ap, 'vni', t.vni);
+		}
+	}
+	put(n, sect, 'device', { type: 'bridge', name: br, bridge_empty: 1, macaddr: mac || null });
+	put(a, sect, 'switch', plan);
+	keep[sect] = true;
+	return br;
+}
+
 function networks(cfg, intent, facts, errors, keep) {
 	let w = cfg.wireless, n = cfg.network;
-	let bridge = null;
+	let bridge = null, looked = false;
+	let uplink = () => {
+		if (!looked)
+			bridge = uplink_bridge(n, facts.uplink, errors);
+		looked = true;
+		return bridge;
+	};
 	let nets = intent.network ?? {};
+	leave_uplink(n);
 	for (let id in sort(keys(nets))) {
 		let net = nets[id];
 		if (net.enabled === false)
 			continue;
 		let iface = interface_name(id);
-		let path = null;   // the device the network's interface is on: its primary's
-		for (let slot in ['primary', 'fallback']) {
+		// The device the network's interface is on: its primary's, or with a
+		// fallback, its own bridge (0061).
+		let path = net.transport?.fallback?.type ? switching(cfg, id, net, intent, facts, errors, keep, uplink) : null;
+		for (let slot in (path ? [] : ['primary', 'fallback'])) {
 			let t = net.transport?.[slot];
 			let where = `network.${id}.transport.${slot}`;
 			let device = null;
 			if (t?.type == 'vlan') {
-				bridge ??= uplink_bridge(n, facts.uplink, errors);
-				if (!bridge)
+				if (!uplink())
 					continue;
 				ensure_vlan(n, bridge, facts.uplink, t.vlan, keep);
 				device = `${bridge}.${t.vlan}`;
@@ -509,6 +600,37 @@ function probes(cfg, intent, facts, keep) {
 		});
 		keep[s['.name']] = true;
 	}
+	// The VLAN transports of networks with a fallback (0061): probed from
+	// the VLAN's own MAC, on the uplink, tagged as the uplink carries it.
+	let on = {};
+	for (let id in sort(keys(intent.network ?? {}))) {
+		let net = intent.network[id];
+		if (net.enabled === false || !net.transport?.fallback?.type)
+			continue;
+		for (let slot in ['primary', 'fallback']) {
+			let t = net.transport[slot];
+			if (t?.type != 'vlan')
+				continue;
+			on['' + t.vlan] ??= [];
+			if (t.probe != null && index(on['' + t.vlan], '' + t.probe) < 0)
+				push(on['' + t.vlan], '' + t.probe);
+		}
+	}
+	for (let vlan in sort(keys(on))) {
+		let entry = null;
+		for (let v in of_type(n, 'bridge-vlan'))
+			if (v.vlan == vlan)
+				for (let e in list(v.ports))
+					if (split(e, ':')[0] == facts.uplink)
+						entry = split(e, ':')[1] ?? '';
+		if (entry == null)
+			continue;   // the uplink does not carry it: the render says so
+		put(a, 'aeolus_vlan' + vlan, 'probe', {
+			vlan: vlan, device: facts.uplink, tagged: index(entry, 't') >= 0 ? 1 : 0, interval: 30,
+			address: length(on[vlan]) ? sort(on[vlan]) : null, mac: segment_mac(facts.ap, 'vlan', +vlan) || null,
+		});
+		keep['aeolus_vlan' + vlan] = true;
+	}
 	let vlans = {};
 	for (let d in of_type(n, 'device'))
 		if (owned(d['.name']) && d.type == '8021q' && d.name && d.ifname)
@@ -643,17 +765,28 @@ function snmp(cfg, intent, facts, errors) {
 // is held to the MTU less 40 for IPv4 and less 60 for IPv6. It replaces the
 // whole table each time fw4 loads it. With no such tunnel, the table is
 // empty.
-function clamp(network) {
+function clamp(network, aeolus) {
 	let rules = [];
+	let rule = (bridge, mtu) => {
+		for (let fam in [['ip', 40], ['ip6', 60]])
+			push(rules, sprintf('\t\tmeta ibrname "%s" ether type %s tcp flags & (syn | rst) == syn tcp option maxseg size > %d tcp option maxseg size set %d',
+				bridge, fam[0], mtu - fam[1], mtu - fam[1]));
+	};
+	let mtu_of = {};
 	for (let s in of_type(network ?? {}, 'interface')) {
 		let vni = match(s['.name'], /^aeolus_([0-9]+)$/)?.[1];
 		let mtu = int(s.mtu ?? '1500');
 		if (!vni || !(s.proto in { vxlan: 1, vxlan6: 1 }) || mtu >= 1500)
 			continue;
-		for (let fam in [['ip', 40], ['ip6', 60]])
-			push(rules, sprintf('\t\tmeta ibrname "br-vx%s" ether type %s tcp flags & (syn | rst) == syn tcp option maxseg size > %d tcp option maxseg size set %d',
-				vni, fam[0], mtu - fam[1], mtu - fam[1]));
+		mtu_of[vni] = mtu;
+		if (network['aeolus_' + vni + '_br'])
+			rule('br-vx' + vni, mtu);
 	}
+	// A network with a fallback carries its tunnel in its own bridge (0061).
+	for (let sw in of_type(aeolus ?? {}, 'switch'))
+		for (let slot in ['primary', 'fallback'])
+			if (mtu_of[sw[slot + '_vni']])
+				rule(sw.bridge, mtu_of[sw[slot + '_vni']]);
 	return join('\n', [
 		'# Made by the Aeolus agent from its VXLAN tunnels (0054); fw4 loads it.',
 		'table bridge aeolus',
@@ -674,7 +807,8 @@ function clamp(network) {
 // timezone: the POSIX string for intent's time zone, vxlan: whether netifd
 // has loaded the vxlan package, nft_bridge: whether kmod-nft-bridge is
 // installed, bss_transition: whether hostapd has 802.11v, null if not known,
-// ap: the AP's ID, which its segment MACs are made from (0060) }.
+// ap: the AP's ID, which its segment MACs are made from (0060), prober:
+// whether the prober can run, which a network with a fallback needs (0061) }.
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)

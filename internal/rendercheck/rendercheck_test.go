@@ -24,7 +24,7 @@ const intent = `{
 	"system": {"country": "US", "tz": "America/Chicago", "ntp": ["0.pool.ntp.org", "1.pool.ntp.org"], "syslog": "192.168.20.50:514", "poll": 60},
 	"network": {
 		"sweet": {"ssid": "Sweet Spot", "security": "wpa2-psk", "passphrase": "` + pass + `", "roaming": {"ft": true}, "multicast_to_unicast": true,
-			"transport": {"primary": {"type": "vxlan", "concentrator": "homelab", "vni": 20, "probe": "192.168.20.1"}, "fallback": {"type": "vlan", "vlan": 20}}},
+			"transport": {"primary": {"type": "vxlan", "concentrator": "homelab", "vni": 20, "probe": "192.168.20.1"}}},
 		"sweet-iot": {"ssid": "Sweet_Spot_IoT", "security": "wpa2-psk", "passphrase": "` + pass + `", "bands": ["2g"], "hidden": true, "isolation": true,
 			"transport": {"primary": {"type": "vlan", "vlan": 30}}},
 		"old": {"enabled": false, "ssid": "Old", "security": "open", "transport": {"primary": {"type": "vlan", "vlan": 40}}}
@@ -205,7 +205,6 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"tunnel path", "option device 'br-vx20'", "option device 'br-lan.20'", "interface aeolus_sweet is on \"br-lan.20\", want the primary's tunnel bridge br-vx20"},
 		{"device", "option device 'radio1'", "option device 'radio0'", "aeolus_sweet_radio1: device is \"radio0\""},
 		{"stale", "config wifi-iface 'default_radio0'", "config wifi-iface 'aeolus_old_radio0'", "wireless.aeolus_old_radio0: no network calls for it"},
-		{"vlan", "option vid '20'\n\toption name", "option vid '21'\n\toption name", "transport.fallback: VLAN 20 is not in the network config"},
 		{"bridge vlan", "option vlan '30'", "option vlan '31'", "sweet-iot.transport.primary: VLAN 30"},
 		{"no tunnel", "config interface 'aeolus_20'", "config interface 'aeolus_21'", "no tunnel aeolus_20 to 1.1.1.2 with VNI 20"},
 		{"tunnel peer", "option peeraddr '1.1.1.2'", "option peeraddr '1.1.1.3'", "network.aeolus_20: peeraddr is \"1.1.1.3\", want \"1.1.1.2\""},
@@ -234,7 +233,7 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"no probe", "config probe 'aeolus_20'", "config probe 'other'", "aeolus.aeolus_20: no probe section for the tunnel"},
 		{"probe interval", "option interval '20'", "option interval '30'", "aeolus.aeolus_20: interval is \"30\", want \"20\""},
 		{"probe address", "list address '192.168.20.1'", "list address '192.168.20.2'", "aeolus.aeolus_20: probe addresses are [192.168.20.2], want [192.168.20.1]"},
-		{"stale probe", "config probe 'aeolus_20'", "config probe 'aeolus_99'\n\toption vni '99'\n\nconfig probe 'aeolus_20'", "aeolus.aeolus_99: no tunnel or tunnel port calls for it"},
+		{"stale probe", "config probe 'aeolus_20'", "config probe 'aeolus_99'\n\toption vni '99'\n\nconfig probe 'aeolus_20'", "aeolus.aeolus_99: no tunnel, tunnel port or network with a fallback calls for it"},
 	}
 	for _, c := range cases {
 		if !strings.Contains(rendered, c.old) {
@@ -491,21 +490,29 @@ func TestTunnelFallbackAndIPv6(t *testing.T) {
 		}
 		return strings.Join(Check(doc, c), "\n")
 	}
+	// A network with a fallback has a bridge of its own, which neither
+	// transport is configured in (0061): a veth pair for the VLAN primary,
+	// and the fallback's tunnel, stopped, with no bridge of its own.
 	const good = `package wireless
 package network
 config device
 	option name 'br-lan'
 	option type 'bridge'
 	option mtu '9000'
+	list ports 'wan'
+	list ports 'avp5584392f'
 config interface 'lan'
 	option proto 'dhcp'
 	option device 'br-lan.1'
-config interface 'aeolus_sweet'
-	option proto 'none'
-	option device 'br-lan.20'
 config bridge-vlan 'vlan20'
 	option device 'br-lan'
 	option vlan '20'
+	list ports 'wan:t'
+	list ports 'avp5584392f:u*'
+config device 'aeolus_n5584392f_p'
+	option type 'veth'
+	option name 'avp5584392f'
+	option peer_name 'anp5584392f'
 config interface 'aeolus_5000'
 	option proto 'vxlan6'
 	option peer6addr '2001:db8::2'
@@ -513,10 +520,13 @@ config interface 'aeolus_5000'
 	option mtu '1500'
 	option tunlink 'lan'
 	option auto '0'
-config device 'aeolus_5000_br'
+config device 'aeolus_n5584392f'
 	option type 'bridge'
-	option name 'br-vx5000'
-	list ports 'aeolus_5000'
+	option name 'br-n5584392f'
+	option bridge_empty '1'
+config interface 'aeolus_sweet'
+	option proto 'none'
+	option device 'br-n5584392f'
 package firewall
 config rule 'aeolus_vxlan_5000'
 	option src 'lan'
@@ -525,9 +535,24 @@ config rule 'aeolus_vxlan_5000'
 	option dest_port '4789'
 	option target 'ACCEPT'
 package aeolus
+config agent 'agent'
+	option uplink 'wan'
 config probe 'aeolus_5000'
 	option vni '5000'
 	option interval '30'
+config probe 'aeolus_vlan20'
+	option vlan '20'
+	option device 'wan'
+	option tagged '1'
+	option interval '30'
+config switch 'aeolus_n5584392f'
+	option network 'sweet'
+	option bridge 'br-n5584392f'
+	option mode 'report'
+	option primary 'anp5584392f'
+	option primary_vlan '20'
+	option fallback 'aeolus_5000'
+	option fallback_vni '5000'
 `
 	// MTU 1500 needs no clamp, and an unset port is vxlan's default. The
 	// jumbo bridge carries the tunnel's 1570-byte packets.
@@ -649,6 +674,133 @@ config probe 'aeolus_50'
 	}
 	if got := check(strings.Replace(good, "option tunlink 'aeolus_vlan20_tunnels'", "option tunlink 'lan'", 1)); strings.Contains(got, "tunlink") || strings.Contains(got, "starts from") {
 		t.Fatalf("from management, as it should: %s", got)
+	}
+}
+
+// A network with a fallback has a bridge of its own, br-n and its hash,
+// which its Wi-Fi joins and neither transport is configured in: the prober
+// attaches the one that carries it (0061). A VLAN transport reaches it
+// through a veth pair whose VLAN end is in the uplink's bridge, untagged in
+// the VLAN, and is probed on the uplink from the VLAN's MAC; a VXLAN
+// transport is its tunnel, with no bridge of its own. The prober's plan says
+// which is which.
+func TestNetworkWithAFallback(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(`{"network": {"lab": {"transport": {
+		"primary": {"type": "vxlan", "concentrator": "arista", "vni": 50},
+		"fallback": {"type": "vlan", "vlan": 20, "probe": "192.168.20.1"}}}},
+		"concentrators": {"arista": {"address": "1.1.1.2", "port": 4789, "mtu": 1450}}}`), &doc); err != nil {
+		t.Fatal(err)
+	}
+	check := func(text string) string {
+		t.Helper()
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(CheckAP(doc, c, "ap-a0046021365e"), "\n")
+	}
+	if h := NetHash("lab"); h != "626092f4" {
+		t.Fatalf("NetHash(lab) = %s", h)
+	}
+	const good = `package wireless
+package network
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'wan'
+	list ports 'avf626092f4'
+config interface 'lan'
+	option proto 'dhcp'
+	option device 'br-lan.1'
+config bridge-vlan 'vlan20'
+	option device 'br-lan'
+	option vlan '20'
+	list ports 'wan:t'
+	list ports 'avf626092f4:u*'
+config interface 'aeolus_50'
+	option proto 'vxlan'
+	option peeraddr '1.1.1.2'
+	option port '4789'
+	option vid '50'
+	option mtu '1450'
+	option tunlink 'lan'
+config device 'aeolus_n626092f4_f'
+	option type 'veth'
+	option name 'avf626092f4'
+	option peer_name 'anf626092f4'
+config device 'aeolus_n626092f4'
+	option type 'bridge'
+	option name 'br-n626092f4'
+	option bridge_empty '1'
+	option macaddr '02:21:36:5e:00:50'
+config interface 'aeolus_lab'
+	option proto 'none'
+	option device 'br-n626092f4'
+package firewall
+config zone
+	option name 'lan'
+	list network 'lan'
+config rule 'aeolus_vxlan_50'
+	option src 'lan'
+	option proto 'udp'
+	option src_ip '1.1.1.2'
+	option dest_port '4789'
+	option target 'ACCEPT'
+config include 'aeolus_clamp'
+	option type 'nftables'
+	option path '/etc/aeolus/clamp.nft'
+package aeolus
+config agent 'agent'
+	option uplink 'wan'
+config probe 'aeolus_50'
+	option vni '50'
+	option interval '30'
+	option mac '02:21:36:5e:00:50'
+config probe 'aeolus_vlan20'
+	option vlan '20'
+	option device 'wan'
+	option tagged '1'
+	option interval '30'
+	list address '192.168.20.1'
+	option mac '06:21:36:5e:00:20'
+config switch 'aeolus_n626092f4'
+	option network 'lab'
+	option bridge 'br-n626092f4'
+	option mode 'report'
+	option primary 'aeolus_50'
+	option primary_vni '50'
+	option fallback 'anf626092f4'
+	option fallback_vlan '20'
+`
+	if got := check(good); got != "" {
+		t.Fatalf("problems with the right config: %s", got)
+	}
+	for _, c := range []struct{ name, old, new, want string }{
+		{"not on its bridge", "option device 'br-n626092f4'", "option device 'br-lan.20'", `network.lab: interface aeolus_lab is on "br-lan.20", want the network's own bridge br-n626092f4 (0061)`},
+		{"no bridge", "config device 'aeolus_n626092f4'\n", "config device 'other_bridge'\n", "network.aeolus_n626092f4: want a bridge br-n626092f4 of the network's own, as it has a fallback (0061)"},
+		{"transport configured", "\toption bridge_empty '1'\n", "\toption bridge_empty '1'\n\tlist ports 'aeolus_50'\n", "network.aeolus_n626092f4: the bridge has [aeolus_50] configured"},
+		{"bridge MAC", "option macaddr '02:21:36:5e:00:50'", "option macaddr '06:21:36:5e:00:20'", `network.aeolus_n626092f4: macaddr is "06:21:36:5e:00:20", want "02:21:36:5e:00:50"`},
+		{"no veth", "config device 'aeolus_n626092f4_f'", "config device 'other_veth'", "network.aeolus_n626092f4_f: want a veth pair, avf626092f4 and anf626092f4, for VLAN 20 (0061)"},
+		{"veth ends", "option peer_name 'anf626092f4'", "option peer_name 'anp626092f4'", "want a veth pair, avf626092f4 and anf626092f4"},
+		{"veth off the uplink", "\tlist ports 'avf626092f4'\n", "", "network.lab.transport.fallback: the veth's VLAN end avf626092f4 is not in the uplink's bridge"},
+		{"veth tagged", "list ports 'avf626092f4:u*'", "list ports 'avf626092f4:t'", "network.lab.transport.fallback: the veth's VLAN end avf626092f4 is not untagged in VLAN 20"},
+		{"no plan", "config switch 'aeolus_n626092f4'", "config switch 'other_plan'", "aeolus.aeolus_n626092f4: no plan for the prober, which attaches the transport that carries network lab (0061)"},
+		{"plan primary", "option primary 'aeolus_50'", "option primary 'anf626092f4'", `aeolus.aeolus_n626092f4: primary is "anf626092f4", want "aeolus_50"`},
+		{"plan fallback", "option fallback_vlan '20'", "option fallback_vlan '21'", `aeolus.aeolus_n626092f4: fallback_vlan is "21", want "20"`},
+		{"plan mode", "option mode 'report'", "option mode 'automatic'", `aeolus.aeolus_n626092f4: mode is "automatic", want "report"`},
+		{"no VLAN probe", "config probe 'aeolus_vlan20'", "config probe 'other_probe'", "aeolus.aeolus_vlan20: no probe for VLAN 20, which a network with a fallback uses (0061)"},
+		{"VLAN probe untagged", "option tagged '1'", "option tagged '0'", `aeolus.aeolus_vlan20: tagged is "0", want "1"`},
+		{"VLAN probe address", "list address '192.168.20.1'", "list address '192.168.20.2'", "aeolus.aeolus_vlan20: probe addresses are [192.168.20.2], want [192.168.20.1]"},
+		{"VLAN probe MAC", "option mac '06:21:36:5e:00:20'", "option mac '02:21:36:5e:00:20'", `aeolus.aeolus_vlan20: mac is "02:21:36:5e:00:20", want "06:21:36:5e:00:20"`},
+		{"stale plan", "config switch 'aeolus_n626092f4'", "config switch 'aeolus_nffffffff'\n\toption network 'gone'\n\nconfig switch 'aeolus_n626092f4'", "aeolus.aeolus_nffffffff: no tunnel, tunnel port or network with a fallback calls for it"},
+	} {
+		if !strings.Contains(good, c.old) {
+			t.Fatalf("%s: fixture lacks %q", c.name, c.old)
+		}
+		if got := check(strings.Replace(good, c.old, c.new, 1)); !strings.Contains(got, c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.name, c.want, got)
+		}
 	}
 }
 
