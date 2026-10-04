@@ -194,6 +194,59 @@ type stateReport struct {
 	UplinkPort     *uplinkPort     `json:"uplink_port,omitempty"`
 	// What the AP saw of its Wi-Fi clients' DHCP, by network (0065).
 	DHCP map[string]dhcpState `json:"dhcp,omitempty"`
+	// Every Wi-Fi client on the AP (0066).
+	Clients []wifiClient `json:"clients,omitempty"`
+}
+
+// wifiClient is one Wi-Fi client on an AP (0066), as nl80211 and the DHCP
+// watch saw it: its MAC; its network (Aeolus's, or none for the AP's own),
+// SSID and band; its signal and average; its rates each way, in Mbit/s, with
+// MCS and streams; its data, packets, retries and failures; how long it has
+// been connected, and since it was last heard; and on Aeolus's networks the
+// address it uses, the host name it gave, and how it does with DHCP.
+type wifiClient struct {
+	MAC        string   `json:"mac"`
+	Network    string   `json:"network"`
+	SSID       string   `json:"ssid"`
+	Band       string   `json:"band"`
+	Signal     *int     `json:"signal"`
+	SignalAvg  *int     `json:"signal_avg"`
+	RxRate     *float64 `json:"rx_rate"`
+	RxMCS      *int     `json:"rx_mcs"`
+	RxNSS      *int     `json:"rx_nss"`
+	TxRate     *float64 `json:"tx_rate"`
+	TxMCS      *int     `json:"tx_mcs"`
+	TxNSS      *int     `json:"tx_nss"`
+	RxBytes    int64    `json:"rx_bytes"`
+	TxBytes    int64    `json:"tx_bytes"`
+	RxPackets  int64    `json:"rx_packets"`
+	TxPackets  int64    `json:"tx_packets"`
+	TxRetries  int64    `json:"tx_retries"`
+	TxFailed   int64    `json:"tx_failed"`
+	Connected  int64    `json:"connected"`
+	InactiveMS int64    `json:"inactive_ms"`
+	Address    string   `json:"address"`
+	Host       string   `json:"host"`
+	DHCP       string   `json:"dhcp"`
+}
+
+// The verdicts of the DHCP watch on a client (0065); "" off Aeolus's networks.
+var clientDHCP = map[string]bool{"": true, "ok": true, "static": true, "none": true, "unknown": true}
+
+// check holds a client to what the prober writes.
+func (c wifiClient) check() error {
+	bad := badRequest("clients: each has a MAC, a network ID or none, an SSID of at most 32 bytes, a band (2g, 5g or 6g), a signal from -150 to 50 dBm, rates up to 100000 Mbit/s, MCS up to 31 and up to 16 streams, counts not negative, an IPv4 address or none, a printable host name of at most 64 characters, and a DHCP verdict (ok, static, none or unknown)")
+	inRange := func(p *int, lo, hi int) bool { return p == nil || (*p >= lo && *p <= hi) }
+	rate := func(p *float64) bool { return p == nil || (*p >= 0 && *p <= 100000) }
+	ip := net.ParseIP(c.Address)
+	if !macRE.MatchString(c.MAC) || (c.Network != "" && !networkIDRE.MatchString(c.Network)) || len(c.SSID) > 32 ||
+		(c.Band != "" && !bands[c.Band]) || !inRange(c.Signal, -150, 50) || !inRange(c.SignalAvg, -150, 50) ||
+		!rate(c.RxRate) || !rate(c.TxRate) || !inRange(c.RxMCS, 0, 31) || !inRange(c.TxMCS, 0, 31) || !inRange(c.RxNSS, 0, 16) || !inRange(c.TxNSS, 0, 16) ||
+		c.RxBytes < 0 || c.TxBytes < 0 || c.RxPackets < 0 || c.TxPackets < 0 || c.TxRetries < 0 || c.TxFailed < 0 || c.Connected < 0 || c.InactiveMS < 0 ||
+		(c.Address != "" && (ip == nil || ip.To4() == nil)) || len(c.Host) > 64 || !printable(c.Host) || !clientDHCP[c.DHCP] {
+		return bad
+	}
+	return nil
 }
 
 // dhcpState is what the AP saw of one network's DHCP on its Wi-Fi
@@ -756,6 +809,14 @@ func (st *stateReport) check() error {
 	}
 	for id, d := range st.DHCP {
 		if err := d.check(id); err != nil {
+			return err
+		}
+	}
+	if len(st.Clients) > 256 {
+		return badRequest("clients: at most 256")
+	}
+	for _, c := range st.Clients {
+		if err := c.check(); err != nil {
 			return err
 		}
 	}

@@ -78,9 +78,10 @@ dhcp release ffffffffffff0221365e00500800450001480000000040119350c0a83206c0a832f
 dhcp offer { "type": "offer", "address": "192.168.50.6", "server": "192.168.50.254", "router": "192.168.50.1", "mask": "255.255.255.0", "lease": 86400 }
 dhcp offer to another xid 
 an arp reply is no dhcp 
-dhcp seen: a discover { "op": 1, "type": "discover", "xid": 305419896, "client": "02:21:36:5e:00:50", "ciaddr": "0.0.0.0", "yiaddr": "0.0.0.0", "server": null, "requested": null, "src_mac": "02:21:36:5e:00:50", "src_ip": "0.0.0.0" }
-dhcp seen: a renewal { "op": 1, "type": "request", "xid": 180150000, "client": "02:21:36:5e:00:50", "ciaddr": "192.168.50.6", "yiaddr": "0.0.0.0", "server": null, "requested": null, "src_mac": "02:21:36:5e:00:50", "src_ip": "192.168.50.6" }
-dhcp seen: an offer { "op": 2, "type": "offer", "xid": 305419896, "client": "02:21:36:5e:00:50", "ciaddr": "0.0.0.0", "yiaddr": "192.168.50.6", "server": "192.168.50.254", "requested": null, "src_mac": "28:e7:1d:ca:29:13", "src_ip": "192.168.50.254" }
+dhcp seen: a discover { "op": 1, "type": "discover", "xid": 305419896, "client": "02:21:36:5e:00:50", "ciaddr": "0.0.0.0", "yiaddr": "0.0.0.0", "server": null, "requested": null, "host": "phone", "src_mac": "02:21:36:5e:00:50", "src_ip": "0.0.0.0" }
+dhcp seen: a renewal { "op": 1, "type": "request", "xid": 180150000, "client": "02:21:36:5e:00:50", "ciaddr": "192.168.50.6", "yiaddr": "0.0.0.0", "server": null, "requested": null, "host": null, "src_mac": "02:21:36:5e:00:50", "src_ip": "192.168.50.6" }
+dhcp seen: an offer { "op": 2, "type": "offer", "xid": 305419896, "client": "02:21:36:5e:00:50", "ciaddr": "0.0.0.0", "yiaddr": "192.168.50.6", "server": "192.168.50.254", "requested": null, "host": null, "src_mac": "28:e7:1d:ca:29:13", "src_ip": "192.168.50.254" }
+dhcp seen: a host name as an FQDN phone.home
 dhcp seen: an arp reply 
 arp seen: a reply { "mac": "28:e7:1d:ca:29:13", "address": "192.168.50.1" }
 arp seen: a probe from 0.0.0.0 

@@ -12,8 +12,9 @@ import { apPage } from './ap.js';
 import { hardwareTab, systemSection } from './sections.js';
 import { networksTab } from './networks.js';
 import { interfacesTab } from './interfaces.js';
+import { clientsTab } from './clients.js';
 
-const TABS = [['hardware', 'Hardware'], ['networks', 'Networks'], ['interfaces', 'Interfaces'], ['system', 'System']];
+const TABS = [['hardware', 'Hardware'], ['networks', 'Networks'], ['clients', 'Clients'], ['interfaces', 'Interfaces'], ['system', 'System']];
 
 export async function treePage(ctx, tree, id, tab, sub) {
 	const t = ctx.trees[tree];
@@ -56,9 +57,10 @@ export async function treePage(ctx, tree, id, tab, sub) {
 		main.push(tabBar(base, TABS, tab));
 		if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
+		else if (tab === 'clients') main.push(await clientsTab(ctx, page, null));
 		else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, null, editing(ctx, tree, page)));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
-		if ((tab === 'hardware' && sub === 'channels') || tab === 'interfaces') refresh = 30; // live
+		if ((tab === 'hardware' && sub === 'channels') || tab === 'interfaces' || tab === 'clients') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
 	}

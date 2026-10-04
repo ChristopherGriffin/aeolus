@@ -10,8 +10,9 @@ import { followButton } from './follow.js';
 import { hardwareTab, systemSection } from './sections.js';
 import { networksTab } from './networks.js';
 import { interfacesTab } from './interfaces.js';
+import { clientsTab } from './clients.js';
 
-const TABS = [['overview', 'Overview'], ['hardware', 'Hardware'], ['networks', 'Networks'], ['interfaces', 'Interfaces'], ['system', 'System']];
+const TABS = [['overview', 'Overview'], ['hardware', 'Hardware'], ['networks', 'Networks'], ['clients', 'Clients'], ['interfaces', 'Interfaces'], ['system', 'System']];
 
 export async function apPage(ctx, id, tab, sub) {
 	const enc = encodeURIComponent(id);
@@ -55,6 +56,7 @@ export async function apPage(ctx, id, tab, sub) {
 			h('div', { class: 'col' }, enrollment(facts))), history(hist));
 	} else if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub, thisAP));
 	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
+	else if (tab === 'clients') main.push(await clientsTab(ctx, page, thisAP));
 	else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, thisAP, edit));
 	else main.push(await systemSection(ctx, id, page, edit));
 	const keep = tab === 'overview' ? '' : `/${tab}${SUBTABS.has(tab) && sub ? '/' + sub : ''}`;

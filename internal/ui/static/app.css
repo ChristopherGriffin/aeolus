@@ -112,6 +112,11 @@ table.list th { text-align: left; font-size: 13px; font-weight: 600; color: var(
 table.list td { padding: 10px 20px; border-top: 1px solid var(--line-2); vertical-align: top; }
 table.list td.mono { font-family: var(--mono); }
 table.list tr.sel td { background: var(--accent-bg); }
+table.list th.sortable { cursor: pointer; user-select: none; }
+table.list.clients td { padding: 6px 14px; }
+table.list.clients th { padding: 8px 14px; }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 20px 12px; }
+.filters input[type=search] { height: 34px; padding: 0 10px; border: 1px solid #C9CEC6; border-radius: 8px; background: var(--panel); font: inherit; font-size: 14px; color: var(--ink); min-width: 14em; }
 
 /* Banners and states */
 .banner { display: flex; gap: 14px; align-items: flex-start; padding: 14px 18px; border-radius: 12px; font-size: 14px; }

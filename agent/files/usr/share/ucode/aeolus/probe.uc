@@ -299,8 +299,9 @@ function dhcp_reply(f, xid) {
 // dhcp_seen reads any DHCP message in a frame (0065): op (1 a client's
 // request, 2 a server's answer); its kind; the transaction ID; the client's
 // MAC; the address the client holds (ciaddr) and the one it is given
-// (yiaddr); the server's ID (option 54) and the address asked for (50); and
-// the frame's source MAC and IP address. Null for anything else.
+// (yiaddr); the server's ID (option 54) and the address asked for (50); the
+// host name a client gives (option 12, else 81's FQDN, 0066); and the
+// frame's source MAC and IP address. Null for anything else.
 function dhcp_seen(f) {
 	if (length(f) < 34 || get16(f, 12) != 0x0800 || ord(f, 23) != 17)
 		return null;
@@ -321,10 +322,24 @@ function dhcp_seen(f) {
 	if (!type)
 		return null;
 	let ip = (k) => length(opts[k] ?? '') >= 4 ? ip4_text(opts[k], 0) : null;
+	// Option 81 is flags, two codes, then the name: as DNS's labels when the
+	// E flag is set, else as text.
+	let name = (v) => substr(replace(v ?? '', /[^ -~]/g, ''), 0, 64) || null;
+	let host = name(opts[12]);
+	if (!host && length(opts[81] ?? '') > 3) {
+		let o = opts[81], text = substr(o, 3);
+		if (ord(o, 0) & 4) {
+			let labels = [];
+			for (let at = 3; at < length(o) && ord(o, at) > 0; at += 1 + ord(o, at))
+				push(labels, substr(o, at + 1, ord(o, at)));
+			text = join('.', labels);
+		}
+		host = name(text);
+	}
 	return {
 		op: ord(f, b), type: type, xid: get32(f, b + 4), client: mac_text(f, b + 28),
 		ciaddr: ip4_text(f, b + 12), yiaddr: ip4_text(f, b + 16), server: ip(54), requested: ip(50),
-		src_mac: mac_text(f, 6), src_ip: ip4_text(f, 26),
+		host: host, src_mac: mac_text(f, 6), src_ip: ip4_text(f, 26),
 	};
 }
 

@@ -197,6 +197,12 @@ print('an arp reply is no dhcp ', probe.dhcp_reply(reply, 0x12345678), '\n');
 print('dhcp seen: a discover ', probe.dhcp_seen(probe.dhcp(SEG, 'discover', 0x12345678, { host: 'phone' })), '\n');
 print('dhcp seen: a renewal ', probe.dhcp_seen(probe.dhcp(SEG, 'request', 0x0abcdef0, { ciaddr: '192.168.50.6' })), '\n');
 print('dhcp seen: an offer ', probe.dhcp_seen(offer), '\n');
+// A client that gives its name as an FQDN (option 81), in DNS's labels (0066).
+let d81 = probe.dhcp(SEG, 'discover', 0x12345678, {});
+let end81 = index(substr(d81, 282), chr(255)) + 282;
+let fq = chr(4, 0, 0, 5) + 'phone' + chr(4) + 'home' + chr(0);
+d81 = substr(d81, 0, end81) + chr(81, length(fq)) + fq + substr(d81, end81);
+print('dhcp seen: a host name as an FQDN ', probe.dhcp_seen(d81)?.host, '\n');
 print('dhcp seen: an arp reply ', probe.dhcp_seen(reply), '\n');
 print('arp seen: a reply ', probe.arp_seen(reply), '\n');
 print('arp seen: a probe from 0.0.0.0 ', probe.arp_seen(arp), '\n');
