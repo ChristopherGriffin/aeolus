@@ -3,7 +3,7 @@
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
-import { bandName, when, ago } from '../format.js';
+import { bandName, when, ago, secondsAgo } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, SUBTABS } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
@@ -73,7 +73,6 @@ function tunnelTrouble(cfg, base) {
 	const loops = x?.loops || [];
 	const nets = Object.entries(r?.transports || {}).sort().filter(([, t]) => t.active === 'fallback' || t.cannot_switch);
 	const ssid = (id) => cfg.document?.network?.[id]?.ssid || id;
-	const since = (l) => ago(new Date(new Date(st.at).getTime() - l.ago * 1000));
 	if (!down.length && !loops.length && !nets.length) return null;
 	return h('div', { class: 'banner problems' },
 		h('strong', null, 'Its transports need a look'),
@@ -81,7 +80,7 @@ function tunnelTrouble(cfg, base) {
 			down.map((t) => h('li', null, `The tunnel to ${t.peer}, VNI ${t.vni}, is down: ${t.probe.underlay === false ? `${t.peer} cannot be reached` : `nothing on VNI ${t.vni} answers`}.`)),
 			loops.map((l) => h('li', null, `${l.port} is off its tunnels: VNI ${l.vni ?? '?'} loops.`)),
 			nets.map(([id, t]) => h('li', null, t.active === 'fallback'
-				? `${ssid(id)} is on its fallback${t.last_switch?.to === 'fallback' ? `, switched ${since(t.last_switch)}: ${t.last_switch.why}` : ''}.`
+				? `${ssid(id)} is on its fallback${t.last_switch?.to === 'fallback' ? `, switched ${secondsAgo(t.last_switch.ago, st.at)}: ${t.last_switch.why}` : ''}.`
 				: `${ssid(id)} cannot switch: ${t.cannot_switch}.`))),
 		h('div', null, link(`${base}/interfaces/tunnels`, 'Interfaces › Tunnels'), ' · ', link(`${base}/networks`, 'Networks')));
 }

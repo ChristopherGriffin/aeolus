@@ -9,7 +9,7 @@
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
-import { bandName, security, group, value, ago, probeOnly, PROBE_ONLY } from '../format.js';
+import { bandName, security, group, value, ago, secondsAgo, probeOnly, PROBE_ONLY } from '../format.js';
 import { fieldPanels, editing } from './fields.js';
 import { only, configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -142,7 +142,10 @@ function view(ctx, n, bandsHere, box, noUsteer, lib) {
 				? h('span', { class: 'chip band' }, bandName(b))
 				: h('span', { class: 'chip band none', title: 'No radio here for this band' }, bandName(b) + ' (no radio here)')))),
 		row('Security', security(f('security'))),
-		row('Travels over', transport('primary') && [transport('primary'), transport('fallback') && `, then ${transport('fallback')}`]),
+		row('Travels over', transport('primary') && [transport('primary'), transport('fallback') && `, then ${transport('fallback')}`,
+			transport('fallback') && (f('transport.switching') === 'automatic'
+				? ` · switches automatically${f('transport.failback') === 'equal' ? '' : `, back after ${f('transport.holddown') ?? 300} s`}${f('transport.ha') ? ', HA' : ''}`
+				: ' · report only')]),
 		row('Roaming', roaming.length ? roaming.join(', ') : 'off'),
 		steeringRow(ctx, n, box, noUsteer),
 		multicastRow(ctx, n, box),
@@ -316,7 +319,7 @@ function transportsStatus(reports) {
 					s.active === 'none' ? h('span', { class: 'chip bad' }, 'nothing') : s.active === 'fallback' ? h('span', { class: 'chip warn' }, 'fallback') : s.active,
 					s.cannot_switch ? h('div', { class: 'sub' }, `cannot switch: ${s.cannot_switch}`)
 						: s.last_switch && h('div', { class: 'sub' },
-							`to ${s.last_switch.to} ${ago(new Date(new Date(st.at).getTime() - s.last_switch.ago * 1000))}: ${s.last_switch.why}`)),
+							`to ${s.last_switch.to} ${secondsAgo(s.last_switch.ago, st.at)}: ${s.last_switch.why}`)),
 				h('td', null, how('primary')),
 				h('td', null, how('fallback')),
 				h('td', null, ago(st.at))));

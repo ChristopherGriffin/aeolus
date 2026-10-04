@@ -34,7 +34,7 @@ const NETWORK = {
 	'multicast_to_unicast': 'Multicast to unicast', 'band_steering': 'Band steering',
 	'roaming.ft': 'Fast roaming (11r)', 'roaming.rrm': 'Neighbor reports (11k)', 'roaming.btm': 'Steering (11v)',
 	'rate_limit.down_kbps': 'Download limit', 'rate_limit.up_kbps': 'Upload limit',
-	'transport.switching': 'Switching', 'transport.ha': 'HA mode', 'transport.failback': 'Failback', 'transport.holddown': 'Hold-down (s)',
+	'transport.switching': 'Switching', 'transport.ha': 'HA mode', 'transport.failback': 'Failback', 'transport.holddown': 'Hold-down',
 };
 
 const SLOT = { type: 'type', vlan: 'VLAN', concentrator: 'tunnel', vni: 'VNI', probe: 'probe address' };
@@ -120,10 +120,11 @@ export function when(t) {
 // the agent's own config, which the prober reads again within 10 seconds (0059).
 export const PROBE_ONLY = 'Nothing reloads on the APs: each one\'s prober picks this up within 10 seconds.';
 
-// probeOnly says whether paths change only what the prober asks and how
-// often.
+// probeOnly says whether paths change only what the prober reads: what it
+// asks and how often, and how a network switches between its transports
+// (0061).
 export function probeOnly(paths) {
-	return paths.length > 0 && paths.every((p) => /\.(probe|probe_interval)$/.test(p));
+	return paths.length > 0 && paths.every((p) => /\.(probe|probe_interval)$|\.transport\.(switching|failback|holddown)$/.test(p));
 }
 
 // secondsAgo writes as ago does the time s seconds before at, such as an
