@@ -27,8 +27,8 @@
   - Network names `vlan<number>-…` are reserved, as `vlan<number>` and `port-…` already are, so no network's interface can take the name.
   - The tunnels that start there name it as their `tunlink`. They then go out tagged on that VLAN, from the AP's address there.
 - **Only the tunnels use that VLAN's gateway.**
-  - The interface's routes go in a routing table of their own, with a rule for traffic from its address.
-  - The AP's own traffic stays on the management VLAN: the manager, DNS, NTP and the agent's polls.
+  - The interface's routes go in a routing table of its own (netifd's `ip4table`). netifd adds the rules: one for traffic from its address, one for traffic to its subnet, and one for the AP's own traffic that comes after the main table.
+  - The AP's own traffic stays on the management VLAN (DNS, NTP, the default route), except to that VLAN's own subnet, which the AP then reaches directly, as any host on it does. In the lab, the manager at 192.168.20.60 is on VLAN 20, so the agent would reach it on VLAN 20 while a tunnel starts there.
 - **The AP can't be reached through that VLAN.**
   - The interface goes in a firewall zone of its own that rejects input and forwarding. It lets in only the tunnels' UDP from their concentrators, and DHCP's answers.
   - So a VLAN that also carries Wi-Fi clients, such as VLAN 20 in the lab, gives them no way in.
@@ -50,13 +50,20 @@
 - **Changing where a tunnel starts** re-creates its device, with one network reload. The prober follows the new device (v0.26.1).
 - **The AP holds an address on that VLAN.** Unlike the probe leases of 0060, this one is the kernel's, because the tunnel needs it. The zone is what keeps that VLAN's clients out.
 
-## Lab checks before building
+## Lab checks
 
-On OpenWrtnight, set up by hand and undone afterwards, with no change to its networks:
+Run on OpenWrtnight on 2026-10-04 with temporary interfaces only (`ubus call network add_dynamic`), with nothing in its config changed, and undone afterwards. They used VNI 10 in place of 55, which the Arista doesn't map yet. VNI 10 is mapped, and only lan4 used it on the AP, with nothing plugged in.
 
-1. **An interface on VLAN 20 with DHCP and its own routing table.** Check that it gets an address from 192.168.20.254, and that the AP's default route and its traffic to the manager stay on `lan`.
-2. **A test tunnel on a VNI the Arista maps but the AP doesn't use** (VNI 55, if the Arista maps it to VLAN 55), with `tunlink` on that interface. Check that:
-   - its packets leave tagged on VLAN 20, from the AP's VLAN 20 address, through 192.168.20.1;
-   - the Arista answers, and learns the new VTEP address;
-   - the prober's DHCP and probes cross the tunnel.
-3. **The zone.** Check that from VLAN 20, nothing on the AP answers except the tunnel.
+1. **An interface on VLAN 20 with DHCP and `ip4table` 120.**
+   - It leased 192.168.20.74 from 192.168.20.254. Table 120 got the default route via 192.168.20.1, and the main table didn't change.
+   - netifd added three rules: from 192.168.20.74 to table 120, to 192.168.20.0/24 to table 120, and the AP's own traffic (`iif lo`) to table 120 after the main table.
+   - The second rule moved the AP's traffic to its VLAN 20 neighbours onto VLAN 20, the manager included; the agent still reached it. Everything else stayed on `lan`.
+2. **A test tunnel for VNI 10 with `tunlink` on that interface,** in place of the AP's own VNI 10 tunnel.
+   - The kernel refuses a second VXLAN device for a VNI and port that one already uses. So a tunnel that changes where it starts is re-created, not added alongside.
+   - With the local address left as any (`0.0.0.0`, as now), the kernel chose 192.168.20.74 by itself. The tunnel left on VLAN 20 to 192.168.20.1 (the Arista, `28:e7:1d:ca:29:13`), through the third rule, since the main table's default route is on `lan`.
+   - The Arista learned the new address at once and sent VNI 10 to it. It kept sending to the old one (192.168.1.38) too, until that ages out.
+   - The prober, run by hand on the test tunnel, leased 192.168.10.235 (the same lease, from VNI 10's segment MAC), asked the lease's gateway 192.168.10.1, and found it `up` at 1.2 ms. A ping to the concentrator from 192.168.20.74 took 0.5 ms.
+3. **Nothing on the AP answers on VLAN 20.**
+   - From the manager host (192.168.20.60, on VLAN 20), the AP's 192.168.20.74 rejected a ping, and TCP 22, 80, 443 and 8443. Its management address still answered SSH.
+   - The AP's firewall already rejects input from interfaces outside its zones. The build's zone makes that explicit, with the one rule the test needed: the tunnel's UDP 4789 from its concentrator, on that VLAN.
+4. **Putting things back re-created VNI 10's tunnel device,** and the v0.26.1 prober followed it on its own: VNI 10 `up` again, at 0% CPU.
