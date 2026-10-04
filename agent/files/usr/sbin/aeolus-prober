@@ -891,8 +891,9 @@ function results(at) {
 		let l = loops[k];
 		return { port: l.port, device: l.device, vni: l.vni, came_in: l.came_in, ago: int(at - l.at) };
 	});
-	// The VLANs watched on the uplink, and what the switch says of it (0064).
-	// A switch silent for 10 minutes is forgotten.
+	// The VLANs watched on the uplink, and all the switch says of it (0064).
+	// A switch is forgotten once it has been silent longer than it said to
+	// hold what it said (its TTL), and at once when it says 0.
 	let uv = {};
 	for (let v, w in watch.vlans) {
 		let verdict = probe.watch_verdict(w, at);
@@ -903,13 +904,17 @@ function results(at) {
 		w.said = verdict;
 		uv[v] = { tagged: w.plan.tagged, verdict: verdict, heard_ago: w.heard != null ? int(at - w.heard) : null };
 	}
-	if (watch.neighbor && at - watch.neighbor.at > 600)
+	if (watch.neighbor && at - watch.neighbor.at > (watch.neighbor.ttl ?? 120))
 		watch.neighbor = null;
-	let nb = watch.neighbor;
-	let uplink = { vlans: uv, neighbor: nb ? {
-		chassis: nb.chassis, system: nb.system, port: nb.port, port_description: nb.port_description,
-		native_vlan: nb.native_vlan, vlans: nb.vlans, ago: int(at - nb.at),
-	} : null };
+	let nb = null;
+	if (watch.neighbor) {
+		nb = {};
+		for (let k, v in watch.neighbor)
+			if (k != 'at')
+				nb[k] = v;
+		nb.ago = int(at - watch.neighbor.at);
+	}
+	let uplink = { vlans: uv, neighbor: nb };
 	store(out, sprintf('%J\n', { at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp, uplink: uplink }));
 }
 

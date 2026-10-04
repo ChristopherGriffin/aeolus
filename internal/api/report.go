@@ -34,6 +34,10 @@ var (
 	speedRE     = regexp.MustCompile(`^([0-9]{1,6}[FH])?$`)
 	// deviceRE is a Linux device's name, as the loop guard reports one (0059).
 	deviceRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$`)
+	// macRE is a MAC as Linux writes one; hexRE, bytes as the prober writes
+	// what it doesn't know of the switch's LLDP, at most 64 of them (0064).
+	macRE = regexp.MustCompile(`^[0-9a-f]{2}(:[0-9a-f]{2}){5}$`)
+	hexRE = regexp.MustCompile(`^([0-9a-f]{2}){0,64}$`)
 )
 
 // secretOptions are the UCI options that hold keys and passwords (0041).
@@ -187,6 +191,34 @@ type stateReport struct {
 	// The VLANs the AP watches on its uplink, and the switch it is on (0064).
 	UplinkVLANs    []uplinkVLAN    `json:"uplink_vlans,omitempty"`
 	UplinkNeighbor *uplinkNeighbor `json:"uplink_neighbor,omitempty"`
+	UplinkPort     *uplinkPort     `json:"uplink_port,omitempty"`
+}
+
+// uplinkPort is what the AP knows of its uplink itself (0064): its name, MAC
+// and MTU; how often its link has come and gone; the VLANs it carries, as
+// its network config has them, and which is the management VLAN; and its
+// counters.
+type uplinkPort struct {
+	Name           string        `json:"name"`
+	MAC            string        `json:"mac"`
+	MTU            int           `json:"mtu"`
+	CarrierChanges int64         `json:"carrier_changes"`
+	VLANs          []carriedVLAN `json:"vlans,omitempty"`
+	ManagementVLAN int           `json:"management_vlan,omitempty"`
+	RxBytes        int64         `json:"rx_bytes"`
+	TxBytes        int64         `json:"tx_bytes"`
+	RxPackets      int64         `json:"rx_packets"`
+	TxPackets      int64         `json:"tx_packets"`
+	RxErrors       int64         `json:"rx_errors"`
+	TxErrors       int64         `json:"tx_errors"`
+	RxDropped      int64         `json:"rx_dropped"`
+	TxDropped      int64         `json:"tx_dropped"`
+}
+
+// carriedVLAN is a VLAN on the uplink, tagged or not.
+type carriedVLAN struct {
+	VLAN   int  `json:"vlan"`
+	Tagged bool `json:"tagged"`
 }
 
 // uplinkVLAN is a VLAN the AP carries on its uplink for its intent, and
@@ -200,18 +232,182 @@ type uplinkVLAN struct {
 	HeardAgo *int64 `json:"heard_ago"`
 }
 
-// uplinkNeighbor is what the switch's LLDP says of itself and of the port
-// the AP's uplink is on (0064): its chassis ID and name, the port's ID and
-// description, the port's native VLAN, the VLANs it names, and seconds
-// since it last said so.
+// uplinkNeighbor is all the switch's LLDP says of itself and of the port the
+// AP's uplink is on (0064), as the prober reads it, and seconds since it last
+// said so. What the prober doesn't know is in Other, as hex.
 type uplinkNeighbor struct {
-	Chassis         string `json:"chassis,omitempty"`
-	System          string `json:"system,omitempty"`
-	Port            string `json:"port,omitempty"`
-	PortDescription string `json:"port_description,omitempty"`
-	NativeVLAN      int    `json:"native_vlan,omitempty"`
-	VLANs           []int  `json:"vlans,omitempty"`
-	Ago             int64  `json:"ago"`
+	Chassis             string            `json:"chassis,omitempty"`
+	ChassisKind         string            `json:"chassis_kind,omitempty"`
+	System              string            `json:"system,omitempty"`
+	SystemDescription   string            `json:"system_description,omitempty"`
+	Port                string            `json:"port,omitempty"`
+	PortKind            string            `json:"port_kind,omitempty"`
+	PortDescription     string            `json:"port_description,omitempty"`
+	TTL                 *int              `json:"ttl,omitempty"`
+	Capabilities        []string          `json:"capabilities,omitempty"`
+	EnabledCapabilities []string          `json:"enabled_capabilities,omitempty"`
+	Management          []lldpManagement  `json:"management,omitempty"`
+	NativeVLAN          int               `json:"native_vlan,omitempty"`
+	VLANs               []int             `json:"vlans,omitempty"`
+	VLANNames           map[string]string `json:"vlan_names,omitempty"`
+	ProtocolVLANs       []int             `json:"protocol_vlans,omitempty"`
+	Protocols           []string          `json:"protocols,omitempty"`
+	Aggregation         *lldpAggregation  `json:"aggregation,omitempty"`
+	MaxFrame            int               `json:"max_frame,omitempty"`
+	MACPHY              *lldpMACPHY       `json:"mac_phy,omitempty"`
+	Power               *lldpPower        `json:"power,omitempty"`
+	MED                 *lldpMED          `json:"med,omitempty"`
+	Other               []lldpOther       `json:"other,omitempty"`
+	Ago                 int64             `json:"ago"`
+}
+
+type lldpManagement struct {
+	Address       string `json:"address"`
+	Interface     int64  `json:"interface"`
+	InterfaceKind string `json:"interface_kind"`
+}
+
+type lldpAggregation struct {
+	Capable bool  `json:"capable"`
+	Enabled bool  `json:"enabled"`
+	Port    int64 `json:"port"`
+}
+
+type lldpMACPHY struct {
+	AutonegSupported bool   `json:"autoneg_supported"`
+	AutonegEnabled   bool   `json:"autoneg_enabled"`
+	Advertised       string `json:"advertised"`
+	MAU              int    `json:"mau"`
+	MAUName          string `json:"mau_name,omitempty"`
+}
+
+type lldpPower struct {
+	PSE        bool     `json:"pse"`
+	Supported  bool     `json:"supported"`
+	Enabled    bool     `json:"enabled"`
+	Pair       string   `json:"pair,omitempty"`
+	Class      *int     `json:"class,omitempty"`
+	RequestedW *float64 `json:"requested_w,omitempty"`
+	AllocatedW *float64 `json:"allocated_w,omitempty"`
+}
+
+type lldpMED struct {
+	Capabilities string            `json:"capabilities,omitempty"`
+	Class        int               `json:"class,omitempty"`
+	Policies     []lldpPolicy      `json:"policies,omitempty"`
+	Inventory    map[string]string `json:"inventory,omitempty"`
+	Location     string            `json:"location,omitempty"`
+	PowerW       *float64          `json:"power_w,omitempty"`
+}
+
+type lldpPolicy struct {
+	Application string `json:"application"`
+	Unknown     bool   `json:"unknown"`
+	Tagged      bool   `json:"tagged"`
+	VLAN        int    `json:"vlan"`
+	Priority    int    `json:"priority"`
+	DSCP        int    `json:"dscp"`
+}
+
+type lldpOther struct {
+	Type    int    `json:"type"`
+	OUI     string `json:"oui,omitempty"`
+	Subtype int    `json:"subtype,omitempty"`
+	Data    string `json:"data"`
+}
+
+// check holds the switch's account to what the prober can write: printable
+// names of at most 255 characters, short lists, VLANs from 1 to 4094, and hex
+// for what it doesn't know.
+func (n *uplinkNeighbor) check() error {
+	bad := func(what string) error {
+		return badRequest("uplink_neighbor: %s", what)
+	}
+	texts := []string{n.Chassis, n.ChassisKind, n.System, n.SystemDescription, n.Port, n.PortKind, n.PortDescription}
+	texts = append(texts, n.Capabilities...)
+	texts = append(texts, n.EnabledCapabilities...)
+	for _, m := range n.Management {
+		texts = append(texts, m.Address, m.InterfaceKind)
+	}
+	if p := n.Power; p != nil {
+		texts = append(texts, p.Pair)
+	}
+	if m := n.MED; m != nil {
+		texts = append(texts, m.Capabilities)
+		for k, v := range m.Inventory {
+			texts = append(texts, k, v)
+		}
+		for _, p := range m.Policies {
+			texts = append(texts, p.Application)
+			if p.VLAN < 0 || p.VLAN > 4095 || p.Priority < 0 || p.Priority > 7 || p.DSCP < 0 || p.DSCP > 63 {
+				return bad("a network policy's VLAN, priority or DSCP is out of range")
+			}
+		}
+		if len(m.Policies) > 8 || len(m.Inventory) > 8 || !hexRE.MatchString(m.Location) {
+			return bad("at most 8 network policies and 8 inventory items, and the location in hex")
+		}
+	}
+	for _, t := range texts {
+		if len(t) > 255 || !printable(t) {
+			return bad("its names are printable, and at most 255 characters")
+		}
+	}
+	if len(n.Capabilities) > 16 || len(n.EnabledCapabilities) > 16 || len(n.Management) > 4 || len(n.Protocols) > 16 ||
+		len(n.ProtocolVLANs) > 64 || len(n.Other) > 16 || len(n.VLANs) > 4094 || len(n.VLANNames) > 4094 {
+		return bad("too many capabilities, addresses, protocols, VLANs or unknown TLVs")
+	}
+	named := map[int]bool{}
+	for _, v := range n.VLANs {
+		if v < 1 || v > 4094 || named[v] {
+			return bad("the VLANs it names are distinct, from 1 to 4094")
+		}
+		named[v] = true
+	}
+	for k, name := range n.VLANNames {
+		if v, err := strconv.Atoi(k); err != nil || !named[v] || len(name) > 32 || !printable(name) {
+			return bad("each VLAN name is for a VLAN it names, printable, and at most 32 characters")
+		}
+	}
+	for _, v := range n.ProtocolVLANs {
+		if v < 0 || v > 4094 {
+			return bad("protocol VLANs are from 0 to 4094")
+		}
+	}
+	for _, p := range n.Protocols {
+		if !hexRE.MatchString(p) {
+			return bad("protocols are in hex")
+		}
+	}
+	for _, o := range n.Other {
+		if o.Type < 0 || o.Type > 127 || o.Subtype < 0 || o.Subtype > 255 || !hexRE.MatchString(o.OUI) || !hexRE.MatchString(o.Data) {
+			return bad("an unknown TLV has a type, and its data in hex")
+		}
+	}
+	if (n.TTL != nil && (*n.TTL < 0 || *n.TTL > 65535)) || n.NativeVLAN < 0 || n.NativeVLAN > 4094 || n.MaxFrame < 0 || n.MaxFrame > 65535 || n.Ago < 0 {
+		return bad("a TTL and maximum frame size from 0 to 65535, a native VLAN from 1 to 4094, and seconds since it was heard, not negative")
+	}
+	return nil
+}
+
+// check holds the uplink's own account (0064).
+func (u *uplinkPort) check() error {
+	if !portNameRE.MatchString(u.Name) || !macRE.MatchString(u.MAC) || u.MTU < 0 || u.MTU > 65535 || u.CarrierChanges < 0 ||
+		u.ManagementVLAN < 0 || u.ManagementVLAN > 4094 || len(u.VLANs) > 4094 {
+		return badRequest("uplink_port: a port's name, its MAC, an MTU up to 65535, a management VLAN up to 4094, and counts that are not negative")
+	}
+	for _, c := range []int64{u.RxBytes, u.TxBytes, u.RxPackets, u.TxPackets, u.RxErrors, u.TxErrors, u.RxDropped, u.TxDropped} {
+		if c < 0 {
+			return badRequest("uplink_port: counters are not negative")
+		}
+	}
+	seen := map[int]bool{}
+	for _, v := range u.VLANs {
+		if v.VLAN < 1 || v.VLAN > 4094 || seen[v.VLAN] {
+			return badRequest("uplink_port: its VLANs are distinct, from 1 to 4094")
+		}
+		seen[v.VLAN] = true
+	}
+	return nil
 }
 
 // vlanProbe is what the prober found on a VLAN transport of a network with a
@@ -471,20 +667,13 @@ func (st *stateReport) check() error {
 		seen[v.VLAN] = true
 	}
 	if n := st.UplinkNeighbor; n != nil {
-		named := map[int]bool{}
-		for _, v := range n.VLANs {
-			if v < 1 || v > 4094 || named[v] {
-				return badRequest("uplink_neighbor: the VLANs it names are distinct, from 1 to 4094")
-			}
-			named[v] = true
+		if err := n.check(); err != nil {
+			return err
 		}
-		for _, t := range []string{n.Chassis, n.System, n.Port, n.PortDescription} {
-			if len(t) > 255 || !printable(t) {
-				return badRequest("uplink_neighbor: its names are printable, and at most 255 characters")
-			}
-		}
-		if n.NativeVLAN < 0 || n.NativeVLAN > 4094 || n.Ago < 0 {
-			return badRequest("uplink_neighbor: a native VLAN from 1 to 4094, and seconds since it was heard, not negative")
+	}
+	if u := st.UplinkPort; u != nil {
+		if err := u.check(); err != nil {
+			return err
 		}
 	}
 	return nil

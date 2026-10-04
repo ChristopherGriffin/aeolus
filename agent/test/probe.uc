@@ -126,6 +126,27 @@ print('lldp ', probe.lldp(lldp_head + tlv(0, '')), '\n');
 print('lldp with vlans ', probe.lldp(lldp_head + tlv(127, bytes([0x00, 0x80, 0xc2, 3, 0, 20, 4]) + 'Core') +
 	tlv(127, bytes([0x00, 0x80, 0xc2, 3, 0, 10, 3]) + 'IoT') + tlv(127, bytes([0x00, 0x80, 0xc2, 3, 0, 20, 4]) + 'Core') + tlv(0, '')), '\n');
 print('lldp of an ARP ', probe.lldp(arp), '\n');
+// Every TLV the reader knows, as a switch might send them all, and two it
+// doesn't: an Arista one, and a type 802.1AB reserves.
+let ieee1 = (sub, list, tail) => tlv(127, bytes([0x00, 0x80, 0xc2, sub, ...list]) + (tail ?? ''));
+let ieee3 = (sub, list, tail) => tlv(127, bytes([0x00, 0x12, 0x0f, sub, ...list]) + (tail ?? ''));
+let med = (sub, list, tail) => tlv(127, bytes([0x00, 0x12, 0xbb, sub, ...list]) + (tail ?? ''));
+print('lldp of everything ', probe.lldp(lldp_head +
+	tlv(6, 'Arista Networks EOS version 4.30.1F running on an Arista CCS-720DP-24ZS-2') +
+	tlv(7, bytes([0, 0x14, 0, 0x14])) +
+	tlv(8, bytes([5, 1, 172, 16, 0, 4, 2, 0x00, 0x4c, 0x4b, 0x40, 0])) +
+	ieee1(2, [0x06, 0, 30]) +
+	ieee1(3, [0, 20, 4], 'Core') + ieee1(3, [0x03, 0xf2, 14], 'PTP_Tower_Link') +
+	ieee1(4, [2, 0x88, 0xcc]) +
+	ieee3(1, [0x03, 0x6c, 0x01, 0x00, 30]) +
+	ieee3(2, [0x07, 1, 5, 0x51, 0x00, 0xff, 0x00, 0xff]) +
+	ieee3(3, [0x01, 0, 0, 0, 0]) +
+	ieee3(4, [0x24, 0xc8]) +
+	med(1, [0x00, 0x33, 4]) +
+	med(2, [0x01, 0x40, 0x3d, 0x6e]) +
+	med(7, [], 'EOS-4.30.1F') + med(10, [], 'CCS-720DP-24ZS-2') +
+	tlv(127, bytes([0x00, 0x1c, 0x73, 1, 0xde, 0xad])) +
+	tlv(9, 'xyz') + tlv(0, '')), '\n');
 
 // The link-local address a VLAN's nudge asks IPv6 all-nodes from (0064).
 print('link-local of 06:21:36:5e:00:50: ', probe.link_local('06:21:36:5e:00:50'), '\n');
