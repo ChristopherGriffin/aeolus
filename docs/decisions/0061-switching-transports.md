@@ -50,7 +50,7 @@
 - **A network with a fallback gets a bridge of its own,** and its SSIDs stay on it whichever transport carries it:
   - its name is `br-n` and 8 hex digits made from the network's name, inside Linux's 15 characters;
   - the network's interface is on that bridge.
-- **Neither transport is in that bridge in the rendered config.** The prober attaches the active one at run time, through netifd: `add_device` and `remove_device` on the network's interface.
+- **Neither transport is in that bridge in the rendered config.** The prober attaches the active one at run time, through netifd: `add_device` and `remove_device` on the network's interface, with `link-ext` false. With the default, netifd takes the device for one someone else manages and waits for word that it exists. For a device that already exists, that word never comes, so the device is never attached.
   - **A VXLAN transport is attached as its tunnel device itself,** which is that network's alone at the AP.
   - **A VLAN transport is attached through a veth pair:**
     - one end is a port of the uplink bridge, untagged in that VLAN;
@@ -92,6 +92,12 @@
 - **Report mode costs nothing new** but the VLAN fallback's probe and lease.
 - **0058's rule that a port can't carry a network's fallback VNI stays.**
 
-## Open
+## Lab checks
 
-- **Attaching the veth's network end at run time, and taking it out, is not checked.** Attaching it on OpenWrtnight's only other bridge would have joined VLAN 20 to VNI 50. Since its configured end holds the pair, it should leave the pair alone; checked with a bridge made for the test when this is built.
+- **Attaching the veth's network end at run time, and taking it out:** checked on OpenWrtnight on 2026-10-04, with a test veth pair and two test bridges, so nothing reached a real segment. The pair's configured end (`lv20`) was in one bridge, and its other end (`lv20n`) was attached to the second bridge and taken out again.
+  - With `add_device`'s default `link-ext`, nothing happened: netifd listed `lv20n` as a member, but not present, and left it down and out of the bridge.
+  - With `link-ext` false, `lv20n` joined the bridge and came up.
+  - Taking it out left the pair alone, as the configured end holds it: both ends kept their device indexes.
+  - Attached again, it stayed through a network reload.
+- **A switch, break before make,** between that veth end and a VXLAN tunnel device (a dynamic interface on VNI 999, which the Arista doesn't map). The bridge held one of them at a time, both ways. Both devices kept their indexes, and the tunnel stayed up.
+- **The three IoT clients stayed associated through it all,** across two network reloads.
