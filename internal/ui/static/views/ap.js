@@ -3,7 +3,7 @@
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
-import { bandName, when, ago, secondsAgo } from '../format.js';
+import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, SUBTABS } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
@@ -63,8 +63,9 @@ export async function apPage(ctx, id, tab, sub) {
 
 // tunnelTrouble warns of a tunnel the AP's prober finds down, and of a port
 // its loop guard took off its tunnels (0059); of a network carried by its
-// fallback, or that cannot switch to it (0061). The Tunnels and Networks
-// views say more.
+// fallback, or that cannot switch to it (0061); and of a VLAN the AP carries
+// that doesn't reach it from the switch, with what needs it and the switch
+// port to look at (0064). The Tunnels, Networks and Ports views say more.
 function tunnelTrouble(cfg, base) {
 	const st = cfg.condition?.state;
 	const r = st?.report;
@@ -73,16 +74,22 @@ function tunnelTrouble(cfg, base) {
 	const loops = x?.loops || [];
 	const nets = Object.entries(r?.transports || {}).sort().filter(([, t]) => t.active === 'fallback' || t.cannot_switch);
 	const ssid = (id) => cfg.document?.network?.[id]?.ssid || id;
-	if (!down.length && !loops.length && !nets.length) return null;
+	const port = switchPort(r?.uplink_neighbor);
+	const vlans = (r?.uplink_vlans || []).map((v) => [v, uplinkJudgment(v, r.uplink_neighbor)[2]]).filter(([, says]) => says);
+	if (!down.length && !loops.length && !nets.length && !vlans.length) return null;
 	return h('div', { class: 'banner problems' },
-		h('strong', null, 'Its transports need a look'),
+		h('strong', null, 'Its uplink or transports need a look'),
 		h('ul', null,
 			down.map((t) => h('li', null, `The tunnel to ${t.peer}, VNI ${t.vni}, is down: ${t.probe.underlay === false ? `${t.peer} cannot be reached` : `nothing on VNI ${t.vni} answers`}.`)),
 			loops.map((l) => h('li', null, `${l.port} is off its tunnels: VNI ${l.vni ?? '?'} loops.`)),
 			nets.map(([id, t]) => h('li', null, t.active === 'fallback'
 				? `${ssid(id)} is on its fallback${t.last_switch?.to === 'fallback' ? `, switched ${secondsAgo(t.last_switch.ago, st.at)}: ${t.last_switch.why}` : ''}.`
-				: `${ssid(id)} cannot switch: ${t.cannot_switch}.`))),
-		h('div', null, link(`${base}/interfaces/tunnels`, 'Interfaces › Tunnels'), ' · ', link(`${base}/networks`, 'Networks')));
+				: `${ssid(id)} cannot switch: ${t.cannot_switch}.`)),
+			vlans.map(([v, says]) => {
+				const users = vlanUsers(cfg.document, v.vlan);
+				return h('li', null, `${says}.${users.length ? ` ${users.join(', ')} ${users.length === 1 ? 'needs' : 'need'} it.` : ''}${port ? ` The AP is on ${port}.` : ''}`);
+			})),
+		h('div', null, link(`${base}/interfaces/tunnels`, 'Interfaces › Tunnels'), ' · ', link(`${base}/interfaces/ethernet`, 'Interfaces › Ethernet'), ' · ', link(`${base}/networks`, 'Networks')));
 }
 
 function statusPanel(st, cfg, cond) {

@@ -2,7 +2,7 @@
 
 Aeolus is the manager for an OpenWrt-based Wi-Fi system. It holds what each AP should run and what each AP reports it is running. It stays out of the data path, and the network keeps working without it.
 
-**Status: running on Aeolus** (`https://aeolus.symtus.com:8443`, the latest `v*` tag). M1–M3 are done. M4, the AP contract, is under way: Landing Zone, Sandbox, adoption and the concentrator library are in; APs enroll, poll for their config, have their rendered UCI checked against intent, and report what they applied and their state. The agent (M5, [`agent/`](agent)) is next on PumphouseAP, ahead of the DHCP listeners, so the whole loop runs on a real AP sooner. PumphouseAP is the lab AP. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
+**Status: running on Aeolus** (`https://aeolus.symtus.com:8443`, the latest `v*` tag). M1–M3 are done. M4, the AP contract, is done but for the DHCP listeners, which come after M5. The agent (M5, [`agent/`](agent)) runs on PumphouseAP, the lab AP: VLAN and VXLAN transports, switching between them, and with 0064, telling which VLANs reach the AP. The web UI (M6) edits and shows all of it. Decisions are recorded in [`docs/decisions`](docs/decisions) before any code depends on them.
 
 ## Build order
 
@@ -106,6 +106,7 @@ Each milestone ends in something checkable before the next starts.
 | [0061](docs/decisions/0061-switching-transports.md) | Switching a network between its transports |
 | [0062](docs/decisions/0062-optional-reasons.md) | A change needs no reason |
 | [0063](docs/decisions/0063-tunnel-start-vlan.md) | A tunnel can start from any VLAN on the uplink |
+| [0064](docs/decisions/0064-vlan-detection.md) | Telling which VLANs reach an AP (proposed) |
 
 ## Open questions
 

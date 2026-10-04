@@ -53,6 +53,16 @@ switch HA, tunnel fallback stopped: { "want": "primary", "start": true, "stop": 
 switch primary down, VLAN fallback off: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": "the primary is down, and the fallback is off" }
 switch report mode, on the fallback: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": null }
 switch report mode, tunnel fallback running: { "want": "primary", "start": false, "stop": false, "why": null, "cannot": null }
+lldp { "chassis": "28:e7:1d:ca:29:13", "system": "homelab.symtus.com", "port": "Ethernet6", "port_description": "Pumphouse OpenWrt", "native_vlan": 1, "vlans": [ ] }
+lldp with vlans { "chassis": "28:e7:1d:ca:29:13", "system": "homelab.symtus.com", "port": "Ethernet6", "port_description": "Pumphouse OpenWrt", "native_vlan": 1, "vlans": [ 10, 20 ] }
+lldp of an ARP 
+link-local of 06:21:36:5e:00:50: fe80::421:36ff:fe5e:50
+link-local of aa:04:60:21:36:60: fe80::a804:60ff:fe21:3660
+watch heard 50 s ago: present
+watch heard 180 s ago: present
+watch heard 200 s ago: silent
+watch never heard, watched 100 s: unknown
+watch never heard, watched 200 s: silent
 segment mac vni 50: 02:21:36:5e:00:50
 segment mac vni 1234: 02:21:36:5e:12:34
 segment mac vni 10000: 0a:21:36:5e:27:10
@@ -69,3 +79,5 @@ dhcp offer to another xid
 an arp reply is no dhcp 
 filter overlay: 18 instructions, jumps land inside, ends returning
 filter guard: 6 instructions, jumps land inside, ends returning
+filter watch: 7 instructions, jumps land inside, ends returning
+filter lldp: 6 instructions, jumps land inside, ends returning

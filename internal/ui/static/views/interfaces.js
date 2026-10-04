@@ -11,7 +11,7 @@
 
 import { h, link } from '../dom.js';
 import { schema } from '../api.js';
-import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY } from '../format.js';
+import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY, uplinkJudgment, switchPort } from '../format.js';
 import { tabBar, pick } from '../layout.js';
 import { configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -709,7 +709,7 @@ function portsNow(rows) {
 			h('td', null, i === 0 && apLink),
 			h('td', { class: 'mono' }, p.name, p.uplink && h('span', { class: 'chip from' }, 'uplink')),
 			h('td', null, linkState(p)),
-			h('td', null, settings(cfg.location || {}, p.name),
+			h('td', null, p.uplink ? uplinkCell(rep.report) : settings(cfg.location || {}, p.name),
 				rep.report.vxlan?.loops?.some((l) => l.port === p.name) && [' ', h('span', { class: 'chip bad' }, 'off its tunnels: a loop')]),
 			h('td', null, i === 0 && ago(rep.at))));
 	});
@@ -718,6 +718,22 @@ function portsNow(rows) {
 		h('table', { class: 'list' },
 			h('tr', null, ['AP', 'Port', 'Link', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
 			lines));
+}
+
+// uplinkCell says what reaches the AP on its uplink (0064): the switch port
+// it is on, by LLDP, and each VLAN it carries for Aeolus, with whether that
+// VLAN comes in from the switch.
+function uplinkCell(report) {
+	const n = report.uplink_neighbor;
+	const vlans = report.uplink_vlans || [];
+	return [
+		n && h('div', { class: 'sub' }, `on ${switchPort(n)}${n.vlans?.length ? `, which carries VLANs ${n.vlans.join(' ')}` : ''}`),
+		vlans.map((v) => {
+			const [cls, word, says] = uplinkJudgment(v, n);
+			return [h('span', { class: 'chip ' + cls, title: says || '' }, `VLAN ${v.vlan} ${word}`), ' '];
+		}),
+		!n && !vlans.length && h('span', { class: 'sub' }, '—'),
+	];
 }
 
 // linkState says whether a port has a link, and at what speed: "1000F" is

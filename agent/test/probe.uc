@@ -116,6 +116,31 @@ for (let c in [
 ])
 	print('switch ', c[0], ': ', probe.switch_step(net(c[1]), 1000), '\n');
 
+// The uplink's LLDP (0064), as the Arista sends it on OpenWrtnight's port,
+// with two VLAN Name TLVs, which it doesn't send there yet.
+let tlv = (t, v) => chr((t << 1) | (length(v) >> 8)) + chr(length(v) & 255) + v;
+let lldp_head = bytes([0x01, 0x80, 0xc2, 0x00, 0x00, 0x0e, 0x28, 0xe7, 0x1d, 0xca, 0x29, 0x13, 0x88, 0xcc]) +
+	tlv(1, bytes([4, 0x28, 0xe7, 0x1d, 0xca, 0x29, 0x13])) + tlv(2, chr(5) + 'Ethernet6') + tlv(3, bytes([0, 120])) +
+	tlv(4, 'Pumphouse OpenWrt') + tlv(5, 'homelab.symtus.com') + tlv(127, bytes([0x00, 0x80, 0xc2, 1, 0, 1]));
+print('lldp ', probe.lldp(lldp_head + tlv(0, '')), '\n');
+print('lldp with vlans ', probe.lldp(lldp_head + tlv(127, bytes([0x00, 0x80, 0xc2, 3, 0, 20, 4]) + 'Core') +
+	tlv(127, bytes([0x00, 0x80, 0xc2, 3, 0, 10, 3]) + 'IoT') + tlv(127, bytes([0x00, 0x80, 0xc2, 3, 0, 20, 4]) + 'Core') + tlv(0, '')), '\n');
+print('lldp of an ARP ', probe.lldp(arp), '\n');
+
+// The link-local address a VLAN's nudge asks IPv6 all-nodes from (0064).
+print('link-local of 06:21:36:5e:00:50: ', probe.link_local('06:21:36:5e:00:50'), '\n');
+print('link-local of ', SRC, ': ', probe.link_local(SRC), '\n');
+
+// Whether a watched VLAN reaches the AP, watched since 0 (0064).
+for (let c in [
+	['heard 50 s ago', { started: 0, heard: 950 }, 1000],
+	['heard 180 s ago', { started: 0, heard: 820 }, 1000],
+	['heard 200 s ago', { started: 0, heard: 800 }, 1000],
+	['never heard, watched 100 s', { started: 900 }, 1000],
+	['never heard, watched 200 s', { started: 800 }, 1000],
+])
+	print('watch ', c[0], ': ', probe.watch_verdict(c[1], c[2]), '\n');
+
 // The AP's MACs on the segments it probes (0060).
 for (let c in [['vni', 50], ['vni', 1234], ['vni', 10000], ['vni', 70000], ['vlan', 20]])
 	print('segment mac ', c[0], ' ', c[1], ': ', probe.segment_mac('ap-a0046021365e', c[0], c[1]), '\n');
@@ -147,7 +172,7 @@ print('dhcp offer to another xid ', probe.dhcp_reply(offer, 0x12345679), '\n');
 print('an arp reply is no dhcp ', probe.dhcp_reply(reply, 0x12345678), '\n');
 
 // Every jump in the filters lands inside them.
-for (let name, prog in { overlay: probe.OVERLAY_FILTER, guard: probe.GUARD_FILTER }) {
+for (let name, prog in { overlay: probe.OVERLAY_FILTER, guard: probe.GUARD_FILTER, watch: probe.WATCH_FILTER, lldp: probe.LLDP_FILTER }) {
 	let ok = true;
 	for (let i = 0; i < length(prog); i++)
 		if ((prog[i][0] & 0x07) == 0x05 && (i + 1 + prog[i][1] >= length(prog) || i + 1 + prog[i][2] >= length(prog)))

@@ -51,6 +51,36 @@ const GUARD_FILTER = [
 	[0x06, 0, 0, 0x40000],      //  5  keep
 ];
 
+// WATCH_FILTER keeps, of what comes in on the uplink, what tells which VLANs
+// reach the AP (0064): broadcasts and multicasts, which ARP, DHCP, OSPF,
+// mDNS and IPv6 neighbour discovery use, and frames to the AP's own MACs on
+// the VLANs (06:…, 0060), where the answers to a nudge come. Clients' unicast
+// traffic is not read.
+const WATCH_FILTER = [
+	[0x20, 0, 0, 0xfffff004],   //  0  A = packet type
+	[0x15, 4, 0, 4],            //  1  outgoing: drop
+	[0x30, 0, 0, 0],            //  2  A = the first byte of the destination
+	[0x45, 1, 0, 1],            //  3  a broadcast or multicast: keep
+	[0x15, 0, 1, 6],            //  4  one of the AP's VLAN MACs: keep; else drop
+	[0x06, 0, 0, 0x40000],      //  5  keep
+	[0x06, 0, 0, 0],            //  6  drop
+];
+
+// LLDP_FILTER keeps incoming LLDP frames: what the switch says of itself and
+// of the uplink's port (0064).
+const LLDP_FILTER = [
+	[0x20, 0, 0, 0xfffff004],   //  0  A = packet type
+	[0x15, 2, 0, 4],            //  1  outgoing: drop
+	[0x28, 0, 0, 12],           //  2  A = EtherType
+	[0x15, 1, 0, 0x88cc],       //  3  LLDP: keep
+	[0x06, 0, 0, 0],            //  4  drop
+	[0x06, 0, 0, 0x40000],      //  5  keep
+];
+
+// WATCH_SPAN is how long a watched VLAN may go unheard before it is silent,
+// in seconds: three of the prober's spells of listening (0064).
+const WATCH_SPAN = 180;
+
 function bytes(list) {
 	return join('', map(list, b => chr(b)));
 }
@@ -126,6 +156,14 @@ function ip6_text(s, at) {
 	if (best < 0)
 		return join(':', hx);
 	return join(':', slice(hx, 0, best)) + '::' + join(':', slice(hx, best + len));
+}
+
+// link_local is the IPv6 link-local address a MAC makes (EUI-64), which a
+// VLAN's nudge asks IPv6 all-nodes from (0064).
+function link_local(m) {
+	let b = mac(m);
+	return ip6_text(bytes([0xfe, 0x80, 0, 0, 0, 0, 0, 0, ord(b, 0) ^ 2, ord(b, 1), ord(b, 2), 0xff, 0xfe,
+		ord(b, 3), ord(b, 4), ord(b, 5)]), 0);
 }
 
 // checksum is the Internet checksum (RFC 1071).
@@ -222,6 +260,40 @@ function dhcp_reply(f, xid) {
 		type: type, address: ip4_text(f, b + 16), server: ip(54), router: ip(3), mask: ip(1),
 		lease: length(opts[51] ?? '') >= 4 ? get32(opts[51], 0) : null,
 	};
+}
+
+// lldp reads an LLDP frame (0064): the switch's chassis ID and name, its
+// port's ID and description, the port's native VLAN, and the VLANs it names,
+// from 802.1's VLAN Name TLVs. A chassis or port given by MAC reads as one;
+// any other ID, as its printable text. Null for any other frame.
+function lldp(f) {
+	if (length(f) < 16 || get16(f, 12) != 0x88cc)
+		return null;
+	let printable = (v) => substr(replace(v, /[^ -~]/g, ''), 0, 255);
+	let out = { chassis: null, system: null, port: null, port_description: null, native_vlan: null, vlans: [] };
+	for (let at = 14; at + 2 <= length(f); ) {
+		let h = get16(f, at), t = h >> 9, l = h & 0x1ff, v = substr(f, at + 2, l);
+		if (t == 0 || length(v) < l)
+			break;
+		if (t == 1 && l >= 2)
+			out.chassis = ord(v, 0) == 4 && l == 7 ? mac_text(v, 1) : printable(substr(v, 1));
+		else if (t == 2 && l >= 2)
+			out.port = ord(v, 0) == 3 && l == 7 ? mac_text(v, 1) : printable(substr(v, 1));
+		else if (t == 4)
+			out.port_description = printable(v);
+		else if (t == 5)
+			out.system = printable(v);
+		else if (t == 127 && l >= 6 && substr(v, 0, 3) == bytes([0x00, 0x80, 0xc2])) {
+			let id = get16(v, 4) & 0xfff;
+			if (ord(v, 3) == 1)
+				out.native_vlan = id || null;   // 0: the port has none
+			else if (ord(v, 3) == 3 && id && index(out.vlans, id) < 0)
+				push(out.vlans, id);
+		}
+		at += 2 + l;
+	}
+	out.vlans = sort(out.vlans, (a, b) => a - b);
+	return out;
 }
 
 // echo6 asks every IPv6 host on the segment (ff02::1) to answer, from the
@@ -368,11 +440,21 @@ function switch_step(n, now) {
 	return r;
 }
 
+// watch_verdict says whether a watched VLAN reaches the AP (0064), from w:
+// when the watch started, and when a frame last came in on the VLAN. It is
+// present if one came in within WATCH_SPAN; silent if none has for that
+// long; unknown while it hasn't been watched that long.
+function watch_verdict(w, now) {
+	if (w.heard != null && now - w.heard <= WATCH_SPAN)
+		return 'present';
+	return now - (w.heard ?? w.started) >= WATCH_SPAN ? 'silent' : 'unknown';
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	GUARD_DST, GUARD_TYPE, OVERLAY_FILTER, GUARD_FILTER,
+	GUARD_DST, GUARD_TYPE, OVERLAY_FILTER, GUARD_FILTER, WATCH_FILTER, LLDP_FILTER, WATCH_SPAN,
 	mac_text, ip6, ip6_text, checksum, segment_mac, arp_probe, dhcp, dhcp_reply, echo6, answer,
 	echo4, echo4_answer, echo6_plain, echo6_plain_answer,
-	guard_frame, guard_seen, verdict, switch_step
+	guard_frame, guard_seen, verdict, switch_step, link_local, lldp, watch_verdict
 };

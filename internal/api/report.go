@@ -179,12 +179,39 @@ type stateReport struct {
 	Uptime     int64                     `json:"uptime"`
 	OpenWrt    string                    `json:"openwrt,omitempty"`
 	Radios     []radioState              `json:"radios,omitempty"`
-	VLANs      []int                     `json:"vlans,omitempty"`
 	Transports map[string]transportState `json:"transports,omitempty"`
 	Steering   *steeringState            `json:"steering,omitempty"`
 	Ports      []portState               `json:"ports,omitempty"`
 	VXLAN      *vxlanState               `json:"vxlan,omitempty"`
 	VLANProbes []vlanProbe               `json:"vlan_probes,omitempty"`
+	// The VLANs the AP watches on its uplink, and the switch it is on (0064).
+	UplinkVLANs    []uplinkVLAN    `json:"uplink_vlans,omitempty"`
+	UplinkNeighbor *uplinkNeighbor `json:"uplink_neighbor,omitempty"`
+}
+
+// uplinkVLAN is a VLAN the AP carries on its uplink for its intent, and
+// whether it reaches the AP from the switch (0064): present, when a frame
+// came in on it within three minutes; silent, when none has for that long,
+// though nudged; unknown, before it has been watched that long.
+type uplinkVLAN struct {
+	VLAN     int    `json:"vlan"`
+	Tagged   bool   `json:"tagged"`
+	Verdict  string `json:"verdict"`
+	HeardAgo *int64 `json:"heard_ago"`
+}
+
+// uplinkNeighbor is what the switch's LLDP says of itself and of the port
+// the AP's uplink is on (0064): its chassis ID and name, the port's ID and
+// description, the port's native VLAN, the VLANs it names, and seconds
+// since it last said so.
+type uplinkNeighbor struct {
+	Chassis         string `json:"chassis,omitempty"`
+	System          string `json:"system,omitempty"`
+	Port            string `json:"port,omitempty"`
+	PortDescription string `json:"port_description,omitempty"`
+	NativeVLAN      int    `json:"native_vlan,omitempty"`
+	VLANs           []int  `json:"vlans,omitempty"`
+	Ago             int64  `json:"ago"`
 }
 
 // vlanProbe is what the prober found on a VLAN transport of a network with a
@@ -328,8 +355,10 @@ var (
 	verdicts = map[string]bool{"up": true, "down": true, "unverified": true, "unknown": true, "off": true}
 	bands    = map[string]bool{"2g": true, "5g": true, "6g": true}
 	actives  = map[string]bool{"primary": true, "fallback": true, "none": true}
-	sides    = map[string]bool{"primary": true, "fallback": true}
-	healths  = map[string]bool{"": true, "up": true, "down": true, "unknown": true, "unverified": true, "off": true}
+	// What the prober says of a VLAN watched on the uplink (0064).
+	watchVerdicts = map[string]bool{"present": true, "silent": true, "unknown": true}
+	sides         = map[string]bool{"primary": true, "fallback": true}
+	healths       = map[string]bool{"": true, "up": true, "down": true, "unknown": true, "unverified": true, "off": true}
 )
 
 func (st *stateReport) check() error {
@@ -352,13 +381,6 @@ func (st *stateReport) check() error {
 		if rd.Channel < 0 || rd.Width < 0 || rd.Clients < 0 {
 			return badRequest("radio numbers cannot be negative")
 		}
-	}
-	seen := map[int]bool{}
-	for _, v := range st.VLANs {
-		if v < 1 || v > 4094 || seen[v] {
-			return badRequest("vlans must be distinct IDs from 1 to 4094")
-		}
-		seen[v] = true
 	}
 	if len(st.Transports) > 64 {
 		return badRequest("at most 64 networks")
@@ -438,7 +460,45 @@ func (st *stateReport) check() error {
 			return err
 		}
 	}
+	if len(st.UplinkVLANs) > 64 {
+		return badRequest("at most 64 VLANs on the uplink")
+	}
+	seen := map[int]bool{}
+	for _, v := range st.UplinkVLANs {
+		if v.VLAN < 1 || v.VLAN > 4094 || seen[v.VLAN] || !watchVerdicts[v.Verdict] || (v.HeardAgo != nil && *v.HeardAgo < 0) {
+			return badRequest("uplink_vlans: each is a distinct VLAN from 1 to 4094, with its verdict (present, silent or unknown) and seconds since it was heard, not negative")
+		}
+		seen[v.VLAN] = true
+	}
+	if n := st.UplinkNeighbor; n != nil {
+		named := map[int]bool{}
+		for _, v := range n.VLANs {
+			if v < 1 || v > 4094 || named[v] {
+				return badRequest("uplink_neighbor: the VLANs it names are distinct, from 1 to 4094")
+			}
+			named[v] = true
+		}
+		for _, t := range []string{n.Chassis, n.System, n.Port, n.PortDescription} {
+			if len(t) > 255 || !printable(t) {
+				return badRequest("uplink_neighbor: its names are printable, and at most 255 characters")
+			}
+		}
+		if n.NativeVLAN < 0 || n.NativeVLAN > 4094 || n.Ago < 0 {
+			return badRequest("uplink_neighbor: a native VLAN from 1 to 4094, and seconds since it was heard, not negative")
+		}
+	}
 	return nil
+}
+
+// printable says whether s is printable ASCII, as the prober keeps the
+// switch's names (0064).
+func printable(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < ' ' || s[i] > '~' {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *probeState) check() error {
