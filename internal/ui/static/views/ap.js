@@ -3,7 +3,7 @@
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
-import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort } from '../format.js';
+import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort, dhcpWarnings } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, SUBTABS } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
@@ -65,7 +65,9 @@ export async function apPage(ctx, id, tab, sub) {
 // its loop guard took off its tunnels (0059); of a network carried by its
 // fallback, or that cannot switch to it (0061); and of a VLAN the AP carries
 // that doesn't reach it from the switch, with what needs it and the switch
-// port to look at (0064). The Tunnels, Networks and Ports views say more.
+// port to look at (0064); and of a network whose DHCP isn't answering, has
+// more than one server, or leaves a client with no address (0065). The
+// Tunnels, Networks and Ethernet views say more.
 function tunnelTrouble(cfg, base) {
 	const st = cfg.condition?.state;
 	const r = st?.report;
@@ -76,9 +78,10 @@ function tunnelTrouble(cfg, base) {
 	const ssid = (id) => cfg.document?.network?.[id]?.ssid || id;
 	const port = switchPort(r?.uplink_neighbor);
 	const vlans = (r?.uplink_vlans || []).map((v) => [v, uplinkJudgment(v, r.uplink_neighbor)[2]]).filter(([, says]) => says);
-	if (!down.length && !loops.length && !nets.length && !vlans.length) return null;
+	const dhcp = Object.entries(r?.dhcp || {}).sort().flatMap(([id, d]) => dhcpWarnings(ssid(id), d));
+	if (!down.length && !loops.length && !nets.length && !vlans.length && !dhcp.length) return null;
 	return h('div', { class: 'banner problems' },
-		h('strong', null, 'Its uplink or transports need a look'),
+		h('strong', null, 'Its uplink, transports or DHCP need a look'),
 		h('ul', null,
 			down.map((t) => h('li', null, `The tunnel to ${t.peer}, VNI ${t.vni}, is down: ${t.probe.underlay === false ? `${t.peer} cannot be reached` : `nothing on VNI ${t.vni} answers`}.`)),
 			loops.map((l) => h('li', null, `${l.port} is off its tunnels: VNI ${l.vni ?? '?'} loops.`)),
@@ -88,7 +91,8 @@ function tunnelTrouble(cfg, base) {
 			vlans.map(([v, says]) => {
 				const users = vlanUsers(cfg.document, v.vlan);
 				return h('li', null, `${says}.${users.length ? ` ${users.join(', ')} ${users.length === 1 ? 'needs' : 'need'} it.` : ''}${port ? ` The AP is on ${port}.` : ''}`);
-			})),
+			}),
+			dhcp.map((line) => h('li', null, line + '.'))),
 		h('div', null, link(`${base}/interfaces/tunnels`, 'Interfaces › Tunnels'), ' · ', link(`${base}/interfaces/ethernet`, 'Interfaces › Ethernet'), ' · ', link(`${base}/networks`, 'Networks')));
 }
 

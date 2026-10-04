@@ -690,8 +690,8 @@ function uplink_port() {
 // probe_news is what, of the prober's results, is worth a state report as
 // soon as it changes: each tunnel's verdict, where each network with a
 // fallback is and whether it cannot switch, whether each VLAN watched on the
-// uplink reaches the AP, the switch and port the uplink is on, and the
-// loops it found.
+// uplink reaches the AP, the switch and port the uplink is on, each
+// network's DHCP findings, and the loops it found.
 function probe_news() {
 	let p = probes();
 	if (!p)
@@ -703,6 +703,13 @@ function probe_news() {
 	let n = p.uplink?.neighbor;
 	if (n)
 		push(v, 'switch=' + (n.system ?? n.chassis ?? '') + '/' + (n.port ?? '') + '/' + join(' ', n.vlans ?? []));
+	// Each network's DHCP (0065): whether anything answers, how many servers
+	// answered one request, and which clients don't use DHCP.
+	for (let id in sort(keys(p.dhcp ?? {}))) {
+		let d = p.dhcp[id];
+		push(v, sprintf('dhcp:%s=%s/%d/%s', id, d.unanswered > 0 && !d.answered ? 'silent' : 'ok', length(d.duplicates ?? []) ? 2 : 1,
+			join(' ', sort(map(d.without ?? [], c => c.mac + (c.address ? '' : '!'))))));
+	}
 	let l = map(p.loops ?? [], x => x.port);
 	return join(',', v) + ';' + join(',', l);
 }
@@ -754,6 +761,10 @@ function state_report(running) {
 	let port = uplink_port();
 	if (port)
 		report.uplink_port = port;
+	// The clients' DHCP on each Aeolus network, as the prober found (0065).
+	let dhcp = probes()?.dhcp;
+	if (dhcp && length(keys(dhcp)))
+		report.dhcp = dhcp;
 	return report;
 }
 

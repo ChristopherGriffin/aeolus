@@ -9,7 +9,7 @@
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
-import { bandName, security, group, value, ago, secondsAgo, probeOnly, PROBE_ONLY } from '../format.js';
+import { bandName, security, group, value, ago, secondsAgo, probeOnly, PROBE_ONLY, dhcpWarnings } from '../format.js';
 import { fieldPanels, editing } from './fields.js';
 import { only, configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -49,6 +49,7 @@ export async function networksTab(ctx, id, page) {
 		addBox,
 		steeringStatus(ctx, reports),
 		transportsStatus(reports),
+		dhcpStatus(reports),
 	];
 }
 
@@ -331,6 +332,40 @@ function transportsStatus(reports) {
 		h('h2', null, 'Transports on each AP', h('span', { class: 'note' }, 'networks with a fallback, as each AP last reported')),
 		h('table', { class: 'list' },
 			h('tr', null, ['AP', 'Network', 'Carried by', 'Primary', 'Fallback', 'Reported'].map((c) => h('th', null, c))),
+			rows));
+}
+
+// dhcpStatus shows, for each network on each AP here, what its Wi-Fi
+// clients' DHCP looks like (0065): the servers that answer, the requests of
+// the last 10 minutes, answered or not, and the clients that don't use DHCP,
+// with the address each shows. A warning is in red.
+function dhcpStatus(reports) {
+	const rows = [];
+	for (const { ap, cfg } of reports) {
+		const st = cfg?.condition?.state;
+		for (const [id, d] of Object.entries(st?.report?.dhcp || {}).sort()) {
+			const name = cfg.document?.network?.[id]?.ssid || id;
+			const warn = dhcpWarnings(name, d);
+			const dup = new Set((d.duplicates || []).flatMap((x) => x.servers));
+			rows.push(h('tr', null,
+				h('td', null, rows.length === 0 || rows[rows.length - 1].dataset.ap !== ap.id ? link(`/aps/${encodeURIComponent(ap.id)}`, ap.name) : null),
+				h('td', null, name),
+				h('td', null, (d.servers || []).map((s) => h('div', null,
+					h('span', { class: 'chip ' + (dup.size > 1 && dup.has(s.id) ? 'bad' : 'ok'), title: `${s.answers} answers, last ${s.ago} s ago` }, s.id), ` ${s.mac}`))),
+				h('td', null, d.unanswered > 0 && !d.answered
+					? h('span', { class: 'chip bad' }, `none of ${d.unanswered} answered`)
+					: `${d.answered} answered${d.unanswered ? `, ${d.unanswered} not` : ''}`),
+				h('td', null, (d.without || []).map((c) => h('div', null,
+					h('span', { class: 'chip ' + (c.address ? 'idle' : 'bad') }, c.address ? `static ${c.address}` : 'no address'), ` ${c.mac}`))),
+				h('td', { title: warn.join('\n') }, ago(st.at))));
+			rows[rows.length - 1].dataset.ap = ap.id;
+		}
+	}
+	if (!rows.length) return null;
+	return h('section', { class: 'panel' },
+		h('h2', null, 'DHCP on each AP', h('span', { class: 'note' }, "its Wi-Fi clients' DHCP, as each AP last reported")),
+		h('table', { class: 'list' },
+			h('tr', null, ['AP', 'Network', 'Servers', 'Requests, 10 min', 'Without DHCP', 'Reported'].map((c) => h('th', null, c))),
 			rows));
 }
 

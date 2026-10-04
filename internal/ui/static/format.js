@@ -154,6 +154,25 @@ export function vlanUsers(doc, vlan) {
 	return out;
 }
 
+// dhcpWarnings says what is wrong with a network's DHCP on an AP (0065), one
+// line each: nothing answers its clients' requests; more than one server
+// answers them; clients joined and asked nothing, and show no address.
+export function dhcpWarnings(name, d) {
+	const out = [];
+	const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+	if (d.unanswered > 0 && !d.answered)
+		out.push(`On ${name}, DHCP isn't answering: ${plural(d.unanswered, 'request', 'requests')} from ${plural((d.unanswered_clients || []).length, 'client', 'clients')} in 10 minutes, none answered`);
+	const servers = [...new Set((d.duplicates || []).flatMap((x) => x.servers))];
+	if (servers.length > 1) {
+		const mac = (id) => (d.servers || []).find((s) => s.id === id)?.mac;
+		out.push(`On ${name}, ${servers.length} DHCP servers answer: ${servers.map((s) => mac(s) ? `${s} (${mac(s)})` : s).join(' and ')}`);
+	}
+	const stuck = (d.without || []).filter((c) => !c.address);
+	if (stuck.length)
+		out.push(`On ${name}, ${stuck.length === 1 ? 'a client has' : `${stuck.length} clients have`} no address: ${stuck.map((c) => c.mac).join(', ')} joined and asked nothing by DHCP`);
+	return out;
+}
+
 // switchPort names the switch and port an AP's uplink is on, as the switch's
 // LLDP says (0064), or null.
 export function switchPort(n) {
