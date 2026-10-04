@@ -11,6 +11,7 @@
 	"kept": ["network.aeolus_30", "network.aeolus_30_br", "network.aeolus_port_lan3_30"],
 	"gone": ["network.aeolus_port_lan4_30"],
 	"facts": {
+		"ap": "ap-a0046021365e",
 		"uplink": "wan",
 		"management": "lan",
 		"vxlan": true,

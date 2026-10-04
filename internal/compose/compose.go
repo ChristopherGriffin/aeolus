@@ -383,6 +383,19 @@ func tunnelProblems(doc map[string]any) []string {
 			out = append(out, fmt.Sprintf("VNI %d: it is network %s's fallback here, which waits until switching starts it, so port %s cannot carry it", v, fallbackOf[v], strings.Join(portsOn[v], " and ")))
 		}
 	}
+	// The AP's MAC on a segment ends in the VNI's last 16 bits above 9999,
+	// so two such VNIs that agree there would share one (0060).
+	byMAC := map[int]int{}
+	for _, v := range vnis {
+		if v <= 9999 {
+			continue
+		}
+		if other, ok := byMAC[v&0xffff]; ok {
+			out = append(out, fmt.Sprintf("VNI %d and VNI %d would give this AP one MAC on both segments: VNIs above 9999 must differ in their last 16 bits at an AP (0060)", other, v))
+			continue
+		}
+		byMAC[v&0xffff] = v
+	}
 	return out
 }
 

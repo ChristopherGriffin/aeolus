@@ -195,7 +195,8 @@ func TestStateReports(t *testing.T) {
 			// What the prober found (0059); what it does not know yet is null.
 			map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "up": true, "probe": map[string]any{
 				"verdict": "up", "interval": 30, "asks": []string{"192.168.50.1"}, "underlay": true, "underlay_ms": 0.4,
-				"from": "192.168.50.1", "rtt_ms": 0.8, "answered_ago": 12}},
+				"from": "192.168.50.1", "rtt_ms": 0.8, "answered_ago": 12,
+				"lease": map[string]any{"address": "192.168.50.6", "server": "192.168.50.254", "router": "192.168.50.1", "expires_in": 86000}}},
 			map[string]any{"vni": 60, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "up": true, "probe": map[string]any{
 				"verdict": "unknown", "interval": 30, "asks": []string{"ff02::1"}, "underlay": nil, "underlay_ms": nil,
 				"from": nil, "rtt_ms": nil, "answered_ago": nil}},
@@ -227,7 +228,9 @@ func TestStateReports(t *testing.T) {
 			"probe": map[string]any{"verdict": "up", "interval": 30, "from": "gateway"}}}}},
 		"rtt": {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789,
 			"probe": map[string]any{"verdict": "up", "interval": 30, "rtt_ms": -1}}}}},
-		"loop port":   {"version": 1, "vxlan": map[string]any{"loops": []any{map[string]any{"port": "LAN 3", "device": "lan3", "ago": 1}}}},
+		"loop port": {"version": 1, "vxlan": map[string]any{"loops": []any{map[string]any{"port": "LAN 3", "device": "lan3", "ago": 1}}}},
+		"lease": {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789,
+			"probe": map[string]any{"verdict": "up", "interval": 30, "lease": map[string]any{"address": "fe80::1", "expires_in": 10}}}}}},
 		"loop device": {"version": 1, "vxlan": map[string]any{"loops": []any{map[string]any{"port": "lan3", "device": "lan3; rm", "ago": 1}}}},
 	} {
 		if code, _, body := f.apDo("POST", "/v1/ap/state", token, bad, nil); code != 400 {
@@ -244,7 +247,8 @@ func TestStateReports(t *testing.T) {
 	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 3 || len(loops) != 1 {
 		t.Fatalf("condition = %v", cond)
 	}
-	if p, _ := tunnels[0].(map[string]any)["probe"].(map[string]any); p["verdict"] != "up" || p["from"] != "192.168.50.1" || p["rtt_ms"] != 0.8 {
+	if p, _ := tunnels[0].(map[string]any)["probe"].(map[string]any); p["verdict"] != "up" || p["from"] != "192.168.50.1" || p["rtt_ms"] != 0.8 ||
+		p["lease"].(map[string]any)["address"] != "192.168.50.6" {
 		t.Fatalf("probe = %v", p)
 	}
 }

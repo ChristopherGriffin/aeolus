@@ -29,7 +29,10 @@ type agentCase struct {
 	Stale   []string       `json:"stale"`
 	Kept    []string       `json:"kept"` // package.section
 	Gone    []string       `json:"gone"`
-	golden  string
+	Facts   struct {
+		AP string `json:"ap"` // the AP it renders for, whose segment MACs are checked (0060)
+	} `json:"facts"`
+	golden string
 }
 
 func agentCases(t *testing.T) []agentCase {
@@ -64,7 +67,7 @@ func TestAgentOutputPassesTheCheck(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		if p := Check(c.Intent, cfg); len(p) > 0 {
+		if p := CheckAP(c.Intent, cfg, c.Facts.AP); len(p) > 0 {
 			t.Errorf("%s: the check refuses the agent's output:\n%s", c.name, strings.Join(p, "\n"))
 		}
 		untouched(t, c, cfg)

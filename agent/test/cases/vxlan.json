@@ -2,6 +2,7 @@
 	"about": "PumphouseAP with VXLAN transports (0054) to the lab's Arista at 1.1.1.2: the lab network runs over VNI 50, with VLAN 20 as its fallback; the IoT network runs over VLAN 10, with VNI 10 as its fallback, rendered but not started. The MTU of 1450 needs the MSS clamp. The prober (0059) probes both tunnels every 20 seconds, asking 192.168.50.1 on VNI 50, and any IPv6 host on VNI 10.",
 	"current": "pumphouse-current.json",
 	"facts": {
+		"ap": "ap-a0046021365e",
 		"uplink": "wan",
 		"management": "lan",
 		"vxlan": true,

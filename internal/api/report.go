@@ -119,7 +119,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c apCall) error 
 		case err != nil:
 			check.Result, check.Problems = conditions.Refused, []string{"the UCI does not parse: " + err.Error()}
 		default:
-			check.Problems = rendercheck.Check(res.Doc, parsed)
+			check.Problems = rendercheck.CheckAP(res.Doc, parsed, string(c.ap))
 			check.Result = conditions.OK
 			if len(check.Problems) > 0 {
 				check.Result = conditions.Refused
@@ -226,6 +226,16 @@ type probeState struct {
 	From        string   `json:"from,omitempty"`
 	RTTMS       *float64 `json:"rtt_ms"`
 	AnsweredAgo *int64   `json:"answered_ago"`
+	Lease       *lease   `json:"lease,omitempty"`
+}
+
+// lease is the address the AP holds on a tunnel's segment, for its probes
+// (0060): who gave it, the gateway it names, and seconds until it ends.
+type lease struct {
+	Address   string `json:"address"`
+	Server    string `json:"server,omitempty"`
+	Router    string `json:"router,omitempty"`
+	ExpiresIn int64  `json:"expires_in"`
 }
 
 // loopState is a tunnel port the loop guard took off its tunnels (0059):
@@ -397,6 +407,12 @@ func (p *probeState) check() error {
 	for _, a := range p.Asks {
 		if net.ParseIP(a) == nil {
 			return badRequest("vxlan: a probe asks IP addresses")
+		}
+	}
+	if l := p.Lease; l != nil {
+		ip := func(s string, need bool) bool { return (s == "" && !need) || net.ParseIP(s).To4() != nil }
+		if !ip(l.Address, true) || !ip(l.Server, false) || !ip(l.Router, false) || l.ExpiresIn < 0 {
+			return badRequest("vxlan: a probe's lease is an IPv4 address, from a server and with a gateway that are IPv4 addresses, and seconds left that are not negative")
 		}
 	}
 	return nil

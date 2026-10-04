@@ -126,6 +126,7 @@ const (
 
 type checker struct {
 	c        *uci.Config
+	ap       string // the AP's ID, or "" to leave its segment MACs unchecked
 	problems []string
 	noNet    bool // "package network is missing" was said
 }
@@ -137,7 +138,13 @@ func (k *checker) add(format string, args ...any) {
 // Check returns every way the rendered UCI fails to carry the composed
 // config doc (compose.AP, secrets opened). It never quotes a secret.
 func Check(doc map[string]any, c *uci.Config) []string {
-	k := &checker{c: c}
+	return CheckAP(doc, c, "")
+}
+
+// CheckAP is Check for one AP, by its ID, from which it renders the MACs it
+// uses on the segments it probes (0060): those are checked too.
+func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
+	k := &checker{c: c, ap: ap}
 	radios := k.radios(doc)
 	k.radioSettings(doc, radios)
 	k.networks(doc, radios)
@@ -833,6 +840,29 @@ func (k *checker) tunnel(where, slot string, t, conc map[string]any) string {
 	return bridge
 }
 
+var apHex = regexp.MustCompile(`^ap-([0-9a-f]{12})$`)
+
+// SegmentMAC is the MAC an AP uses on one segment it probes (0060), made
+// from its ID ("ap-a0046021365e"): 02 for a VNI, its number in decimal
+// digits; 06 for a VLAN, the same; 0a for a VNI above 9999, its last 16
+// bits in hex. Between them, the last three bytes of the AP's own MAC. ""
+// for an ID that is not an AP's.
+func SegmentMAC(ap, kind string, n int) string {
+	m := apHex.FindStringSubmatch(ap)
+	if m == nil || n < 0 {
+		return ""
+	}
+	first, tail := "02", fmt.Sprintf("%04d", n)
+	switch {
+	case kind == "vlan":
+		first = "06"
+	case n > 9999:
+		first, tail = "0a", fmt.Sprintf("%04x", n&0xffff)
+	}
+	h := m[1]
+	return fmt.Sprintf("%s:%s:%s:%s:%s:%s", first, h[6:8], h[8:10], h[10:12], tail[:2], tail[2:])
+}
+
 // The tunnels Aeolus makes and their bridges, by name (0054).
 var (
 	tunnelSection = regexp.MustCompile(`^aeolus_([0-9]+)$`)
@@ -918,6 +948,16 @@ func (k *checker) probes(doc map[string]any) {
 		k.option(where, p, "interval", interval)
 		if got := p.List("address"); !sameSet(got, address) {
 			k.add("%s: probe addresses are %v, want %v", where, got, address)
+		}
+		// The AP's MAC on the segment: the probe's, for its lease, and the
+		// bridge's, so what answers it stays at the AP (0060).
+		if k.ap != "" {
+			n, _ := strconv.Atoi(m[1])
+			want := SegmentMAC(k.ap, "vni", n)
+			k.option(where, p, "mac", want)
+			if b := net.Named(s.Name + "_br"); b != nil {
+				k.option("network."+b.Name, b, "macaddr", want)
+			}
 		}
 	}
 

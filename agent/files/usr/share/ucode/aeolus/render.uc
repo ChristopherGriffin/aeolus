@@ -16,6 +16,7 @@
 'use strict';
 
 import { text } from 'aeolus.uciexport';
+import { segment_mac } from 'aeolus.probe';
 
 const PACKAGES = ['wireless', 'network', 'system', 'aeolus', 'usteer', 'snmpd', 'firewall'];
 
@@ -196,8 +197,13 @@ function tunnel(cfg, where, slot, t, conc, facts, errors, keep) {
 	put(n, name, 'interface', o);
 	let bridge = 'br-vx' + t.vni;
 	// Ports on the tunnel stay; ports() sets those it is told about (0058).
+	// The bridge takes the AP's MAC for the segment, so what answers the
+	// prober's DHCP and probes from it stays at the AP (0060).
 	let members = filter(list(n[name + '_br']?.ports), e => e != name);
-	put(n, name + '_br', 'device', { type: 'bridge', name: bridge, bridge_empty: 1, ports: [name, ...members] });
+	put(n, name + '_br', 'device', {
+		type: 'bridge', name: bridge, bridge_empty: 1, ports: [name, ...members],
+		macaddr: segment_mac(facts.ap, 'vni', t.vni),
+	});
 	keep[name] = keep[name + '_br'] = true;
 	let zone = filter(of_type(fw, 'zone'), z => index(list(z.network), facts.management) >= 0)[0];
 	if (zone)
@@ -393,12 +399,13 @@ function ports(cfg, intent, facts, errors, keep) {
 
 // probes renders the prober's plan (0059) into the agent's own package: for
 // each tunnel Aeolus made, a probe section named for it, aeolus_<VNI>, with
-// its tunnel's probe interval and the addresses on its segment to ask, from
-// every network and port that uses the VNI; and for each port on a tunnel,
+// its tunnel's probe interval, the addresses on its segment to ask, from
+// every network and port that uses the VNI, and the MAC the AP uses there,
+// for its lease (0060); and for each port on a tunnel,
 // a guard section, aeolus_guard_<port>, naming the devices the loop guard
 // sends on: the port itself, and its 802.1Q devices. Both come from the
 // network config as rendered, so a port left on a tunnel is guarded too.
-function probes(cfg, intent, keep) {
+function probes(cfg, intent, facts, keep) {
 	let n = cfg.network, a = cfg.aeolus;
 	let uses = {};
 	let use = (vni, conc, address) => {
@@ -431,6 +438,7 @@ function probes(cfg, intent, keep) {
 		let u = uses[vni] ?? { address: [] };
 		put(a, s['.name'], 'probe', {
 			vni: vni, interval: u.interval ?? 30, address: length(u.address) ? sort(u.address) : null,
+			mac: segment_mac(facts.ap, 'vni', vni),
 		});
 		keep[s['.name']] = true;
 	}
@@ -598,7 +606,8 @@ function clamp(network) {
 // AP reaches the manager through, radios: { <radio>: { htmodes } },
 // timezone: the POSIX string for intent's time zone, vxlan: whether netifd
 // has loaded the vxlan package, nft_bridge: whether kmod-nft-bridge is
-// installed, bss_transition: whether hostapd has 802.11v, null if not known }.
+// installed, bss_transition: whether hostapd has 802.11v, null if not known,
+// ap: the AP's ID, which its segment MACs are made from (0060) }.
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)
@@ -614,7 +623,7 @@ function render(intent, current, facts) {
 		for (let k in keys(pkg))
 			if (owned(k) && !keep[k])
 				delete pkg[k];
-	probes(cfg, intent, keep);
+	probes(cfg, intent, facts ?? {}, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
 			delete cfg.aeolus[k];

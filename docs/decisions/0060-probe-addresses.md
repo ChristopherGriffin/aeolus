@@ -48,3 +48,14 @@
 - **The probe's first answer waits for the lease.** Until then the prober asks from 0.0.0.0, as now.
 - **The tunnel's bridge changes its MAC once,** when this is applied. Its Wi-Fi clients don't notice; its IPv6 link-local address changes with it.
 
+
+## As built
+
+On OpenWrtnight, the prober run from the build on VNI 50, with no probe address set:
+
+- **It leased 192.168.50.8** from 192.168.50.254, gateway 192.168.50.1, within 2 seconds of starting, and asked the gateway from then on: `up`, answered in about 2 ms.
+- **On the wire,** its ARP probe went out from 02:21:36:5e:00:50 at 192.168.50.8, and the gateway answered to that MAC and address.
+- **A restart got the same address back,** since the MAC and client ID don't change. So the prober doesn't release on a restart, only when a tunnel goes or takes another MAC.
+- **A change to a tunnel's other probe settings keeps its lease:** with the interval changed from 5 to 6 seconds, no DHCP went out, and the lease ran on.
+- **Removing the tunnel sent one release** to 192.168.50.254.
+- **Nothing on the AP answers for the leased address.** The gateway learns it from the AP's own ARP probes, which is all the probes need.
