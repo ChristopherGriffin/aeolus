@@ -118,3 +118,23 @@
 - **Checking a VLAN before anything uses it,** by carrying it on the uplink alone, with no port or SSID. Untested: whether the AP then sees it.
 - **Moving a single-transport VLAN network's clients when its VLAN is missing.** That network has nowhere to go. Only the manager's warning helps.
 - **Setting the switch's VLANs.** Aeolus manages APs.
+
+## Lab checks
+
+On OpenWrtnight on 2026-10-04, with the new prober and probe.uc installed by hand and four watches added to its plan by hand. Afterwards the v0.29.0 prober and the plan as rendered were put back.
+
+- **VLANs 20 and 50,** which the AP carries and the switch sends, were present at the first spell, 5 seconds after the prober started.
+- **VLANs 30 and 999 turned silent three minutes in, to the second,** as nothing came in on them. The AP doesn't carry 30, and 999 is on neither side.
+  - At the next spell each got its nudge, tagged: a DHCP discover and an echo to IPv6 all-nodes.
+  - No ARP went out, rightly, as neither had a DHCP answer naming a gateway.
+- **LLDP:** with `lldp tlv transmit vlan-name` set on the Arista, the prober logged that the uplink is on homelab.symtus.com, port Ethernet6, which carries VLANs 1, 10, 20, 30, 50 and 1010. So the manager would judge 999 missing, and 30 quiet.
+- **The new agent's state report,** run read-only, carried `uplink_vlans` and `uplink_neighbor`, and its ports no longer listed a veth end.
+- **CPU,** in clock ticks over about 25 seconds:
+
+  | Prober | Ticks |
+  |---|---|
+  | v0.29.0 | 6 |
+  | the new one, watching VLANs 20 and 50 | 6 to 7 |
+  | the new one, with the two silent VLANs as well | 18 |
+
+  A silent VLAN keeps each spell open its full 10 seconds, reading the uplink's broadcasts, about half a percent of a core.

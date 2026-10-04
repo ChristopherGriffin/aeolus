@@ -237,6 +237,12 @@ config probe 'aeolus_60'
 	option interval '30'
 	option mac '02:21:36:5e:00:60'
 
+config watch 'aeolus_watch30'
+	option vlan '30'
+	option device 'wan'
+	option tagged '1'
+	option mac '06:21:36:5e:00:30'
+
 package usteer
 
 config usteer

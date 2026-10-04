@@ -177,6 +177,11 @@ config agent 'agent'
 	option uplink 'wan'
 	option poll '60'
 
+config watch 'aeolus_watch20'
+	option vlan '20'
+	option device 'wan'
+	option tagged '1'
+
 package usteer
 
 config usteer
