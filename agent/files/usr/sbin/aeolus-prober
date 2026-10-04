@@ -70,7 +70,7 @@ const SHUT = '/var/run/aeolus/shut.json';   // ports the loop guard took off the
 const GUARD_EVERY = 2;                       // seconds between loop guard frames
 const WRITE_EVERY = 5;                       // seconds between writes of the results
 const PLAN_EVERY = 10;                       // seconds between looks at the plan
-const STAY_GAP = 15;                         // seconds a client may be off the AP's radios and still be on the network
+const STAY_GAP = 15;                         // seconds from last seen on a network's radios to rejoining, for the same stay
 const ATTACH_EVERY = 2;                      // seconds between looks at the networks' bridges (0061)
 const SPELL_EVERY = 60;                      // seconds between spells of listening on the uplink (0064)
 const SPELL_MAX = 10;                        // seconds a spell lasts at most
@@ -838,9 +838,9 @@ function dhcp_net(id) {
 // signal, rates and data; and from hostapd, the 802.11 features each
 // supports (0067). On Aeolus's networks, a client that joined after the
 // watch began on its interface is watched for DHCP. One that moves between
-// the AP's radios on the network, or is off them for less than STAY_GAP, is
-// still there: it keeps its lease, and needn't ask again. One gone longer
-// starts afresh when it comes back. What a client said of itself is
+// the AP's radios on the network, or rejoins within STAY_GAP of when a scan
+// last saw it, is still there: it keeps its lease, and needn't ask again.
+// One that rejoins later starts afresh, even if no scan missed it. What a client said of itself is
 // forgotten an hour after it leaves.
 function dhcp_scan(at) {
 	let want = {}, nets = {}, all = [];
@@ -899,7 +899,7 @@ function dhcp_scan(at) {
 			if (!n || !w)
 				continue;
 			let joined = at - s.connected_time, c = n.clients[mac];
-			if (!c)
+			if (!c || joined - c.seen > STAY_GAP)
 				n.clients[mac] = c = { joined: joined, watched: joined >= w.started - 2, asked: null, address: null, said: null };
 			c.here = true;
 			c.seen = at;

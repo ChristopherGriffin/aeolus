@@ -75,7 +75,7 @@
   - requests are counted over 10 minutes;
   - servers and duplicates are remembered for an hour;
   - a client gets 60 seconds to ask.
-- **Moving between radios isn't joining** (v0.34.1). A client that moves between the AP's radios on one network, or is off them for no more than 15 seconds, keeps its lease and needn't ask again. Its stay is judged from when it first joined, and it isn't judged while off them. One gone longer is watched afresh when it comes back.
+- **Moving between radios isn't joining** (v0.34.1). A client that moves between the AP's radios on one network, or rejoins within 15 seconds of when a scan last saw it, keeps its lease and needn't ask again. Its stay is judged from when it first joined, and it isn't judged while off them. One that rejoins later is watched afresh, even if it was back before a scan missed it. The scans are 10 seconds apart, so a move of a second or two always counts as staying.
   - Found with Griff's phone on 2026-10-04 (0067): it joined Aeolus Lab on 5 GHz and got its lease, then moved to 2.4 GHz a minute later. v0.34.0 took the move for a new join and reported "asked nothing in 60 s, and uses 192.168.20.81": static.
   - A request is counted as since joining when it comes up to 2 seconds before the join as nl80211 gives it. That is to the second, and the client asks within a second of joining.
   - A client roaming in from another AP still looks static: this AP can't know it asked elsewhere. With more than one AP, the manager will need to look across them.
