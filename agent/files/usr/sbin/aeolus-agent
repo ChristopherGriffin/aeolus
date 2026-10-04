@@ -647,9 +647,31 @@ function vlan_probes() {
 	return length(out) ? slice(out, 0, 64) : null;
 }
 
+// uplink_state says which of the VLANs watched on the uplink reach the AP
+// from the switch, and what the switch's LLDP says of itself and of the
+// uplink's port (0064), as the prober found.
+function uplink_state() {
+	let u = probes()?.uplink;
+	let vlans = [];
+	for (let v in sort(keys(u?.vlans ?? {}), (a, b) => +a - +b)) {
+		let w = u.vlans[v];
+		push(vlans, { vlan: int(v), tagged: !!w.tagged, verdict: w.verdict, heard_ago: w.heard_ago });
+	}
+	let n = u?.neighbor;
+	return {
+		vlans: length(vlans) ? slice(vlans, 0, 64) : null,
+		neighbor: n ? {
+			chassis: n.chassis, system: n.system, port: n.port, port_description: n.port_description,
+			native_vlan: n.native_vlan, vlans: slice(n.vlans ?? [], 0, 4094), ago: n.ago,
+		} : null,
+	};
+}
+
 // probe_news is what, of the prober's results, is worth a state report as
 // soon as it changes: each tunnel's verdict, where each network with a
-// fallback is and whether it cannot switch, and the loops it found.
+// fallback is and whether it cannot switch, whether each VLAN watched on the
+// uplink reaches the AP, the switch and port the uplink is on, and the
+// loops it found.
 function probe_news() {
 	let p = probes();
 	if (!p)
@@ -657,6 +679,10 @@ function probe_news() {
 	let v = map(sort(keys(p.tunnels ?? {})), k => k + '=' + p.tunnels[k].verdict);
 	push(v, ...map(sort(keys(p.vlans ?? {})), k => 'vlan' + k + '=' + p.vlans[k].verdict));
 	push(v, ...map(sort(keys(p.switches ?? {})), k => k + ':' + p.switches[k].active + (p.switches[k].cannot ? '!' : '')));
+	push(v, ...map(sort(keys(p.uplink?.vlans ?? {})), k => 'uplink' + k + '=' + p.uplink.vlans[k].verdict));
+	let n = p.uplink?.neighbor;
+	if (n)
+		push(v, 'switch=' + (n.system ?? n.chassis ?? '') + '/' + (n.port ?? '') + '/' + join(' ', n.vlans ?? []));
 	let l = map(p.loops ?? [], x => x.port);
 	return join(',', v) + ';' + join(',', l);
 }
@@ -699,6 +725,12 @@ function state_report(running) {
 		report.transports = tr;
 	if (vp)
 		report.vlan_probes = vp;
+	// The VLANs watched on the uplink, and its switch (0064).
+	let up = uplink_state();
+	if (up.vlans)
+		report.uplink_vlans = up.vlans;
+	if (up.neighbor)
+		report.uplink_neighbor = up.neighbor;
 	return report;
 }
 

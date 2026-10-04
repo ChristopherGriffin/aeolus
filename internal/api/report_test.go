@@ -185,7 +185,14 @@ func TestStateReports(t *testing.T) {
 	report := map[string]any{
 		"version": version, "uptime": 3600, "openwrt": "25.12.5",
 		"radios": []any{map[string]any{"radio": "radio1", "band": "5g", "channel": 36, "width": 40, "clients": 3}},
-		"vlans":  []int{1, 20, 30},
+		// The VLANs watched on the uplink, and the switch it is on (0064).
+		"uplink_vlans": []any{
+			map[string]any{"vlan": 20, "tagged": true, "verdict": "present", "heard_ago": 12},
+			map[string]any{"vlan": 30, "tagged": true, "verdict": "silent", "heard_ago": nil},
+			map[string]any{"vlan": 50, "tagged": true, "verdict": "unknown", "heard_ago": nil},
+		},
+		"uplink_neighbor": map[string]any{"chassis": "28:e7:1d:ca:29:13", "system": "homelab.symtus.com", "port": "Ethernet6",
+			"port_description": "Pumphouse OpenWrt", "native_vlan": 1, "vlans": []int{1, 10, 20, 50, 1010}, "ago": 14},
 		"transports": map[string]any{"sweet": map[string]any{"active": "primary", "primary": "up", "fallback": "unverified"},
 			// With automatic switching: its last switch, and why it cannot switch now (0061).
 			"lab": map[string]any{"active": "fallback", "primary": "down", "fallback": "up",
@@ -216,13 +223,18 @@ func TestStateReports(t *testing.T) {
 		t.Fatalf("state: %d %v", code, body)
 	}
 	for name, bad := range map[string]map[string]any{
-		"band":     {"version": 1, "radios": []any{map[string]any{"radio": "r", "band": "60g"}}},
-		"vlan":     {"version": 1, "vlans": []int{5000}},
-		"repeat":   {"version": 1, "vlans": []int{20, 20}},
-		"active":   {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
-		"network":  {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},
-		"unknown":  {"version": 1, "temperature": 40},
-		"negative": {"version": -1},
+		"band":        {"version": 1, "radios": []any{map[string]any{"radio": "r", "band": "60g"}}},
+		"vlan":        {"version": 1, "uplink_vlans": []any{map[string]any{"vlan": 5000, "verdict": "present"}}},
+		"repeat":      {"version": 1, "uplink_vlans": []any{map[string]any{"vlan": 20, "verdict": "present"}, map[string]any{"vlan": 20, "verdict": "silent"}}},
+		"watch":       {"version": 1, "uplink_vlans": []any{map[string]any{"vlan": 20, "verdict": "missing"}}},
+		"heard":       {"version": 1, "uplink_vlans": []any{map[string]any{"vlan": 20, "verdict": "present", "heard_ago": -1}}},
+		"named":       {"version": 1, "uplink_neighbor": map[string]any{"system": "homelab", "vlans": []int{20, 20}}},
+		"switch name": {"version": 1, "uplink_neighbor": map[string]any{"system": "home\nlab"}},
+		"old vlans":   {"version": 1, "vlans": []int{20}},
+		"active":      {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
+		"network":     {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},
+		"unknown":     {"version": 1, "temperature": 40},
+		"negative":    {"version": -1},
 		"steering": {"version": 1, "steering": map[string]any{"installed": true, "running": true, "interval": 30000,
 			"bss": []any{map[string]any{"ssid": "Sweet Spot", "band": "60g", "clients": 1}}}},
 		"steered": {"version": 1, "steering": map[string]any{"installed": true, "bss": []any{map[string]any{"ssid": "x", "band": "5g", "steered_in": -1}}}},
@@ -264,7 +276,7 @@ func TestStateReports(t *testing.T) {
 	ports, _ := state["ports"].([]any)
 	tunnels, _ := state["vxlan"].(map[string]any)["tunnels"].([]any)
 	loops, _ := state["vxlan"].(map[string]any)["loops"].([]any)
-	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 3 || len(loops) != 1 {
+	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["uplink_vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 3 || len(loops) != 1 {
 		t.Fatalf("condition = %v", cond)
 	}
 	if p, _ := tunnels[0].(map[string]any)["probe"].(map[string]any); p["verdict"] != "up" || p["from"] != "192.168.50.1" || p["rtt_ms"] != 0.8 ||

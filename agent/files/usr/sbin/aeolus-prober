@@ -20,6 +20,10 @@
 // network's bridge: the primary, or in automatic mode, the fallback while
 // the primary is down, by the probes' verdicts.
 //
+// It tells which of the VLANs the AP carries reach it from the switch (0064):
+// once a minute it listens on the uplink until a frame has come in on each,
+// and nudges one that stays quiet. It reads the switch's LLDP too.
+//
 // Its plan is the agent's own UCI package, as the renderer made it: probe
 // and guard sections. What it finds goes to /var/run/aeolus/probes.json,
 // which the agent reports. procd runs it beside the agent.
@@ -53,6 +57,8 @@ const GUARD_EVERY = 2;                       // seconds between loop guard frame
 const WRITE_EVERY = 5;                       // seconds between writes of the results
 const PLAN_EVERY = 10;                       // seconds between looks at the plan
 const ATTACH_EVERY = 2;                      // seconds between looks at the networks' bridges (0061)
+const SPELL_EVERY = 60;                      // seconds between spells of listening on the uplink (0064)
+const SPELL_MAX = 10;                        // seconds a spell lasts at most
 
 // A socket can wake the poll with an error and nothing to read. A read
 // reports the error and clears it; unread, the poll would return at once,
@@ -195,7 +201,14 @@ function plan() {
 			probes: { primary: key('primary'), fallback: key('fallback') },
 		};
 	});
-	return { tunnels: tunnels, guards: guards, switches: switches };
+	// The VLANs the AP watches on its uplink (0064), and the uplink, whose
+	// LLDP it reads.
+	let watches = {};
+	c.foreach('aeolus', 'watch', s => {
+		if (s.vlan && s.device)
+			watches['' + s.vlan] = { vlan: +s.vlan, device: s.device, tagged: s.tagged == '1', mac: s.mac };
+	});
+	return { tunnels: tunnels, guards: guards, switches: switches, watches: watches, uplink: c.get('aeolus', 'agent', 'uplink') };
 }
 
 let tun = {};      // VNI, or vlan and the VLAN -> { plan, sock, index, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
@@ -205,6 +218,20 @@ let guards = {};   // port -> { plan, devices: [{ name, sock, index, mac }], nex
 let loops = {};    // port -> { port, device, vni, came_in, at }
 let raws = {};     // "4" or "6", and the device it is bound to -> { sock, six, start }
 let guard_rx = null;
+// The uplink (0064): the VLANs watched there -> { plan, started, heard,
+// heard_now, quiet, gateway, xid, seq, said }; the socket of a spell of
+// listening and when it ends; when the next is due; the LLDP socket, and
+// what the switch last said.
+let watch = { uplink: null, vlans: {}, sock: null, until: 0, next: 0, lldp: null, neighbor: null };
+
+// heard notes that a frame came in on a watched VLAN (0064).
+function heard(vlan, at) {
+	let w = vlan != null ? watch.vlans['' + vlan] : null;
+	if (w) {
+		w.heard = at;
+		w.heard_now = true;
+	}
+}
 
 // peer_key names a tunnel's concentrator as it is pinged: by its address,
 // and the device it is pinged from when the tunnel starts from a VLAN.
@@ -266,12 +293,17 @@ function release(port) {
 	save_shut();
 }
 
-// tx sends a frame on a probe's socket. On the uplink, a VLAN probe's
-// frame carries the VLAN's tag where the uplink carries it tagged (0061).
+// with_tag gives a frame sent on the uplink for a VLAN the VLAN's tag, where
+// the uplink carries it tagged (0061, 0064). p: { vlan, tagged }.
+function with_tag(frame, p) {
+	if (!p.vlan || !p.tagged)
+		return frame;
+	return substr(frame, 0, 12) + chr(0x81, 0x00, (p.vlan >> 8) & 0x0f, p.vlan & 0xff) + substr(frame, 12);
+}
+
+// tx sends a frame on a probe's socket, tagged as with_tag says.
 function tx(t, frame) {
-	if (t.plan.vlan && t.plan.tagged)
-		frame = substr(frame, 0, 12) + chr(0x81, 0x00, (t.plan.vlan >> 8) & 0x0f, t.plan.vlan & 0xff) + substr(frame, 12);
-	return t.sock.send(frame);
+	return t.sock.send(with_tag(frame, t.plan));
 }
 
 // rx reads the next frame for a probe, or null. A VLAN probe's socket on the
@@ -350,6 +382,20 @@ function apply_plan(p) {
 			release(port);
 	for (let port, g in p.guards)
 		guards[port] ??= { plan: g, devices: [], next: now() };
+	// The VLANs watched on the uplink (0064): one whose settings change is
+	// watched afresh. A new uplink gets new sockets.
+	for (let v in keys(watch.vlans))
+		if (sprintf('%J', watch.vlans[v].plan) != sprintf('%J', p.watches?.[v]))
+			delete watch.vlans[v];
+	for (let v, w in p.watches ?? {})
+		watch.vlans[v] ??= { plan: w, started: now(), heard: null, heard_now: false, quiet: false, gateway: null, xid: xid(), seq: 0, said: null };
+	if (p.uplink != watch.uplink) {
+		close(watch.sock);
+		close(watch.lldp);
+		watch.sock = watch.lldp = watch.neighbor = null;
+		watch.uplink = p.uplink;
+		watch.next = 0;
+	}
 	if (length(guards) && !guard_rx)
 		guard_rx = packet(null, probe.GUARD_FILTER);
 	else if (!length(guards) && guard_rx) {
@@ -424,6 +470,7 @@ function dhcp_tick(t, at) {
 function dhcp_answer(t, r) {
 	let d = t.dhcp, at = now();
 	t.answered = at;
+	heard(t.plan.vlan, at);
 	t.from = r.server ?? t.from;
 	if (r.type == 'offer' && !d.lease && d.state != 'requesting') {
 		d.state = 'requesting';
@@ -516,6 +563,7 @@ function on_tunnel(t) {
 		let at = now();
 		t.answered = at;
 		t.from = a.from;
+		heard(t.plan.vlan, at);
 		if (t.sent[a.key] != null) {
 			t.rtt = (at - t.sent[a.key]) * 1000;
 			delete t.sent[a.key];
@@ -670,6 +718,89 @@ function attach() {
 	}
 }
 
+// spell_begin opens the uplink for a spell of listening (0064), and nudges
+// each VLAN that wasn't heard in the last one, from its own MAC: a DHCP
+// discover, an ARP to the gateway its last DHCP answer named, and an echo to
+// IPv6 all-nodes. An answer comes in on the VLAN, and so is heard.
+function spell_begin(at) {
+	watch.next = at + SPELL_EVERY;
+	watch.sock = packet(watch.uplink, probe.WATCH_FILTER);
+	if (!watch.sock)
+		return;
+	watch.sock.setopt(socket.SOL_PACKET, socket.PACKET_AUXDATA, 1);
+	watch.until = at + SPELL_MAX;
+	for (let v, w in watch.vlans) {
+		w.heard_now = false;
+		if (!w.quiet || !w.plan.mac)
+			continue;
+		let send = f => watch.sock.send(with_tag(f, w.plan));
+		w.xid = xid();
+		send(probe.dhcp(w.plan.mac, 'discover', w.xid, { host: substr(`${HOST}-vlan${w.plan.vlan}`, 0, 63) }));
+		if (w.gateway)
+			send(probe.arp_probe(w.plan.mac, w.gateway));
+		w.seq = (w.seq + 1) & 0xffff;
+		send(probe.echo6(w.plan.mac, probe.link_local(w.plan.mac), ID, w.seq));
+	}
+}
+
+// spell_end closes the uplink after a spell. A VLAN not heard in it is
+// nudged in the next.
+function spell_end() {
+	close(watch.sock);
+	watch.sock = null;
+	for (let v, w in watch.vlans)
+		w.quiet = !w.heard_now;
+}
+
+// on_watch reads what came in on the uplink in a spell: the VLAN each frame
+// came in on, from its tag (PACKET_AUXDATA), or for one without, the VLAN
+// the uplink carries untagged; and the gateway a nudge's DHCP answer names.
+// Once every VLAN has been heard, the spell ends.
+function on_watch(at) {
+	let native = null;
+	for (let v, w in watch.vlans)
+		if (!w.plan.tagged)
+			native = v;
+	let m;
+	while ((m = watch.sock.recvmsg(2048, 256, socket.MSG_DONTWAIT)) != null) {
+		let aux = filter(m.ancillary ?? [], x => x.type == socket.PACKET_AUXDATA)[0]?.data;
+		let vid = aux != null && (aux.status & 0x10) ? aux.vlan_tci & 0xfff : 0;
+		let w = watch.vlans[vid ? '' + vid : native ?? ''];
+		if (!w)
+			continue;
+		heard(w.plan.vlan, at);
+		let r = probe.dhcp_reply(m.data, w.xid);
+		if (r?.router)
+			w.gateway = r.router;
+	}
+	if (!length(filter(keys(watch.vlans), v => !watch.vlans[v].heard_now)))
+		spell_end();
+}
+
+// open_lldp opens the socket the switch's LLDP comes in on (0064). It is
+// tried again at each look at the plan.
+function open_lldp() {
+	if (watch.uplink && !watch.lldp)
+		watch.lldp = packet(watch.uplink, probe.LLDP_FILTER);
+}
+
+// on_lldp keeps what the switch's LLDP says of itself and of the uplink's
+// port (0064), and logs a new switch, port or list of VLANs.
+function on_lldp(at) {
+	let f;
+	while ((f = watch.lldp.recv(2048, socket.MSG_DONTWAIT)) != null) {
+		let l = probe.lldp(f);
+		if (!l)
+			continue;
+		let was = watch.neighbor;
+		if (was?.system != l.system || was?.port != l.port || join(' ', was?.vlans ?? []) != join(' ', l.vlans))
+			log('the uplink %s is on %s, port %s%s', watch.uplink, l.system ?? l.chassis ?? '?', l.port ?? '?',
+				length(l.vlans) ? `, which carries VLANs ${join(' ', l.vlans)}` : '');
+		l.at = at;
+		watch.neighbor = l;
+	}
+}
+
 function send_guard(port, g, at) {
 	for (let i = 0; i < length(g.plan.devices); i++) {
 		let name = g.plan.devices[i];
@@ -760,7 +891,26 @@ function results(at) {
 		let l = loops[k];
 		return { port: l.port, device: l.device, vni: l.vni, came_in: l.came_in, ago: int(at - l.at) };
 	});
-	store(out, sprintf('%J\n', { at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp }));
+	// The VLANs watched on the uplink, and what the switch says of it (0064).
+	// A switch silent for 10 minutes is forgotten.
+	let uv = {};
+	for (let v, w in watch.vlans) {
+		let verdict = probe.watch_verdict(w, at);
+		if (verdict != w.said && w.said != null) {
+			let how = verdict == 'silent' ? note : log;
+			how('VLAN %d on the uplink: %s, was %s', w.plan.vlan, verdict, w.said);
+		}
+		w.said = verdict;
+		uv[v] = { tagged: w.plan.tagged, verdict: verdict, heard_ago: w.heard != null ? int(at - w.heard) : null };
+	}
+	if (watch.neighbor && at - watch.neighbor.at > 600)
+		watch.neighbor = null;
+	let nb = watch.neighbor;
+	let uplink = { vlans: uv, neighbor: nb ? {
+		chassis: nb.chassis, system: nb.system, port: nb.port, port_description: nb.port_description,
+		native_vlan: nb.native_vlan, vlans: nb.vlans, ago: int(at - nb.at),
+	} : null };
+	store(out, sprintf('%J\n', { at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp, uplink: uplink }));
 }
 
 function main() {
@@ -780,7 +930,8 @@ function main() {
 	fs.unlink(SHUT);
 	let p = plan(), sig = sprintf('%J', p);
 	apply_plan(p);
-	log('probing %d tunnels, guarding %d ports', length(keys(tun)), length(keys(guards)));
+	open_lldp();
+	log('probing %d tunnels, guarding %d ports, watching %d VLANs on the uplink', length(keys(tun)), length(keys(guards)), length(keys(watch.vlans)));
 	let next_plan = now() + PLAN_EVERY, next_write = now(), next_attach = now();
 	// The agent sends a SIGHUP when it has applied a config, so the plan,
 	// and a network's bridge made again, are taken up at once (0061).
@@ -793,8 +944,9 @@ function main() {
 			if (s != sig) {
 				apply_plan(p);
 				sig = s;
-				log('the plan changed: probing %d tunnels, guarding %d ports', length(keys(tun)), length(keys(guards)));
+				log('the plan changed: probing %d tunnels, guarding %d ports, watching %d VLANs on the uplink', length(keys(tun)), length(keys(guards)), length(keys(watch.vlans)));
 			}
+			open_lldp();
 			next_plan = at + PLAN_EVERY;
 		}
 		for (let vni, t in tun)
@@ -817,6 +969,10 @@ function main() {
 			attach();
 			next_attach = at + ATTACH_EVERY;
 		}
+		if (length(watch.vlans) && !watch.sock && at >= watch.next)
+			spell_begin(at);
+		else if (watch.sock && at >= watch.until)
+			spell_end();
 		if (at >= next_write) {
 			results(at);
 			next_write = at + WRITE_EVERY;
@@ -830,6 +986,8 @@ function main() {
 		for (let port, g in guards)
 			if (!loops[port])
 				due = min(due, g.next);
+		if (length(watch.vlans))
+			due = min(due, watch.sock ? watch.until : watch.next);
 		let wait = max(10, min(1000, int((due - now()) * 1000)));
 		// What each socket is, by its descriptor: a tunnel, the underlay's
 		// pings, or the loop guard.
@@ -847,6 +1005,9 @@ function main() {
 		}
 		if (guard_rx)
 			push(polls, [guard_rx, socket.POLLIN]);
+		for (let s in [watch.sock, watch.lldp])
+			if (s)
+				push(polls, [s, socket.POLLIN]);
 		if (!length(polls)) {
 			sleep(wait);
 			continue;
@@ -869,6 +1030,17 @@ function main() {
 				on_raw(raws[by_raw[fd]]);
 			else if (guard_rx && fd == guard_rx.fileno())
 				on_guard();
+			else if (watch.sock && fd == watch.sock.fileno())
+				on_watch(now());
+			else if (watch.lldp && fd == watch.lldp.fileno()) {
+				on_lldp(now());
+				// The uplink went away or down: the socket is opened again at
+				// the next look at the plan.
+				if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
+					close(watch.lldp);
+					watch.lldp = null;
+				}
+			}
 		}
 	}
 }

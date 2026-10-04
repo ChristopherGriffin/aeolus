@@ -41,12 +41,13 @@
 
 ### Which VLANs
 
-- **Each VLAN the AP's intent needs on its uplink is watched,** but for the management VLAN, which the agent reaches the manager on:
+- **Each VLAN the AP's intent needs on its uplink is watched:**
   - a network's VLAN transport, primary or fallback;
-  - a port's VLANs: an access port's, and a trunk's untagged and tagged ones;
+  - a port's VLANs on this AP: an access port's, and a trunk's untagged and tagged ones;
   - the VLAN a tunnel starts from (0063).
-- The AP's own networks, which Aeolus doesn't manage, are not watched (VLAN 10 in the lab).
-- The renderer writes the list into the prober's plan.
+- **The management VLAN gets no exception.** The render check can't tell which it is. It is watched only when the intent puts something on it, and it is always heard.
+- **The AP's own networks, which Aeolus doesn't manage, are not watched** (VLAN 10 in the lab).
+- **The renderer writes the list into the prober's plan:** a `watch` section, `aeolus_watch<N>`, for each VLAN the uplink carries. It says whether the VLAN is tagged there, and the AP's MAC on it (0060).
 
 ### How the AP tells
 
@@ -98,7 +99,7 @@
 
 - **A warning, not a hold.** A missing VLAN is a fault on the switch, not in the AP's config, so the config is sent as before.
   - The AP's overview warns, one line for each such VLAN. The line says which VLAN, who needs it (the networks, ports and tunnels), and, from LLDP, which switch port to look at.
-  - Interfaces › Ports shows the uplink's VLANs with their judgment, and its neighbour.
+  - Interfaces › Ethernet shows, on the uplink's row, its neighbour and each VLAN's judgment.
 
 ## Consequences
 

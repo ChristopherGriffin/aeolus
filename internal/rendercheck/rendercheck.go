@@ -1288,13 +1288,105 @@ func (k *checker) probes(doc map[string]any) {
 	for _, name := range k.plans {
 		expected[name] = true
 	}
+	for _, name := range k.watches(doc, uplink) {
+		expected[name] = true
+	}
 	if a != nil {
 		for _, s := range a.Sections {
 			if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {
-				k.add("aeolus.%s: no tunnel, tunnel port or network with a fallback calls for it", s.Name)
+				k.add("aeolus.%s: no tunnel, tunnel port, network with a fallback or VLAN on the uplink calls for it", s.Name)
 			}
 		}
 	}
+}
+
+// watches checks the VLANs the prober watches on the uplink (0064): a watch
+// section for each VLAN the intent needs there, for a network's VLAN
+// transport, a port's VLANs on this AP, or a tunnel's start (0063), as the
+// uplink carries it, tagged or not, with the AP's MAC on the VLAN. A VLAN the
+// uplink doesn't carry is the other checks' to report. It returns the
+// sections it expects.
+func (k *checker) watches(doc map[string]any, uplink string) []string {
+	net := k.c.Package("network")
+	var up *uci.Section
+	for _, d := range net.OfType("device") {
+		if uplink != "" && value(d, "type") == "bridge" && slices.Contains(d.List("ports"), uplink) {
+			up = d
+		}
+	}
+	if up == nil {
+		return nil
+	}
+	need := map[int]bool{}
+	for _, id := range keys(obj(doc, "network")) {
+		n := obj(obj(doc, "network"), id)
+		if n["enabled"] == false {
+			continue
+		}
+		for _, slot := range []string{"primary", "fallback"} {
+			if t := obj(obj(n, "transport"), slot); t["type"] == "vlan" {
+				if v, ok := t["vlan"].(float64); ok {
+					need[int(v)] = true
+				}
+			}
+		}
+	}
+	for _, p := range keys(obj(doc, "ports")) {
+		set := obj(obj(doc, "ports"), p)
+		if mode := set["mode"]; mode != "access" && mode != "trunk" || p == uplink || !slices.Contains(up.List("ports"), p) {
+			continue
+		}
+		if v, ok := set["untagged"].(float64); ok && v > 0 {
+			need[int(v)] = true
+		}
+		if set["mode"] == "trunk" {
+			for _, v := range asSlice(set["tagged"]) {
+				if v, ok := v.(float64); ok {
+					need[int(v)] = true
+				}
+			}
+		}
+	}
+	for _, s := range net.OfType("interface") {
+		if startSection.MatchString(s.Name) {
+			v, _ := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(s.Name, "aeolus_vlan"), "_tunnels"))
+			need[v] = true
+		}
+	}
+	a := k.c.Package("aeolus")
+	var names []string
+	for _, v := range slices.Sorted(maps.Keys(need)) {
+		vlan := strconv.Itoa(v)
+		entry, carried := "", false
+		for _, bv := range net.OfType("bridge-vlan") {
+			if value(bv, "device") != value(up, "name") || value(bv, "vlan") != vlan {
+				continue
+			}
+			for _, e := range bv.List("ports") {
+				if port, flags, _ := strings.Cut(e, ":"); port == uplink {
+					entry, carried = flags, true
+				}
+			}
+		}
+		if !carried {
+			continue
+		}
+		name := "aeolus_watch" + vlan
+		names = append(names, name)
+		where := "aeolus." + name
+		w := a.Named(name)
+		if w == nil || w.Type != "watch" {
+			k.add("%s: no watch for VLAN %d, which the AP carries on its uplink for the intent; the prober tells from it whether the VLAN reaches the AP (0064)", where, v)
+			continue
+		}
+		k.option(where, w, "vlan", vlan)
+		k.option(where, w, "device", uplink)
+		k.option(where, w, "tagged", map[bool]string{false: "0", true: "1"}[strings.Contains(entry, "t")])
+		if k.ap != "" {
+			k.option(where, w, "mac", SegmentMAC(k.ap, "vlan", v))
+		}
+	}
+	return names
 }
 
 func (k *checker) system(sys map[string]any) {

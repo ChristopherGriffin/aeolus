@@ -127,6 +127,40 @@ export function probeOnly(paths) {
 	return paths.length > 0 && paths.every((p) => /\.(probe|probe_interval)$|\.transport\.(switching|failback|holddown)$/.test(p));
 }
 
+// uplinkJudgment says what a VLAN watched on an AP's uplink means (0064),
+// with the VLANs the switch's LLDP names, if it names any: [chip class,
+// word, what to tell, or null when all is well].
+export function uplinkJudgment(v, neighbor) {
+	if (v.verdict === 'present') return ['ok', 'present', null];
+	if (v.verdict !== 'silent') return ['idle', 'watching', null];
+	const named = neighbor?.vlans?.length ? neighbor.vlans : null;
+	if (named && !named.includes(v.vlan)) return ['bad', 'missing', `The switch port doesn't carry VLAN ${v.vlan}`];
+	if (named) return ['warn', 'quiet', `The switch port carries VLAN ${v.vlan}, but nothing on it answers`];
+	return ['bad', 'silent', `Nothing comes in on VLAN ${v.vlan}: it most likely isn't on the switch port`];
+}
+
+// vlanUsers names what needs a VLAN in an AP's config (0064): its networks,
+// by SSID, its ports and its tunnels.
+export function vlanUsers(doc, vlan) {
+	const out = [];
+	for (const [id, n] of Object.entries(doc?.network || {}))
+		if (n.enabled !== false && ['primary', 'fallback'].some((s) => n.transport?.[s]?.type === 'vlan' && n.transport[s].vlan === vlan))
+			out.push(n.ssid || id);
+	for (const [p, set] of Object.entries(doc?.ports || {}))
+		if ((set.mode === 'access' || set.mode === 'trunk') && (set.untagged === vlan || (set.mode === 'trunk' && (set.tagged || []).includes(vlan))))
+			out.push(p);
+	for (const [id, c] of Object.entries(doc?.concentrators || {}))
+		if (c.underlay_vlan === vlan) out.push(`tunnel ${id}`);
+	return out;
+}
+
+// switchPort names the switch and port an AP's uplink is on, as the switch's
+// LLDP says (0064), or null.
+export function switchPort(n) {
+	if (!n) return null;
+	return `${n.system || n.chassis || 'the switch'} ${n.port || ''}`.trim() + (n.port_description ? ` (${n.port_description})` : '');
+}
+
 // secondsAgo writes as ago does the time s seconds before at, such as an
 // AP's report counting from when it was made.
 export function secondsAgo(s, at) {

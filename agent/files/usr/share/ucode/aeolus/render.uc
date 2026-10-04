@@ -666,6 +666,57 @@ function probes(cfg, intent, facts, keep) {
 	}
 }
 
+// watches renders the VLANs the prober watches on the uplink (0064): each one
+// the intent needs there, for a network's VLAN transport, a port's VLANs on
+// this AP, or the start of a tunnel (0063), as the uplink carries it. A
+// section aeolus_watch<N> says whether it is tagged there, and the AP's MAC
+// on it, which nudges come from (0060). A VLAN the uplink doesn't carry is
+// left out: the render says so elsewhere.
+function watches(cfg, intent, facts, keep) {
+	let n = cfg.network, a = cfg.aeolus;
+	let up = filter(of_type(n, 'device'), d => d.type == 'bridge' && facts.uplink && index(list(d.ports), facts.uplink) >= 0)[0];
+	if (!up)
+		return;
+	let need = {};
+	for (let id in keys(intent.network ?? {})) {
+		let net = intent.network[id];
+		if (net.enabled === false)
+			continue;
+		for (let slot in ['primary', 'fallback'])
+			if (net.transport?.[slot]?.type == 'vlan')
+				need['' + net.transport[slot].vlan] = true;
+	}
+	for (let p in keys(intent.ports ?? {})) {
+		let set = intent.ports[p];
+		if (!(set.mode in { access: 1, trunk: 1 }) || p == facts.uplink || index(list(up.ports), p) < 0)
+			continue;   // not on this AP, or not on VLANs
+		if (set.untagged)
+			need['' + set.untagged] = true;
+		for (let v in (set.mode == 'trunk' ? set.tagged ?? [] : []))
+			need['' + v] = true;
+	}
+	for (let s in of_type(n, 'interface')) {
+		let m = match(s['.name'], /^aeolus_vlan([0-9]+)_tunnels$/);
+		if (m)
+			need[m[1]] = true;
+	}
+	for (let vlan in sort(keys(need), (x, y) => +x - +y)) {
+		let entry = null;
+		for (let v in of_type(n, 'bridge-vlan'))
+			if (v.device == up.name && v.vlan == vlan)
+				for (let e in list(v.ports))
+					if (split(e, ':')[0] == facts.uplink)
+						entry = split(e, ':')[1] ?? '';
+		if (entry == null)
+			continue;
+		put(a, 'aeolus_watch' + vlan, 'watch', {
+			vlan: vlan, device: facts.uplink, tagged: index(entry, 't') >= 0 ? 1 : 0,
+			mac: segment_mac(facts.ap, 'vlan', +vlan) || null,
+		});
+		keep['aeolus_watch' + vlan] = true;
+	}
+}
+
 // host_port splits "host", "host:port", "[v6]" or "[v6]:port".
 function host_port(s) {
 	let m = match(s, /^\[([^\]]+)\](:([0-9]+))?$/);
@@ -838,6 +889,7 @@ function render(intent, current, facts) {
 			if (owned(k) && !keep[k])
 				delete pkg[k];
 	probes(cfg, intent, facts ?? {}, keep);
+	watches(cfg, intent, facts ?? {}, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
 			delete cfg.aeolus[k];

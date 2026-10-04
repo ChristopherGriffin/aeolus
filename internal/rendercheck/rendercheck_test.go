@@ -233,7 +233,7 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"no probe", "config probe 'aeolus_20'", "config probe 'other'", "aeolus.aeolus_20: no probe section for the tunnel"},
 		{"probe interval", "option interval '20'", "option interval '30'", "aeolus.aeolus_20: interval is \"30\", want \"20\""},
 		{"probe address", "list address '192.168.20.1'", "list address '192.168.20.2'", "aeolus.aeolus_20: probe addresses are [192.168.20.2], want [192.168.20.1]"},
-		{"stale probe", "config probe 'aeolus_20'", "config probe 'aeolus_99'\n\toption vni '99'\n\nconfig probe 'aeolus_20'", "aeolus.aeolus_99: no tunnel, tunnel port or network with a fallback calls for it"},
+		{"stale probe", "config probe 'aeolus_20'", "config probe 'aeolus_99'\n\toption vni '99'\n\nconfig probe 'aeolus_20'", "aeolus.aeolus_99: no tunnel, tunnel port, network with a fallback or VLAN on the uplink calls for it"},
 	}
 	for _, c := range cases {
 		if !strings.Contains(rendered, c.old) {
@@ -444,6 +444,18 @@ config device 'aeolus_port_lan3'
 package aeolus
 config agent 'agent'
 	option uplink 'wan'
+config watch 'aeolus_watch10'
+	option vlan '10'
+	option device 'wan'
+	option tagged '1'
+config watch 'aeolus_watch20'
+	option vlan '20'
+	option device 'wan'
+	option tagged '1'
+config watch 'aeolus_watch30'
+	option vlan '30'
+	option device 'wan'
+	option tagged '1'
 `
 	// lan9 is not on this AP, so it is not judged.
 	if got := check(doc, good); got != "" {
@@ -537,6 +549,10 @@ config rule 'aeolus_vxlan_5000'
 package aeolus
 config agent 'agent'
 	option uplink 'wan'
+config watch 'aeolus_watch20'
+	option vlan '20'
+	option device 'wan'
+	option tagged '1'
 config probe 'aeolus_5000'
 	option vni '5000'
 	option interval '30'
@@ -809,6 +825,11 @@ config switch 'aeolus_n626092f4'
 	option primary_vni '50'
 	option fallback 'anf626092f4'
 	option fallback_vlan '20'
+config watch 'aeolus_watch20'
+	option vlan '20'
+	option device 'wan'
+	option tagged '1'
+	option mac '06:21:36:5e:00:20'
 `
 	if got := check(good); got != "" {
 		t.Fatalf("problems with the right config: %s", got)
@@ -827,10 +848,14 @@ config switch 'aeolus_n626092f4'
 		{"plan fallback", "option fallback_vlan '20'", "option fallback_vlan '21'", `aeolus.aeolus_n626092f4: fallback_vlan is "21", want "20"`},
 		{"plan mode", "option mode 'report'", "option mode 'automatic'", `aeolus.aeolus_n626092f4: mode is "automatic", want "report"`},
 		{"no VLAN probe", "config probe 'aeolus_vlan20'", "config probe 'other_probe'", "aeolus.aeolus_vlan20: no probe for VLAN 20, which a network with a fallback uses (0061)"},
+		{"no watch", "config watch 'aeolus_watch20'", "config watch 'other_watch'", "aeolus.aeolus_watch20: no watch for VLAN 20, which the AP carries on its uplink for the intent; the prober tells from it whether the VLAN reaches the AP (0064)"},
+		{"watch untagged", "option tagged '1'\n\toption mac '06:21:36:5e:00:20'", "option tagged '0'\n\toption mac '06:21:36:5e:00:20'", `aeolus.aeolus_watch20: tagged is "0", want "1"`},
+		{"watch MAC", "option tagged '1'\n\toption mac '06:21:36:5e:00:20'", "option tagged '1'\n\toption mac '06:21:36:5e:00:21'", `aeolus.aeolus_watch20: mac is "06:21:36:5e:00:21", want "06:21:36:5e:00:20"`},
+		{"stale watch", "config watch 'aeolus_watch20'", "config watch 'aeolus_watch21'\n\toption vlan '21'\nconfig watch 'aeolus_watch20'", "aeolus.aeolus_watch21: no tunnel, tunnel port, network with a fallback or VLAN on the uplink calls for it"},
 		{"VLAN probe untagged", "option tagged '1'", "option tagged '0'", `aeolus.aeolus_vlan20: tagged is "0", want "1"`},
 		{"VLAN probe address", "list address '192.168.20.1'", "list address '192.168.20.2'", "aeolus.aeolus_vlan20: probe addresses are [192.168.20.2], want [192.168.20.1]"},
 		{"VLAN probe MAC", "option mac '06:21:36:5e:00:20'", "option mac '02:21:36:5e:00:20'", `aeolus.aeolus_vlan20: mac is "02:21:36:5e:00:20", want "06:21:36:5e:00:20"`},
-		{"stale plan", "config switch 'aeolus_n626092f4'", "config switch 'aeolus_nffffffff'\n\toption network 'gone'\n\nconfig switch 'aeolus_n626092f4'", "aeolus.aeolus_nffffffff: no tunnel, tunnel port or network with a fallback calls for it"},
+		{"stale plan", "config switch 'aeolus_n626092f4'", "config switch 'aeolus_nffffffff'\n\toption network 'gone'\n\nconfig switch 'aeolus_n626092f4'", "aeolus.aeolus_nffffffff: no tunnel, tunnel port, network with a fallback or VLAN on the uplink calls for it"},
 	} {
 		if !strings.Contains(good, c.old) {
 			t.Fatalf("%s: fixture lacks %q", c.name, c.old)
