@@ -49,6 +49,11 @@ const GUARD_EVERY = 2;                       // seconds between loop guard frame
 const WRITE_EVERY = 5;                       // seconds between writes of the results
 const PLAN_EVERY = 10;                       // seconds between looks at the plan
 
+// A socket can wake the poll with an error and nothing to read. A read
+// reports the error and clears it; unread, the poll would return at once,
+// again and again.
+const WAKE = socket.POLLIN | socket.POLLERR | socket.POLLHUP;
+
 let bus = connect();
 openlog('aeolus-prober', LOG_PID, LOG_DAEMON);
 
@@ -109,6 +114,15 @@ function is_up(dev) {
 	return flags != null && !!(hex(replace(flags, /^0x/, '')) & 1);
 }
 
+// ifindex is a device's index, or null without the device. A device that
+// netifd deletes and makes again gets a new one, and the kernel unbinds a
+// packet socket from the old device for good: the socket must be opened
+// again on the new one.
+function ifindex(dev) {
+	let i = read(`/sys/class/net/${dev}/ifindex`);
+	return i == null ? null : +i;
+}
+
 // linklocal is the IPv6 link-local address a device holds, or null.
 function linklocal(dev) {
 	for (let line in split(fs.readfile('/proc/net/if_inet6') ?? '', '\n')) {
@@ -151,9 +165,9 @@ function plan() {
 	return { tunnels: tunnels, guards: guards };
 }
 
-let tun = {};      // VNI -> { plan, sock, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
+let tun = {};      // VNI -> { plan, sock, index, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
 let peers = {};    // concentrator address -> { six, interval, sent, seq, ok, rtt, since, next }
-let guards = {};   // port -> { plan, devices: [{ name, sock, mac }], next }
+let guards = {};   // port -> { plan, devices: [{ name, sock, index, mac }], next }
 let loops = {};    // port -> { port, device, vni, came_in, at }
 let raw4 = null, raw6 = null, guard_rx = null;
 
@@ -231,7 +245,7 @@ function apply_plan(p) {
 			delete tun[vni];
 		}
 	for (let vni, t in p.tunnels)
-		tun[vni] ??= { plan: t, sock: null, src: null, running: false, started: now(), answered: null,
+		tun[vni] ??= { plan: t, sock: null, index: null, src: null, running: false, started: now(), answered: null,
 			from: null, rtt: null, sent: {}, seq: 0, next: now(), said: null,
 			dhcp: kept[vni] ?? { state: 'init', xid: xid(), tries: 0, next: now(), offer: null, lease: null } };
 	let want = {};
@@ -364,7 +378,16 @@ function send_probes(t, at) {
 		t.running = false;
 		return;
 	}
-	t.sock ??= packet(dev, probe.OVERLAY_FILTER);
+	let index = ifindex(dev);
+	if (t.sock && t.index != index) {
+		log('tunnel %s: its device was made again; probing the new one', dev);
+		close(t.sock);
+		t.sock = null;
+	}
+	if (!t.sock) {
+		t.sock = packet(dev, probe.OVERLAY_FILTER);
+		t.index = index;
+	}
 	if (!t.sock)
 		return;
 	if (!t.running) {
@@ -453,9 +476,16 @@ function on_raw(s, six) {
 function send_guard(port, g, at) {
 	for (let i = 0; i < length(g.plan.devices); i++) {
 		let name = g.plan.devices[i];
-		let d = g.devices[i] ??= { name: name, sock: null, mac: null };
-		if (!d.sock && fs.stat(`/sys/class/net/${name}`))
+		let d = g.devices[i] ??= { name: name, sock: null, index: null, mac: null };
+		let index = ifindex(name);
+		if (d.sock && d.index != index) {
+			close(d.sock);
+			d.sock = null;
+		}
+		if (!d.sock && index != null) {
 			d.sock = packet(name, null);
+			d.index = index;
+		}
 		d.mac = read(`/sys/class/net/${name}/address`);
 		if (d.sock && d.mac)
 			d.sock.send(probe.guard_frame(d.mac, NONCE, port, name));
@@ -591,12 +621,20 @@ function main() {
 			continue;
 		}
 		for (let r in socket.poll(wait, ...polls) ?? []) {
-			if (!(r[1] & socket.POLLIN))
+			if (!(r[1] & WAKE))
 				continue;
 			let fd = r[0].fileno();
-			if (by_fd[fd] != null)   // "fd in by_fd" would miss: in does not make a number a key
-				on_tunnel(tun[by_fd[fd]]);
-			else if (raw4 && fd == raw4.fileno())
+			if (by_fd[fd] != null) {   // "fd in by_fd" would miss: in does not make a number a key
+				let t = tun[by_fd[fd]];
+				on_tunnel(t);
+				// An error on a tunnel's socket means its device went down or
+				// went away, which unbinds the socket: it is opened again on
+				// the tunnel's next turn.
+				if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
+					close(t.sock);
+					t.sock = null;
+				}
+			} else if (raw4 && fd == raw4.fileno())
 				on_raw(raw4, false);
 			else if (raw6 && fd == raw6.fileno())
 				on_raw(raw6, true);
