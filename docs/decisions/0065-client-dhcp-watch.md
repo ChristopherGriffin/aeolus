@@ -91,6 +91,14 @@
   - the ARP reader;
   - the new filter's jumps;
   - each judgment's limits.
-- **To do after the release:**
-  - A phone on Aeolus Lab: its discover, offer, request and ack seen, and its server listed.
-  - A client on a test network on VLAN 999, which the switch doesn't carry: its requests reported unanswered, and the network as not answering.
+- **With v0.32.0, and Griff's phone on Aeolus Lab, on 2026-10-04:**
+  - **It joined** on the 5 GHz radio. Its request was answered by 192.168.20.254, VLAN 20's server, which was listed. The phone wasn't counted among the clients without DHCP. It joined with a private MAC, which the AP reports as it is.
+  - **DHCP answers to Aeolus Lab's interfaces were dropped** by a temporary nft rule in the bridge's forward hook, instead of a test network on VLAN 999, so no SSID changed. The phone tried to join three times.
+    - The rule dropped 96 answers.
+    - The prober counted 6 unanswered requests and none answered, all from the phone. It logged that nothing answers at 20:05:11.
+    - The manager's 20:05:39 report carried it, for the overview's warning.
+  - **With the rule gone,** the phone joined again and got its answer. The prober logged that DHCP is answering again at 20:07:46, and the warning cleared.
+  - Other hosts' answers on VLAN 20, flooded to tedt's interfaces, listed the same server for tedt, with no client requests counted. That is as built.
+- **Not checked live:**
+  - **Two servers answering:** only by the prober's test frames, as a second server on VLAN 20 would have reached Griff's own network.
+  - **A client that doesn't use DHCP:** a device with a static address joining Aeolus Lab should show as static within a minute.

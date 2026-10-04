@@ -954,7 +954,8 @@ function dhcp_results(at) {
 		let silent = length(n.unanswered) > 0 && !length(n.answered);
 		if (silent != n.silent) {
 			let how = silent ? note : log;
-			how('DHCP on %s: %s', id, silent ? `nothing answers: ${length(n.unanswered)} requests in ${probe.DHCP_WINDOW / 60} minutes` : 'answering again');
+			let k = length(n.unanswered);
+			how('DHCP on %s: %s', id, silent ? `nothing answers: ${k} ${k == 1 ? 'request' : 'requests'} in ${probe.DHCP_WINDOW / 60} minutes` : 'answering again');
 			n.silent = silent;
 		}
 		let without = [];
