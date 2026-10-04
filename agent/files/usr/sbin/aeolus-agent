@@ -648,8 +648,8 @@ function vlan_probes() {
 }
 
 // uplink_state says which of the VLANs watched on the uplink reach the AP
-// from the switch, and what the switch's LLDP says of itself and of the
-// uplink's port (0064), as the prober found.
+// from the switch, and all the switch's LLDP says of itself and of the
+// uplink's port (0064), as the prober found and read it.
 function uplink_state() {
 	let u = probes()?.uplink;
 	let vlans = [];
@@ -657,13 +657,33 @@ function uplink_state() {
 		let w = u.vlans[v];
 		push(vlans, { vlan: int(v), tagged: !!w.tagged, verdict: w.verdict, heard_ago: w.heard_ago });
 	}
-	let n = u?.neighbor;
+	return { vlans: length(vlans) ? slice(vlans, 0, 64) : null, neighbor: u?.neighbor };
+}
+
+// uplink_port is what the AP knows of its uplink itself (0064): its name,
+// MAC and MTU; how often its link has come and gone; the VLANs it carries
+// as the network config has them, Aeolus's and the AP's own, tagged or not,
+// and which is the management VLAN; and its counters since it came up.
+function uplink_port() {
+	let up = settings().uplink;
+	if (!up || read(`/sys/class/net/${up}/address`) == null)
+		return null;
+	let num = (k) => int(read(`/sys/class/net/${up}/${k}`) ?? '0');
+	let vlans = {};
+	cursor().foreach('network', 'bridge-vlan', v => {
+		for (let e in (type(v.ports) == 'array' ? v.ports : v.ports ? [v.ports] : []))
+			if (split(e, ':')[0] == up && match(v.vlan ?? '', /^[0-9]+$/))
+				vlans[v.vlan] = index(split(e, ':')[1] ?? '', 't') >= 0;
+	});
+	let mgmt = match(mgmt_device() ?? '', /\.([0-9]+)$/)?.[1];
 	return {
-		vlans: length(vlans) ? slice(vlans, 0, 64) : null,
-		neighbor: n ? {
-			chassis: n.chassis, system: n.system, port: n.port, port_description: n.port_description,
-			native_vlan: n.native_vlan, vlans: slice(n.vlans ?? [], 0, 4094), ago: n.ago,
-		} : null,
+		name: up, mac: read(`/sys/class/net/${up}/address`), mtu: num('mtu'), carrier_changes: num('carrier_changes'),
+		vlans: slice(map(sort(keys(vlans), (a, b) => +a - +b), v => ({ vlan: int(v), tagged: vlans[v] })), 0, 4094),
+		management_vlan: mgmt ? int(mgmt) : null,
+		rx_bytes: num('statistics/rx_bytes'), tx_bytes: num('statistics/tx_bytes'),
+		rx_packets: num('statistics/rx_packets'), tx_packets: num('statistics/tx_packets'),
+		rx_errors: num('statistics/rx_errors'), tx_errors: num('statistics/tx_errors'),
+		rx_dropped: num('statistics/rx_dropped'), tx_dropped: num('statistics/tx_dropped'),
 	};
 }
 
@@ -731,6 +751,9 @@ function state_report(running) {
 		report.uplink_vlans = up.vlans;
 	if (up.neighbor)
 		report.uplink_neighbor = up.neighbor;
+	let port = uplink_port();
+	if (port)
+		report.uplink_port = port;
 	return report;
 }
 

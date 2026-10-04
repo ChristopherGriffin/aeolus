@@ -262,35 +262,165 @@ function dhcp_reply(f, xid) {
 	};
 }
 
-// lldp reads an LLDP frame (0064): the switch's chassis ID and name, its
-// port's ID and description, the port's native VLAN, and the VLANs it names,
-// from 802.1's VLAN Name TLVs. A chassis or port given by MAC reads as one;
-// any other ID, as its printable text. Null for any other frame.
+// What LLDP's TLVs name, for lldp (IEEE 802.1AB, 802.1Q, 802.3, ANSI/TIA-1057):
+// the kinds of chassis and port ID, by subtype; the capabilities, by bit; a
+// few MAU types (RFC 4836); LLDP-MED's applications and inventory.
+const LLDP_CHASSIS = [null, 'chassis component', 'interface alias', 'port component', 'mac', 'network address', 'interface name', 'local'];
+const LLDP_PORT = [null, 'interface alias', 'port component', 'mac', 'network address', 'interface name', 'agent circuit id', 'local'];
+const LLDP_CAPS = ['other', 'repeater', 'bridge', 'wlan-ap', 'router', 'telephone', 'docsis', 'station', 'c-vlan', 's-vlan', 'tpmr'];
+const LLDP_MAU = {
+	'10': '10BASE-T, half duplex', '11': '10BASE-T, full duplex', '15': '100BASE-TX, half duplex', '16': '100BASE-TX, full duplex',
+	'29': '1000BASE-T, half duplex', '30': '1000BASE-T, full duplex',
+};
+const LLDP_MED_APPS = [null, 'voice', 'voice signaling', 'guest voice', 'guest voice signaling', 'softphone voice',
+	'video conferencing', 'streaming video', 'video signaling'];
+const LLDP_INVENTORY = { '5': 'hardware', '6': 'firmware', '7': 'software', '8': 'serial', '9': 'manufacturer', '10': 'model', '11': 'asset' };
+
+// lldp reads an LLDP frame (0064): all a switch says of itself and of the
+// port it sends from. Its chassis and port IDs, each as a MAC, an address or
+// printable text, with what kind of ID it is; how long it holds (ttl); its
+// name and description; its capabilities, and those enabled; its management
+// addresses; the port's description, native VLAN, the VLANs it names (with
+// their names), protocol VLANs and protocols (802.1); link aggregation,
+// maximum frame size, MAC/PHY and power (802.3); and LLDP-MED's class,
+// network policies, inventory, location and power. What it doesn't know is
+// kept in other, as hex. Null for any other frame.
 function lldp(f) {
 	if (length(f) < 16 || get16(f, 12) != 0x88cc)
 		return null;
 	let printable = (v) => substr(replace(v, /[^ -~]/g, ''), 0, 255);
-	let out = { chassis: null, system: null, port: null, port_description: null, native_vlan: null, vlans: [] };
+	let hexs = (v) => join('', map(split(substr(v, 0, 64), ''), c => sprintf('%02x', ord(c))));
+	let caps = (n) => {
+		let out = [];
+		for (let i = 0; i < length(LLDP_CAPS); i++)
+			if ((n >> i) & 1)
+				push(out, LLDP_CAPS[i]);
+		return out;
+	};
+	// An address by its IANA family: IPv4, IPv6, or a MAC (all 802).
+	let address = (fam, a) => fam == 1 && length(a) == 4 ? ip4_text(a, 0)
+		: fam == 2 && length(a) == 16 ? ip6_text(a, 0)
+		: fam == 6 && length(a) == 6 ? mac_text(a, 0) : hexs(a);
+	// A chassis or port ID, and its kind.
+	let id = (v, kinds, mac_kind, address_kind) => {
+		let k = ord(v, 0), rest = substr(v, 1);
+		let text = k == mac_kind && length(rest) == 6 ? mac_text(rest, 0)
+			: k == address_kind && length(rest) >= 2 ? address(ord(rest, 0), substr(rest, 1)) : printable(rest);
+		return [text, kinds[k] ?? 'unknown'];
+	};
+	let out = {
+		chassis: null, chassis_kind: null, system: null, system_description: null,
+		port: null, port_kind: null, port_description: null, ttl: null,
+		capabilities: null, enabled_capabilities: null, management: [],
+		native_vlan: null, vlans: [], vlan_names: {}, protocol_vlans: [], protocols: [],
+		aggregation: null, max_frame: null, mac_phy: null, power: null, med: null, other: [],
+	};
+	let other = (t, v) => {
+		if (length(out.other) < 16)
+			push(out.other, t == 127 && length(v) >= 4
+				? { type: t, oui: hexs(substr(v, 0, 3)), subtype: ord(v, 3), data: hexs(substr(v, 4)) }
+				: { type: t, data: hexs(v) });
+	};
+	const IEEE_8021 = bytes([0x00, 0x80, 0xc2]), IEEE_8023 = bytes([0x00, 0x12, 0x0f]), TIA_MED = bytes([0x00, 0x12, 0xbb]);
 	for (let at = 14; at + 2 <= length(f); ) {
 		let h = get16(f, at), t = h >> 9, l = h & 0x1ff, v = substr(f, at + 2, l);
 		if (t == 0 || length(v) < l)
 			break;
-		if (t == 1 && l >= 2)
-			out.chassis = ord(v, 0) == 4 && l == 7 ? mac_text(v, 1) : printable(substr(v, 1));
-		else if (t == 2 && l >= 2)
-			out.port = ord(v, 0) == 3 && l == 7 ? mac_text(v, 1) : printable(substr(v, 1));
+		at += 2 + l;
+		if (t == 1 && l >= 2) {
+			let r = id(v, LLDP_CHASSIS, 4, 5);
+			out.chassis = r[0];
+			out.chassis_kind = r[1];
+		} else if (t == 2 && l >= 2) {
+			let r = id(v, LLDP_PORT, 3, 4);
+			out.port = r[0];
+			out.port_kind = r[1];
+		} else if (t == 3 && l >= 2)
+			out.ttl = get16(v, 0);
 		else if (t == 4)
 			out.port_description = printable(v);
 		else if (t == 5)
 			out.system = printable(v);
-		else if (t == 127 && l >= 6 && substr(v, 0, 3) == bytes([0x00, 0x80, 0xc2])) {
-			let id = get16(v, 4) & 0xfff;
-			if (ord(v, 3) == 1)
-				out.native_vlan = id || null;   // 0: the port has none
-			else if (ord(v, 3) == 3 && id && index(out.vlans, id) < 0)
-				push(out.vlans, id);
-		}
-		at += 2 + l;
+		else if (t == 6)
+			out.system_description = printable(v);
+		else if (t == 7 && l >= 4) {
+			out.capabilities = caps(get16(v, 0));
+			out.enabled_capabilities = caps(get16(v, 2));
+		} else if (t == 8 && l >= 8 && l >= ord(v, 0) + 6) {
+			// The address's length, with its family; the address; how the
+			// interface is numbered, and its number; then an OID, unread.
+			let n = ord(v, 0);
+			if (length(out.management) < 4)
+				push(out.management, {
+					address: address(ord(v, 1), substr(v, 2, n - 1)), interface: get32(v, 2 + n),
+					interface_kind: [null, 'unknown', 'ifindex', 'port number'][ord(v, 1 + n)] ?? 'unknown',
+				});
+		} else if (t == 127 && l >= 4) {
+			let oui = substr(v, 0, 3), sub = ord(v, 3), d = substr(v, 4);
+			if (oui == IEEE_8021) {
+				if (sub == 1 && length(d) >= 2)
+					out.native_vlan = (get16(d, 0) & 0xfff) || null;   // 0: the port has none
+				else if (sub == 2 && length(d) >= 3) {
+					if ((ord(d, 0) & 2) && length(out.protocol_vlans) < 64)   // enabled
+						push(out.protocol_vlans, get16(d, 1) & 0xfff);
+				} else if (sub == 3 && length(d) >= 3) {
+					let vid = get16(d, 0) & 0xfff;
+					if (vid && index(out.vlans, vid) < 0) {
+						push(out.vlans, vid);
+						out.vlan_names['' + vid] = substr(printable(substr(d, 3, ord(d, 2))), 0, 32);
+					}
+				} else if (sub == 4 && length(d) >= 1) {
+					if (length(out.protocols) < 16)
+						push(out.protocols, hexs(substr(d, 1, ord(d, 0))));
+				} else if (sub == 7 && length(d) >= 5)
+					out.aggregation = { capable: !!(ord(d, 0) & 1), enabled: !!(ord(d, 0) & 2), port: get32(d, 1) };
+				else
+					other(t, v);
+			} else if (oui == IEEE_8023) {
+				if (sub == 1 && length(d) >= 5)
+					out.mac_phy = {
+						autoneg_supported: !!(ord(d, 0) & 1), autoneg_enabled: !!(ord(d, 0) & 2),
+						advertised: sprintf('%04x', get16(d, 1)), mau: get16(d, 3), mau_name: LLDP_MAU['' + get16(d, 3)] ?? null,
+					};
+				else if (sub == 2 && length(d) >= 3) {
+					let p = ord(d, 0);
+					out.power = {
+						pse: !!(p & 1), supported: !!(p & 2), enabled: !!(p & 4),
+						pair: ord(d, 1) == 1 ? 'signal' : ord(d, 1) == 2 ? 'spare' : null, class: ord(d, 2) ? ord(d, 2) - 1 : null,
+						requested_w: length(d) >= 8 ? get16(d, 4) / 10.0 : null, allocated_w: length(d) >= 8 ? get16(d, 6) / 10.0 : null,
+					};
+				} else if (sub == 3 && length(d) >= 5)
+					out.aggregation = { capable: !!(ord(d, 0) & 1), enabled: !!(ord(d, 0) & 2), port: get32(d, 1) };
+				else if (sub == 4 && length(d) >= 2)
+					out.max_frame = get16(d, 0);
+				else
+					other(t, v);
+			} else if (oui == TIA_MED) {
+				out.med ??= { capabilities: null, class: null, policies: [], inventory: {}, location: null, power_w: null };
+				if (sub == 1 && length(d) >= 3) {
+					out.med.capabilities = sprintf('%04x', get16(d, 0));
+					out.med.class = ord(d, 2);
+				} else if (sub == 2 && length(d) >= 4) {
+					// The application, then unknown, tagged and a reserved bit,
+					// the VLAN, its priority and the DSCP.
+					let x = get32(d, 0);
+					if (length(out.med.policies) < 8)
+						push(out.med.policies, {
+							application: LLDP_MED_APPS[x >> 24] ?? sprintf('type %d', x >> 24), unknown: !!((x >> 23) & 1),
+							tagged: !!((x >> 22) & 1), vlan: (x >> 9) & 0xfff, priority: (x >> 6) & 7, dscp: x & 0x3f,
+						});
+				} else if (sub == 3)
+					out.med.location = hexs(d);
+				else if (sub == 4 && length(d) >= 3)
+					out.med.power_w = get16(d, 1) / 10.0;
+				else if (LLDP_INVENTORY['' + sub])
+					out.med.inventory[LLDP_INVENTORY['' + sub]] = printable(d);
+				else
+					other(t, v);
+			} else
+				other(t, v);
+		} else
+			other(t, v);
 	}
 	out.vlans = sort(out.vlans, (a, b) => a - b);
 	return out;

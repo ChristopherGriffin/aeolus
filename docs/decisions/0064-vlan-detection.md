@@ -138,3 +138,27 @@ On OpenWrtnight on 2026-10-04, with the new prober and probe.uc installed by han
   | the new one, with the two silent VLANs as well | 18 |
 
   A silent VLAN keeps each spell open its full 10 seconds, reading the uplink's broadcasts, about half a percent of a core.
+
+## As built: the uplink's Info
+
+Added at Griff's request after 0064 was accepted: one place to see all the AP knows of its uplink.
+
+- **The prober reads every TLV in the switch's LLDP:**
+  - **the base set:** chassis and port IDs and their kinds, TTL, port and system description, system name, capabilities, management addresses;
+  - **802.1:** native VLAN, VLAN names, protocol VLANs, protocols, link aggregation;
+  - **802.3:** MAC/PHY, power via MDI, link aggregation, maximum frame size;
+  - **LLDP-MED:** capabilities and class, network policies, location, power, inventory.
+
+  It keeps what it doesn't know as hex. It forgets the switch once the switch's own TTL runs out, rather than after ten minutes.
+- **The agent reports the uplink itself, as `uplink_port`:**
+  - its name, MAC and MTU;
+  - how often its link has come and gone;
+  - every VLAN it carries as the network config has them, the AP's own included, tagged or not;
+  - which VLAN is the management VLAN;
+  - its counters.
+- **Interfaces › Ethernet:** the uplink's row in "Ports now" has an Info button. It opens all of this below the row.
+  - For each VLAN on the uplink, it shows whether the VLAN reaches the AP, if watched. Otherwise it shows whether the switch's LLDP names the VLAN, or, for the untagged one, whether the switch's native VLAN agrees.
+- **Checked on OpenWrtnight on 2026-10-04,** read-only:
+  - A live LLDP frame from the Arista read as homelab.symtus.com, port Ethernet6 ("Pumphouse OpenWrt"). Its management address is 172.16.0.4. It is a bridge and a router, with EOS 4.30.1F on a CCS-720DP-24ZS-2.
+  - The VLANs and their names were 1 default, 10 to 50 as VLAN00xx, and 1010 PTP_Tower_Link. Aggregation was capable, not in use, and the maximum frame was 9416.
+  - The agent's `uplink_port` read wan, MTU 1500, three link changes, and VLANs 1 untagged (management), 10, 20 and 50 tagged. In: 8.0 GB, 102 M packets, no errors, 49,972 dropped.

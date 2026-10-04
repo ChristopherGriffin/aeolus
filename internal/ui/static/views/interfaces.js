@@ -705,13 +705,24 @@ function portsNow(rows) {
 		const ports = rep?.report?.ports || [];
 		const apLink = link(`/aps/${encodeURIComponent(ap.id)}`, ap.name);
 		if (!ports.length) return [h('tr', null, h('td', null, apLink), h('td', { colspan: 4, class: 'sub' }, cfg ? 'No ports reported yet; its agent may be older than this.' : 'You cannot see this AP.'))];
-		return ports.map((p, i) => h('tr', null,
-			h('td', null, i === 0 && apLink),
-			h('td', { class: 'mono' }, p.name, p.uplink && h('span', { class: 'chip from' }, 'uplink')),
-			h('td', null, linkState(p)),
-			h('td', null, p.uplink ? uplinkCell(rep.report) : settings(cfg.location || {}, p.name),
-				rep.report.vxlan?.loops?.some((l) => l.port === p.name) && [' ', h('span', { class: 'chip bad' }, 'off its tunnels: a loop')]),
-			h('td', null, i === 0 && ago(rep.at))));
+		return ports.flatMap((p, i) => {
+			// The uplink's Info opens all the AP knows of it, below its row.
+			const info = p.uplink && h('tr', { hidden: true }, h('td', { colspan: 5 }, uplinkInfo(rep.report)));
+			const toggle = info && h('button', {
+				type: 'button', class: 'button small', 'aria-expanded': 'false',
+				onclick: (e) => {
+					info.hidden = !info.hidden;
+					e.currentTarget.setAttribute('aria-expanded', String(!info.hidden));
+				},
+			}, 'Info');
+			return [h('tr', null,
+				h('td', null, i === 0 && apLink),
+				h('td', { class: 'mono' }, p.name, p.uplink && h('span', { class: 'chip from' }, 'uplink'), toggle && [' ', toggle]),
+				h('td', null, linkState(p)),
+				h('td', null, p.uplink ? uplinkCell(rep.report) : settings(cfg.location || {}, p.name),
+					rep.report.vxlan?.loops?.some((l) => l.port === p.name) && [' ', h('span', { class: 'chip bad' }, 'off its tunnels: a loop')]),
+				h('td', null, i === 0 && ago(rep.at))), info];
+		});
 	});
 	return h('section', { class: 'panel' },
 		h('h2', null, 'Ports now', h('span', { class: 'note' }, 'as each AP last reported')),
@@ -734,6 +745,92 @@ function uplinkCell(report) {
 		}),
 		!n && !vlans.length && h('span', { class: 'sub' }, '—'),
 	];
+}
+
+// uplinkInfo shows all the AP knows of its uplink (0064), from its last
+// report: the port itself, its traffic and errors; the VLANs it carries, and
+// for each, whether it reaches the AP, or whether the switch carries it; the
+// AP's addresses on them; and all the switch's LLDP says of itself and of
+// the port.
+function uplinkInfo(r) {
+	const p = (r.ports || []).find((x) => x.uplink) || {};
+	const link = linkState(p);
+	const linkText = typeof link === 'string' ? link : link.textContent;
+	const u = r.uplink_port;
+	const n = r.uplink_neighbor;
+	const row = (label, v) => v != null && v !== '' && v !== false && v !== 0 && (!Array.isArray(v) || v.length > 0) &&
+		h('div', { class: 'row' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, v));
+	const dot = (xs) => xs.filter(Boolean).join(' · ');
+	const watched = new Map((r.uplink_vlans || []).map((v) => [v.vlan, v]));
+	const names = n?.vlan_names || {};
+	// Each VLAN on the uplink, and what is known of it: whether it reaches
+	// the AP, if watched; else whether the switch carries it, by LLDP.
+	const carried = (u?.vlans || []).map((v) => {
+		const w = watched.get(v.vlan);
+		let chip = null;
+		if (w) {
+			const [cls, word, says] = uplinkJudgment(w, n);
+			chip = h('span', { class: 'chip ' + cls, title: says || '' }, word);
+		} else if (v.tagged && n?.vlans?.length && !n.vlans.includes(v.vlan)) {
+			chip = h('span', { class: 'chip bad' }, 'not on the switch port');
+		} else if (!v.tagged && n?.native_vlan && n.native_vlan !== v.vlan) {
+			chip = h('span', { class: 'chip warn' }, `the switch's native VLAN is ${n.native_vlan}`);
+		}
+		return h('div', null, `VLAN ${v.vlan} ${v.tagged ? 'tagged' : 'untagged'}${v.vlan === u.management_vlan ? ', management' : ''} `, chip);
+	});
+	// The AP's own addresses there: where tunnels start (0063), and the
+	// leases of the VLAN transports' probes (0061).
+	const addresses = [];
+	for (const t of r.vxlan?.tunnels || [])
+		if (t.from_vlan && t.from_address && !addresses.some((a) => a.startsWith(`VLAN ${t.from_vlan}: ${t.from_address}`)))
+			addresses.push(`VLAN ${t.from_vlan}: ${t.from_address}, where tunnels start`);
+	for (const v of r.vlan_probes || [])
+		if (v.probe?.lease)
+			addresses.push(`VLAN ${v.vlan}: ${v.probe.lease.address}, the probe's lease${v.probe.lease.router ? `, gateway ${v.probe.lease.router}` : ''}`);
+	const power = (x) => dot([x.pse ? 'the switch powers it' : 'it powers the switch', x.supported ? (x.enabled ? 'on' : 'off') : 'not supported',
+		x.class != null && `class ${x.class}`, x.pair && `${x.pair} pair`, x.allocated_w != null && `${x.allocated_w} W allocated`, x.requested_w != null && `${x.requested_w} W asked`]);
+	return h('div', { class: 'info' },
+		h('h3', null, 'This AP'),
+		row('Port', dot([u?.name || p.name, linkText, u?.mtu && `MTU ${u.mtu}`, u?.mac])),
+		row('Link changes', u && `${u.carrier_changes} since it came up`),
+		row('Traffic', u && dot([`in ${amount(u.rx_bytes)}B, ${amount(u.rx_packets)} packets`, `out ${amount(u.tx_bytes)}B, ${amount(u.tx_packets)} packets`].map((x) => x.replace('  ', ' ')))),
+		row('Errors', u && dot([`in ${u.rx_errors} errors, ${u.rx_dropped} dropped`, `out ${u.tx_errors} errors, ${u.tx_dropped} dropped`])),
+		row('VLANs', carried),
+		row('Its addresses', addresses.map((a) => h('div', null, a))),
+		!u && h('div', { class: 'sub' }, 'Its agent reports no more of the port; it may be older than this.'),
+		h('h3', null, 'The switch', n && h('span', { class: 'note' }, `by LLDP, ${n.ago} s ago${n.ttl != null ? `; it holds for ${n.ttl} s` : ''}`)),
+		n ? [
+			row('Name', n.system),
+			row('Description', n.system_description),
+			row('Port', dot([n.port && `${n.port}${n.port_kind ? ` (${n.port_kind})` : ''}`, n.port_description && `"${n.port_description}"`])),
+			row('Chassis', n.chassis && `${n.chassis}${n.chassis_kind ? ` (${n.chassis_kind})` : ''}`),
+			row('Management', (n.management || []).map((m) => `${m.address}${m.interface ? `, ${m.interface_kind} ${m.interface}` : ''}`).join(' · ')),
+			row('Capabilities', n.capabilities && `${n.capabilities.join(', ') || 'none'}; enabled: ${(n.enabled_capabilities || []).join(', ') || 'none'}`),
+			row('Native VLAN', n.native_vlan),
+			row('VLANs', (n.vlans || []).map((v) => `${v}${names[v] ? ` (${names[v]})` : ''}`).join(' · ')),
+			row('Protocol VLANs', (n.protocol_vlans || []).join(' · ')),
+			row('Protocols', (n.protocols || []).join(' · ')),
+			row('Max frame', n.max_frame && `${n.max_frame} bytes`),
+			row('Aggregation', n.aggregation && (n.aggregation.enabled ? `in an aggregate, port ${n.aggregation.port}` : n.aggregation.capable ? 'capable, not in use' : 'not capable')),
+			row('MAC/PHY', n.mac_phy && dot([n.mac_phy.mau_name || `MAU type ${n.mac_phy.mau}`,
+				`autonegotiation ${n.mac_phy.autoneg_enabled ? 'on' : n.mac_phy.autoneg_supported ? 'off' : 'not supported'}`, `advertises ${n.mac_phy.advertised}`])),
+			row('Power', n.power && power(n.power)),
+			n.med && [
+				row('LLDP-MED', dot([n.med.class && `class ${n.med.class}`, n.med.capabilities && `capabilities ${n.med.capabilities}`, n.med.power_w != null && `${n.med.power_w} W`])),
+				row('Policies', (n.med.policies || []).map((x) => h('div', null,
+					dot([x.application, x.unknown ? 'unknown' : `VLAN ${x.vlan}${x.tagged ? ' tagged' : ''}`, `priority ${x.priority}`, `DSCP ${x.dscp}`])))),
+				row('Inventory', Object.entries(n.med.inventory || {}).map(([k, v]) => `${k} ${v}`).join(' · ')),
+				row('Location', n.med.location),
+			],
+			row('Other TLVs', (n.other || []).map((o) => h('div', null, `type ${o.type}${o.oui ? `, ${o.oui} subtype ${o.subtype}` : ''}: ${o.data}`))),
+		] : h('div', { class: 'sub' }, 'It sends no LLDP, or the AP\'s agent is older than this.'));
+}
+
+// amount writes a count the short way: 1.2 k, 3.4 M, 5.6 G.
+function amount(x) {
+	for (const [d, unit] of [[1e12, ' T'], [1e9, ' G'], [1e6, ' M'], [1e3, ' k']])
+		if (x >= d) return `${(x / d).toFixed(1)}${unit}`;
+	return `${x} `;
 }
 
 // linkState says whether a port has a link, and at what speed: "1000F" is
