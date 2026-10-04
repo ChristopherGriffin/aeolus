@@ -1,0 +1,67 @@
+name: merge when green
+
+# Griff approves a pull request with "merge when green", and Claude puts the
+# merge-when-green label on it. This merges it, with a merge commit, once the
+# test workflow has passed on the very commit the pull request carries: when
+# that run finishes, or at once if it already has. A push after the label
+# takes the label off, so a commit nobody approved is never merged.
+#
+# A merge made with this workflow's token starts no workflow, so main isn't
+# tested again after it; the release tag's push is.
+on:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: merge-when-green-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  # A push after the label voids the approval.
+  unlabel:
+    if: >-
+      github.event_name == 'pull_request' && github.event.action == 'synchronize' &&
+      contains(github.event.pull_request.labels.*.name, 'merge-when-green')
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label merge-when-green
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+
+  merge:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'merge-when-green') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: merge, if labeled and green on its head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -eu
+          if [ -z "$PR" ]; then echo "no pull request"; exit 0; fi
+          info=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid,title,state,labels)
+          head=$(jq -r .headRefOid <<<"$info")
+          title=$(jq -r .title <<<"$info")
+          if [ "$(jq -r .state <<<"$info")" != OPEN ] || [ "$(jq '[.labels[].name] | index("merge-when-green") != null' <<<"$info")" != true ]; then
+            echo "pull request $PR is not open, or not labeled merge-when-green"
+            exit 0
+          fi
+          # The test workflow's latest run on that head, for the pull request.
+          run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow test.yml --commit "$head" --event pull_request --limit 1 --json status,conclusion)
+          if [ "$(jq -r '.[0].status' <<<"$run")" != completed ] || [ "$(jq -r '.[0].conclusion' <<<"$run")" != success ]; then
+            echo "CI is not green on $head yet"
+            exit 0
+          fi
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$head" --subject "Merge $title" --body ""
+          echo "merged pull request $PR at $head"
