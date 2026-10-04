@@ -105,6 +105,7 @@ Each milestone ends in something checkable before the next starts.
 | [0060](docs/decisions/0060-probe-addresses.md) | Each AP takes an address on the segments it probes |
 | [0061](docs/decisions/0061-switching-transports.md) | Switching a network between its transports (proposed) |
 | [0062](docs/decisions/0062-optional-reasons.md) | A change needs no reason |
+| [0063](docs/decisions/0063-tunnel-start-vlan.md) | A tunnel can start from any VLAN on the uplink (proposed) |
 
 ## Open questions
 
