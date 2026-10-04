@@ -964,8 +964,8 @@ function on_dhcp(w, at) {
 				n.clients[d.client].address = d.yiaddr;
 		} else {
 			let a = probe.arp_seen(f);
-			if (a)
-				ident(a.mac).address = a.address;
+			if (a && m.address?.packet_type != 4)
+				ident(a.mac).address = a.address;   // a client's own; the segment's flood out to every Wi-Fi interface
 			if (a && n?.clients[a.mac])
 				n.clients[a.mac].address = a.address;
 		}
