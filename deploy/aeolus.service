@@ -9,6 +9,8 @@ User=aeolus
 Group=aeolus
 # AEOLUS_HOSTS names the host in a self-signed certificate made on first start.
 # AEOLUS_KEEP_STATE_DAYS, if set, is how long AP state reports are kept (0039).
+# AEOLUS_RELAY_LISTEN and AEOLUS_KNOCK_LISTEN move the DHCP listeners from
+# :67 (UDP) and :15002 (TCP), or turn either off with "off" (0068).
 EnvironmentFile=/etc/aeolus/serve.env
 ExecStart=/opt/aeolus/bin/aeolus serve -hosts ${AEOLUS_HOSTS}
 Restart=on-failure
@@ -26,8 +28,9 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictRealtime=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-CapabilityBoundingSet=
-AmbientCapabilities=
+# Only to bind UDP port 67, where DHCP relays send their copies (0068).
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target

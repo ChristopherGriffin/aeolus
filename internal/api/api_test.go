@@ -15,6 +15,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
+	"github.com/ChristopherGriffin/aeolus/internal/dhcpwatch"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
@@ -28,6 +29,7 @@ type fixture struct {
 	dir    string
 	log    *changelog.Log
 	conds  *conditions.Store
+	watch  *dhcpwatch.Book
 	tokens map[string]string // account -> plain token
 }
 
@@ -99,9 +101,11 @@ func newFixture(t *testing.T) *fixture {
 	conds, err := conditions.Open(filepath.Join(dir, "conditions.db"), nil)
 	must(t, err)
 	t.Cleanup(func() { conds.Close() })
-	srv := httptest.NewServer(New(log, sch, box, conds).Handler())
+	watch, err := dhcpwatch.Open(conds, nil)
+	must(t, err)
+	srv := httptest.NewServer(New(log, sch, box, conds).WithWatch(watch).Handler())
 	t.Cleanup(srv.Close)
-	return &fixture{t: t, url: srv.URL, dir: dir, log: log, conds: conds, tokens: tokens}
+	return &fixture{t: t, url: srv.URL, dir: dir, log: log, conds: conds, watch: watch, tokens: tokens}
 }
 
 // do sends a request as an account ("" for none) and returns the status and

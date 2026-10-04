@@ -16,6 +16,8 @@ JSON over HTTPS (0026). A browser opening `/` gets the web UI (0042), which uses
 | `GET /v1/library` | the concentrators, with their labeled VNIs and the Location folders they may be used at (0023). The library is shelved (0055): tunnels are Location fields, `concentrators.<name>.address`, `.port` and `.mtu`, and a network transport's `concentrator` names one. | a token |
 | `GET /v1/schema` | the fields that can be set: `fields`, each as its JSON Schema with `x-aeolus-tree` (the tree it is set in) and `writeOnly` for secrets, by path with `*` for any name, a list's `items` described in place; and `names`, the pattern a name must match where a path takes any name, by the path before it. Clients build their inputs from it (0048). | a token |
 | `GET /v1/changes?after=N&limit=M` | change-log entries after `N` (limit 1 to 1000, default 100) | viewer at the Org root of either tree |
+| `GET /v1/dhcp/relayed` | what DHCP relays copy the manager (0068): `ignored`, how many packets were no relayed client request; and `subnets`, in address order, each `{subnet, relay, requests, new, count, burst, clients}`. `subnet` is the relay's address on the clients' subnet (giaddr), `relay` the address the copies come from, `requests` and `new` the requests and new clients of the last 10 minutes, `count` the clients kept, and `burst` (`{at, clients}`, or null) the last minute within an hour when more than 64 clients new to the subnet sent their first discover. `clients`, newest first and at most 500, are `{subnet, mac, relay, first, last, requests, type, host, vendor_class, params, address, circuit, remote}`: `type` is the last request's DHCP message type, `address` what it asked for (option 50) or renewed (`ciaddr`), `circuit` and `remote` option 82's IDs as text or hex. The manager adds `maker`, `private`, `kind`, `os` and `basis`, as for an AP's clients (0067), and `openwifi` when the parameter list asks for options 138 and 224. | viewer at the Locations root |
+| `GET /v1/detected` | devices that may be unconfigured OpenWiFi APs (0034, 0068): `detected`, each `{mac, maker, private, status, subnet, address, host, vendor_class, fingerprint, seen_by, knocks, sni, last}`, confirmed first. `status` is `possible` when a relayed request asks for options 138 and 224 (`fingerprint`), and `confirmed` when the device knocked on the option 224 listener, matched by address to a relayed client (`seen_by` `relay`) or to a Wi-Fi client an AP reports (`seen_by` the AP's ID). `knocks` is how many times, and `sni` the name it asked for. Then `knocks`, those no device could be matched to: `{id, first, last, count, source, sni, versions, subject}`, a source's knocks within a minute of each other counted as one. | viewer at the Locations root |
 
 Secrets are never returned: a secret value appears as `{"sealed": true}`, and token hashes are dropped.
 
@@ -62,9 +64,18 @@ What an AP uses (0033, 0038). An AP token starts `aeolusap1.` and works only her
 
 Every AP request updates when it was last seen. An AP in Landing Zone can only poll: its checks and reports answer `409` and are not recorded. The UCI from each check is kept with its secrets blanked (0041); a stale one is not kept. The agent that uses these routes is in [`agent/`](../agent).
 
+## The manager's DHCP listeners
+
+Besides the API, the manager listens, without ever answering (0068):
+
+- **UDP port 67, for relays' copies of DHCP requests.** A site adds the manager as an extra helper address on its relays. Only relayed client requests are kept; anything else is counted as ignored.
+- **TCP port 15002, for OpenWiFi APs' knocks.** In DHCP scopes an admin chooses, option 224 names the manager. An OpenWiFi AP there connects over TLS; the manager records the connection and closes it. A connection that sends no TLS hello isn't one.
+
+`AEOLUS_RELAY_LISTEN` and `AEOLUS_KNOCK_LISTEN` in `serve.env` (or `-relay-listen` and `-knock-listen`) move them, and `off` turns either off. A listener that can't start is logged, and the API serves without it.
+
 ## MCP
 
-`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `get_ap_history`, `get_library`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` takes a reason as an optional note (0062).
+`/mcp` serves the API as MCP tools (streamable HTTP): `whoami`, `list_tree`, `get_node`, `get_ap_config`, `get_ap_history`, `get_library`, `get_relayed_dhcp`, `list_detected`, `list_changes`, `preview_change` and `make_change`. Each request carries the caller's own token, and the tools call the API with it, so changes are logged under the caller's name (0031). `make_change` takes a reason as an optional note (0062).
 
 ## Errors
 

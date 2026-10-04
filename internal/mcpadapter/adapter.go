@@ -178,6 +178,16 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", "/v1/library", nil)
 			return nil, out, err
 		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_relayed_dhcp", Description: "What the manager hears from DHCP relays that copy it clients' requests (0068): for each subnet, by the relay's address on it, the relay, the requests of the last 10 minutes, the clients new in that time, a burst of new ones (a sign of DHCP starvation), and its clients newest first, each with its host name, vendor class, parameter list, address, option 82 IDs, maker and the manager's guess at what it is. Relays copy only requests, not servers' answers.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, any, error) {
+			out, err := c.call(ctx, "GET", "/v1/dhcp/relayed", nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "list_detected", Description: "Devices that may be unconfigured OpenWiFi APs (0034, 0068): possible when a relayed DHCP request asks for options 138 and 224, confirmed when the device knocked on the manager's option 224 listener; and the knocks no device could be matched to by address.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, any, error) {
+			out, err := c.call(ctx, "GET", "/v1/detected", nil)
+			return nil, out, err
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list_changes", Description: "Read the change log: who changed what, when and why.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in changesIn) (*mcp.CallToolResult, any, error) {
 			q := url.Values{}

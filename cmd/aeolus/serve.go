@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
+	"github.com/ChristopherGriffin/aeolus/internal/dhcpwatch"
 	"github.com/ChristopherGriffin/aeolus/internal/mcpadapter"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
@@ -29,11 +32,12 @@ import (
 
 // runServe serves the API over HTTPS until SIGINT or SIGTERM.
 func runServe(args []string, stderr io.Writer) error {
-	srv, closeAll, err := newServer(args, stderr)
+	srv, start, closeAll, err := newServer(args, stderr)
 	if err != nil {
 		return err
 	}
 	defer closeAll()
+	start()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	errc := make(chan error, 1)
@@ -51,9 +55,10 @@ func runServe(args []string, stderr io.Writer) error {
 	return srv.Shutdown(shutdown)
 }
 
-// newServer opens everything serve needs and returns the configured server
-// and a function that closes it all.
-func newServer(args []string, stderr io.Writer) (*http.Server, func() error, error) {
+// newServer opens everything serve needs and returns the configured server,
+// a function that starts the DHCP listeners (0068), and one that closes it
+// all.
+func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() error, error) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	db := fs.String("db", "/var/lib/aeolus/aeolus.db", "change log database")
@@ -64,11 +69,13 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 	hosts := fs.String("hosts", "", "comma-separated names and IPs for a self-signed certificate")
 	condsPath := fs.String("conditions", "", "conditions database (default: conditions.db beside the change log)")
 	keepDays := fs.Int("keep-state-days", defaultKeepDays(), "days to keep AP state reports (default from AEOLUS_KEEP_STATE_DAYS, else 30)")
+	relayListen := fs.String("relay-listen", envOr("AEOLUS_RELAY_LISTEN", ":67"), "UDP address for relays' copies of DHCP requests, or off (0068)")
+	knockListen := fs.String("knock-listen", envOr("AEOLUS_KNOCK_LISTEN", ":15002"), "TCP address for the option 224 listener, or off (0068)")
 	if err := fs.Parse(args); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if *keepDays < 1 {
-		return nil, nil, errors.New("-keep-state-days must be at least 1")
+		return nil, nil, nil, errors.New("-keep-state-days must be at least 1")
 	}
 	if *condsPath == "" {
 		*condsPath = filepath.Join(filepath.Dir(*db), "conditions.db")
@@ -76,45 +83,56 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 
 	sch, err := schema.V1()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	box, err := secret.Load(*keyPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("secret key: %w", err)
+		return nil, nil, nil, fmt.Errorf("secret key: %w", err)
 	}
 	if err := ensureCert(*certPath, *tlsKeyPath, splitList(*hosts), time.Now()); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	cert, err := tls.LoadX509KeyPair(*certPath, *tlsKeyPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	log, err := changelog.Open(*db, changelog.Options{Check: api.Check(sch)})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if log.Snapshot() == nil {
 		log.Close()
-		return nil, nil, errors.New("the change log holds no Org yet; run aeolus init first")
+		return nil, nil, nil, errors.New("the change log holds no Org yet; run aeolus init first")
 	}
 	// Every Org has Landing Zone and Sandbox (0032); the manager adds any
 	// that are missing, in its own name (0036).
 	if _, err := log.Commit(change.SystemActor, "built-in folders (0032)", change.Op{Kind: change.AddBuiltins}); err != nil && !errors.Is(err, change.ErrBuiltins) {
 		log.Close()
-		return nil, nil, fmt.Errorf("adding built-in folders: %w", err)
+		return nil, nil, nil, fmt.Errorf("adding built-in folders: %w", err)
 	}
 	conds, err := conditions.Open(*condsPath, nil)
 	if err != nil {
 		log.Close()
-		return nil, nil, fmt.Errorf("conditions: %w", err)
+		return nil, nil, nil, fmt.Errorf("conditions: %w", err)
+	}
+	watch, err := dhcpwatch.Open(conds, nil)
+	if err != nil {
+		conds.Close()
+		log.Close()
+		return nil, nil, nil, fmt.Errorf("DHCP listeners: %w", err)
 	}
 	stopTrim := trimStates(conds, time.Duration(*keepDays)*24*time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	start := func() { listenDHCP(ctx, &wg, watch, *relayListen, *knockListen, cert) }
 	closeAll := func() error {
+		cancel()
+		wg.Wait()
 		stopTrim()
-		return errors.Join(conds.Close(), log.Close())
+		return errors.Join(watch.Flush(), conds.Close(), log.Close())
 	}
 	slog.Info("aeolus loaded", "seq", log.Seq(), "keep_state_days", *keepDays)
-	apiHandler := api.New(log, sch, box, conds).Handler()
+	apiHandler := api.New(log, sch, box, conds).WithWatch(watch).Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpadapter.New(apiHandler, version))
 	// The UI answers browsers at / and serves its files; the API gets the rest (0042).
@@ -127,7 +145,47 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func() error, err
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
-	}, closeAll, nil
+	}, start, closeAll, nil
+}
+
+// listenDHCP starts the manager's DHCP listeners (0068), each unless its
+// address is off, and the book's saving. A listener that cannot start is
+// logged; the API serves without it.
+func listenDHCP(ctx context.Context, wg *sync.WaitGroup, watch *dhcpwatch.Book, relay, knock string, cert tls.Certificate) {
+	run := func(name string, f func() error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := f(); err != nil {
+				slog.Error(name+" stopped", "err", err)
+			}
+		}()
+	}
+	run("saving what the DHCP listeners hear", func() error { watch.Keep(ctx); return nil })
+	if relay != "off" {
+		if pc, err := net.ListenPacket("udp4", relay); err != nil {
+			slog.Error("the relay listener cannot start", "listen", relay, "err", err)
+		} else {
+			slog.Info("listening for relays' copies of DHCP requests", "listen", relay)
+			run("the relay listener", func() error { return dhcpwatch.ListenRelay(ctx, pc, watch) })
+		}
+	}
+	if knock != "off" {
+		if ln, err := net.Listen("tcp", knock); err != nil {
+			slog.Error("the option 224 listener cannot start", "listen", knock, "err", err)
+		} else {
+			slog.Info("listening for OpenWiFi APs' knocks", "listen", knock)
+			run("the option 224 listener", func() error { return dhcpwatch.ServeKnocks(ctx, ln, cert, watch) })
+		}
+	}
+}
+
+// envOr is the environment variable name, which serve.env can set, or def.
+func envOr(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
 }
 
 // defaultKeepDays reads AEOLUS_KEEP_STATE_DAYS, which serve.env can set
