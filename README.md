@@ -106,6 +106,7 @@ Each milestone ends in something checkable before the next starts.
 | [0061](docs/decisions/0061-switching-transports.md) | Switching a network between its transports |
 | [0062](docs/decisions/0062-optional-reasons.md) | A change needs no reason |
 | [0063](docs/decisions/0063-tunnel-start-vlan.md) | A tunnel can start from any VLAN on the uplink |
+| [0064](docs/decisions/0064-vlan-detection.md) | Telling which VLANs reach an AP (proposed) |
 
 ## Open questions
 
