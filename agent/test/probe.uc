@@ -78,6 +78,44 @@ for (let c in [
 ])
 	print('verdict ', c[0], ': ', probe.verdict({ interval: 30, started: 0, ...c[1] }, c[2]), '\n');
 
+// Which transport carries a network with a fallback (0061), its hold-down
+// 300 seconds, now at 1000.
+let net = (o) => {
+	let n = { mode: 'automatic', ha: false, failback: 'revertive', holddown: 300, want: 'primary',
+		primary: 'up', fallback: 'up', fallback_vxlan: false, up_since: null };
+	for (let k, v in o)
+		n[k] = v;
+	return n;
+};
+for (let c in [
+	['report mode, primary down', { mode: 'report', primary: 'down' }],
+	['primary up', {}],
+	['primary down, fallback up', { primary: 'down' }],
+	['primary down, fallback unverified', { primary: 'down', fallback: 'unverified' }],
+	['primary down, fallback down', { primary: 'down', fallback: 'down' }],
+	['primary unverified', { primary: 'unverified' }],
+	['primary down, tunnel fallback stopped', { primary: 'down', fallback: 'off', fallback_vxlan: true }],
+	['primary down, tunnel fallback started and up', { primary: 'down', fallback_vxlan: true }],
+	['on the fallback, primary still down', { want: 'fallback', primary: 'down' }],
+	['on the fallback, primary up 100 s', { want: 'fallback', up_since: 900 }],
+	['on the fallback, primary up 300 s', { want: 'fallback', up_since: 700 }],
+	['on the fallback, primary up 300 s, failback equal', { want: 'fallback', up_since: 700, failback: 'equal' }],
+	['on the fallback, fallback down, primary up', { want: 'fallback', fallback: 'down', up_since: 990, failback: 'equal' }],
+	['on the fallback, both down', { want: 'fallback', fallback: 'down', primary: 'down' }],
+	['on the tunnel fallback, back to the primary', { want: 'fallback', up_since: 700, fallback_vxlan: true }],
+	['on the tunnel fallback, back to the primary, HA', { want: 'fallback', up_since: 700, fallback_vxlan: true, ha: true }],
+	['on the tunnel fallback, it stopped', { want: 'fallback', fallback: 'off', primary: 'down', fallback_vxlan: true }],
+	['on the tunnel fallback, it stopped, primary up', { want: 'fallback', fallback: 'off', up_since: 990, fallback_vxlan: true }],
+	['on the tunnel fallback, it is unknown, primary up', { want: 'fallback', fallback: 'unknown', up_since: 990, fallback_vxlan: true }],
+	['primary up, tunnel fallback still running', { fallback_vxlan: true }],
+	['primary unknown, tunnel fallback stopped', { primary: 'unknown', fallback: 'off', fallback_vxlan: true }],
+	['HA, tunnel fallback stopped', { ha: true, fallback: 'off', fallback_vxlan: true }],
+	['primary down, VLAN fallback off', { primary: 'down', fallback: 'off' }],
+	['report mode, on the fallback', { mode: 'report', want: 'fallback' }],
+	['report mode, tunnel fallback running', { mode: 'report', fallback_vxlan: true }],
+])
+	print('switch ', c[0], ': ', probe.switch_step(net(c[1]), 1000), '\n');
+
 // The AP's MACs on the segments it probes (0060).
 for (let c in [['vni', 50], ['vni', 1234], ['vni', 10000], ['vni', 70000], ['vlan', 20]])
 	print('segment mac ', c[0], ' ', c[1], ': ', probe.segment_mac('ap-a0046021365e', c[0], c[1]), '\n');

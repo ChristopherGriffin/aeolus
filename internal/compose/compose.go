@@ -85,6 +85,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 			} // else: the tunnel is not set here, so the transport is left out (0055)
 		}
 		hadTransport := false
+		_, hadFallback := net["transport.fallback.type"]
 		for _, slot := range slots {
 			if _, has := net["transport."+slot+".type"]; has {
 				hadTransport = true
@@ -98,6 +99,17 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 		}
 		if hadTransport && !kept["primary"] && !kept["fallback"] {
 			problems = append(problems, fmt.Sprintf("network.%s: no transport is usable at this AP", id))
+		}
+		// Switching needs both transports (0061). Where the network has a
+		// fallback, but one of the two is not usable here, there is nothing
+		// to switch between, and the settings are left out.
+		if !kept["primary"] || !kept["fallback"] {
+			if net["transport.switching"] == "automatic" && !hadFallback {
+				problems = append(problems, switchingProblem(id))
+			}
+			for _, f := range switchingFields {
+				delete(net, f)
+			}
 		}
 		for f, v := range net {
 			fields["network."+id+"."+f] = v
@@ -534,6 +546,7 @@ func Node(s *change.State, sch *schema.Schema, tree change.TreeName, t *hierarch
 		return append(problems, err.Error())
 	}
 	problems = append(problems, sch.Problems(jsonShape(doc))...)
+	problems = append(problems, switchingProblems(jsonShape(doc))...)
 	if problems == nil {
 		problems = []string{}
 	}
@@ -560,6 +573,29 @@ func drop(net map[string]any, prefix string) {
 			delete(net, f)
 		}
 	}
+}
+
+// switchingFields are a network's settings for switching between its
+// transports (0022, 0061).
+var switchingFields = []string{"transport.switching", "transport.ha", "transport.failback", "transport.holddown"}
+
+func switchingProblem(id string) string {
+	return fmt.Sprintf("network.%s.transport.switching: automatic switching needs a fallback (0061)", id)
+}
+
+// switchingProblems refuses automatic switching for a network without a
+// fallback (0061), as a folder sets them.
+func switchingProblems(doc map[string]any) []string {
+	nets, _ := doc["network"].(map[string]any)
+	var out []string
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		tr, _ := n["transport"].(map[string]any)
+		if fb, _ := tr["fallback"].(map[string]any); tr["switching"] == "automatic" && fb["type"] == nil {
+			out = append(out, switchingProblem(id))
+		}
+	}
+	return out
 }
 
 // promote moves the fallback transport into the primary's place.

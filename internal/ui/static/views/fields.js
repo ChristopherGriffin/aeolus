@@ -10,7 +10,7 @@ const RANK = [
 	'roaming.ft', 'roaming.rrm', 'roaming.btm',
 	'transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni',
 	'transport.fallback.type', 'transport.fallback.vlan', 'transport.fallback.concentrator', 'transport.fallback.vni',
-	'transport.ha', 'transport.failback', 'transport.holddown', 'rate_limit.down_kbps', 'rate_limit.up_kbps',
+	'transport.switching', 'transport.ha', 'transport.failback', 'transport.holddown', 'rate_limit.down_kbps', 'rate_limit.up_kbps',
 	'channel', 'width', 'power', 'country', 'tz', 'ntp', 'poll', 'syslog', 'ssh_keys',
 	'vlan', 'addressing', 'address', 'gateway', 'dns', 'uplink', 'mode', 'untagged', 'tagged', 'bond',
 ];

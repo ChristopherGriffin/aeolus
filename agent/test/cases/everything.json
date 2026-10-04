@@ -23,7 +23,7 @@
 				"v3": { "user": "monitor", "auth": "fixture-auth-1", "privacy": "fixture-privacy-1" } } },
 		"network": {
 			"sweet-lab": { "ssid": "Sweet Lab", "security": "wpa2-wpa3", "passphrase": "fixture-passphrase-2", "roaming": { "ft": true, "rrm": true, "btm": true }, "multicast_to_unicast": true, "band_steering": true,
-				"transport": { "primary": { "type": "vlan", "vlan": 30 }, "fallback": { "type": "vlan", "vlan": 20 } } },
+				"transport": { "primary": { "type": "vlan", "vlan": 30 }, "fallback": { "type": "vlan", "vlan": 20 }, "switching": "automatic", "failback": "equal" } },
 			"iot-lab": { "ssid": "IoT Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-3", "bands": ["2g"], "hidden": true, "isolation": true, "multicast_to_unicast": false, "band_steering": true,
 				"transport": { "primary": { "type": "vlan", "vlan": 10 } } },
 			"off": { "enabled": false, "ssid": "Off", "security": "open", "transport": { "primary": { "type": "vlan", "vlan": 40 } } }

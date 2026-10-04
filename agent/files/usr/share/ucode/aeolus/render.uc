@@ -218,9 +218,9 @@ function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
 // which is also its device, to the concentrator from the management
 // interface, or from a VLAN of the uplink (0063); its own bridge, which the
 // network's Wi-Fi joins; a firewall rule letting it in; and below an MTU of
-// 1500, the MSS clamp. A fallback's tunnel is not started until the AP
-// switches to it. It returns the bridge.
-function tunnel(cfg, where, slot, t, conc, facts, errors, keep, bridged) {
+// 1500, the MSS clamp. A standby tunnel, a network's fallback, is not
+// started until the AP needs it (0061). It returns the bridge.
+function tunnel(cfg, where, standby, t, conc, facts, errors, keep, bridged) {
 	let n = cfg.network, fw = cfg.firewall;
 	if (!facts.vxlan) {
 		push(errors, `${where}: VXLAN needs the vxlan package, which is not installed on this AP (apk add vxlan)`);
@@ -251,7 +251,7 @@ function tunnel(cfg, where, slot, t, conc, facts, errors, keep, bridged) {
 	let name = 'aeolus_' + t.vni;
 	let o = { proto: six ? 'vxlan6' : 'vxlan', vid: t.vni, port: conc.port, mtu: conc.mtu, tunlink: from };
 	o[six ? 'peer6addr' : 'peeraddr'] = address;
-	if (slot != 'primary')
+	if (standby)
 		o.auto = 0;
 	put(n, name, 'interface', o);
 	keep[name] = true;
@@ -316,14 +316,23 @@ function join_uplink(n, bridge, end, vlan) {
 // at run time, and moves it when it switches. A VLAN transport reaches the
 // bridge through a veth pair whose configured end is in the uplink's bridge,
 // untagged in the VLAN; a VXLAN transport is its tunnel's device. The bridge
-// takes the primary's segment MAC (0060), and the prober's plan says which
-// device is which. It returns the bridge.
+// takes the primary's segment MAC (0060). The prober's plan says which
+// device is which, and how the network switches: in report mode never; in
+// automatic mode, with HA mode, failback and hold-down (0022). A tunnel
+// fallback is started only in HA mode; otherwise the prober starts it when
+// the primary goes down. It returns the bridge.
 function switching(cfg, id, net, intent, facts, errors, keep, uplink) {
 	let n = cfg.network, a = cfg.aeolus;
 	let h = net_hash(id), sect = 'aeolus_n' + h, br = 'br-n' + h;
 	if (!facts.prober)
 		push(errors, `network.${id}.transport: a network with a fallback needs the prober, and so ucode-mod-socket, which is not installed on this AP (0061)`);
-	let plan = { network: id, bridge: br, mode: 'report' }, mac = null;
+	let tr = net.transport, auto = tr.switching == 'automatic';
+	let plan = { network: id, bridge: br, mode: auto ? 'automatic' : 'report' }, mac = null;
+	if (auto) {
+		plan.ha = tr.ha ? 1 : 0;
+		plan.failback = tr.failback ?? 'revertive';
+		plan.holddown = tr.holddown ?? 300;
+	}
 	for (let slot in ['primary', 'fallback']) {
 		let t = net.transport?.[slot], where = `network.${id}.transport.${slot}`;
 		if (t?.type == 'vlan') {
@@ -341,7 +350,7 @@ function switching(cfg, id, net, intent, facts, errors, keep, uplink) {
 			plan[slot + '_vlan'] = t.vlan;
 			mac ??= segment_mac(facts.ap, 'vlan', t.vlan);
 		} else if (t?.type == 'vxlan') {
-			let dev = tunnel(cfg, where, slot, t, intent.concentrators?.[t.concentrator], facts, errors, keep, false);
+			let dev = tunnel(cfg, where, slot == 'fallback' && !(auto && tr.ha), t, intent.concentrators?.[t.concentrator], facts, errors, keep, false);
 			if (!dev)
 				continue;
 			plan[slot] = dev;
@@ -384,7 +393,7 @@ function networks(cfg, intent, facts, errors, keep) {
 				ensure_vlan(n, bridge, facts.uplink, t.vlan, keep);
 				device = `${bridge}.${t.vlan}`;
 			} else if (t?.type == 'vxlan')
-				device = tunnel(cfg, where, slot, t, intent.concentrators?.[t.concentrator], facts, errors, keep);
+				device = tunnel(cfg, where, slot != 'primary', t, intent.concentrators?.[t.concentrator], facts, errors, keep);
 			if (slot == 'primary')
 				path = device;
 		}
@@ -433,7 +442,7 @@ function tunnel_port(cfg, p, set, bridge, up, intent, facts, errors, keep) {
 	let safe = replace(p, /[^a-z0-9_]/g, '_');
 	for (let vlan in sort(keys(set.vxlan ?? {}))) {
 		let m = set.vxlan[vlan];
-		let br = tunnel(cfg, `ports.${p}.vxlan.${vlan}`, 'primary', { vni: m.vni, concentrator: m.tunnel },
+		let br = tunnel(cfg, `ports.${p}.vxlan.${vlan}`, false, { vni: m.vni, concentrator: m.tunnel },
 			intent.concentrators?.[m.tunnel], facts, errors, keep);
 		if (!br)
 			continue;
@@ -842,4 +851,4 @@ function render(intent, current, facts) {
 
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
-export { PACKAGES, CLAMP, iface_name, render, clamp };
+export { PACKAGES, CLAMP, VLAN_END, iface_name, render, clamp };
