@@ -143,3 +143,17 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+func TestMigratedStoreKeepsRelayClients(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conditions.db")
+	must(t, writeV1(path))
+	s, err := Open(path, nil)
+	must(t, err)
+	defer s.Close()
+	must(t, s.SaveRelayClients([]RelayClient{{Subnet: "192.168.50.1", MAC: "aa:bb:cc:dd:ee:01", First: time.Now(), Last: time.Now()}}))
+	cs, err := s.RelayClients()
+	must(t, err)
+	if len(cs) != 1 {
+		t.Fatalf("clients = %+v", cs)
+	}
+}

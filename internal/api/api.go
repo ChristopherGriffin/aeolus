@@ -25,6 +25,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
+	"github.com/ChristopherGriffin/aeolus/internal/dhcpwatch"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 	"github.com/ChristopherGriffin/aeolus/internal/library"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
@@ -37,6 +38,7 @@ type Server struct {
 	schema *schema.Schema
 	box    *secret.Box
 	conds  *conditions.Store
+	watch  *dhcpwatch.Book // what the manager's DHCP listeners hear (0068); nil if none
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
@@ -70,6 +72,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/changes", s.auth(s.changes))
 	mux.Handle("GET /v1/library", s.auth(s.library))
 	mux.Handle("GET /v1/schema", s.auth(s.describe))
+	mux.Handle("GET /v1/dhcp/relayed", s.auth(s.relayed))
+	mux.Handle("GET /v1/detected", s.auth(s.detected))
 	mux.Handle("POST /v1/changes", s.auth(s.commit))
 	mux.Handle("POST /v1/preview", s.auth(s.preview))
 	mux.Handle("POST /v1/tokens", s.auth(s.issueToken))

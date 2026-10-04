@@ -1,5 +1,7 @@
 // Package conditions records what APs say and do (0009, 0039): when each was
 // last seen, every render check and apply, and their periodic state reports.
+// It also keeps what the manager hears itself (0068): clients in relays'
+// copies of DHCP requests, and knocks on the option 224 listener.
 //
 // It is a second SQLite database beside the change log, and not the system of
 // record. Checks and applies are kept for good and cannot be changed, like
@@ -21,7 +23,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 const schema = `
 CREATE TABLE aps (
@@ -75,6 +77,36 @@ BEGIN SELECT RAISE(ABORT, 'applies are kept as recorded'); END;
 var migrations = map[int]string{
 	// 0041: checks keep the UCI they checked, secrets blanked.
 	1: `ALTER TABLE checks ADD COLUMN uci TEXT NOT NULL DEFAULT ''`,
+	// 0068: what the manager's DHCP listeners hear.
+	2: `
+CREATE TABLE relay_clients (
+	subnet       TEXT NOT NULL,
+	mac          TEXT NOT NULL,
+	relay        TEXT NOT NULL,
+	first_at     TEXT NOT NULL,
+	last_at      TEXT NOT NULL,
+	requests     INTEGER NOT NULL,
+	type         TEXT NOT NULL,
+	host         TEXT NOT NULL,
+	vendor_class TEXT NOT NULL,
+	params       TEXT NOT NULL,
+	address      TEXT NOT NULL,
+	circuit      TEXT NOT NULL,
+	remote       TEXT NOT NULL,
+	PRIMARY KEY (subnet, mac)
+);
+CREATE INDEX relay_clients_last ON relay_clients (last_at);
+CREATE TABLE knocks (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	first_at TEXT NOT NULL,
+	last_at  TEXT NOT NULL,
+	count    INTEGER NOT NULL,
+	source   TEXT NOT NULL,
+	sni      TEXT NOT NULL,
+	versions TEXT NOT NULL,
+	subject  TEXT NOT NULL
+);
+CREATE INDEX knocks_last ON knocks (last_at);`,
 }
 
 // Results of a render check (0039).

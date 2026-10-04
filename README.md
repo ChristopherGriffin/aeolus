@@ -19,7 +19,7 @@ Each milestone ends in something checkable before the next starts.
    1. Landing Zone and Sandbox built in; adoption; the manager as an actor.
    2. The concentrator library (0023) and per-AP filtering ([`internal/library`](internal/library), [`internal/compose`](internal/compose)).
    3. AP endpoints ([AP routes](docs/api.md#ap-routes)): enroll and the config poll (0038); the render check, apply and state reports, and the conditions store (0039, [`internal/rendercheck`](internal/rendercheck), [`internal/conditions`](internal/conditions)).
-   4. The manager side of DHCP observation (0035): relay listener and option 224 listener. Built after M5.
+   4. The manager side of DHCP observation (0035, 0068): the relay listener and the option 224 listener.
 5. **The AP agent** (0040), on PumphouseAP, in two parts:
    1. The full loop in Sandbox: install, enroll, poll, render, check, apply with automatic revert, reports; VLAN transports. The renderer is tested against the manager's check in CI.
    2. On the AP itself: VXLAN, switching between transports and HA (0020, 0022), and VLAN detection on the uplink.

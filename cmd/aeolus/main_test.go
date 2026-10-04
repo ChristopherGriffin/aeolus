@@ -19,6 +19,7 @@ import (
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
+	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 )
 
 type paths struct{ dir, db, key, mcp, cert, tlsKey string }
@@ -133,7 +134,7 @@ func TestEnsureCert(t *testing.T) {
 
 func TestServeRefusesWithoutInitOrKey(t *testing.T) {
 	p := newPaths(t)
-	if _, _, err := newServer([]string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}, &bytes.Buffer{}); err == nil {
+	if _, _, _, err := newServer([]string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}, &bytes.Buffer{}); err == nil {
 		t.Fatal("serve started without a secret key")
 	}
 }
@@ -144,7 +145,7 @@ func TestServeOverTLS(t *testing.T) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	must(t, err)
-	srv, closeLog, err := newServer([]string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey, "-listen", ln.Addr().String()}, &bytes.Buffer{})
+	srv, _, closeLog, err := newServer([]string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey, "-listen", ln.Addr().String()}, &bytes.Buffer{})
 	must(t, err)
 	defer closeLog()
 	go srv.ServeTLS(ln, "", "")
@@ -174,7 +175,7 @@ func TestServeAddsBuiltInFoldersOnce(t *testing.T) {
 	runInitOK(t, p)
 	args := []string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}
 	for i := 0; i < 2; i++ {
-		_, closeLog, err := newServer(args, &bytes.Buffer{})
+		_, _, closeLog, err := newServer(args, &bytes.Buffer{})
 		must(t, err)
 		must(t, closeLog())
 	}
@@ -202,13 +203,13 @@ func TestServeKeepsConditionsBesideTheLog(t *testing.T) {
 	p := newPaths(t)
 	runInitOK(t, p)
 	args := []string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}
-	_, closeAll, err := newServer(args, &bytes.Buffer{})
+	_, _, closeAll, err := newServer(args, &bytes.Buffer{})
 	must(t, err)
 	must(t, closeAll())
 	if _, err := os.Stat(filepath.Join(filepath.Dir(p.db), "conditions.db")); err != nil {
 		t.Fatalf("conditions database: %v", err)
 	}
-	if _, _, err := newServer(append(args, "-keep-state-days", "0"), &bytes.Buffer{}); err == nil {
+	if _, _, _, err := newServer(append(args, "-keep-state-days", "0"), &bytes.Buffer{}); err == nil {
 		t.Fatal("serve accepted keeping state reports for 0 days")
 	}
 	t.Setenv("AEOLUS_KEEP_STATE_DAYS", "90")
@@ -274,11 +275,64 @@ func TestToken(t *testing.T) {
 func TestTokenWaitsForTheServiceToStop(t *testing.T) {
 	p := newPaths(t)
 	runInitOK(t, p)
-	_, closeAll, err := newServer([]string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}, &bytes.Buffer{})
+	_, _, closeAll, err := newServer([]string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey}, &bytes.Buffer{})
 	must(t, err)
 	defer closeAll()
 	err = run([]string{"token", "-db", p.db, "-account", "griff"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if !errors.Is(err, changelog.ErrInUse) {
 		t.Fatalf("token while serving: %v", err)
+	}
+}
+
+// The DHCP listeners start with serve, and what they hear is saved when it
+// stops (0068).
+func TestServeListensForRelaysAndKnocks(t *testing.T) {
+	p := newPaths(t)
+	runInitOK(t, p)
+	free := func(network string) string {
+		if network == "udp" {
+			pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+			must(t, err)
+			defer pc.Close()
+			return pc.LocalAddr().String()
+		}
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		must(t, err)
+		defer ln.Close()
+		return ln.Addr().String()
+	}
+	relay, knock := free("udp"), free("tcp")
+	_, start, closeAll, err := newServer([]string{"-db", p.db, "-key", p.key, "-cert", p.cert, "-tls-key", p.tlsKey,
+		"-relay-listen", relay, "-knock-listen", knock}, &bytes.Buffer{})
+	must(t, err)
+	start()
+
+	// A relayed discover from 7e:2a:ea:9b:2b:8f on the subnet 192.168.50.1 relays for.
+	pkt := make([]byte, 240)
+	pkt[0], pkt[1], pkt[2], pkt[3] = 1, 1, 6, 1
+	copy(pkt[24:28], []byte{192, 168, 50, 1})
+	copy(pkt[28:34], []byte{0x7e, 0x2a, 0xea, 0x9b, 0x2b, 0x8f})
+	copy(pkt[236:240], []byte{99, 130, 83, 99})
+	pkt = append(pkt, 53, 1, 1, 255)
+	out, err := net.Dial("udp", relay)
+	must(t, err)
+	_, err = out.Write(pkt)
+	must(t, err)
+	out.Close()
+	conn, err := tls.Dial("tcp", knock, &tls.Config{ServerName: "aeolus.symtus.com", InsecureSkipVerify: true})
+	must(t, err)
+	conn.Close()
+	time.Sleep(300 * time.Millisecond)
+	must(t, closeAll())
+
+	conds, err := conditions.Open(filepath.Join(p.dir, "conditions.db"), nil)
+	must(t, err)
+	defer conds.Close()
+	cs, err := conds.RelayClients()
+	must(t, err)
+	ks, err := conds.Knocks()
+	must(t, err)
+	if len(cs) != 1 || cs[0].MAC != "7e:2a:ea:9b:2b:8f" || cs[0].Subnet != "192.168.50.1" || len(ks) != 1 || ks[0].SNI != "aeolus.symtus.com" {
+		t.Fatalf("clients %+v, knocks %+v", cs, ks)
 	}
 }

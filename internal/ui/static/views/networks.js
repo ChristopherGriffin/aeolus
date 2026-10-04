@@ -5,7 +5,8 @@
 // folder, and the preview names every AP it reaches. Band steering and
 // multicast-to-unicast are switched right on each network, and what usteer
 // does on each AP is shown below them (0051). A VXLAN transport picks one of
-// the tunnels set where it is being edited (0055).
+// the tunnels set where it is being edited (0055). The Org's tab also shows
+// what the manager hears from DHCP relays (0068).
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
@@ -32,7 +33,9 @@ const SECTIONS = [
 ];
 
 export async function networksTab(ctx, id, page) {
-	const [d, at, reports] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || [])]);
+	const org = id === ctx.trees.locations.root;
+	const [d, at, reports, relayed] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || []),
+		org ? get('/v1/dhcp/relayed').catch(() => null) : null]);
 	const lib = tunnelsAt(page.fields);
 	const bandsHere = new Set((page.hardware?.bands || []).map((b) => b.band));
 	const writable = at.folders.filter((f) => f.canEdit);
@@ -50,6 +53,7 @@ export async function networksTab(ctx, id, page) {
 		steeringStatus(ctx, reports),
 		transportsStatus(reports),
 		dhcpStatus(reports),
+		relayStatus(relayed),
 	];
 }
 
@@ -366,6 +370,35 @@ function dhcpStatus(reports) {
 		h('h2', null, 'DHCP on each AP', h('span', { class: 'note' }, "its Wi-Fi clients' DHCP, as each AP last reported")),
 		h('table', { class: 'list' },
 			h('tr', null, ['AP', 'Network', 'Servers', 'Requests, 10 min', 'Without DHCP', 'Reported'].map((c) => h('th', null, c))),
+			rows));
+}
+
+// relayStatus shows, for each subnet a DHCP relay copies the manager
+// requests from (0068): the relay, the requests of the last 10 minutes, the
+// clients and how many are new, a burst of new ones, and those that ask for
+// what an OpenWiFi AP asks for. The relay's address on the subnet names it.
+function relayStatus(relayed) {
+	if (!relayed?.subnets.length) return null;
+	const rows = relayed.subnets.map((s) => {
+		const openwifi = s.clients.filter((c) => c.openwifi).length;
+		const kinds = {};
+		for (const c of s.clients) kinds[c.kind || 'unknown'] = (kinds[c.kind || 'unknown'] || 0) + 1;
+		return h('tr', null,
+			h('td', { class: 'mono' }, s.subnet),
+			h('td', { class: 'mono' }, s.relay),
+			h('td', null, s.requests ? `${s.requests}` : '—'),
+			h('td', null, `${s.count}${s.new ? `, ${s.new} new` : ''}`,
+				h('div', { class: 'sub' }, Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${n} ${k}`).join(' · '))),
+			h('td', null,
+				s.burst && h('div', null, h('span', { class: 'chip bad', title: 'more than 64 new clients sent their first discover within a minute: a sign of DHCP starvation' }, `${s.burst.clients} new in a minute`), ` ${ago(s.burst.at)}`),
+				openwifi > 0 && h('div', null, h('span', { class: 'chip warn', title: 'their DHCP asks for options 138 and 224; see APs' }, `${openwifi} possible OpenWiFi ${openwifi === 1 ? 'AP' : 'APs'}`)),
+				!s.burst && !openwifi && '—'),
+			h('td', null, s.clients[0] ? ago(s.clients[0].last) : '—'));
+	});
+	return h('section', { class: 'panel' },
+		h('h2', null, 'DHCP from relays', h('span', { class: 'note' }, `clients' requests that relays copy to the manager; their answers aren't copied${relayed.ignored ? ` · ${relayed.ignored} other packets ignored` : ''}`)),
+		h('table', { class: 'list' },
+			h('tr', null, ['Subnet, by its relay address', 'Relay', 'Requests, 10 min', 'Clients', 'Findings', 'Last request'].map((c) => h('th', null, c))),
 			rows));
 }
 

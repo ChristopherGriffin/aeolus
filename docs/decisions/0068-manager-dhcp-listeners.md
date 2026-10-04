@@ -71,6 +71,40 @@
 - **Relay:** Griff adds `ip helper-address 192.168.20.60` to the Arista's VLAN 50 interface. VLAN 50's own server, on the segment, keeps answering. The prober's leases on VNI 50 and VLAN 50, renewed every few minutes, then show up as relayed requests from 192.168.50.0/24.
 - **Option 224:** there's no OpenWiFi AP in the lab. A TLS connection from OpenWrtnight to port 15002, naming the manager, stands in. A real AP would also need the internet, to enroll first.
 
+## As built
+
+- **`internal/dhcpwatch`:**
+  - `Parse` reads a relayed request: BOOTP or DHCP, with a relay address, from a client with a 6-byte MAC.
+    - It refuses answers, unrelayed requests, unknown message types and options that run past the end.
+    - Host names and vendor classes are kept only as printable text of at most 64 bytes, a trailing NUL dropped.
+    - Option 82's IDs are kept as text when printable, else as hex, at most 32 bytes.
+  - **The book** keeps clients by subnet and MAC, and counts requests and new clients by the second, so a flood takes no more room than a trickle.
+    - At most 256 subnets, and 4,096 clients a subnet; beyond that, new clients are counted and not kept.
+    - **A burst counts only discovers from clients new to the subnet.** A relay newly pointed at the manager copies every renewal on the subnet, from clients new to the manager, and those aren't a burst.
+  - **Saving:**
+    - Clients are saved every half minute and when the manager stops.
+    - Knocks are saved at once.
+    - Everything is trimmed hourly.
+- **The conditions store** gains `relay_clients` and `knocks` (schema version 3).
+- **The knock listener:**
+  - It runs at most 16 handshakes at once, each with 10 seconds to finish.
+  - It reads the client hello's name and versions, and asks for, but never checks, a client certificate.
+  - A source's knocks for the same name within a minute are counted as one.
+- **`serve`:**
+  - `newServer` returns a start function. The listeners start with the API and stop before the store closes.
+  - **The unit gains `CAP_NET_BIND_SERVICE`,** ambient and bounding, and nothing else.
+- **The API:**
+  - `GET /v1/dhcp/relayed` and `GET /v1/detected` need a viewer's role at the Locations root.
+  - The MCP adapter adds `get_relayed_dhcp` and `list_detected`.
+- **The UI:**
+  - The APs page lists "Detected, not enrolled" when there's anything to list.
+  - The Org's Networks tab shows "DHCP from relays", with each subnet's clients by kind, and its findings: a burst, and possible OpenWiFi APs.
+- **Checked:**
+  - **Tests:** parsing, the book's counts, bursts, saving and trimming, both listeners over real sockets, and `serve` starting them and saving what they heard.
+  - **The API:** a client possible by its fingerprint and confirmed by a knock, a Wi-Fi client confirmed through its AP's report, and an unmatched knock.
+  - **The harness:** both views, with an Edgecore AP's fingerprint and knock, and a burst of 80 discovers.
+- **The lab plan above waits for the release.**
+
 ## Not now
 
 - **Sending option 224, or any change to a site's DHCP:** the admin sets it in the scopes they choose (0034).
