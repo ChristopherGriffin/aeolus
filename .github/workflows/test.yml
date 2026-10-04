@@ -1,14 +1,24 @@
 name: test
 
+# A pull request's commits are tested once, through the pull request; main
+# and the release tags as they are pushed. A newer push to the same pull
+# request cancels the run it supersedes.
 on:
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  # What needs no ucode runs beside the tests.
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -18,29 +28,6 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
-      # The agent's renderer is tested against the manager's check (0040):
-      # build ucode as OpenWrt 25.12 ships it (the version on PumphouseAP),
-      # with only the modules the renderer and its test use.
-      - name: ucode
-        run: |
-          sudo apt-get install -y --no-install-recommends cmake libjson-c-dev
-          git clone --filter=blob:none https://github.com/jow-/ucode.git /tmp/ucode
-          git -C /tmp/ucode checkout 85922056
-          cmake -S /tmp/ucode -B /tmp/ucode/build -DCMAKE_BUILD_TYPE=Release \
-            -DFS_SUPPORT=ON -DMATH_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF \
-            -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF \
-            -DULOOP_SUPPORT=OFF -DLOG_SUPPORT=OFF -DSOCKET_SUPPORT=OFF -DZLIB_SUPPORT=OFF \
-            -DDIGEST_SUPPORT=OFF -DDEBUG_SUPPORT=OFF
-          cmake --build /tmp/ucode/build -j
-          sudo cmake --install /tmp/ucode/build
-          sudo ldconfig
-          ucode -e 'print("ucode works\n")'
-      - run: go test -race -cover ./...
-      - name: the agent renders its expected output, and builds the prober's frames
-        run: |
-          go test -count=1 -v -run 'Agent' ./internal/rendercheck/ | tee /tmp/agent.log
-          grep -q -- '--- PASS: TestAgentRendersItsOutput' /tmp/agent.log
-          grep -q -- '--- PASS: TestAgentProbeFrames' /tmp/agent.log
       # The UI has no build step (0042); check every module parses and its
       # imports link. app.js touches the page when it loads, so it is only
       # parsed.
@@ -60,6 +47,50 @@ jobs:
           npx --yes eslint@8.57.1 --no-eslintrc --env browser,es2022 --parser-options=sourceType:module --parser-options=ecmaVersion:2022 --rule 'no-undef: error' .
       - name: the agent's shell scripts parse
         run: for f in agent/install.sh agent/files/etc/init.d/aeolus; do sh -n "$f"; done
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+      UCODE_COMMIT: "85922056"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # The agent's renderer is tested against the manager's check (0040):
+      # build ucode as OpenWrt 25.12 ships it (the version on PumphouseAP),
+      # with only the modules the renderer and its test use. The build is
+      # kept by its commit, so it is made once.
+      - name: ucode's build, kept
+        id: ucode-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ucode
+          key: ucode-${{ runner.os }}-${{ env.UCODE_COMMIT }}-v1
+      - name: ucode
+        run: |
+          sudo apt-get install -y --no-install-recommends cmake libjson-c-dev
+          if [ "${{ steps.ucode-cache.outputs.cache-hit }}" != "true" ]; then
+            git clone --filter=blob:none https://github.com/jow-/ucode.git /tmp/ucode
+            git -C /tmp/ucode checkout "$UCODE_COMMIT"
+            cmake -S /tmp/ucode -B /tmp/ucode/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.ucode" \
+              -DFS_SUPPORT=ON -DMATH_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF \
+              -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF \
+              -DULOOP_SUPPORT=OFF -DLOG_SUPPORT=OFF -DSOCKET_SUPPORT=OFF -DZLIB_SUPPORT=OFF \
+              -DDIGEST_SUPPORT=OFF -DDEBUG_SUPPORT=OFF
+            cmake --build /tmp/ucode/build -j
+            cmake --install /tmp/ucode/build
+          fi
+          echo "$HOME/.ucode/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$HOME/.ucode/lib" >> "$GITHUB_ENV"
+      - name: ucode works
+        run: ucode -e 'print("ucode works\n")'
+      - run: go test -race -cover ./...
+      - name: the agent renders its expected output, and builds the prober's frames
+        run: |
+          go test -count=1 -v -run 'Agent' ./internal/rendercheck/ | tee /tmp/agent.log
+          grep -q -- '--- PASS: TestAgentRendersItsOutput' /tmp/agent.log
+          grep -q -- '--- PASS: TestAgentProbeFrames' /tmp/agent.log
 
   # Keep the later port to APs possible (0019): the manager must still build for AP hardware.
   build-ap-targets:
