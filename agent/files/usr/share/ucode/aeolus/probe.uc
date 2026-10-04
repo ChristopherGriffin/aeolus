@@ -344,12 +344,14 @@ function switch_step(n, now) {
 	if (n.mode != 'automatic')
 		return r;
 	r.want = n.want ?? 'primary';
+	// A stopped tunnel fallback is started wherever a switch waits on it.
+	let fallback = n.fallback == 'off' && n.fallback_vxlan ? 'starting' : n.fallback;
 	if (r.want == 'primary') {
 		if (n.primary == 'down' && n.fallback == 'up') {
 			r.want = 'fallback';
 			r.why = 'the primary is down';
 		} else if (n.primary == 'down')
-			r.cannot = `the primary is down, and the fallback is ${n.fallback == 'off' && n.fallback_vxlan ? 'starting' : n.fallback}`;
+			r.cannot = `the primary is down, and the fallback is ${fallback}`;
 	} else if (n.primary == 'up' && n.fallback in { down: 1, off: 1 }) {
 		r.want = 'primary';
 		r.why = `the fallback is ${n.fallback}`;
@@ -357,7 +359,7 @@ function switch_step(n, now) {
 		r.want = 'primary';
 		r.why = `the primary has been up for ${n.holddown} s`;
 	} else if (n.fallback != 'up' && n.primary != 'up')
-		r.cannot = `the fallback is ${n.fallback}, and the primary is ${n.primary}`;
+		r.cannot = `the fallback is ${fallback}, and the primary is ${n.primary}`;
 	if (n.fallback_vxlan) {
 		let needed = n.ha || r.want == 'fallback' || n.primary == 'down';
 		r.start = needed && n.fallback == 'off';
