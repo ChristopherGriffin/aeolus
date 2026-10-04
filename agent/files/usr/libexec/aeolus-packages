@@ -1,0 +1,154 @@
+#!/bin/sh
+# The packages Aeolus needs on an AP, fetched through the manager's cache of
+# OpenWrt's feeds (0069): the first AP of a kind brings each package into the
+# cache, and every other AP gets it from the manager.
+#
+#	aeolus-packages feeds     point the AP's package feeds at the manager
+#	aeolus-packages install   install them, when the agent is installed
+#	aeolus-packages restore   after a sysupgrade, install again those that were
+#
+# The packages: usteer, for band steering (0050); snmpd-ssl, for SNMP (0052);
+# vxlan and kmod-nft-bridge, for VXLAN tunnels and their MSS clamp (0054);
+# ucode-mod-socket, for the prober (0059); and kmod-veth, for a network with
+# a fallback (0061). Without one, everything else works, and a setting that
+# needs it is refused until it is installed.
+#
+# install exits 3 when it installed vxlan: netifd loads its protocols only
+# when it starts, so the network must be restarted (0057). restore restarts
+# it itself, and the agent when it installed the prober's module.
+
+PACKAGES="usteer snmpd-ssl vxlan kmod-nft-bridge ucode-mod-socket kmod-veth"
+LIST=/etc/aeolus/packages      # what was installed; kept over a sysupgrade
+DONE=/usr/lib/aeolus/packages  # not kept: present until the next sysupgrade
+UPSTREAM=https://downloads.openwrt.org/releases/
+FEEDS=/etc/apk/repositories.d/distfeeds.list
+CERT=/etc/ssl/certs/aeolus-manager.crt
+
+say() {
+	logger -t aeolus-packages "$*"
+	echo "$*" >&2
+}
+
+has() {
+	apk info -e "$1" >/dev/null 2>&1
+}
+
+# feeds points the AP's feeds at the manager: OpenWrt's release tree, or a
+# manager the AP knew before, becomes this one's /feeds/. apk fetches through
+# uclient-fetch, which trusts every certificate in /etc/ssl/certs, so the
+# manager's goes there too.
+feeds() {
+	url=$(uci -q get aeolus.agent.url) || return 1
+	url=${url%/}
+	if [ -f /etc/aeolus/manager.crt ] && [ "$(md5sum </etc/aeolus/manager.crt)" != "$(md5sum <$CERT 2>/dev/null)" ]; then
+		cp /etc/aeolus/manager.crt $CERT
+	fi
+	[ -f $FEEDS ] || return 0
+	sed -e "s|$UPSTREAM|$url/feeds/|" -e "s|^https\{0,1\}://[^/]*/feeds/|$url/feeds/|" $FEEDS >$FEEDS.new
+	if [ "$(md5sum <$FEEDS.new)" = "$(md5sum <$FEEDS)" ]; then
+		rm -f $FEEDS.new
+	else
+		mv $FEEDS.new $FEEDS
+		say "package feeds now come from the manager, $url/feeds/"
+	fi
+}
+
+# configure turns off what a package does by itself when installed: Aeolus
+# owns its config from here on.
+configure() {
+	case $1 in
+	usteer)
+		# usteer's own default steers every SSID; Aeolus owns
+		# band_steering_interval and ssid_list.
+		uci set usteer.@usteer[0].band_steering_interval=0
+		uci -q delete usteer.@usteer[0].ssid_list
+		uci commit usteer
+		/etc/init.d/usteer reload
+		;;
+	snmpd-ssl)
+		# snmpd answers OpenWrt's default communities, public, and private
+		# from the AP itself: it is turned off and those deleted.
+		uci set snmpd.general.enabled=0
+		for s in public private public6 private6; do uci -q delete snmpd.$s; done
+		uci commit snmpd
+		/etc/init.d/snmpd restart
+		;;
+	esac
+}
+
+why() {
+	case $1 in
+	usteer) echo "band steering will be refused on this AP" ;;
+	snmpd-ssl) echo "SNMP will be refused on this AP" ;;
+	vxlan | kmod-nft-bridge) echo "VXLAN tunnels will be refused on this AP" ;;
+	ucode-mod-socket) echo "the tunnels go unprobed, and tunnel ports unguarded" ;;
+	kmod-veth) echo "a network with a VLAN transport and a fallback will be refused on this AP" ;;
+	esac
+}
+
+install_all() {
+	feeds
+	apk update >/dev/null 2>&1 || say "the package index could not be read through the manager"
+	rc=0
+	: >$LIST.new
+	for p in $PACKAGES; do
+		if has $p; then
+			echo $p >>$LIST.new
+			configure $p
+		elif apk add $p >/dev/null 2>&1; then
+			echo $p >>$LIST.new
+			configure $p
+			[ $p = vxlan ] && rc=3
+		else
+			say "$p could not be installed: $(why $p) until it is (apk add $p)"
+		fi
+	done
+	mv $LIST.new $LIST
+	mkdir -p ${DONE%/*} && touch $DONE
+	return $rc
+}
+
+restore() {
+	[ -f $DONE ] && return 0
+	# An AP installed before 0069: what it has is what it was given.
+	if [ ! -f $LIST ]; then
+		for p in $PACKAGES; do has $p && echo $p; done >$LIST
+		mkdir -p ${DONE%/*} && touch $DONE
+		return 0
+	fi
+	missing=
+	for p in $(cat $LIST); do has $p || missing="$missing $p"; done
+	if [ -z "$missing" ]; then
+		mkdir -p ${DONE%/*} && touch $DONE
+		return 0
+	fi
+	feeds
+	if ! { apk update >/dev/null 2>&1 && apk add $missing >/dev/null 2>&1; }; then
+		say "after a sysupgrade, these could not be installed again:$missing; the agent tries again in an hour"
+		return 1
+	fi
+	say "after a sysupgrade, installed again:$missing"
+	mkdir -p ${DONE%/*} && touch $DONE
+	case " $missing " in *" vxlan "*)
+		say "restarting the network so netifd loads vxlan"
+		/etc/init.d/network restart
+		;;
+	esac
+	case " $missing " in *" ucode-mod-socket "*) /etc/init.d/aeolus restart ;; esac
+	return 0
+}
+
+# One at a time.
+LOCK=/var/run/aeolus-packages.lock
+mkdir $LOCK 2>/dev/null || { [ "$1" = feeds ] || say "already running"; exit 0; }
+trap 'rmdir $LOCK' EXIT
+
+case $1 in
+feeds) feeds ;;
+install) install_all ;;
+restore) restore ;;
+*)
+	sed -n '6,8p' "$0" >&2
+	exit 2
+	;;
+esac

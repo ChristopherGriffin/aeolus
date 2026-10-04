@@ -46,7 +46,7 @@ jobs:
         run: |
           npx --yes eslint@8.57.1 --no-eslintrc --env browser,es2022 --parser-options=sourceType:module --parser-options=ecmaVersion:2022 --rule 'no-undef: error' .
       - name: the agent's shell scripts parse
-        run: for f in agent/install.sh agent/files/etc/init.d/aeolus; do sh -n "$f"; done
+        run: for f in agent/install.sh agent/files/etc/init.d/aeolus agent/files/usr/libexec/aeolus-packages agent/files/etc/hotplug.d/ntp/50-aeolus; do sh -n "$f"; done
 
   test:
     runs-on: ubuntu-latest

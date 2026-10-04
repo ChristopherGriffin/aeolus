@@ -198,6 +198,34 @@ type stateReport struct {
 	DHCP map[string]dhcpState `json:"dhcp,omitempty"`
 	// Every Wi-Fi client on the AP (0066).
 	Clients []wifiClient `json:"clients,omitempty"`
+	// Its clock (0069).
+	Time *timeState `json:"time,omitempty"`
+}
+
+// timeState is whether the AP's clock is synchronized, as ntpd last said
+// (0069): null until it has said; its stratum and offset in seconds; seconds
+// since it said so; and the time servers ntpd was started with.
+type timeState struct {
+	Synced  *bool    `json:"synced"`
+	Stratum *int     `json:"stratum"`
+	Offset  *float64 `json:"offset"`
+	Ago     *int64   `json:"ago"`
+	Servers []string `json:"servers"`
+}
+
+func (t *timeState) check() error {
+	if t == nil {
+		return nil
+	}
+	if (t.Stratum != nil && (*t.Stratum < 0 || *t.Stratum > 16)) || (t.Ago != nil && *t.Ago < 0) || len(t.Servers) > 8 {
+		return badRequest("time: stratum is 0 to 16, ago cannot be negative, at most 8 servers")
+	}
+	for _, sv := range t.Servers {
+		if err := plainText("time server", sv, 253); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // wifiClient is one Wi-Fi client on an AP (0066), as nl80211 and the DHCP
@@ -727,6 +755,9 @@ var (
 func (st *stateReport) check() error {
 	if st.Version < 0 || st.Uptime < 0 {
 		return badRequest("version and uptime cannot be negative")
+	}
+	if err := st.Time.check(); err != nil {
+		return err
 	}
 	if err := plainText("openwrt", st.OpenWrt, maxText); err != nil {
 		return err

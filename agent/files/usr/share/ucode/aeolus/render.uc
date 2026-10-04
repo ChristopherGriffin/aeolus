@@ -10,15 +10,19 @@
 // usteer's band_steering_interval and ssid_list (0050), all of snmpd's
 // config (0052), sections named aeolus_ (in the firewall, 0054, and in its
 // own package, the prober's plan, 0059), and the time zone, NTP and syslog
-// settings. A section it did not create is never
-// otherwise edited, or removed.
+// settings. It takes OpenWrt's internet pool out of the time servers, and
+// adds to dnsmasq's rebind_domain the names it uses on the AP (0069). A
+// section it did not create is never otherwise edited, or removed.
 
 'use strict';
 
 import { text } from 'aeolus.uciexport';
 import { segment_mac } from 'aeolus.probe';
 
-const PACKAGES = ['wireless', 'network', 'system', 'aeolus', 'usteer', 'snmpd', 'firewall'];
+const PACKAGES = ['wireless', 'network', 'system', 'aeolus', 'usteer', 'snmpd', 'firewall', 'dhcp'];
+
+// OpenWrt's default time servers, which are on the internet (0069).
+const POOL = /\.openwrt\.pool\.ntp\.org$/;
 
 // The MSS clamp's nftables file, which fw4 loads (0054).
 const CLAMP = '/etc/aeolus/clamp.nft';
@@ -747,6 +751,65 @@ function system(pkg, intent, facts) {
 			put(pkg, 'ntp', 'timeserver', {});
 		pkg.ntp.server = map(want.ntp, v => '' + v);
 	}
+	else if (pkg.ntp?.['.type'] == 'timeserver' && pkg.ntp.server != null) {
+		// Never OpenWrt's internet pool (0069): without time servers of
+		// its own, the AP takes those its DHCP gives it.
+		let left = filter(type(pkg.ntp.server) == 'array' ? pkg.ntp.server : [pkg.ntp.server], v => !match(v, POOL));
+		if (length(left))
+			pkg.ntp.server = left;
+		else
+			delete pkg.ntp.server;
+	}
+}
+
+// rebind lets the AP resolve to a private address each name Aeolus uses on
+// it (0069): the manager's host, the time servers and the syslog host.
+// dnsmasq's rebind protection drops a private answer to any other name. The
+// names it adds are kept in its own package, so one no longer used is taken
+// out again; the rest of the list is the site's, and left alone.
+function rebind(cfg, intent) {
+	let want = [];
+	// The manager's host, from the agent's URL: scheme://host[:port]/...
+	let url = cfg.aeolus.agent?.url ?? '', at = index(url, '://');
+	if (at >= 0) {
+		let host = substr(url, at + 3);
+		for (let sep in ['/', ':', '?'])
+			if (index(host, sep) >= 0)
+				host = substr(host, 0, index(host, sep));
+		push(want, host);
+	}
+	for (let v in intent.system?.ntp ?? [])
+		push(want, '' + v);
+	if (intent.system?.syslog != null)
+		push(want, host_port(intent.system.syslog)[0]);
+	want = uniq(filter(want, n => match(n, /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/) && !match(n, /^[0-9.]+$/)));
+	let d = of_type(cfg.dhcp, 'dnsmasq')[0];
+	let agent = cfg.aeolus.agent;
+	let had = agent?.rebind ?? [];
+	if (type(had) != 'array')
+		had = [had];
+	if (!d) {
+		if (agent)
+			delete agent.rebind;
+		return;
+	}
+	let list = d.rebind_domain ?? [];
+	if (type(list) != 'array')
+		list = [list];
+	list = filter(list, n => !(n in had) || n in want);
+	for (let n in want)
+		if (!(n in list))
+			push(list, n);
+	if (length(list))
+		d.rebind_domain = list;
+	else
+		delete d.rebind_domain;
+	if (agent) {
+		if (length(want))
+			agent.rebind = want;
+		else
+			delete agent.rebind;
+	}
 }
 
 // agent renders the settings meant for the agent itself (0040).
@@ -895,6 +958,7 @@ function render(intent, current, facts) {
 			delete cfg.aeolus[k];
 	system(cfg.system, intent, facts ?? {});
 	agent(cfg.aeolus, intent);
+	rebind(cfg, intent);
 	steering(cfg.usteer, intent, errors);
 	snmp(cfg, intent, facts ?? {}, errors);
 	let changed = filter(PACKAGES, p => text(p, cfg[p]) != text(p, current[p] ?? {}));

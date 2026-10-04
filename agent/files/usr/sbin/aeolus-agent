@@ -34,6 +34,10 @@ const WIFI_WAIT = 150;     // seconds for the Wi-Fi to come back after an apply,
 const STATE_EVERY = 300;   // seconds between state reports
 const PROBES = '/var/run/aeolus/probes.json';   // what the prober found (0059)
 const PROBES_STALE = 60;   // seconds after which the prober's results are too old to report
+const PACKAGES_TOOL = '/usr/libexec/aeolus-packages';   // its packages, through the manager (0069)
+const PACKAGES_DONE = '/usr/lib/aeolus/packages';      // gone after a sysupgrade, until they are back
+const RESTORE_EVERY = 3600;   // seconds between tries to install them again
+const TIME = '/var/run/aeolus/time.json';   // ntpd's word on the clock, from its hotplug (0069)
 
 let bus = connect();
 
@@ -717,6 +721,35 @@ function probe_news() {
 	return join(',', v) + ';' + join(',', l);
 }
 
+// time_state is whether the AP's clock is synchronized, as ntpd last said
+// through its hotplug (0069): null until it has said; its stratum and offset;
+// seconds since it said so; and the time servers ntpd was started with.
+function time_state() {
+	let servers = [];
+	for (let pid in split(run('pidof ntpd'), ' ')) {
+		let a = split(fs.readfile(`/proc/${pid}/cmdline`) ?? '', chr(0));
+		for (let i = 0; i + 1 < length(a); i++)
+			if (a[i] == '-p')
+				push(servers, a[i + 1]);
+		if (length(servers))
+			break;
+	}
+	let t = null;
+	try {
+		t = json(fs.readfile(TIME) ?? 'null');
+	}
+	catch (e) {
+		t = null;
+	}
+	let up = int(split(read('/proc/uptime') ?? '0', ' ')[0]);
+	let ago = t?.at != null ? up - int(t.at) : null;
+	return {
+		synced: t == null ? null : t.action != 'unsync' && t.action != 'other' && t.stratum < 16,
+		stratum: t?.stratum, offset: t?.offset, ago: ago != null && ago >= 0 ? ago : null,
+		servers: slice(uniq(servers), 0, 8),
+	};
+}
+
 // state_report is what the AP tells the manager about itself (0039).
 function state_report(running) {
 	let b = bus.call('system', 'board') ?? {};
@@ -772,6 +805,8 @@ function state_report(running) {
 	let clients = probes()?.clients;
 	if (clients && length(clients))
 		report.clients = slice(clients, 0, 256);
+	// Its clock (0069).
+	report.time = time_state();
 	return report;
 }
 
@@ -779,6 +814,19 @@ function report_state(running, token) {
 	let res = http('POST', '/v1/ap/state', state_report(running), token);
 	if (res.status != 200)
 		fail('state report: %s', describe(res));
+}
+
+// packages points the AP's package feeds at the manager, and after a
+// sysupgrade has the packages Aeolus needs installed again from it, in the
+// background, since that can take a while and may restart the network
+// (0069). It returns when it next wants to look.
+function packages(now) {
+	if (!fs.access(PACKAGES_TOOL))
+		return now + RESTORE_EVERY;
+	system(PACKAGES_TOOL + ' feeds >/dev/null 2>&1');
+	if (!fs.access(PACKAGES_DONE))
+		system('setsid ' + PACKAGES_TOOL + ' restore </dev/null >/dev/null 2>&1 &');
+	return now + RESTORE_EVERY;
 }
 
 function main() {
@@ -792,6 +840,7 @@ function main() {
 	// The clamp's file is not kept over a sysupgrade, so make it again.
 	if (write_clamp(cursor().get_all('network'), cursor().get_all('aeolus')))
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
+	let next_packages = packages(time());
 	let running = running_version();
 	let assigned = false;
 	let held = null;
@@ -855,6 +904,8 @@ function main() {
 			report_state(running, token);
 			last_state = time();
 		}
+		if (time() >= next_packages && !fs.access(PACKAGES_DONE))
+			next_packages = packages(time());
 		let poll = settings().poll;
 		sleep(poll * 1000 * (90 + math.rand() % 21) / 100);
 	}

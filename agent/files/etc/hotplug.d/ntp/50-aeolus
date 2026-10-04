@@ -1,0 +1,9 @@
+# ntpd's word on the clock, for the Aeolus agent's state report (0069).
+# hotplug-call sources this with ntpd's ACTION and its stratum and offset.
+aeolus_action=$ACTION aeolus_stratum=$stratum aeolus_offset=$offset
+case $aeolus_action in stratum | periodic | step | unsync) ;; *) aeolus_action=other ;; esac
+case $aeolus_stratum in '' | *[!0-9]*) aeolus_stratum=16 ;; esac
+case $aeolus_offset in '' | *[!0-9.eE+-]*) aeolus_offset=null ;; esac
+mkdir -p /var/run/aeolus
+printf '{"action":"%s","stratum":%s,"offset":%s,"at":%s}\n' "$aeolus_action" "$aeolus_stratum" "$aeolus_offset" \
+	"$(cut -d' ' -f1 /proc/uptime)" >/var/run/aeolus/time.json.new && mv /var/run/aeolus/time.json.new /var/run/aeolus/time.json

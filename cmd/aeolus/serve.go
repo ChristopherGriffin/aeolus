@@ -24,6 +24,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/dhcpwatch"
+	"github.com/ChristopherGriffin/aeolus/internal/feeds"
 	"github.com/ChristopherGriffin/aeolus/internal/mcpadapter"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
@@ -71,6 +72,8 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 	keepDays := fs.Int("keep-state-days", defaultKeepDays(), "days to keep AP state reports (default from AEOLUS_KEEP_STATE_DAYS, else 30)")
 	relayListen := fs.String("relay-listen", envOr("AEOLUS_RELAY_LISTEN", ":67"), "UDP address for relays' copies of DHCP requests, or off (0068)")
 	knockListen := fs.String("knock-listen", envOr("AEOLUS_KNOCK_LISTEN", ":15002"), "TCP address for the option 224 listener, or off (0068)")
+	feedDir := fs.String("feed-cache", envOr("AEOLUS_FEED_CACHE", ""), "directory for the cache of OpenWrt's feeds, or off (0069; default: feeds beside the change log)")
+	feedMB := fs.Int("feed-cache-mb", envInt("AEOLUS_FEED_CACHE_MB", 2048), "the feed cache's size in MB (0069)")
 	if err := fs.Parse(args); err != nil {
 		return nil, nil, nil, err
 	}
@@ -79,6 +82,12 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 	}
 	if *condsPath == "" {
 		*condsPath = filepath.Join(filepath.Dir(*db), "conditions.db")
+	}
+	if *feedDir == "" {
+		*feedDir = filepath.Join(filepath.Dir(*db), "feeds")
+	}
+	if *feedMB < 1 {
+		return nil, nil, nil, errors.New("-feed-cache-mb must be at least 1")
 	}
 
 	sch, err := schema.V1()
@@ -135,6 +144,17 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 	apiHandler := api.New(log, sch, box, conds).WithWatch(watch).Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpadapter.New(apiHandler, version))
+	// APs fetch OpenWrt's packages through the manager (0069).
+	if *feedDir != "off" {
+		cache, err := feeds.New(*feedDir, feeds.Upstream, int64(*feedMB)<<20)
+		if err != nil {
+			closeAll()
+			return nil, nil, nil, fmt.Errorf("feed cache: %w", err)
+		}
+		files, bytes := cache.Stats()
+		slog.Info("feed cache", "dir", *feedDir, "files", files, "mb", bytes>>20, "max_mb", *feedMB)
+		mux.Handle("/feeds/", cache)
+	}
 	// The UI answers browsers at / and serves its files; the API gets the rest (0042).
 	mux.Handle("/", ui.Handler(apiHandler))
 	return &http.Server{
@@ -178,6 +198,14 @@ func listenDHCP(ctx context.Context, wg *sync.WaitGroup, watch *dhcpwatch.Book, 
 			run("the option 224 listener", func() error { return dhcpwatch.ServeKnocks(ctx, ln, cert, watch) })
 		}
 	}
+}
+
+// envInt is the environment variable name as a number, or def.
+func envInt(name string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(name)); err == nil {
+		return n
+	}
+	return def
 }
 
 // envOr is the environment variable name, which serve.env can set, or def.

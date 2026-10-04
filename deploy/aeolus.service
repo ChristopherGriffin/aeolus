@@ -11,6 +11,9 @@ Group=aeolus
 # AEOLUS_KEEP_STATE_DAYS, if set, is how long AP state reports are kept (0039).
 # AEOLUS_RELAY_LISTEN and AEOLUS_KNOCK_LISTEN move the DHCP listeners from
 # :67 (UDP) and :15002 (TCP), or turn either off with "off" (0068).
+# AEOLUS_FEED_CACHE and AEOLUS_FEED_CACHE_MB move and size the cache of
+# OpenWrt's feeds that APs fetch packages through, by default
+# /var/lib/aeolus/feeds and 2048 MB; "off" turns it off (0069).
 EnvironmentFile=/etc/aeolus/serve.env
 ExecStart=/opt/aeolus/bin/aeolus serve -hosts ${AEOLUS_HOSTS}
 Restart=on-failure

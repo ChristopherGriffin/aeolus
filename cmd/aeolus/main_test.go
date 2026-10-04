@@ -168,6 +168,18 @@ func TestServeOverTLS(t *testing.T) {
 	if resp.StatusCode != 200 || body["account"] != "griff" {
 		t.Fatalf("whoami over TLS = %d %v", resp.StatusCode, body)
 	}
+
+	// The feed cache answers without a token, and only for OpenWrt's tree
+	// (0069); this path never reaches the internet.
+	resp, err = client.Get("https://" + ln.Addr().String() + "/feeds/.hidden")
+	must(t, err)
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("feed cache: %d", resp.StatusCode)
+	}
+	if _, err := os.Stat(filepath.Join(p.dir, "feeds")); err != nil {
+		t.Fatalf("no feed cache beside the log: %v", err)
+	}
 }
 
 func TestServeAddsBuiltInFoldersOnce(t *testing.T) {
