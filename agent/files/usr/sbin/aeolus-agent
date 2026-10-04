@@ -691,7 +691,8 @@ function uplink_port() {
 // soon as it changes: each tunnel's verdict, where each network with a
 // fallback is and whether it cannot switch, whether each VLAN watched on the
 // uplink reaches the AP, the switch and port the uplink is on, each
-// network's DHCP findings, and the loops it found.
+// network's DHCP findings, which Wi-Fi clients are on the AP, and the loops
+// it found.
 function probe_news() {
 	let p = probes();
 	if (!p)
@@ -710,6 +711,8 @@ function probe_news() {
 		push(v, sprintf('dhcp:%s=%s/%d/%s', id, d.unanswered > 0 && !d.answered ? 'silent' : 'ok', length(d.duplicates ?? []) ? 2 : 1,
 			join(' ', sort(map(d.without ?? [], c => c.mac + (c.address ? '' : '!'))))));
 	}
+	// The Wi-Fi clients on the AP (0066): one joining or leaving.
+	push(v, 'clients=' + join(' ', sort(map(p.clients ?? [], c => c.mac))));
 	let l = map(p.loops ?? [], x => x.port);
 	return join(',', v) + ';' + join(',', l);
 }
@@ -765,6 +768,10 @@ function state_report(running) {
 	let dhcp = probes()?.dhcp;
 	if (dhcp && length(keys(dhcp)))
 		report.dhcp = dhcp;
+	// Every Wi-Fi client on the AP, as the prober found (0066).
+	let clients = probes()?.clients;
+	if (clients && length(clients))
+		report.clients = slice(clients, 0, 256);
 	return report;
 }
 
