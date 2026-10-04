@@ -42,7 +42,7 @@ Each milestone ends in something checkable before the next starts.
 ## Pull requests
 
 - CI (`test`) runs once per pull request: lint, the tests with ucode, and the builds for AP hardware. It runs on `main` and release tags too.
-- The `merge-when-green` label, put on when Griff approves, merges a pull request once `test` has passed on its head commit. A push after the label takes the label off.
+- The `merge-when-green` label, put on when Griff approves, merges a pull request once `test` has passed on its head commit, if the head holds the tip of `main`. A push after the label takes the label off.
 
 ## Decisions
 
