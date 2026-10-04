@@ -1,8 +1,8 @@
 # 0060. Each AP takes an address on the segments it probes
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
-- Proposed by: Griff: rather than a probe address set by hand, the AP pulls an address on each segment and probes from it, with a MAC of its own that says which AP and which segment it is; written up by Claude
+- Proposed by: Griff: rather than a probe address set by hand, the AP pulls an address on each segment and probes from it, with a MAC of its own that says which AP and which segment it is; written up by Claude, and accepted with the merge
 - Refines: 0059
 
 ## Context
