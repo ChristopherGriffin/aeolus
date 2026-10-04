@@ -91,6 +91,7 @@ request no answer, at 995: waiting
 request no answer, at 1000: unanswered
 request an offer: answered
 client asked after joining: ok
+client asked in the second nl80211 rounds the join into: ok
 client asked before joining again: static
 client joined 30 s ago, nothing yet: unknown
 client joined 100 s ago, uses an address: static

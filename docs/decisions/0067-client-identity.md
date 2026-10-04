@@ -108,3 +108,10 @@
 - **The probe tests,** on OpenWrtnight, read a vendor class and parameter list from a discover.
 - **Harness:** the tab with a private-MAC iPhone ("private MAC · phone, iOS", Wi-Fi 6, k v w), a legacy Espressif ("Espressif · iot, Linux", a/b/g, 2 % failed) and a Wi-Fi 4 one.
 - **The v0.33.0 manager** refused the new prober's report: "unknown field vendor_class". Hence the manager goes first.
+- **With v0.34.0, and Griff's Galaxy S23 Ultra on Aeolus Lab** (2026-10-04, 22:25):
+  - The tab showed it all: address 192.168.20.81, host name, "private MAC · phone, Android" from its vendor class `android-dhcp-16`, and its parameter list.
+  - It showed Wi-Fi 4 with k only, though the phone does Wi-Fi 6E, v and w:
+    - it had moved to the 2.4 GHz radio, which is n only on the R7800;
+    - this hostapd offers no 802.11v, so the phone's extended capabilities left the bit clear;
+    - Aeolus Lab doesn't ask for protected management frames.
+  - **So the features are what the connection uses, not all the client can do.** In v0.34.1 the tooltips say "in use on this connection", and the generation's says the radio may cap it.

@@ -109,15 +109,16 @@ function who(c) {
 	return line && h('div', { class: 'sub', title: c.basis ? `guessed from its ${c.basis}` : '' }, line);
 }
 
-// features shows a client's 802.11 generation and the features it
-// supports, k, v and w, as small chips (0067). 802.11r isn't known: this
-// AP's hostapd doesn't say which key management a client chose.
+// features shows the 802.11 generation and the features k, v and w that a
+// client's connection uses, as small chips (0067). The AP's radio and the
+// SSID cap them, so a client may be able to do more. 802.11r isn't known:
+// this AP's hostapd doesn't say which key management a client chose.
 function features(c) {
 	if (c.k == null) return '—';   // hostapd didn't say
 	const gen = { n: 'Wi-Fi 4', ac: 'Wi-Fi 5', ax: 'Wi-Fi 6', be: 'Wi-Fi 7' }[c.gen] || 'a/b/g';
-	const chip = (on, name, what) => h('span', { class: 'chip ' + (on ? 'ok' : 'idle'), title: `${what}: ${on ? 'supported' : 'not supported'}` }, name);
+	const chip = (on, name, what) => h('span', { class: 'chip ' + (on ? 'ok' : 'idle'), title: `${what}: ${on ? 'in use' : 'not in use'} on this connection` }, name);
 	return [
-		h('div', null, gen),
+		h('div', { title: "what this connection uses; the AP's radio may cap it" }, gen),
 		h('div', { class: 'chips' },
 			chip(c.k, 'k', '802.11k, neighbour reports'), ' ', chip(c.v, 'v', '802.11v, BSS transition'), ' ',
 			chip(c.w, 'w', '802.11w, protected management frames'), ' ',
