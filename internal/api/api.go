@@ -5,7 +5,8 @@
 // Every request except /healthz and /v1/enroll carries "Authorization:
 // Bearer <token>": an account's token, or on the /v1/ap/ routes an AP's
 // (0038).
-// Every write is one change with a reason, authorized and checked at commit
+// Every write is one change, logged with who made it and when, and with a
+// note if the caller gives one (0062); it is authorized and checked at commit
 // time (0029, 0030). Secrets are never returned in plain text (0027), and a
 // node the caller cannot view answers 404, not 403, so the API does not
 // reveal what exists.

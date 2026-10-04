@@ -25,7 +25,7 @@ const instructions = `Aeolus is the manager for an OpenWrt-based Wi-Fi system. I
 
 Two trees sit under the Org: "locations" (where APs are: radios, system, ports, and which service folders apply) and "services" (what APs offer: networks and their transports). Settings inherit down each tree field by field; a value shows where it comes from (self, inherited, locked, baseline). Locks stop overrides below; Break Hierarchy starts a new branch.
 
-Every change is one logged entry with your name and a reason. Run preview_change before make_change for anything that re-versions APs, locks, moves or breaks hierarchy. Secrets such as passphrases are sealed; you can set them but never read them back.`
+Every change is one logged entry with your name and the time; a reason is optional, a note for where the change does not speak for itself. Run preview_change before make_change for anything that re-versions APs, locks, moves or breaks hierarchy. Secrets such as passphrases are sealed; you can set them but never read them back.`
 
 // New returns the /mcp handler. api is the API's handler; the adapter is its
 // client.
@@ -139,7 +139,7 @@ type previewIn struct {
 
 type changeIn struct {
 	Op     Op     `json:"op" jsonschema:"the change to make"`
-	Reason string `json:"reason" jsonschema:"why: recorded in the change log with your name"`
+	Reason string `json:"reason,omitempty" jsonschema:"optional: a note for the change log, which records who made the change and when without one"`
 }
 
 type empty struct{}
@@ -199,12 +199,9 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "POST", "/v1/preview", map[string]any{"op": in.Op})
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "make_change", Description: "Make one change. It is logged under your name with your reason. Set values are checked against the field schema and secrets are sealed. Returns the logged change, the APs it re-versioned, and any whose config now fails its check.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
+	mcp.AddTool(s, &mcp.Tool{Name: "make_change", Description: "Make one change. It is logged under your name with the time, and with your reason if you give one. Set values are checked against the field schema and secrets are sealed. Returns the logged change, the APs it re-versioned, and any whose config now fails its check.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in changeIn) (*mcp.CallToolResult, any, error) {
-			if strings.TrimSpace(in.Reason) == "" {
-				return nil, nil, fmt.Errorf("a reason is required: it is recorded in the change log")
-			}
-			out, err := c.call(ctx, "POST", "/v1/changes", map[string]any{"op": in.Op, "reason": in.Reason})
+			out, err := c.call(ctx, "POST", "/v1/changes", map[string]any{"op": in.Op, "reason": strings.TrimSpace(in.Reason)})
 			return nil, out, err
 		})
 	return s

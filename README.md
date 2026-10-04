@@ -25,7 +25,7 @@ Each milestone ends in something checkable before the next starts.
    2. On the AP itself: VXLAN, switching between transports and HA (0020, 0022), and VLAN detection on the uplink.
 6. **Web UI** (0042, [`internal/ui`](internal/ui)), from the mockup, served by Aeolus at `/`:
    1. Read-only: both trees with values and where they come from, overrides, locks and problems; each AP's sync, reports and history; Landing Zone; all APs; the library; the change log.
-   2. Editing, each change previewed and made with a reason, and the page guard (0029). Started with radio width, set by folder within what every AP can do, or per AP as a custom setting (0044); APs pick their own channels, and a width their channel cannot carry sets it to automatic (0045).
+   2. Editing, each change previewed and logged with who made it and when (a note is optional, 0062), and the page guard (0029). Started with radio width, set by folder within what every AP can do, or per AP as a custom setting (0044); APs pick their own channels, and a width their channel cannot carry sets it to automatic (0045).
 7. **Key channel** (0014).
 
 ## On the manager host
@@ -104,6 +104,7 @@ Each milestone ends in something checkable before the next starts.
 | [0059](docs/decisions/0059-tunnel-probes.md) | Tunnel probes, the loop guard, and switching transports (step 1 built: probes, keepalive and the loop guard) |
 | [0060](docs/decisions/0060-probe-addresses.md) | Each AP takes an address on the segments it probes |
 | [0061](docs/decisions/0061-switching-transports.md) | Switching a network between its transports (proposed) |
+| [0062](docs/decisions/0062-optional-reasons.md) | A change needs no reason (proposed) |
 
 ## Open questions
 
