@@ -114,6 +114,7 @@ Each milestone ends in something checkable before the next starts.
 | [0064](docs/decisions/0064-vlan-detection.md) | Telling which VLANs reach an AP |
 | [0065](docs/decisions/0065-client-dhcp-watch.md) | Watching clients' DHCP |
 | [0066](docs/decisions/0066-clients-tab.md) | A Clients tab |
+| [0067](docs/decisions/0067-client-identity.md) | Who each client is, and how well it connects (proposed) |
 
 ## Open questions
 
