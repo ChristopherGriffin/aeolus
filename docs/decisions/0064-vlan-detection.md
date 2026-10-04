@@ -14,6 +14,9 @@
   - 0020 has the AP find out, and the manager say so.
 - **The AP sees only the VLANs it carries.**
   - On a DSA switch such as OpenWrtnight's, the switch chip drops a tagged VLAN that the uplink's bridge doesn't carry, before the CPU sees it (0061).
+  - Checked on 2026-10-04. The Arista's Et6 trunk carries every VLAN it has (`Trunking VLANs Enabled: ALL`), 30 and 1010 among them. Each has an SVI in OSPF, so a hello goes out every 10 seconds.
+  - In 60 seconds the AP got none of them on `wan`. It got 4631 frames on VLAN 20, 2013 on VLAN 10, 1636 on VLAN 50 and 1825 untagged.
+  - On hardware whose uplink isn't a switch-chip port, this may differ.
   - So the AP can't list what else the switch port carries.
   - It can tell, for each VLAN it carries, whether that VLAN reaches it.
 - **Active probes already work on the uplink (0061).** A network's VLAN transport is probed tagged on the uplink, from the VLAN's own MAC. The answer's VLAN is read from `PACKET_AUXDATA`. But only VLAN transports of networks with a fallback are probed.
