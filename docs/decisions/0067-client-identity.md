@@ -1,8 +1,8 @@
 # 0067. Who each client is, and how well it connects
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
-- Proposed by: Griff: for each client, its host name, its maker by OUI, its device type, the 802.11 features it supports, such as r, k and v, and its retry rates. Written up by Claude
+- Proposed by: Griff: for each client, its host name, its maker by OUI, its device type, the 802.11 features it supports, such as r, k and v, and its retry rates. Written up by Claude, and accepted with the merge
 - Refines: 0065, 0066
 
 ## Context
