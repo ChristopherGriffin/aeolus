@@ -284,6 +284,12 @@ func TestFieldValues(t *testing.T) {
 		{"radio.2g.power", 40, false},
 		{"system.country", "US", true},
 		{"system.country", "us", false},
+		// A time zone from Aeolus's table, and no other (0074).
+		{"system.tz", "America/Chicago", true},
+		{"system.tz", "UTC", true},
+		{"system.tz", "America/Argentina/Buenos_Aires", true},
+		{"system.tz", "Mars/Olympus_Mons", false},
+		{"system.tz", "america/chicago", false},
 		{"system.poll", 5, false},
 		{"system.poll", 60.5, false},
 		{"system.ssh_keys", []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJFp griff@laptop"}, true},
@@ -305,6 +311,40 @@ func TestFieldValues(t *testing.T) {
 		if (err == nil) != c.ok {
 			t.Errorf("Check(%s, %v) = %v, want ok=%v", c.path, c.v, err, c.ok)
 		}
+	}
+}
+
+// The manager's table of time zones and the agent's are one file (0074):
+// what the manager accepts, every AP has a rule for.
+func TestZonesMatchTheAgents(t *testing.T) {
+	agent, err := os.ReadFile(filepath.Join("..", "..", "agent", "files", "usr", "share", "ucode", "aeolus", "zones.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ReplaceAll(string(agent), "\r\n", "\n") != strings.ReplaceAll(string(zonesUC), "\r\n", "\n") {
+		t.Error("internal/schema/zones.uc and the agent's aeolus/zones.uc differ")
+	}
+	zones := Zones()
+	if len(zones) != 446 || zones[0] != "UTC" {
+		t.Errorf("%d zones, the first %q: want 446, UTC first", len(zones), zones[0])
+	}
+	for name, want := range map[string]string{
+		"UTC":               "UTC0",
+		"America/Chicago":   "CST6CDT,M3.2.0,M11.1.0",
+		"America/Vancouver": "MST7",
+		"Asia/Kolkata":      "IST-5:30",
+	} {
+		if got, ok := ZoneRule(name); !ok || got != want {
+			t.Errorf("ZoneRule(%s) = %q, %v; want %q", name, got, ok, want)
+		}
+	}
+	if _, ok := ZoneRule("Mars/Olympus_Mons"); ok {
+		t.Error("a zone outside the table has a rule")
+	}
+	// The description gives the UI the list, for its dropdown.
+	tz := v1(t).Describe().Fields["system.tz"]
+	if list, _ := tz["enum"].([]any); len(list) != 446 || tz["x-aeolus-enum"] != "zones" {
+		t.Errorf("system.tz is described with %d zones (%v)", len(list), tz["x-aeolus-enum"])
 	}
 }
 

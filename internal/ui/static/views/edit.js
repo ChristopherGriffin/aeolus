@@ -29,6 +29,22 @@ export function input(path, f, current) {
 	if (f.type === 'boolean') {
 		el = h('input', { type: 'checkbox', checked: current === true });
 		read = () => el.checked;
+	} else if (f['x-aeolus-enum'] === 'zones' && f.enum) {
+		// Time zones, as Linux lists them: by region, each by its city (0074).
+		const regions = new Map();
+		for (const z of f.enum) {
+			const i = z.indexOf('/');
+			const region = i < 0 ? '' : z.slice(0, i);
+			if (!regions.has(region)) regions.set(region, []);
+			regions.get(region).push(z);
+		}
+		const option = (z, label) => h('option', { value: z, selected: z === current }, label.replaceAll('_', ' '));
+		el = h('select', null,
+			current === undefined && h('option', { value: '' }, '—'),
+			[...regions].map(([region, zones]) => (region
+				? h('optgroup', { label: region }, zones.map((z) => option(z, z.slice(region.length + 1))))
+				: zones.map((z) => option(z, z)))));
+		read = () => (el.value === '' ? undefined : el.value);
 	} else if (f.enum) {
 		el = h('select', null,
 			current === undefined && h('option', { value: '' }, '—'),

@@ -35,6 +35,67 @@ import (
 //go:embed v1.json
 var v1JSON []byte
 
+// zonesUC is Aeolus's table of time zones (0074), which the agent ships too.
+//
+//go:embed zones.uc
+var zonesUC []byte
+
+// zoneLine is one zone in the table: its IANA name and its POSIX rule.
+var zoneLine = regexp.MustCompile(`^\t'([^']+)': '([^']*)',$`)
+
+var (
+	zonesOnce sync.Once
+	zoneNames []string
+	zoneRules map[string]string
+)
+
+func loadZones() {
+	zoneRules = map[string]string{}
+	for _, line := range strings.Split(string(zonesUC), "\n") {
+		if m := zoneLine.FindStringSubmatch(strings.TrimSuffix(line, "\r")); m != nil {
+			zoneNames = append(zoneNames, m[1])
+			zoneRules[m[1]] = m[2]
+		}
+	}
+}
+
+// Zones lists the time zones Aeolus offers (0074), as its table has them:
+// UTC first, then by name.
+func Zones() []string {
+	zonesOnce.Do(loadZones)
+	return zoneNames
+}
+
+// ZoneRule is a zone's POSIX TZ rule, which sets an AP's clock (0074).
+func ZoneRule(name string) (string, bool) {
+	zonesOnce.Do(loadZones)
+	r, ok := zoneRules[name]
+	return r, ok
+}
+
+// fill gives each field the schema marks x-aeolus-enum its list of values,
+// so the list is kept once, where it is used: "zones" is the time zones
+// (0074).
+func fill(node any) {
+	switch n := node.(type) {
+	case map[string]any:
+		if n["x-aeolus-enum"] == "zones" {
+			list := make([]any, 0, len(Zones()))
+			for _, z := range Zones() {
+				list = append(list, z)
+			}
+			n["enum"] = list
+		}
+		for _, v := range n {
+			fill(v)
+		}
+	case []any:
+		for _, v := range n {
+			fill(v)
+		}
+	}
+}
+
 var (
 	ErrUnknownField = errors.New("unknown field")
 	ErrNotAField    = errors.New("not a field; set the fields inside it")
@@ -94,6 +155,7 @@ func Load(data []byte) (*Schema, error) {
 	if !ok {
 		return nil, errors.New("schema is not a JSON object")
 	}
+	fill(raw)
 	id, _ := raw["$id"].(string)
 	c := jsonschema.NewCompiler()
 	if err := c.AddResource(id, doc); err != nil {
