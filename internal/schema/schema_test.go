@@ -346,6 +346,23 @@ func TestZonesMatchTheAgents(t *testing.T) {
 	if list, _ := tz["enum"].([]string); len(list) != 446 || tz["x-aeolus-enum"] != "zones" {
 		t.Errorf("system.tz is described with %d zones (%v)", len(list), tz["x-aeolus-enum"])
 	}
+	// Each zone tzdata gives a country is one Aeolus has a rule for, and the
+	// US's come east to west, as tzselect lists them.
+	var us []ZoneInfo
+	for _, z := range Places() {
+		if _, ok := ZoneRule(z.Zone); !ok {
+			t.Errorf("zone.tab's %s (%s) is not in the table", z.Zone, z.Country)
+		}
+		if z.Country == "US" {
+			us = append(us, z)
+		}
+	}
+	if len(Places()) != 418 || len(us) != 29 || us[0] != (ZoneInfo{"America/New_York", "US", "Eastern (most areas)"}) || us[28].Zone != "Pacific/Honolulu" {
+		t.Errorf("%d places, %d in the US, the first %+v", len(Places()), len(us), us[0])
+	}
+	if got, _ := tz["x-aeolus-zones"].([]ZoneInfo); len(got) != 418 {
+		t.Errorf("system.tz is described with %d places", len(got))
+	}
 	// A zone set before the list was, such as an alias, isn't refused in a
 	// document, so the AP's config isn't held for it; a new one is.
 	s := v1(t)

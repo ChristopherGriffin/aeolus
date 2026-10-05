@@ -33,6 +33,12 @@ export function systemEditor(ctx, d, here, nodeName, fields, box) {
 	};
 	snmpOn?.addEventListener('change', sync);
 	sync();
+	// The time zones on offer are the country's, as it stands in the form
+	// (0074).
+	const country = rows.get('system.country')?.it.el;
+	const narrow = () => rows.get('system.tz')?.it.narrow?.(country?.value.trim().toUpperCase());
+	country?.addEventListener('input', narrow);
+	narrow();
 
 	const out = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
