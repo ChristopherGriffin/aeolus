@@ -82,6 +82,47 @@
 - **Per-user keys are WPA2-PSK only.**
 - **A unit's VLAN is set up once,** as config. The number of VLANs one AP can carry this way is measured in the lab.
 
+## As built
+
+- **`internal/keys`** is the store: keys by ID, each with:
+  - its Services folder and network;
+  - a name;
+  - a sealed passphrase, under the path `keys.<id>.passphrase`, so it opens only as that key's;
+  - an optional VLAN, MACs and expiry.
+
+  `PSK` works the 64-hex PSK out with Go's `crypto/pbkdf2`.
+- **`internal/change`** adds `add-key`, `set-key` and `remove-key`, applied to the state's key store.
+  - Every refused key is `ErrBadKey`, answered 400. "No key" is 404, and an ID in use or too many keys is 409.
+  - After any change to the trees, `checkKeys` refuses one that would strand a key, as an `InUseError` naming the keys.
+  - Whether an expiry is still ahead is checked by the API, not on replay.
+  - An operator on the folder may change its keys.
+- **The API:**
+  - It makes a missing ID (`k` and 10 hex digits).
+  - It checks a passphrase given in plain text, opens the network's and the other keys' to refuse a repeat, and seals it. A sealed value handed in is refused.
+  - `GET /v1/keys` lists a network's keys.
+  - `GET /v1/ap/keys` works out the AP's set from its resolved networks: WPA2-PSK and on, from the key's folder or one below. Its version is a hash of the keys' sealed passphrases, VLANs and MACs and the SSIDs, so rotating a key, or one expiring, changes it.
+  - A held request looks again every second, up to 50 seconds.
+  - PSKs are kept in a cache, by sealed passphrase and SSID.
+  - The AP's config view says how many keys it should have and their version, and its state report says which it has.
+- **The schema** adds `network.*.keys.vlans`, up to 512 VLANs. The render check covers it: for each VLAN, a bridge-vlan, an interface `aeolus_<net>_k<v>` on `<bridge>.<v>`, and a wifi-vlan `aeolus_<net>_kv<v>` with name `k<v>`, its VID, that interface, and the network's wifi-ifaces. A stray `aeolus_` wifi-vlan is refused.
+- **The renderer** makes those, and keeps every `wifi-station` section, `aeolus_` or not. `without_keys` leaves them out of the UCI the render check is sent, and out of the test goldens.
+- **The key agent:**
+  - It's `aeolus-agent keys`, a procd instance of its own.
+  - It asks with `wait=40` and a 55-second timeout. `http()` takes a timeout now.
+  - It writes `aeolus_key_<id>` sections (the ID's `-` as `_`) on the network's wifi-ifaces present on the AP, with the wildcard MAC if the key is bound to none. Then `ubus call network reload`.
+  - It keeps the version in `/etc/aeolus/keys.version`, which a sysupgrade keeps.
+  - If its sections change behind it, such as by a revert of the wireless config, it asks for the whole set again.
+- **MCP:** `list_keys`, and the key kinds in `make_change`.
+- **The UI:**
+  - A WPA2-PSK network's card has a "Per-user keys" line: how many, and the VLANs offered. It opens to the keys, with Rotate and Revoke, and a form to add one, for those who may edit.
+  - The network's edit form has a "Per-user keys" section for `keys.vlans`.
+  - The AP's status line says how many keys it should have, and warns when its key agent hasn't reported them yet.
+- **Checked:**
+  - **Tests:** the change kinds, the strand guard and who may change keys; the API's checks, its list, delivery to an adopted AP, a held request answering when a key is rotated, removal, and that no passphrase reaches the change log.
+  - **On OpenWrtnight:** the render case `keys` (with the existing goldens unchanged), the agent compiling, and probe.out.
+  - **In the UI harness:** the panel listing, adding (with a made ID), and refusing a repeated passphrase; and the AP's status line.
+- **The phone test waits for the release,** on OfficeOpenWrt.
+
 ## Lab checks
 
 On OpenWrtnight on 2026-10-05, on `tedt` (WPA2-PSK, `phy0-ap2` and `phy1-ap3`), with Griff told first. Every key was given as a 64-hex PSK, worked out for the SSID as the manager will.
