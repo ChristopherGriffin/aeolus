@@ -118,7 +118,7 @@ Each milestone ends in something checkable before the next starts.
 | [0067](docs/decisions/0067-client-identity.md) | Who each client is, and how well it connects |
 | [0068](docs/decisions/0068-manager-dhcp-listeners.md) | The manager's DHCP listeners |
 | [0069](docs/decisions/0069-running-without-the-internet.md) | Running without the internet |
-| [0070](docs/decisions/0070-per-user-keys-built.md) | Per-user keys, as built on OpenWrt (proposed) |
+| [0070](docs/decisions/0070-per-user-keys-built.md) | Per-user keys, as built on OpenWrt |
 
 ## Open questions
 

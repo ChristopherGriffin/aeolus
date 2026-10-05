@@ -1,8 +1,8 @@
 # 0070. Per-user keys, as built on OpenWrt
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-05
-- Proposed by: Griff: write up 0014. Written up by Claude
+- Proposed by: Griff: write up 0014. Written up by Claude, and accepted with the merge
 - Refines: 0014, 0027, 0030, 0040
 
 ## Context
