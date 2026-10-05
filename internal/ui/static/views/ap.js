@@ -11,6 +11,8 @@ import { systemSection } from './sections.js';
 import { networksTab } from './networks.js';
 import { interfacesTab } from './interfaces.js';
 import { clientsTab } from './clients.js';
+import { renameButton } from './rename.js';
+import { moveButton } from './move.js';
 
 const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['system', 'System']];
 
@@ -31,6 +33,9 @@ export async function apPage(ctx, id, tab, sub, view) {
 	// change (0046).
 	const own = Object.keys(page.fields || {}).filter((p) => page.fields[p].origin === 'self').sort();
 	const revertBox = h('div', { class: 'edit flush' });
+	// Renamed, its hostname with it, or moved to another folder, by someone
+	// who may change it (0076).
+	const nameBox = h('div', { class: 'edit' });
 	const base = `/aps/${enc}`;
 	[tab, sub, view] = moved(base, tab, sub, view);
 	tab = pick(TABS, tab);
@@ -39,11 +44,14 @@ export async function apPage(ctx, id, tab, sub, view) {
 		crumbs(ctx, 'locations', page.ancestry),
 		h('div', { class: 'head' },
 			h('div', null,
-				h('h1', null, page.node.name),
+				h('h1', null, page.node.name,
+					edit && renameButton(ctx, 'locations', { id, name: page.node.name, kind: 'ap' }, nameBox, 'rename head'),
+					edit && moveButton(ctx, { id, name: page.node.name }, nameBox, 'rename head')),
 				h('div', { class: 'sub' }, ['AP', facts.model, cond.seen?.source].filter(Boolean).join(' · '))),
 			edit && own.length > 0 && followButton(ctx, 'locations', id, page.node.name, edit.parentName, own, revertBox,
 				`Revert to ${edit.parentName} (${own.length} custom setting${own.length === 1 ? '' : 's'})`)),
 		revertBox,
+		nameBox,
 		statusPanel(st, cfg, cond),
 		cfg.check?.problems?.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Its config breaks these rules, so it is not sent'),

@@ -6,11 +6,11 @@ import { h } from '../dom.js';
 import { group, value } from '../format.js';
 import { ask, confirm, cancelButton } from './confirm.js';
 
-// moveButton offers to move ap ({ id, name, parent }) to another Locations
-// folder, its form opening in box.
-export function moveButton(ctx, ap, box) {
+// moveButton offers to move ap ({ id, name }) to another Locations folder,
+// its form opening in box.
+export function moveButton(ctx, ap, box, cls = 'rename') {
 	return h('button', {
-		type: 'button', class: 'button small rename', title: 'Move this AP to another folder',
+		type: 'button', class: `button small ${cls}`, title: 'Move this AP to another folder',
 		onclick: () => moveForm(ctx, ap, box),
 	}, 'Move…');
 }

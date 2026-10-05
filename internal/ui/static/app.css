@@ -280,3 +280,4 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 /* Rename beside an AP's name on the APs tab (0076). */
 .button.rename { margin-left: 8px; height: 24px; padding: 0 8px; font-size: 12px; }
 .button.rename.head { margin-left: 12px; vertical-align: middle; }
+.button.rename.head + .button.rename.head { margin-left: 6px; }
