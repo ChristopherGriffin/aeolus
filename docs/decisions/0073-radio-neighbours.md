@@ -1,8 +1,8 @@
 # 0073. Radio resource management: APs as neighbours, channels by rating
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-05
-- Proposed by: Griff: each AP still picks its own channel, but with reliable scanning and collision avoidance. APs that hear each other become neighbours and talk over the wire. Each rates every channel after each scan and keeps the ratings like a link-state protocol's link costs. Better channels become more likely to be chosen over time. A neighbour's channel is blotted out, and sudden interference moves an AP to its next best channel. Three neighbours each, ideally at −70 dBm or better. A client that can't follow a move is accepted, with planned moves in off hours. Written up by Claude
+- Proposed by: Griff: each AP still picks its own channel, but with reliable scanning and collision avoidance. APs that hear each other become neighbours and talk over the wire. Each rates every channel after each scan and keeps the ratings like a link-state protocol's link costs. Better channels become more likely to be chosen over time. A neighbour's channel is blotted out, and sudden interference moves an AP to its next best channel. Three neighbours each, ideally at −70 dBm or better. A client that can't follow a move is accepted, with planned moves in off hours. Written up by Claude, and accepted with the control plane's merge
 - Refines: 0045, 0050, 0071
 
 ## Context
