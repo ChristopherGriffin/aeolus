@@ -48,6 +48,7 @@
   - a bracket labelled DFS over 52–144, one where the ranges sit on one line, split where they wrap (Griff, 2026-10-05);
   - the APs on each channel now, marked under it;
   - saved with a preview, as other changes are.
+  - on 5 GHz, whether DFS channels are avoided (0071), under the channel set; it was on the band's card under Bands (Griff, 2026-10-05).
 
   The width is the band's width in force there, or, where none is set, the one most of the APs below report.
 
