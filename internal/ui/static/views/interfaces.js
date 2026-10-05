@@ -17,16 +17,16 @@ import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY, uplinkJud
 import { tabBar, pick } from '../layout.js';
 import { configs, channelsSection } from './sections.js';
 import { radiosSection } from './hardware.js';
-import { neighboursSection } from './neighbours.js';
+import { neighboursSection, ratingsSection } from './neighbours.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
 import { tunnelsAt, tunnelName } from './networks.js';
 
 const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
-// Radios' views: the band cards, the channels each AP picked, and the
-// other Aeolus APs each hears (0073).
-const RADIOS = [['bands', 'Bands'], ['channels', 'Channels'], ['neighbours', 'Neighbours']];
+// Radios' views: the band cards, the channels each AP picked, the other
+// Aeolus APs each hears, and how it rates each channel (0073).
+const RADIOS = [['bands', 'Bands'], ['channels', 'Channels'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings']];
 
 // The port fields offered, in order. LACP and its bond are not applied yet,
 // and the uplink is the agent's own setting.
@@ -59,6 +59,7 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 		const rows = () => (ap ? [ap] : configs(page.hardware?.aps || []));
 		let body;
 		if (view === 'channels') body = channelsSection(ctx, await rows());
+		else if (view === 'ratings') body = ratingsSection(ctx, await rows());
 		else if (view === 'neighbours') {
 			const at = { node: id, nodeName: page.node.name, page, canEdit: !!edit,
 				parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null };

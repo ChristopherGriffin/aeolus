@@ -218,7 +218,11 @@ func TestStateReports(t *testing.T) {
 			map[string]any{"ap": "ap-2005b6018be0", "address": "192.168.1.45", "state": "up", "chosen": true, "hello_ago": 4,
 				"bands": []any{map[string]any{"band": "2g", "signal": -73, "their_signal": -73, "channel": 11, "width": 20}}},
 			map[string]any{"ap": "ap-a0046021365f", "address": "", "state": "heard", "chosen": true, "hello_ago": nil,
-				"bands": []any{map[string]any{"band": "5g", "signal": -81, "their_signal": nil, "channel": nil, "width": nil}}}}},
+				"bands": []any{map[string]any{"band": "5g", "signal": -81, "their_signal": nil, "channel": nil, "width": nil}}}},
+			// Its channel ratings: one in use, one blotted out by a neighbour.
+			"ratings": []any{
+				map[string]any{"band": "2g", "channel": 1, "cost": 38, "now": 41, "busy": 29, "noise": -92, "networks": 6, "visits": 12, "ago": 30, "own": false, "blotted_by": []string{}},
+				map[string]any{"band": "2g", "channel": 11, "cost": 12, "now": 9, "busy": 4, "noise": nil, "networks": 0, "visits": 40, "ago": 5, "own": true, "blotted_by": []string{"ap-2005b6018be0"}}}},
 		// Every Wi-Fi client (0066): one on an Aeolus network, one on the AP's own.
 		"clients": []any{
 			map[string]any{"mac": "7e:2a:ea:9b:2b:8f", "network": "lab", "ssid": "Aeolus Lab", "band": "5g", "signal": -49, "signal_avg": -50,
@@ -296,6 +300,8 @@ func TestStateReports(t *testing.T) {
 		"rrm state":     {"version": 1, "rrm": map[string]any{"neighbours": []any{map[string]any{"ap": "ap-2005b6018be0", "state": "friends"}}}},
 		"rrm signal":    {"version": 1, "rrm": map[string]any{"neighbours": []any{map[string]any{"ap": "ap-2005b6018be0", "state": "up", "bands": []any{map[string]any{"band": "2g", "signal": 12}}}}}},
 		"rrm address":   {"version": 1, "rrm": map[string]any{"address": "office.lan"}},
+		"rrm rating":    {"version": 1, "rrm": map[string]any{"ratings": []any{map[string]any{"band": "2g", "channel": 1, "busy": 140}}}},
+		"rrm blotter":   {"version": 1, "rrm": map[string]any{"ratings": []any{map[string]any{"band": "2g", "channel": 1, "blotted_by": []string{"office"}}}}},
 		"time servers":  {"version": 1, "time": map[string]any{"servers": []string{"a\tb"}}},
 		"active":        {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
 		"network":       {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},

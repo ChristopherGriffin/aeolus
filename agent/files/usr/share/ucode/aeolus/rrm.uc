@@ -1,8 +1,8 @@
 // Radio resource management's pure parts (0073), so they are tested
 // anywhere: the element an AP's beacons carry to say it is an Aeolus AP and
 // where to reach it; HMAC-SHA256, which signs the hellos neighbours
-// exchange; the hellos themselves; which APs become neighbours; and the
-// channels a radio listens on for them.
+// exchange; the hellos themselves; which APs become neighbours; the
+// channels a radio listens on for them; and how each channel is rated.
 
 'use strict';
 
@@ -18,6 +18,16 @@ const NEIGHBOURS = 3;         // on each band, the APs heard most strongly
 const HELLO_EVERY = 10;       // seconds between hellos
 const DEAD = 40;              // seconds without a hello after which a neighbour is down
 const SKEW = 60;              // seconds a hello's time may be off from this AP's clock
+const LASTING = 0.1;          // how much one visit moves a channel's lasting rating
+const NOW = 0.5;              // and its rating now
+
+// The 5 GHz channels taken up together at each width, by the lowest and
+// highest 20 MHz channel, as internal/radio has them.
+const BLOCKS5 = {
+	'40': [[36, 40], [44, 48], [52, 56], [60, 64], [100, 104], [108, 112], [116, 120], [124, 128], [132, 136], [140, 144], [149, 153], [157, 161]],
+	'80': [[36, 48], [52, 64], [100, 112], [116, 128], [132, 144], [149, 161]],
+	'160': [[36, 64], [100, 128]],
+};
 
 function hexstr(s) {
 	let o = '';
@@ -167,9 +177,53 @@ function visits(band, own, dfs) {
 	return out;
 }
 
+// weight is how much another network counts against the channel it is
+// heard on: fully at -55 dBm or stronger, not at all at -95 or weaker.
+// (ucode divides whole numbers to a whole number, so 40.0.)
+function weight(signal) {
+	if (!(type(signal) in ['int', 'double']))
+		return 0;
+	return min(1, max(0, (signal + 95) / 40.0));
+}
+
+// cost rates one visit to a channel: lower is better. busy is the share of
+// the visit others kept it busy, 0 to 1; noise its noise floor in dBm, where
+// the driver says; networks the signals of the other networks heard there.
+// Busy counts most: a channel others use all the time costs 100. Each dB of
+// noise above -95 adds 2, and each strong network 10.
+function cost(busy, noise, networks) {
+	let c = 100 * min(1, max(0, busy ?? 0));
+	if (type(noise) in ['int', 'double'])
+		c += 2 * max(0, noise + 95);
+	for (let s in networks ?? [])
+		c += 10 * weight(s);
+	return c;
+}
+
+// blend folds a visit's cost into a rating at rate a: LASTING for the rating
+// a channel earns over many visits, NOW for what it is like now.
+function blend(old, sample, a) {
+	return old == null ? sample : old * (1 - a) + sample * a;
+}
+
+// covers lists the 20 MHz channels a radio on channel takes up at width.
+function covers(band, channel, width) {
+	if (band != '5g' || !width || width <= 20)
+		return [channel];
+	for (let b in BLOCKS5['' + width] ?? [])
+		if (channel >= b[0] && channel <= b[1]) {
+			let out = [];
+			for (let c = b[0]; c <= b[1]; c += 4)
+				push(out, c);
+			return out;
+		}
+	return [channel];
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW,
-	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits
+	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW,
+	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits,
+	weight, cost, blend, covers
 };
