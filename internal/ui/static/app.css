@@ -247,7 +247,7 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 
 /* The channel map (0075): a band's channels, each block of the width one
    shade, picked a block at a time. */
-.chmap { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 6px; }
+.chmap { display: flex; flex-wrap: wrap; gap: 14px; margin: 6px 20px 16px; }
 .chrange { display: flex; gap: 6px; }
 .chblock { display: flex; gap: 1px; padding: 2px; border-radius: 6px; }
 .chstack { display: flex; flex-direction: column; }
@@ -273,4 +273,5 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .ch:disabled:not(.off) { cursor: default; }
 .ch .ap { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .ch .ap.none { visibility: hidden; }
-.chlegend { display: flex; flex-wrap: wrap; gap: 16px; }
+.panel > h2 .title { display: flex; align-items: center; gap: 10px; }
+.panel > h2 .title .chip { text-transform: none; letter-spacing: 0; height: 22px; }
