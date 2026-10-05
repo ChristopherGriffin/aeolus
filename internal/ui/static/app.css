@@ -173,6 +173,9 @@ nav.subtabs { display: flex; gap: 6px; margin: 0 0 16px; }
 nav.subtabs a { padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); font-size: 14px; }
 nav.subtabs a:hover { text-decoration: none; color: var(--ink); }
 nav.subtabs a.on { background: var(--accent-bg); border-color: var(--accent); color: var(--ink); }
+/* A part's views, such as Radios' Bands and Channels (0072). */
+nav.subtabs.minor { gap: 4px; margin-top: -8px; }
+nav.subtabs.minor a { padding: 2px 10px; font-size: 13px; border-radius: 6px; }
 .bands { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
 .panel.band.none h2 { color: var(--muted); }
 .panel.band .row .label { width: 90px; }

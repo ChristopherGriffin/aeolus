@@ -47,6 +47,19 @@
   - moving between nodes keeps the part and view;
   - Channels, Ethernet and Tunnels refresh, and Bands does not.
 
+## As built
+
+- **Interfaces' parts** are Radios, Ethernet and Tunnels (`interfaces.js`). Radios has a third, smaller row of tabs for its views, Bands and Channels.
+- **The addresses go one level deeper:** a node's address can carry a tab, a part and a view. Bands also has an address of its own, `…/interfaces/radios/bands`.
+- **An old Hardware address is read as the new one,** and the new one is put in its place in the address bar, without a reload. It works on folders and APs alike.
+- **In the UI harness:**
+  - `#/locations/sandbox/hardware/channels` became `…/interfaces/radios/channels`, and `…/hardware` became `…/interfaces/radios`;
+  - an AP's `…/hardware/channels` did the same;
+  - Interfaces alone opened on Radios › Bands;
+  - Ethernet and Tunnels showed as before;
+  - the tree's links kept `interfaces/radios/channels` on every node;
+  - Bands didn't redraw in 34 seconds, and Channels redrew once.
+
 ## Not now
 
 - **The wider redesign** of the UI's density, which Griff has in mind. This is a step toward it, not the whole.

@@ -1,28 +1,28 @@
 // A folder in Locations or Services: its values and where they come from, its
 // overrides, and what it holds (0012, 0013). A Locations folder's settings
-// are in tabs: Hardware, Networks, Interfaces and System (0047, 0053). Landing Zone lists the
-// APs waiting in it (0032).
+// are in tabs: Interfaces, Networks, Clients and System (0047, 0053, 0066,
+// 0072). Landing Zone lists the APs waiting in it (0032).
 
 import { h, link, icon } from '../dom.js';
 import { get } from '../api.js';
 import { group, value, ago } from '../format.js';
-import { treeAside, crumbs, fleetMap, tabBar, pick, SUBTABS } from '../layout.js';
+import { treeAside, crumbs, fleetMap, tabBar, pick, keepPath, moved } from '../layout.js';
 import { fieldPanels, editing } from './fields.js';
 import { apPage } from './ap.js';
-import { hardwareTab, systemSection } from './sections.js';
+import { systemSection } from './sections.js';
 import { networksTab } from './networks.js';
 import { keysSection } from './keys.js';
-import { interfacesTab } from './interfaces.js';
+import { interfacesTab, interfacesLive } from './interfaces.js';
 import { clientsTab } from './clients.js';
 
-const TABS = [['hardware', 'Hardware'], ['networks', 'Networks'], ['clients', 'Clients'], ['interfaces', 'Interfaces'], ['system', 'System']];
+const TABS = [['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['system', 'System']];
 
-export async function treePage(ctx, tree, id, tab, sub) {
+export async function treePage(ctx, tree, id, tab, sub, view) {
 	const t = ctx.trees[tree];
 	id = id || t.root;
 	if (!id) return { main: [h('div', { class: 'banner info' }, 'You have no role in this tree.')] };
 	// Links to where a value was set can point at an AP; it has its own page.
-	if (tree === 'locations' && t.nodes.get(id)?.kind === 'ap') return apPage(ctx, id, tab, sub);
+	if (tree === 'locations' && t.nodes.get(id)?.kind === 'ap') return apPage(ctx, id, tab, sub, view);
 	const [page, fleet] = await Promise.all([
 		get(`/v1/trees/${tree}/nodes/${encodeURIComponent(id)}`),
 		tree === 'locations' ? get('/v1/aps') : null,
@@ -54,14 +54,14 @@ export async function treePage(ctx, tree, id, tab, sub) {
 		refresh = 30;
 	} else if (tree === 'locations') {
 		const base = `/locations/${encodeURIComponent(id)}`;
+		[tab, sub, view] = moved(base, tab, sub, view);
 		tab = pick(TABS, tab);
 		main.push(tabBar(base, TABS, tab));
-		if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub));
+		if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, null, editing(ctx, tree, page)));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 		else if (tab === 'clients') main.push(await clientsTab(ctx, page, null));
-		else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, null, editing(ctx, tree, page)));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
-		if ((tab === 'hardware' && sub === 'channels') || tab === 'interfaces' || tab === 'clients') refresh = 30; // live
+		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
 		// A Services folder's networks' per-user keys (0070).
@@ -70,7 +70,7 @@ export async function treePage(ctx, tree, id, tab, sub) {
 	main.push(inside(ctx, tree, t, id, status));
 	// Moving to another folder or AP in the tree keeps the tab, so folders
 	// can be compared side by side.
-	const keep = tree === 'locations' && !n.isolated ? `/${tab}${SUBTABS.has(tab) && sub ? '/' + sub : ''}` : '';
+	const keep = tree === 'locations' && !n.isolated ? keepPath(tab, sub, view) : '';
 	return { aside: treeAside(ctx, tree, id, status, keep), main, refresh };
 }
 

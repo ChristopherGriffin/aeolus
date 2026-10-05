@@ -64,15 +64,33 @@ export function fleetMap(aps) {
 }
 
 // tabBar draws a page's tabs as links under base ([[key, label]]); current
-// is the one shown. sub draws the smaller second row (0047).
+// is the one shown. sub draws the smaller second row (0047), and 'minor' a
+// third, smaller still, for the views of one part (0072).
 export function tabBar(base, tabs, current, sub) {
-	return h('nav', { class: sub ? 'subtabs' : 'pagetabs', 'aria-label': sub ? 'Part of this section' : 'Sections of this page' },
+	return h('nav', { class: sub === 'minor' ? 'subtabs minor' : sub ? 'subtabs' : 'pagetabs', 'aria-label': sub === 'minor' ? 'View of this part' : sub ? 'Part of this section' : 'Sections of this page' },
 		tabs.map(([key, label]) => h('a', { href: `#${base}/${key}`, class: key === current ? 'on' : null, 'aria-current': key === current ? 'page' : null }, label)));
 }
 
 // SUBTABS are the page tabs with tabs of their own; moving to another node
 // keeps the choice of those too.
-export const SUBTABS = new Set(['hardware', 'interfaces']);
+export const SUBTABS = new Set(['interfaces']);
+
+// keepPath is the part of a node's address that moving to another node
+// keeps: its tab, and the tab's part and view.
+export function keepPath(tab, sub, view) {
+	if (!SUBTABS.has(tab) || !sub) return `/${tab}`;
+	return `/${tab}/${sub}${view ? '/' + view : ''}`;
+}
+
+// moved reads an address from before 0072, when Radios and Channels were a
+// Hardware tab of their own, as the Interfaces tab's, and puts the new
+// address in place of the old one, so links and bookmarks keep working.
+export function moved(base, tab, sub, view) {
+	if (tab !== 'hardware') return [tab, sub, view];
+	const now = ['interfaces', 'radios', sub === 'channels' ? 'channels' : undefined];
+	try { history.replaceState(null, '', `#${base}${keepPath(...now)}`); } catch { /* the address stays as it was */ }
+	return now;
+}
 
 // pick returns the tab asked for if there is one, or the first.
 export function pick(tabs, key) {
