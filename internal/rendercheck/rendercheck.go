@@ -30,6 +30,7 @@ var Coverage = map[string]string{
 	"radio.*.channel": "",
 	"radio.*.width":   "",
 	"radio.*.power":   "",
+	"radio.*.dfs":     "",
 
 	"system.country":               "",
 	"system.tz":                    "",
@@ -276,6 +277,31 @@ func (k *checker) radioSettings(doc map[string]any, radios []device) {
 				k.add("%s: %s", where, msg)
 			}
 		}
+		if v, ok := set["dfs"].(string); ok {
+			k.dfs(where, r, v)
+		}
+	}
+}
+
+// dfs checks a radio against radio.<band>.dfs (0071): with avoid, an
+// automatic channel is picked outside DFS, and a channel the AP keeps as
+// its own must not be a DFS one, whoever set it.
+func (k *checker) dfs(where string, r device, v string) {
+	channel := value(r.s, "channel")
+	auto := channel == "" || channel == "auto"
+	if want := v == "avoid" && auto; r.s.Flag("acs_exclude_dfs") != want {
+		k.add("%s: acs_exclude_dfs is %q, want it %s for radio.%s.dfs %s", where, value(r.s, "acs_exclude_dfs"), onOff(want), r.band, v)
+	}
+	ch, err := strconv.Atoi(channel)
+	if v != "avoid" || err != nil {
+		return
+	}
+	w := 20
+	if m := htmodeRE.FindStringSubmatch(value(r.s, "htmode")); m != nil && m[2] != "" {
+		w, _ = strconv.Atoi(m[2])
+	}
+	if radio.Radar(r.band, ch, w) {
+		k.add("%s: channel %d at %d MHz uses DFS channels, but radio.%s.dfs is avoid", where, ch, w, r.band)
 	}
 }
 

@@ -45,6 +45,20 @@
 
 - **On both APs, with `avoid` and channel auto:** check that a radio restart lands outside 52–144. Do it on OpenWrtnight (ath10k) and OfficeOpenWrt (mt76), whose drivers both pick channels with ACS. Then check that `allow` lets it pick DFS again.
 
+## As built
+
+- **The field:** `radio.5g.dfs`, `allow` or `avoid`, in the schema with `allow` as its default. Unset, the renderer leaves the AP's own setting alone, as with every radio field.
+- **The renderer:**
+  - With `avoid`, and a channel that is automatic (`auto`, or not set on the AP), it sets `acs_exclude_dfs '1'` on the 5 GHz wifi-device.
+  - Otherwise it removes the option if it is on. An `acs_exclude_dfs '0'` the AP already has is left alone, so that `allow` changes nothing on an AP that never avoided DFS. The pumphouse AP has one from uCentral.
+  - OpenWrt 25.12 passes the option to hostapd as is (`/usr/share/ucode/wifi/hostapd.uc`), on both lab APs.
+- **The render check** holds the AP to it: `acs_exclude_dfs` on exactly when DFS is avoided and the channel is automatic. With `avoid`, a channel in UCI that uses DFS channels at the htmode's width is a problem, whoever set it.
+- **The config check** holds two problems with `avoid`:
+  - `radio.5g.width: every 160 MHz channel uses DFS channels, but radio.5g.dfs is avoid`;
+  - `radio.5g.channel: channel 108 uses DFS channels, but radio.5g.dfs is avoid`, for a set channel, judged at the set width (48 is fine at 80 MHz, not at 160).
+- **The Radios tab's 5 GHz card** has a "DFS channels" row under Channel: allowed or avoided, where it comes from, and "Avoid…" or "Allow…", previewed like any change, for those who may edit. With `avoid`, 160 MHz is offered as unavailable: "it needs DFS channels, which are avoided here".
+- **A new render case,** `agent/test/cases/dfs`: automatic channels at 80 MHz with DFS avoided.
+
 ## Not now
 
 - **Avoiding particular channels, rather than all of DFS:** OpenWrt's `channels` list does that, as the office AP's 2.4 GHz has 1, 6 and 11. It's a field of its own.

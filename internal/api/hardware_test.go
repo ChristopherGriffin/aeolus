@@ -128,6 +128,33 @@ func TestFolderOffersWhatEveryAPCanDo(t *testing.T) {
 	}
 }
 
+// With DFS avoided, a width only DFS channels can carry is not offered
+// (0071), and setting it is held.
+func TestAvoidingDFSWithdraws160(t *testing.T) {
+	f := newFixture(t)
+	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	wide := []any{map[string]any{"radio": "radio0", "band": "5g", "htmodes": []string{"HT20", "HT40", "VHT80", "VHT160"}}}
+	ap := strings.Split(f.enrollAt("WideAP", "02:00:00:00:00:0a", "house", wide, map[string]int{"5g": 36}), "|")[0]
+	if house, _ := f.hardwareOf("house"); house["5g"][160] != "" {
+		t.Fatalf("before = %v", house)
+	}
+	if code, b := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "radio.5g.dfs", "value": "avoid"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	for _, node := range []string{"house", ap} {
+		if hw, _ := f.hardwareOf(node); hw["5g"][160] != "it needs DFS channels, which are avoided here" || hw["5g"][80] != "" {
+			t.Fatalf("%s = %v", node, hw)
+		}
+	}
+	code, res := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house",
+		"values": map[string]any{"radio.5g.width": 160, "radio.5g.channel": "auto"}})
+	if code != 200 || !strings.Contains(fmt.Sprint(res["checks"]), "every 160 MHz channel uses DFS channels") {
+		t.Fatalf("%d %v", code, res)
+	}
+}
+
 func TestWidthMovesTheChannel(t *testing.T) {
 	f := newFixture(t)
 	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {

@@ -156,6 +156,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, sch.Problems(doc)...)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
 	problems = append(problems, bondingProblems(doc)...)
+	problems = append(problems, dfsProblems(doc)...)
 	problems = append(problems, snmpProblems(doc)...)
 	problems = append(problems, portProblems(doc)...)
 	problems = append(problems, tunnelProblems(doc)...)
@@ -222,6 +223,29 @@ func bondingProblems(doc map[string]any) []string {
 		}
 		if ok, why := radio.Fits(band, int(ch), int(w)); !ok {
 			out = append(out, fmt.Sprintf("radio.%s.channel: %s", band, why))
+		}
+	}
+	return out
+}
+
+// dfsProblems refuses, with DFS avoided (0071), what could only be on a DFS
+// channel: a width no block outside DFS can carry, or a channel set to one.
+// An explicit setting is never quietly ignored.
+func dfsProblems(doc map[string]any) []string {
+	radios, _ := doc["radio"].(map[string]any)
+	var out []string
+	for _, band := range sortedKeys(radios) {
+		set, _ := radios[band].(map[string]any)
+		if set["dfs"] != "avoid" {
+			continue
+		}
+		w, _ := set["width"].(float64)
+		if radio.Radar(band, 0, int(w)) {
+			out = append(out, fmt.Sprintf("radio.%s.width: every %d MHz channel uses DFS channels, but radio.%s.dfs is avoid", band, int(w), band))
+			continue
+		}
+		if ch, ok := set["channel"].(float64); ok && radio.Radar(band, int(ch), int(w)) {
+			out = append(out, fmt.Sprintf("radio.%s.channel: channel %d uses DFS channels, but radio.%s.dfs is avoid", band, int(ch), band))
 		}
 	}
 	return out

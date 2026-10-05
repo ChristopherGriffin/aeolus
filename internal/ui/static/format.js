@@ -77,6 +77,7 @@ export function value(path, v, names) {
 	if (last === 'width' && typeof v === 'number') return v + ' MHz';
 	if (last === 'channel' && v === 'auto') return path.includes('.2g.') ? 'automatic (1, 6, 11)' : 'automatic';
 	if (last === 'power' && typeof v === 'number') return v + ' dBm';
+	if (last === 'dfs') return v === 'avoid' ? 'avoided' : 'allowed';
 	if (last === 'poll' || last === 'holddown' || last === 'probe_interval') return v + ' s';
 	if (last.endsWith('_kbps')) return v === 0 ? 'no limit' : v + ' kbps';
 	if (last === 'type' && path.includes('.transport.')) return v === 'vxlan' ? 'VXLAN' : 'VLAN';

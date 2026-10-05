@@ -1149,6 +1149,77 @@ func TestAutomaticChannelLists(t *testing.T) {
 	}
 }
 
+// With DFS avoided, an automatic channel is picked outside DFS and a channel
+// the AP keeps must not be a DFS one; allowed, nothing holds the AP to
+// avoiding them (0071).
+func TestDFS(t *testing.T) {
+	check := func(dfs, text string) string {
+		t.Helper()
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(`{"radio": {"5g": {"dfs": "`+dfs+`"}}}`), &doc); err != nil {
+			t.Fatal(err)
+		}
+		c, err := uci.Parse("package wireless\n" + text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	avoid := check("avoid", `config wifi-device 'a'
+	option band '5g'
+	option channel 'auto'
+	option acs_exclude_dfs '1'
+config wifi-device 'b'
+	option band '5g'
+	option channel 'auto'
+	option acs_exclude_dfs '0'
+config wifi-device 'c'
+	option band '5g'
+	option channel '100'
+	option htmode 'VHT80'
+config wifi-device 'd'
+	option band '5g'
+	option channel '48'
+	option htmode 'HE80'
+	option acs_exclude_dfs '0'
+config wifi-device 'e'
+	option band '5g'
+	option channel '48'
+	option htmode 'HE160'
+config wifi-device 'f'
+	option band '5g'
+	option channel '36'
+	option acs_exclude_dfs '1'
+`)
+	for _, want := range []string{
+		`wireless.b: acs_exclude_dfs is "0", want it on for radio.5g.dfs avoid`,
+		"wireless.c: channel 100 at 80 MHz uses DFS channels, but radio.5g.dfs is avoid",
+		"wireless.e: channel 48 at 160 MHz uses DFS channels, but radio.5g.dfs is avoid",
+		`wireless.f: acs_exclude_dfs is "1", want it off for radio.5g.dfs avoid`,
+	} {
+		if !strings.Contains(avoid, want) {
+			t.Errorf("missing %q in: %s", want, avoid)
+		}
+	}
+	for _, ok := range []string{"wireless.a:", "wireless.d:"} {
+		if strings.Contains(avoid, ok) {
+			t.Errorf("%s should pass: %s", ok, avoid)
+		}
+	}
+	allow := check("allow", `config wifi-device 'a'
+	option band '5g'
+	option channel 'auto'
+	option acs_exclude_dfs '1'
+config wifi-device 'b'
+	option band '5g'
+	option channel '100'
+	option acs_exclude_dfs '0'
+`)
+	if !strings.Contains(allow, `wireless.a: acs_exclude_dfs is "1", want it off for radio.5g.dfs allow`) || strings.Contains(allow, "wireless.b:") {
+		t.Errorf("allow: %s", allow)
+	}
+}
+
 // Every schema field is either checked or deferred with a reason, and every
 // entry names a real field (0039).
 func TestCoverageMatchesTheSchema(t *testing.T) {

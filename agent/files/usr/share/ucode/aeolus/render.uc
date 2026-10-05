@@ -123,6 +123,15 @@ function radios(w, intent, facts) {
 			delete s.txpower;
 		else if (set.power != null)
 			s.txpower = '' + set.power;
+		// With DFS avoided, an automatic channel is picked outside the
+		// channels shared with radar (0071). A set channel needs nothing:
+		// the config check refuses one that is DFS.
+		if (set.dfs != null) {
+			if (set.dfs == 'avoid' && (s.channel ?? 'auto') == 'auto')
+				s.acs_exclude_dfs = '1';
+			else if (s.acs_exclude_dfs in ['1', 'yes', 'on', 'true', 'enabled'])
+				delete s.acs_exclude_dfs;
+		}
 	}
 }
 

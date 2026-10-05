@@ -122,12 +122,20 @@ func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardware
 		}
 		bv := bandView{Band: band, APs: len(have), Widths: []widthView{}}
 		lockedBy := channelLock(t, node, band)
+		avoid := dfsAvoided(t, node, band)
 		for _, w := range radio.Widths[band] {
-			bv.Widths = append(bv.Widths, judge(band, w, have, alone, lockedBy))
+			bv.Widths = append(bv.Widths, judge(band, w, have, alone, lockedBy, avoid))
 		}
 		hw.Bands = append(hw.Bands, bv)
 	}
 	return hw, nil
+}
+
+// dfsAvoided says whether node keeps a band's automatic channels off DFS
+// (0071).
+func dfsAvoided(t *hierarchy.Tree, node hierarchy.NodeID, band string) bool {
+	r, ok := t.Resolve(node, hierarchy.Path("radio."+band+".dfs"))
+	return ok && r.Value == "avoid"
 }
 
 // channelLock names the node whose lock on a band's channel stops node
@@ -145,8 +153,9 @@ func channelLock(t *hierarchy.Tree, node hierarchy.NodeID, band string) string {
 // first reason and how many more APs share the trouble. Where an AP's
 // channel cannot carry the width, the width comes with setting the channel
 // to automatic, unless a channel set below or a lock above is in the way
-// (0045).
-func judge(band string, w int, aps []apRadios, alone bool, lockedBy string) widthView {
+// (0045). With DFS avoided, a width only DFS channels can carry is not
+// offered (0071).
+func judge(band string, w int, aps []apRadios, alone bool, lockedBy string, avoid bool) widthView {
 	var cannot []string
 	var stuck []apRadios
 	move := false
@@ -166,6 +175,8 @@ func judge(band string, w int, aps []apRadios, alone bool, lockedBy string) widt
 		return widthView{Width: w, Why: "its radio cannot do it"}
 	case len(cannot) > 0:
 		return widthView{Width: w, Why: names(cannot) + " cannot do it"}
+	case avoid && radio.Radar(band, 0, w):
+		return widthView{Width: w, Why: "it needs DFS channels, which are avoided here"}
 	case len(stuck) > 0:
 		first, by := stuck[0], stuck[0].setBelow[band]
 		why := fmt.Sprintf("%s sets its own channel %d", first.ref.Name, first.channels[band])
