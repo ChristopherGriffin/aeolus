@@ -239,8 +239,8 @@ function busy(r) {
 }
 
 // visit listens on a radio's next channel. Off its own, it goes only while
-// its channel isn't busy, or once it put that off PUT_OFF times. It asks with
-// a probe, but only listens on a radar channel.
+// its channel isn't busy, or once it put that off PUT_OFF times. It only
+// listens: without a probe, a visit stays long enough to hear a beacon.
 function visit(r, at) {
 	if (!length(r.list))
 		return;
@@ -253,10 +253,7 @@ function visit(r, at) {
 		r.next++;
 		r.put_off = 0;
 	}
-	let ask = { dev: r.bss, scan_frequencies: [ f ], scan_flags: SCAN_FLAG_AP };
-	if (!rrm.radar(f))
-		ask.scan_ssids = [ '' ];
-	nl.request(nl.const.NL80211_CMD_TRIGGER_SCAN, 0, ask);
+	nl.request(nl.const.NL80211_CMD_TRIGGER_SCAN, 0, { dev: r.bss, scan_frequencies: [ f ], scan_flags: SCAN_FLAG_AP });
 	if (nl.error())
 		return;   // a scan already running, or the radio restarting: the next visit tries again
 	r.scan = { freq: f, started: at };
@@ -271,10 +268,10 @@ function heard_on(r, at) {
 		let b = x.bss;
 		if (b?.frequency != sc.freq || (b.seen_ms_ago ?? within + 1) > within)
 			continue;
-		// The beacon's elements first: a driver may answer probes from a
-		// template made before the element was put on, as the OpenWrt One's
-		// does.
-		for (let e in [...(b.beacon_ies ?? []), ...(b.information_elements ?? [])]) {
+		// Beacons only: both lab APs' drivers answer probes from a template
+		// that misses the element's changes, without it once it is put on, or
+		// with it once it is taken off.
+		for (let e in b.beacon_ies ?? []) {
 			let a = e.type == 221 ? rrm.read_advert(e.data) : null;
 			if (!a || a.ap == cfg.ap)
 				continue;

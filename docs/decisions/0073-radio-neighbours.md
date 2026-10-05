@@ -126,9 +126,9 @@ The first part (v0.40.0): neighbours. Ratings and moves come next.
   - It goes on one network per radio, Aeolus's own where there is one, through hostapd's `set_vendor_elements`. No restart, and it's put on again when a radio restarts.
   - The daemon takes it off when it stops.
 - **Listening:**
-  - Each radio visits one channel every 15 seconds, with a probe, or only listening on a DFS channel: 2.4 GHz's 1, 6 and 11, every 20 MHz 5 GHz channel the radio may use, and its own.
+  - Each radio visits one channel every 15 seconds: 2.4 GHz's 1, 6 and 11, every 20 MHz 5 GHz channel the radio may use, and its own.
   - A visit elsewhere waits while the radio's own channel has been more than 60% busy, at most four times in a row.
-  - A visit reads the beacon's elements as well as the probe answer's. The OpenWrt One answers probes from a template made before the element was put on, so only its beacons carry it.
+  - **A visit only listens, and reads beacons only.** Both lab APs' drivers answer probes from a template that misses the element's changes. The OpenWrt One's answers lacked it after it was put on, and the R7800's still carried it after it was taken off. Beacons always carry the current one. Without a probe, a visit stays long enough to hear one.
   - Signals are smoothed (three parts old, one part new), and an AP not heard for 20 minutes is forgotten.
 - **Neighbours:**
   - The three heard most strongly on each band, by name where alike, plus any AP whose signed hellos come.
@@ -151,6 +151,12 @@ The first part (v0.40.0): neighbours. Ratings and moves come next.
   - They don't hear each other on 5 GHz.
   - No client dropped.
   - Its first run showed the probe-answer template: the pumphouse found the office over the wire, one-way, before it heard it in the air.
+  - **After it stopped,** both beacons were clean, but the pumphouse's probe answers still carried the element, even after `update_beacon` and with the office's scan cache flushed. So visits became listen-only, reading beacons alone. They stay so until that radio restarts, and are ignored.
+- **The second run, listen-only:**
+  - The office ran alone first, for a minute: it heard no one, as the pumphouse's beacons were clean.
+  - With both running, they were up within 30 seconds of the pumphouse starting, at −72 and −74 dBm on 2.4 GHz.
+  - Listening for a full beacon interval also caught what probing hadn't: the office hears the pumphouse faintly on 5 GHz, at −91 dBm.
+  - No client dropped.
 
 ## Open
 

@@ -26,4 +26,3 @@ visits 2g 3 [ 2412, 2437, 2462, 2422 ]
 visits 5g 149 [ 5180, 5200, 5220, 5240, 5745, 5765, 5785, 5805, 5825 ]
 visits 5g 100 dfs 25
 band 2g 5g null
-radar true false

@@ -64,4 +64,3 @@ printf('visits 2g 3 %J\n', rrm.visits('2g', 3, false));
 printf('visits 5g 149 %J\n', rrm.visits('5g', 149, false));
 printf('visits 5g 100 dfs %d\n', length(rrm.visits('5g', 100, true)));
 printf('band %s %s %J\n', rrm.band_of(2462), rrm.band_of(5745), rrm.band_of(900));
-printf('radar %J %J\n', rrm.radar(5500), rrm.radar(5745));
