@@ -222,7 +222,9 @@ type rrmState struct {
 // others kept it on the last visit, in percent; its noise floor, where the
 // driver says; how many other networks were heard there; how many visits it
 // has had, and seconds since the last; whether one of the AP's radios is
-// on it; and the neighbours using it, which blot it out.
+// on it; the neighbours using it, which blot it out; and whether it is the
+// AP's best on its band: the best rated no neighbour uses, or where
+// neighbours use them all, the one whose nearest user is furthest away.
 type rrmRating struct {
 	Band      string   `json:"band"`
 	Channel   int      `json:"channel"`
@@ -235,6 +237,7 @@ type rrmRating struct {
 	Ago       int64    `json:"ago"`
 	Own       bool     `json:"own"`
 	BlottedBy []string `json:"blotted_by"`
+	Best      bool     `json:"best"`
 }
 
 // rrmNeighbour is one other Aeolus AP: its ID and management address; up

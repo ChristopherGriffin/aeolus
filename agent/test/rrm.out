@@ -31,4 +31,9 @@ cost quiet 0
 cost busy 47.25
 cost no noise 110
 blend 40 36.0 20.0
+pick free 6
+pick all used 1
+pick alike 6
+pick unknown is near 6
+pick none null
 covers [ 11 ] [ 149, 153 ] [ 149, 153, 157, 161 ] [ 165 ] [ 100, 104, 108, 112, 116, 120, 124, 128 ]

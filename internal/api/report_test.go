@@ -221,7 +221,7 @@ func TestStateReports(t *testing.T) {
 				"bands": []any{map[string]any{"band": "5g", "signal": -81, "their_signal": nil, "channel": nil, "width": nil}}}},
 			// Its channel ratings: one in use, one blotted out by a neighbour.
 			"ratings": []any{
-				map[string]any{"band": "2g", "channel": 1, "cost": 38, "now": 41, "busy": 29, "noise": -92, "networks": 6, "visits": 12, "ago": 30, "own": false, "blotted_by": []string{}},
+				map[string]any{"band": "2g", "channel": 1, "cost": 38, "now": 41, "busy": 29, "noise": -92, "networks": 6, "visits": 12, "ago": 30, "own": false, "blotted_by": []string{}, "best": true},
 				map[string]any{"band": "2g", "channel": 11, "cost": 12, "now": 9, "busy": 4, "noise": nil, "networks": 0, "visits": 40, "ago": 5, "own": true, "blotted_by": []string{"ap-2005b6018be0"}}}},
 		// Every Wi-Fi client (0066): one on an Aeolus network, one on the AP's own.
 		"clients": []any{

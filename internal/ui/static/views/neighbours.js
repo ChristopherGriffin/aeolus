@@ -92,8 +92,10 @@ function table(ctx, rows) {
 
 // ratingsSection lists each AP's channel ratings (0073), lower being better:
 // the lasting one, earned over many visits, and the one now; what went into
-// the last visit's; the channel its radio is on, the best one no neighbour
-// uses, and the neighbours that blot the others out.
+// the last visit's; the channel its radio is on, the neighbours that blot
+// channels out, and the AP's best on each band: the best rated no neighbour
+// uses, or where they use them all, the one whose nearest user is furthest
+// away.
 export function ratingsSection(ctx, rows) {
 	const name = (id) => ctx.name('locations', id);
 	const lines = rows.flatMap(({ ap, cfg }) => {
@@ -103,10 +105,6 @@ export function ratingsSection(ctx, rows) {
 		if (!cfg) return none('You cannot see this AP.');
 		if (!r) return none('Off, or not reported yet.');
 		if (!r.ratings?.length) return none('No channel rated yet.');
-		const best = {};
-		for (const x of r.ratings) {
-			if (!x.blotted_by.length && (!best[x.band] || x.cost < best[x.band].cost)) best[x.band] = x;
-		}
 		return r.ratings.map((x, i) => h('tr', null,
 			h('td', null, i === 0 && apLink),
 			h('td', null, bandName(x.band)),
@@ -119,7 +117,7 @@ export function ratingsSection(ctx, rows) {
 			h('td', null, `${x.ago} s ago`),
 			h('td', null,
 				x.own && h('span', { class: 'chip here' }, 'in use'), ' ',
-				best[x.band] === x && h('span', { class: 'chip ok' }, 'best'),
+				x.best && h('span', { class: 'chip ok' }, x.blotted_by.length ? 'best (all used)' : 'best'),
 				x.blotted_by.length > 0 && h('div', { class: 'sub' }, `used by ${x.blotted_by.map(name).join(', ')}`))));
 	});
 	return h('section', { class: 'panel' },

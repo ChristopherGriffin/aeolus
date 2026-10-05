@@ -72,4 +72,14 @@ printf('cost quiet %J\n', rrm.cost(0, null, []));
 printf('cost busy %J\n', rrm.cost(0.3, -92, [-60, -85]));
 printf('cost no noise %J\n', rrm.cost(1.5, null, [-40]));
 printf('blend %J %J %J\n', rrm.blend(null, 40, rrm.LASTING), rrm.blend(40, 0, rrm.LASTING), rrm.blend(40, 0, rrm.NOW));
+// The pick: a free channel first; with all three of 2.4 GHz used, the one
+// whose nearest user is heard most weakly; alike, the best rated.
+let free = [{ channel: 1, cost: 60, blotted_by: [] }, { channel: 6, cost: 30, blotted_by: [] }, { channel: 11, cost: 5, blotted_by: ['ap-000000000001'] }];
+let full = [{ channel: 1, cost: 60, blotted_by: ['ap-000000000002'] }, { channel: 6, cost: 30, blotted_by: ['ap-000000000001', 'ap-000000000003'] }, { channel: 11, cost: 5, blotted_by: ['ap-000000000001'] }];
+let close = { 'ap-000000000001': -60, 'ap-000000000002': -82, 'ap-000000000003': -85 };
+printf('pick free %J\n', rrm.pick(free, close));
+printf('pick all used %J\n', rrm.pick(full, close));
+printf('pick alike %J\n', rrm.pick([{ channel: 1, cost: 60, blotted_by: ['ap-000000000002'] }, { channel: 6, cost: 30, blotted_by: ['ap-000000000002'] }], close));
+printf('pick unknown is near %J\n', rrm.pick([{ channel: 1, cost: 60, blotted_by: ['ap-00000000000f'] }, { channel: 6, cost: 30, blotted_by: ['ap-000000000001'] }], close));
+printf('pick none %J\n', rrm.pick([], close));
 printf('covers %J %J %J %J %J\n', rrm.covers('2g', 11, 20), rrm.covers('5g', 149, 40), rrm.covers('5g', 157, 80), rrm.covers('5g', 165, 40), rrm.covers('5g', 100, 160));
