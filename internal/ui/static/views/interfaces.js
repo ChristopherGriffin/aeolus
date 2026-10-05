@@ -1,5 +1,7 @@
-// The Interfaces tab of a Locations folder or AP (0053): the Ethernet ports
-// of its APs, as each last reported them, and what Aeolus sets for each
+// The Interfaces tab of a Locations folder or AP (0053, 0072): its APs'
+// radios, Ethernet ports and tunnels. Radios has the band cards and the
+// channels each AP picked (0047). Ethernet has the ports of its APs, as each
+// last reported them, and what Aeolus sets for each
 // port, with an editor built from the schema. A port is set by name, so a
 // folder's setting for lan2 reaches every AP below with a lan2. The uplink
 // carries the AP's management, so it is shown but not offered for editing.
@@ -13,13 +15,16 @@ import { h, link } from '../dom.js';
 import { schema } from '../api.js';
 import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY, uplinkJudgment, switchPort } from '../format.js';
 import { tabBar, pick } from '../layout.js';
-import { configs } from './sections.js';
+import { configs, channelsSection } from './sections.js';
+import { radiosSection } from './hardware.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
 import { tunnelsAt, tunnelName } from './networks.js';
 
-const INTERFACES = [['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
+const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
+// Radios has two views: the band cards, and the channels each AP picked.
+const RADIOS = [['bands', 'Bands'], ['channels', 'Channels']];
 
 // The port fields offered, in order. LACP and its bond are not applied yet,
 // and the uplink is the agent's own setting.
@@ -42,11 +47,26 @@ function defaultMTU(address) {
 const TUNNEL_RELOAD = "Applying reloads the network, and restarts the Wi-Fi, on each AP whose networks use this tunnel. An AP that can no longer reach Aeolus puts its old settings back within 90 seconds.";
 
 // interfacesTab draws the Interfaces tab of a Locations node whose page is
-// at base. ap ({ap, cfg}) is the AP itself, on an AP's page.
-export async function interfacesTab(ctx, base, id, page, sub, ap, edit) {
+// at base: the part sub, and within Radios, the view. ap ({ap, cfg}) is the
+// AP itself, on an AP's page.
+export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 	sub = pick(INTERFACES, sub);
+	const bar = tabBar(`${base}/interfaces`, INTERFACES, sub, true);
+	if (sub === 'radios') {
+		view = pick(RADIOS, view);
+		const body = view === 'channels'
+			? channelsSection(ctx, ap ? [ap] : await configs(page.hardware?.aps || []))
+			: radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state);
+		return [bar, tabBar(`${base}/interfaces/radios`, RADIOS, view, 'minor'), body];
+	}
 	const body = sub === 'tunnels' ? await tunnels(ctx, id, page, ap, edit) : await ethernet(ctx, id, page, ap, edit);
-	return [tabBar(`${base}/interfaces`, INTERFACES, sub, true), body];
+	return [bar, body];
+}
+
+// interfacesLive says whether a part of the Interfaces tab shows what the
+// APs report, and so is drawn again every 30 seconds: all but the band cards.
+export function interfacesLive(sub, view) {
+	return pick(INTERFACES, sub) !== 'radios' || pick(RADIOS, view) === 'channels';
 }
 
 // tunnels shows the tunnels set here, each with its editor, and a way to add

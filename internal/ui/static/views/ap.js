@@ -4,17 +4,17 @@
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
 import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort, dhcpWarnings } from '../format.js';
-import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, SUBTABS } from '../layout.js';
+import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, keepPath, moved } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
-import { hardwareTab, systemSection } from './sections.js';
+import { systemSection } from './sections.js';
 import { networksTab } from './networks.js';
 import { interfacesTab } from './interfaces.js';
 import { clientsTab } from './clients.js';
 
-const TABS = [['overview', 'Overview'], ['hardware', 'Hardware'], ['networks', 'Networks'], ['clients', 'Clients'], ['interfaces', 'Interfaces'], ['system', 'System']];
+const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['system', 'System']];
 
-export async function apPage(ctx, id, tab, sub) {
+export async function apPage(ctx, id, tab, sub, view) {
 	const enc = encodeURIComponent(id);
 	const [page, cfg, hist, fleet] = await Promise.all([
 		get(`/v1/trees/locations/nodes/${enc}`),
@@ -32,6 +32,7 @@ export async function apPage(ctx, id, tab, sub) {
 	const own = Object.keys(page.fields || {}).filter((p) => page.fields[p].origin === 'self').sort();
 	const revertBox = h('div', { class: 'edit flush' });
 	const base = `/aps/${enc}`;
+	[tab, sub, view] = moved(base, tab, sub, view);
 	tab = pick(TABS, tab);
 	const thisAP = { ap: { id, name: page.node.name }, cfg };
 	const main = [
@@ -55,12 +56,11 @@ export async function apPage(ctx, id, tab, sub) {
 		main.push(h('div', { class: 'grid2' },
 			h('div', { class: 'col' }, latest(cond)),
 			h('div', { class: 'col' }, enrollment(facts))), history(hist));
-	} else if (tab === 'hardware') main.push(await hardwareTab(ctx, base, id, page, sub, thisAP));
+	} else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, thisAP, edit));
 	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 	else if (tab === 'clients') main.push(await clientsTab(ctx, page, thisAP));
-	else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, thisAP, edit));
 	else main.push(await systemSection(ctx, id, page, edit));
-	const keep = tab === 'overview' ? '' : `/${tab}${SUBTABS.has(tab) && sub ? '/' + sub : ''}`;
+	const keep = tab === 'overview' ? '' : keepPath(tab, sub, view);
 	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps), keep), main, refresh: 30 };
 }
 

@@ -1,26 +1,12 @@
-// The parts of a Locations folder or AP page besides its radios, networks
-// and interfaces (0047, 0053): the channels its APs picked and its system
-// settings.
+// The parts of a Locations folder or AP page besides its networks and
+// interfaces (0047, 0053, 0072): the channels its APs picked, shown under
+// Interfaces › Radios, and its system settings.
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
 import { bandName, ago, value } from '../format.js';
-import { tabBar, pick } from '../layout.js';
 import { fieldPanels } from './fields.js';
-import { radiosSection } from './hardware.js';
 import { systemEditor } from './system.js';
-
-const HARDWARE = [['radios', 'Radios'], ['channels', 'Channels']];
-
-// hardwareTab draws the Hardware tab of a Locations node whose page is at
-// base. ap ({ap, cfg}) is the AP itself, on an AP's page.
-export async function hardwareTab(ctx, base, id, page, sub, ap) {
-	sub = pick(HARDWARE, sub);
-	let body;
-	if (sub === 'radios') body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state);
-	else body = channelsSection(ctx, ap ? [ap] : await configs(page.hardware?.aps || []));
-	return [tabBar(`${base}/hardware`, HARDWARE, sub, true), body];
-}
 
 // only keeps the fields whose paths pass keep.
 export function only(fields, keep) {
