@@ -16,6 +16,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -34,7 +35,12 @@ const Upstream = "https://downloads.openwrt.org/releases/"
 const (
 	IndexAge   = 24 * time.Hour // an index is fetched again when older, if the upstream answers
 	FetchLimit = 10 * time.Minute
-	maxFile    = 256 << 20 // a firmware image fits; nothing in the tree is bigger
+	// Without the internet, a connection often goes unanswered rather than
+	// refused, so these say soon that the upstream is not there; FetchLimit
+	// leaves a large file the time it needs once it is coming.
+	ConnectLimit = 10 * time.Second
+	AnswerLimit  = 30 * time.Second
+	maxFile      = 256 << 20 // a firmware image fits; nothing in the tree is bigger
 )
 
 // segment is one part of a path the cache answers: OpenWrt's tree uses
@@ -47,6 +53,7 @@ type Cache struct {
 	upstream string
 	max      int64
 	client   *http.Client
+	answerBy time.Duration // from asking to the answer's first line, a proxy's tunnel included
 	now      func() time.Time
 
 	mu       sync.Mutex
@@ -68,7 +75,7 @@ func New(dir, upstream string, max int64) (*Cache, error) {
 		return nil, err
 	}
 	c := &Cache{dir: dir, upstream: strings.TrimSuffix(upstream, "/") + "/", max: max,
-		client: &http.Client{Timeout: FetchLimit}, now: time.Now,
+		client: client(ConnectLimit, AnswerLimit), answerBy: ConnectLimit + AnswerLimit, now: time.Now,
 		used: map[string]time.Time{}, sizes: map[string]int64{}, inflight: map[string]*fetch{}}
 	os.RemoveAll(filepath.Join(dir, ".tmp"))
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -86,6 +93,20 @@ func New(dir, upstream string, max int64) (*Cache, error) {
 		return nil
 	})
 	return c, err
+}
+
+func client(connect, answer time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: FetchLimit,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: connect, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   connect,
+			ResponseHeaderTimeout: answer,
+			MaxIdleConns:          8,
+			IdleConnTimeout:       90 * time.Second,
+		},
+	}
 }
 
 // clean is the cache path a request names, or false if it isn't one the
@@ -194,7 +215,21 @@ func (c *Cache) fetch(ctx context.Context, p string) error {
 }
 
 func (c *Cache) get(p string) error {
-	resp, err := c.client.Get(c.upstream + p)
+	// The transport's limits don't cover a proxy's CONNECT, so a deadline
+	// covers everything up to the answer's first line; FetchLimit, the body.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	late := time.AfterFunc(c.answerBy, cancel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.upstream+p, nil)
+	if err != nil {
+		late.Stop()
+		return err
+	}
+	resp, err := c.client.Do(req)
+	if !late.Stop() && err == nil {
+		resp.Body.Close()
+		err = fmt.Errorf("no answer within %v", c.answerBy)
+	}
 	if err != nil {
 		return err
 	}
