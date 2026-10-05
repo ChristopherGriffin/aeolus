@@ -259,7 +259,8 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .chbr.dfs.join::after { right: -14px; }
 .chbr.dfs.start::after { border-left: 2px solid var(--muted); }
 .chbr.dfs.end::after { right: 0; border-right: 2px solid var(--muted); }
-.chbr .lbl { display: none; position: absolute; left: 4px; top: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); line-height: 1; }
+/* The label sits in the line, on the panel's background: ┌─ DFS ───┐. */
+.chbr .lbl { display: none; position: absolute; z-index: 1; left: 8px; top: 5px; padding: 0 4px; background: var(--panel); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); line-height: 11px; }
 .chbr.start .lbl { display: block; }
 .chblock.a { background: #D7E7EE; }
 .chblock.b { background: #E8E1D2; }
