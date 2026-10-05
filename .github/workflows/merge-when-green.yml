@@ -18,8 +18,8 @@ name: merge when green
 # pull request and leaves it. A merge made with a workflow's token starts no
 # workflow, so main isn't tested again after it.
 #
-# Neither job here starts unless its condition holds, so a pull request
-# without the label costs no minutes here.
+# Neither job here starts unless its condition holds, and both run on
+# talos, the self-hosted runner, as the tests do.
 on:
   pull_request:
     types: [labeled, synchronize]
@@ -36,7 +36,7 @@ jobs:
     if: >-
       github.event.action == 'synchronize' &&
       contains(github.event.pull_request.labels.*.name, 'merge-when-green')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, talos]
     timeout-minutes: 5
     steps:
       - run: gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label merge-when-green
@@ -49,7 +49,7 @@ jobs:
     concurrency:
       group: merge-when-green-${{ github.event.pull_request.number }}
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, talos]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7

@@ -14,6 +14,10 @@ name: test
 #   release tag is one of those.
 # - A pull request labeled merge-when-green is merged at the end of its
 #   green run, here, rather than by a second job afterwards.
+#
+# It runs on talos (CT 119 on powermox), a self-hosted runner, which uses no
+# minutes at all. Its disk keeps Go's caches and the ucode build from run to
+# run, and it has the packages the run needs, so the run needs no sudo.
 on:
   push:
     branches: [main]
@@ -32,7 +36,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, talos]
     timeout-minutes: 20
     env:
       UCODE_COMMIT: "85922056"
@@ -54,6 +58,7 @@ jobs:
         if: env.CODE == 'true'
         with:
           go-version-file: go.mod
+          cache: false   # talos keeps Go's caches on its own disk
       # What needs no ucode. The UI has no build step (0042): every module
       # must parse and its imports link; app.js touches the page when it
       # loads, so it is only parsed. Loading a module does not resolve names
@@ -76,32 +81,30 @@ jobs:
       # build ucode as OpenWrt 25.12 ships it (the version on PumphouseAP),
       # with only the modules the renderer and its tests use: fs, and digest
       # for radio resource management's HMAC (0073). The build is kept by its
-      # commit and those modules, so it is made once.
-      - name: ucode's build, kept
-        if: env.CODE == 'true'
-        id: ucode-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ucode
-          key: ucode-${{ runner.os }}-${{ env.UCODE_COMMIT }}-v2
+      # commit and those modules, so it is made once. Its packages are
+      # installed only where they are missing: on talos they never are.
       - name: ucode
         if: env.CODE == 'true'
         run: |
-          sudo apt-get install -y --no-install-recommends cmake libjson-c-dev libmd-dev
-          if [ "${{ steps.ucode-cache.outputs.cache-hit }}" != "true" ]; then
-            git clone --filter=blob:none https://github.com/jow-/ucode.git /tmp/ucode
-            git -C /tmp/ucode checkout "$UCODE_COMMIT"
-            cmake -S /tmp/ucode -B /tmp/ucode/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.ucode" \
+          dpkg -s cmake libjson-c-dev libmd-dev >/dev/null 2>&1 ||
+            sudo apt-get install -y --no-install-recommends cmake libjson-c-dev libmd-dev
+          uc="$HOME/.ucode/$UCODE_COMMIT-fs-digest"
+          if [ ! -x "$uc/bin/ucode" ]; then
+            src=$(mktemp -d)
+            git clone --filter=blob:none https://github.com/jow-/ucode.git "$src"
+            git -C "$src" checkout "$UCODE_COMMIT"
+            cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$uc" \
               -DFS_SUPPORT=ON -DMATH_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF \
               -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF \
               -DULOOP_SUPPORT=OFF -DLOG_SUPPORT=OFF -DSOCKET_SUPPORT=OFF -DZLIB_SUPPORT=OFF \
               -DDIGEST_SUPPORT=ON -DDEBUG_SUPPORT=OFF
-            cmake --build /tmp/ucode/build -j
-            cmake --install /tmp/ucode/build
+            cmake --build "$src/build" -j
+            cmake --install "$src/build"
+            rm -rf "$src"
           fi
-          echo "$HOME/.ucode/bin" >> "$GITHUB_PATH"
-          echo "LD_LIBRARY_PATH=$HOME/.ucode/lib" >> "$GITHUB_ENV"
-          LD_LIBRARY_PATH="$HOME/.ucode/lib" "$HOME/.ucode/bin/ucode" -e 'print("ucode works\n")'
+          echo "$uc/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$uc/lib" >> "$GITHUB_ENV"
+          LD_LIBRARY_PATH="$uc/lib" "$uc/bin/ucode" -e 'print("ucode works\n")'
       - name: go test
         if: env.CODE == 'true'
         run: go test -race -cover ./...

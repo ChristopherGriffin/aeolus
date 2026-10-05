@@ -42,7 +42,7 @@ Each milestone ends in something checkable before the next starts.
 
 ## Pull requests
 
-- **CI (`test`)** is one job, since GitHub bills each job by the whole minute: lint, the tests with ucode, and the builds for AP hardware.
+- **CI (`test`)** is one job: lint, the tests with ucode, and the builds for AP hardware. It runs on **talos** (CT 119 on powermox, 192.168.20.87 on VLAN 20), a self-hosted runner, which uses no GitHub minutes. Aeolus manages it over SSH with `/root/.ssh/talos_ed25519`.
   - It runs once per push to a pull request. One that changes only documentation passes in seconds.
   - It runs on `main` only when the workflow or Go's modules change, or when run by hand (`gh workflow run test.yml`) to make the caches pull requests start from again. It doesn't run on release tags.
 - **The `merge-when-green` label,** put on when Griff approves, merges a pull request once `test` has passed on its head commit, if the head holds the tip of `main`.
