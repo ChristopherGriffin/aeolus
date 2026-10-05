@@ -42,8 +42,13 @@ Each milestone ends in something checkable before the next starts.
 
 ## Pull requests
 
-- CI (`test`) runs once per pull request: lint, the tests with ucode, and the builds for AP hardware. It runs on `main` and release tags too.
-- The `merge-when-green` label, put on when Griff approves, merges a pull request once `test` has passed on its head commit, if the head holds the tip of `main`. A push after the label takes the label off.
+- **CI (`test`)** is one job: lint, the tests with ucode, and the builds for AP hardware. It runs on **talos** (CT 119 on powermox, 192.168.20.87 on VLAN 20), a self-hosted runner, which uses no GitHub minutes. Aeolus manages it over SSH with `/root/.ssh/talos_ed25519`.
+  - It runs once per push to a pull request. One that changes only documentation passes in seconds.
+  - It runs on `main` only when the workflow or Go's modules change, or when run by hand (`gh workflow run test.yml`) to make the caches pull requests start from again. It doesn't run on release tags.
+- **The `merge-when-green` label,** put on when Griff approves, merges a pull request once `test` has passed on its head commit, if the head holds the tip of `main`.
+  - The label's job marks the head it went on approved, with a `merge-when-green` commit status, and only an approved head is merged. A push after the label is never merged, and the push takes the label off.
+  - The green run merges it at its end; if the label goes on later, its own job does.
+  - Pull requests come from this repository's own branches; one from a fork is merged by hand.
 
 ## Decisions
 
