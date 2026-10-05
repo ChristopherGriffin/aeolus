@@ -1,117 +1,141 @@
 name: test
 
-# A pull request's commits are tested once, through the pull request; main
-# and the release tags as they are pushed. A newer push to the same pull
-# request cancels the run it supersedes.
+# GitHub bills each job by the minute, rounded up, and the month's minutes
+# ran out in ten days (2026-10-05). So CI is one job, and it runs only where
+# it can tell something new:
+# - A pull request is tested once per push; a newer push cancels the run it
+#   supersedes. One that changes only documentation passes in seconds,
+#   without the tests.
+# - Main is tested only when what its caches are kept by changes: this
+#   workflow, or Go's modules; or by hand (gh workflow run test.yml), to
+#   make them again. Pull requests start from those caches. Main's other
+#   commits are pull requests already tested, which merge-when-green
+#   merges with a token that starts no workflow, or documentation; a
+#   release tag is one of those.
+# - A pull request labeled merge-when-green is merged at the end of its
+#   green run, here, rather than by a second job afterwards.
+#
+# It runs on talos (CT 119 on powermox), a self-hosted runner, which uses no
+# minutes at all. Its disk keeps Go's caches and the ucode build from run to
+# run, and it has the packages the run needs, so the run needs no sudo.
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    paths: ['.github/**', 'go.mod', 'go.sum']
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write        # to merge a labeled pull request, at the end
+  pull-requests: write
+  statuses: read         # whether its head was approved
 
 jobs:
-  # What needs no ucode runs beside the tests.
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-      - run: go vet ./...
-      # The UI has no build step (0042); check every module parses and its
-      # imports link. app.js touches the page when it loads, so it is only
-      # parsed.
-      - name: the UI's modules link
-        working-directory: internal/ui/static
-        run: |
-          node --check app.js
-          for f in api.js dom.js format.js layout.js refresh.js views/*.js; do
-            node --input-type=module -e "await import('./$f')"
-          done
-      # Loading a module does not resolve names used inside its functions, so
-      # a call to one that no longer exists passed the check above (v0.20.0's
-      # Interfaces tab). ESLint's no-undef catches that, and only that.
-      - name: the UI uses no undefined names
-        working-directory: internal/ui/static
-        run: |
-          npx --yes eslint@8.57.1 --no-eslintrc --env browser,es2022 --parser-options=sourceType:module --parser-options=ecmaVersion:2022 --rule 'no-undef: error' .
-      - name: the agent's shell scripts parse
-        run: for f in agent/install.sh agent/files/etc/init.d/aeolus agent/files/usr/libexec/aeolus-packages agent/files/etc/hotplug.d/ntp/50-aeolus; do sh -n "$f"; done
-
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, talos]
+    timeout-minutes: 20
     env:
       UCODE_COMMIT: "85922056"
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      # A pull request is checked out merged into its base, so what it
+      # changes is that merge against its first parent.
+      - name: what changed
+        run: |
+          code=true
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && ! git diff --name-only HEAD^1 HEAD | grep -qvE '^docs/|\.md$'; then
+            code=false
+            echo "Only documentation changed: nothing to test."
+          fi
+          echo "CODE=$code" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v7
+        if: env.CODE == 'true'
         with:
           go-version-file: go.mod
+          cache: false   # talos keeps Go's caches on its own disk
+      # What needs no ucode. The UI has no build step (0042): every module
+      # must parse and its imports link; app.js touches the page when it
+      # loads, so it is only parsed. Loading a module does not resolve names
+      # used inside its functions, so ESLint's no-undef checks those (v0.20.0's
+      # Interfaces tab called one that no longer existed).
+      - name: lint
+        if: env.CODE == 'true'
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          (cd internal/ui/static
+            node --check app.js
+            for f in api.js dom.js format.js layout.js refresh.js views/*.js; do
+              node --input-type=module -e "await import('./$f')"
+            done
+            npx --yes eslint@8.57.1 --no-eslintrc --env browser,es2022 --parser-options=sourceType:module --parser-options=ecmaVersion:2022 --rule 'no-undef: error' .)
+          for f in agent/install.sh agent/files/etc/init.d/aeolus agent/files/usr/libexec/aeolus-packages agent/files/etc/hotplug.d/ntp/50-aeolus; do sh -n "$f"; done
+          bash -n .github/merge-when-green.sh
       # The agent's renderer is tested against the manager's check (0040):
       # build ucode as OpenWrt 25.12 ships it (the version on PumphouseAP),
       # with only the modules the renderer and its tests use: fs, and digest
       # for radio resource management's HMAC (0073). The build is kept by its
-      # commit and those modules, so it is made once.
-      - name: ucode's build, kept
-        id: ucode-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ucode
-          key: ucode-${{ runner.os }}-${{ env.UCODE_COMMIT }}-v2
+      # commit and those modules, so it is made once. Its packages are
+      # installed only where they are missing: on talos they never are.
       - name: ucode
+        if: env.CODE == 'true'
         run: |
-          sudo apt-get install -y --no-install-recommends cmake libjson-c-dev libmd-dev
-          if [ "${{ steps.ucode-cache.outputs.cache-hit }}" != "true" ]; then
-            git clone --filter=blob:none https://github.com/jow-/ucode.git /tmp/ucode
-            git -C /tmp/ucode checkout "$UCODE_COMMIT"
-            cmake -S /tmp/ucode -B /tmp/ucode/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.ucode" \
+          dpkg -s cmake libjson-c-dev libmd-dev >/dev/null 2>&1 ||
+            sudo apt-get install -y --no-install-recommends cmake libjson-c-dev libmd-dev
+          uc="$HOME/.ucode/$UCODE_COMMIT-fs-digest"
+          if [ ! -x "$uc/bin/ucode" ]; then
+            src=$(mktemp -d)
+            git clone --filter=blob:none https://github.com/jow-/ucode.git "$src"
+            git -C "$src" checkout "$UCODE_COMMIT"
+            cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$uc" \
               -DFS_SUPPORT=ON -DMATH_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF \
               -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF \
               -DULOOP_SUPPORT=OFF -DLOG_SUPPORT=OFF -DSOCKET_SUPPORT=OFF -DZLIB_SUPPORT=OFF \
               -DDIGEST_SUPPORT=ON -DDEBUG_SUPPORT=OFF
-            cmake --build /tmp/ucode/build -j
-            cmake --install /tmp/ucode/build
+            cmake --build "$src/build" -j
+            cmake --install "$src/build"
+            rm -rf "$src"
           fi
-          echo "$HOME/.ucode/bin" >> "$GITHUB_PATH"
-          echo "LD_LIBRARY_PATH=$HOME/.ucode/lib" >> "$GITHUB_ENV"
-      - name: ucode works
-        run: ucode -e 'print("ucode works\n")'
-      - run: go test -race -cover ./...
-      - name: the agent renders its expected output, and builds the prober's frames
+          echo "$uc/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$uc/lib" >> "$GITHUB_ENV"
+          LD_LIBRARY_PATH="$uc/lib" "$uc/bin/ucode" -e 'print("ucode works\n")'
+      - name: go test
+        if: env.CODE == 'true'
+        run: go test -race -cover ./...
+      - name: the agent renders its expected output, builds the prober's frames, and works out RRM's
+        if: env.CODE == 'true'
         run: |
           go test -count=1 -v -run 'Agent' ./internal/rendercheck/ | tee /tmp/agent.log
           grep -q -- '--- PASS: TestAgentRendersItsOutput' /tmp/agent.log
           grep -q -- '--- PASS: TestAgentProbeFrames' /tmp/agent.log
-
-  # Keep the later port to APs possible (0019): the manager must still build for AP hardware.
-  build-ap-targets:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - { goarch: arm64 }
-          - { goarch: arm, goarm: "7" }
-          - { goarch: mipsle, gomips: softfloat }
-          - { goarch: mips, gomips: softfloat }
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - run: go build ./...
+          grep -q -- '--- PASS: TestAgentRRM' /tmp/agent.log
+      # Keep the later port to APs possible (0019): the manager must still
+      # build for AP hardware.
+      - name: the manager builds for AP hardware
+        if: env.CODE == 'true'
         env:
           CGO_ENABLED: "0"
           GOOS: linux
-          GOARCH: ${{ matrix.goarch }}
-          GOARM: ${{ matrix.goarm }}
-          GOMIPS: ${{ matrix.gomips }}
+        run: |
+          GOARCH=arm64 go build ./...
+          GOARCH=arm GOARM=7 go build ./...
+          GOARCH=mipsle GOMIPS=softfloat go build ./...
+          GOARCH=mips GOMIPS=softfloat go build ./...
+      # Everything above passed on the head this run was started for. Only a
+      # head approved for merging is merged, so a push after the label, which
+      # this run may be for, never is. A merge that fails doesn't fail the
+      # tests: the label's own job tries again.
+      - name: merge, if labeled merge-when-green and its head approved
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          TESTED: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/merge-when-green.sh
