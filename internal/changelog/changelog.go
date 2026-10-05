@@ -372,6 +372,10 @@ func fingerprints(s *change.State) map[hierarchy.NodeID]fingerprint {
 			continue
 		}
 		v := map[string]any{"services": cfg.Services}
+		// Its name is its hostname, in its config (0076).
+		if n, ok := o.Locations.Node(ap); ok {
+			v["name"] = n.Name
+		}
 		for p, r := range cfg.Location {
 			v["location/"+string(p)] = r.Value
 		}

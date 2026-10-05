@@ -51,6 +51,11 @@ package aeolus
 
 config agent 'agent'
 	option poll '60'
+
+package system
+
+config system
+	option hostname 'PumphouseAP'
 `
 
 func sha(s string) string {

@@ -3,6 +3,7 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -629,5 +630,27 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An AP's config carries its name as its hostname (0076); a name from
+// before that isn't a hostname is made into one.
+func TestTheAPsNameIsItsHostname(t *testing.T) {
+	s, sch := site(t)
+	res, err := AP(s, sch, "office-ap", nil)
+	must(t, err)
+	if got := res.Doc["ap"]; !reflect.DeepEqual(got, map[string]any{"hostname": "OfficeOpenWrt"}) {
+		t.Fatalf("ap: %v", got)
+	}
+	for name, want := range map[string]string{
+		"OfficeOpenWrt":         "OfficeOpenWrt",
+		"Main Gate AP":          "Main-Gate-AP",
+		"--café--":              "caf",
+		strings.Repeat("x", 70): strings.Repeat("x", 63),
+		"!!!":                   "",
+	} {
+		if got := Hostname(name); got != want {
+			t.Errorf("Hostname(%q) = %q, want %q", name, got, want)
+		}
 	}
 }
