@@ -177,5 +177,5 @@ function radar(f) {
 // that follows an exported function declaration.
 export {
 	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW,
-	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits, radar,
+	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits, radar
 };

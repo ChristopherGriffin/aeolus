@@ -273,3 +273,31 @@ func TestAgentProbeFrames(t *testing.T) {
 		t.Errorf("the prober's frames are not what probe.out says:\n%s", out)
 	}
 }
+
+// Radio resource management's pure parts (0073), as the agent's own ucode
+// works them out: agent/test/rrm.uc prints them, and rrm.out is what it must
+// print. Its HMACs are RFC 4231's, or worked out with Python's hmac.
+func TestAgentRRM(t *testing.T) {
+	ucode, err := exec.LookPath("ucode")
+	if err != nil {
+		t.Skip("ucode is not installed; CI builds it (0040)")
+	}
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", "rrm.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "rrm.uc"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Errorf("radio resource management works out other than rrm.out says:\n%s", out)
+	}
+}

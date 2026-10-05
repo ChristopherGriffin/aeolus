@@ -21,7 +21,9 @@
 // /var/run/aeolus/rrm.json, which the agent reports. procd runs it beside
 // the agent.
 //
-//	aeolus-rrm [-c <UCI directory>] [-o <results file>]
+//	aeolus-rrm [-c <UCI directory>] [-o <results file>] [-k <key file>]
+//
+// -c, -o and -k are for trying it out beside the one procd runs.
 
 'use strict';
 
@@ -34,15 +36,17 @@ import * as rrm from 'aeolus.rrm';
 
 let nl = require('nl80211');
 
-let confdir = null, out = '/var/run/aeolus/rrm.json';
+// The key hellos are signed with is the manager's, which the agent keeps.
+let confdir = null, out = '/var/run/aeolus/rrm.json', keyfile = '/etc/aeolus/rrm.key';
 for (let i = 0; i < length(ARGV); i++) {
 	if (ARGV[i] == '-c')
 		confdir = ARGV[++i];
 	else if (ARGV[i] == '-o')
 		out = ARGV[++i];
+	else if (ARGV[i] == '-k')
+		keyfile = ARGV[++i];
 }
 
-const KEY = '/etc/aeolus/rrm.key';   // the key hellos are signed with, from the manager
 const LOOK_EVERY = 10;      // seconds between looks at the settings, the radios and the address
 const VISIT_EVERY = 15;     // seconds between a radio's visits to a channel
 const VISIT_WAIT = 2;       // seconds a visit is given before its results are read
@@ -100,7 +104,7 @@ let seq = 0;
 // settings reads whether RRM is on, the AP it advertises, and the key.
 function settings() {
 	let s = cursor(confdir).get_all('aeolus', 'aeolus_rrm');
-	let key = rrm.unhex(read(KEY) ?? '');
+	let key = rrm.unhex(read(keyfile) ?? '');
 	let on = s?.['.type'] == 'rrm' && s.enabled == '1' && match(s.ap ?? '', /^ap-[0-9a-f]{12}$/) != null && key != null && length(key) >= 16;
 	return { on: on, ap: s?.ap, key: key };
 }
@@ -267,7 +271,10 @@ function heard_on(r, at) {
 		let b = x.bss;
 		if (b?.frequency != sc.freq || (b.seen_ms_ago ?? within + 1) > within)
 			continue;
-		for (let e in b.information_elements ?? b.beacon_ies ?? []) {
+		// The beacon's elements first: a driver may answer probes from a
+		// template made before the element was put on, as the OpenWrt One's
+		// does.
+		for (let e in [...(b.beacon_ies ?? []), ...(b.information_elements ?? [])]) {
 			let a = e.type == 221 ? rrm.read_advert(e.data) : null;
 			if (!a || a.ap == cfg.ap)
 				continue;

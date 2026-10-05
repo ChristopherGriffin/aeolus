@@ -1,0 +1,29 @@
+hmac 1 b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7
+hmac 2 5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843
+hmac 6 60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54
+hmac nul 87d8812da03a093483bf8317ca299305d7fc01f98c7cb59c946710304dec7331
+advert dd1102ae010101a0046021365ec0a80126415a
+read { "ap": "ap-a0046021365e", "address": "192.168.1.38", "port": 16730 }
+read later version { "ap": "ap-a0046021365e", "address": "192.168.1.38", "port": 16730 }
+read other OUI null
+read short null
+advert bad ID null
+advert bad address null
+open { "v": 1, "t": "hello", "ap": "ap-2005b6018be0", "at": 1000, "seq": 7, "sees": [ "ap-a0046021365e" ] }
+open tampered null
+open other key null
+open version 2 null
+open not an AP null
+fresh first true
+fresh skewed false
+fresh again false
+fresh next true
+fresh older false
+choose { "2g": [ "ap-000000000002", "ap-000000000004", "ap-000000000006" ], "5g": [ "ap-000000000005", "ap-000000000001" ] }
+smooth -70 -65.0
+visits 2g 11 [ 2412, 2437, 2462 ]
+visits 2g 3 [ 2412, 2437, 2462, 2422 ]
+visits 5g 149 [ 5180, 5200, 5220, 5240, 5745, 5765, 5785, 5805, 5825 ]
+visits 5g 100 dfs 25
+band 2g 5g null
+radar true false

@@ -111,6 +111,47 @@ Before building, on both lab APs (OfficeOpenWrt, mt76; OpenWrtnight, ath10k):
 - **Channel switch announcement:** `ubus call hostapd.<bss> switch_chan` on both drivers. Which clients follow, and which have to find the AP again: a phone, a laptop, and the Espressif and Nest devices. This is to know, not a gate: clients that can't follow are accepted.
 - **The wire:** UDP between the APs' management addresses, through their firewalls.
 
+## As built: the control plane
+
+The first part (v0.40.0): neighbours. Ratings and moves come next.
+
+- **The setting:** `rrm.enabled`, in Locations, off unless set. On, the renderer gives the agent's package a section, `aeolus_rrm`, naming the AP. Off, there is none. The render check holds the AP to it.
+- **The key:**
+  - The manager derives it from its own secret key (`secret.Box.Derive("rrm")`), so it never has to be stored, and it's the same for every AP.
+  - It comes with each ready poll while RRM is on, beside the config, so it versions nothing.
+  - The agent keeps it in `/etc/aeolus/rrm.key`, mode 0600, and removes it when the poll no longer has it.
+- **The daemon,** `aeolus-rrm`, runs beside the agent under procd. Its pure parts are `aeolus/rrm.uc`. It needs ucode's nl80211, digest and socket modules, which OpenWrt 25.12's image has, and which the installer now adds where missing.
+- **The advert:**
+  - It's a vendor element: OUI `02:ae:01`, from the locally assigned range, so no vendor's OUI or CID can be the same; then type 1, version 1, the AP's ID (6 bytes), its IPv4 management address and its port, 16730.
+  - It goes on one network per radio, Aeolus's own where there is one, through hostapd's `set_vendor_elements`. No restart, and it's put on again when a radio restarts.
+  - The daemon takes it off when it stops.
+- **Listening:**
+  - Each radio visits one channel every 15 seconds, with a probe, or only listening on a DFS channel: 2.4 GHz's 1, 6 and 11, every 20 MHz 5 GHz channel the radio may use, and its own.
+  - A visit elsewhere waits while the radio's own channel has been more than 60% busy, at most four times in a row.
+  - A visit reads the beacon's elements as well as the probe answer's. The OpenWrt One answers probes from a template made before the element was put on, so only its beacons carry it.
+  - Signals are smoothed (three parts old, one part new), and an AP not heard for 20 minutes is forgotten.
+- **Neighbours:**
+  - The three heard most strongly on each band, by name where alike, plus any AP whose signed hellos come.
+  - Hellos every 10 seconds, UDP from management address to management address, port 16730.
+  - Each is the HMAC-SHA256 under the key, then JSON: the AP, the time, a sequence number, its radios' bands, channels and widths, the APs it hears and how strongly, and whose hellos it gets.
+  - A hello is refused unless its signature holds, its time is within 60 seconds of this AP's clock, and it's later than the last from the same AP. So a hello sent again is refused, and the APs need their clocks (0069).
+  - A neighbour is up when hellos go both ways, and down after 40 seconds without one; one down for 15 minutes is forgotten.
+- **What the AP reports:** in its state report's `rrm` (docs/api.md). The manager shows it under **Interfaces › Radios › Neighbours**, where RRM is turned on and off.
+- **Not yet:** sharing clients. usteer still shares those.
+
+## Lab checks, 2026-10-05
+
+- **The element, by hand:** set with `set_vendor_elements` on the pumphouse's "Aeolus Lab" (ath10k), the office (mt76) read it back through nl80211 byte for byte, at −73 dBm, and the other way round.
+- **The OpenWrt One's `iw`** is a cut-down build that prints few elements, which is why the daemon reads nl80211, not `iw`'s text.
+- **UDP** from 192.168.1.45 to 192.168.1.38:16730 went through; both APs' management is in the `lan` zone, which accepts.
+- **A one-channel visit took** 160–220 ms on ath10k and 280–490 ms on mt76, and no client dropped: three IoT devices on the pumphouse's 2.4 GHz and nine on the office's.
+- **The daemon, run beside the agent** with a throwaway key for six minutes:
+  - Both APs advertised on 2.4 and 5 GHz.
+  - They became neighbours 50 seconds after starting, up both ways, hearing each other at −71 and −73 dBm on 2.4 GHz, each knowing the other's channels: 11 and 149 for the office, 11 and 157 for the pumphouse.
+  - They don't hear each other on 5 GHz.
+  - No client dropped.
+  - Its first run showed the probe-answer template: the pumphouse found the office over the wire, one-way, before it heard it in the air.
+
 ## Open
 
 - **The hello and dead intervals.**

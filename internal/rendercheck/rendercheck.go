@@ -1410,6 +1410,7 @@ func (k *checker) probes(doc map[string]any) {
 	for _, name := range k.watches(doc, uplink) {
 		expected[name] = true
 	}
+	expected["aeolus_rrm"] = true // radio resource management's, which k.rrm judges (0073)
 	if a != nil {
 		for _, s := range a.Sections {
 			if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {
