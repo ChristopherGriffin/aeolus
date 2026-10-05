@@ -23,9 +23,13 @@
   - A folder's name may be any 1 to 64 characters, no control characters.
   - Renaming an AP re-versions its config. The agent applies it: the system section changes, `reload_config` sets the hostname, and nothing else restarts.
 - **The APs tab** offers **Rename…** beside each AP for someone who may change it, previewed and logged as other changes are.
+- **A folder's page** offers **Rename…** beside its name, in both trees (Griff, 2026-10-05). Renaming a folder changes no AP's config.
+- **The APs tab offers Move…** beside each AP too (Griff, 2026-10-05): to any Locations folder outside Landing Zone, by its path from the Org, with the existing `move` change.
+  - The preview says which of the AP's own settings the new folder's locks would drop.
+  - It warns that the AP takes its new folder's settings, which restarts its Wi-Fi where its networks or radios differ.
 
 ## Consequences
 
 - An AP's hostname follows its name in Aeolus, so a renamed AP shows up under its new name in DHCP leases, LLDP and logs.
 - The rollout changes no hostname: the lab APs' names are their hostnames already.
-- Folders can be renamed through the API now. The UI offers it for APs only, for now.
+- Folders and APs are renamed, and APs moved, from the UI, with no API calls.
