@@ -191,6 +191,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.radioSettings(doc, radios)
 	k.networks(doc, radios)
 	k.system(obj(doc, "system"))
+	k.hostname(obj(doc, "ap"))
 	k.agent(obj(doc, "system"))
 	k.steering(obj(doc, "network"))
 	k.snmp(obj(obj(doc, "system"), "snmp"))
@@ -1548,6 +1549,25 @@ func (k *checker) watches(doc map[string]any, uplink string) []string {
 		}
 	}
 	return names
+}
+
+// hostname checks the AP's hostname, which is its name in Aeolus (0076).
+func (k *checker) hostname(ap map[string]any) {
+	h, ok := ap["hostname"].(string)
+	if !ok {
+		return
+	}
+	var s *uci.Section
+	if p := k.c.Package("system"); p != nil {
+		if all := p.OfType("system"); len(all) > 0 {
+			s = all[0]
+		}
+	}
+	if s == nil {
+		k.add("system: no system section for the hostname %q", h)
+		return
+	}
+	k.option("system", s, "hostname", h)
 }
 
 func (k *checker) system(sys map[string]any) {

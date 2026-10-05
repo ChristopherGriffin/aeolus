@@ -77,7 +77,7 @@ func Authorize(s *State, actor string, op Op) error {
 	switch op.Kind {
 	case AddFolder, AddAP:
 		return need(access.Operator, op.Tree, op.Parent)
-	case Set, Unset:
+	case Set, Unset, Rename:
 		return need(access.Operator, op.Tree, op.Node)
 	case Move:
 		if t, err := tree(s.Org, op.Tree); err == nil && op.Tree == Locations {

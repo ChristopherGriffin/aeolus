@@ -151,6 +151,12 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	if err != nil {
 		return Result{}, err
 	}
+	// The AP's name is its hostname (0076).
+	if n, ok := s.Org.Locations.Node(ap); ok {
+		if h := Hostname(n.Name); h != "" {
+			doc["ap"] = map[string]any{"hostname": h}
+		}
+	}
 	doc = jsonShape(doc)
 	sort.Strings(problems)
 	problems = append(problems, sch.Problems(doc)...)
@@ -165,6 +171,24 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 		problems = []string{}
 	}
 	return Result{Doc: doc, Problems: problems}, nil
+}
+
+// Hostname makes an AP's name a hostname (0076): letters, digits and
+// hyphens, any other character turned into a hyphen, at most 63, with no
+// hyphen at either end. A name a rename gave is one already; one from
+// before may not be.
+func Hostname(name string) string {
+	b := []byte(name)
+	for i, c := range b {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			b[i] = '-'
+		}
+	}
+	h := strings.Trim(string(b), "-")
+	if len(h) > 63 {
+		h = strings.TrimRight(h[:63], "-")
+	}
+	return h
 }
 
 // radioProblems refuses a width a radio cannot do, by the modes the AP

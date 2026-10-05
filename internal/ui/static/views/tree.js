@@ -58,7 +58,7 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		tab = pick(TABS, tab);
 		main.push(tabBar(base, TABS, tab));
 		if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, null, editing(ctx, tree, page)));
-		else if (tab === 'aps') main.push(channelsSection(ctx, await configs([...(page.hardware?.aps || []), ...(page.hardware?.unknown || [])]), status));
+		else if (tab === 'aps') main.push(channelsSection(ctx, await configs([...(page.hardware?.aps || []), ...(page.hardware?.unknown || [])]), status, !!editing(ctx, tree, page)));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 		else if (tab === 'clients') main.push(await clientsTab(ctx, page, null));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));

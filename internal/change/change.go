@@ -12,7 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
@@ -28,6 +32,7 @@ const (
 	CreateOrg      Kind = "create-org"
 	AddFolder      Kind = "add-folder"
 	AddAP          Kind = "add-ap"
+	Rename         Kind = "rename"
 	Move           Kind = "move"
 	Set            Kind = "set"
 	Unset          Kind = "unset"
@@ -188,6 +193,9 @@ var (
 	ErrBuiltins    = errors.New("the built-in folders already exist")
 	ErrReserved    = errors.New("that account name is reserved for the manager itself")
 	ErrNoConcID    = errors.New("change needs a concentrator")
+	ErrBadName     = errors.New("a folder's name is 1 to 64 characters, none of them control characters")
+	ErrBadHostname = errors.New("an AP's name is its hostname (0076): letters, digits and hyphens, 1 to 63 of them, starting and ending with a letter or digit")
+	ErrNameTaken   = errors.New("another AP has that name")
 	ErrInUse       = errors.New("still in use")
 	ErrFull        = fmt.Errorf("Landing Zone holds %d APs, its limit: adopt or remove some before more can enroll", LandingZoneLimit)
 )
@@ -254,6 +262,10 @@ func validate(op Op) error {
 	case CreateOrg:
 		if op.Account == "" {
 			return ErrNoAccount
+		}
+	case Rename:
+		if op.Name == "" {
+			return ErrBadName
 		}
 	case AddFolder, AddAP, Move, BreakHierarchy, AssignServices:
 	case Set:
@@ -381,6 +393,8 @@ func apply(o *hierarchy.Org, op Op) (Effect, error) {
 		return Effect{After: placement(op)}, t.AddFolder(op.Node, op.Name, op.Parent)
 	case AddAP:
 		return Effect{After: placement(op)}, t.AddAP(op.Node, op.Name, op.Parent)
+	case Rename:
+		return rename(t, op)
 	case Move:
 		n, ok := t.Node(op.Node)
 		if !ok {
@@ -401,6 +415,32 @@ func apply(o *hierarchy.Org, op Op) (Effect, error) {
 		return Effect{Before: false, After: true}, t.BreakHierarchy(op.Node)
 	}
 	return Effect{}, fmt.Errorf("%w: %q", ErrUnknownKind, op.Kind)
+}
+
+// hostnameRE is a hostname label (RFC 1123): what an AP's name must be (0076).
+var hostnameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+
+// rename renames a folder or an AP (0076). An AP's name is its hostname, so
+// it must be one, and no other AP's.
+func rename(t *hierarchy.Tree, op Op) (Effect, error) {
+	n, ok := t.Node(op.Node)
+	if !ok {
+		return Effect{}, fmt.Errorf("%w: %s", hierarchy.ErrNotFound, op.Node)
+	}
+	if n.Kind == hierarchy.KindAP {
+		if !hostnameRE.MatchString(op.Name) {
+			return Effect{}, ErrBadHostname
+		}
+		for _, ap := range t.APs() {
+			if other, _ := t.Node(ap); ap != op.Node && strings.EqualFold(other.Name, op.Name) {
+				return Effect{}, fmt.Errorf("%w: %s", ErrNameTaken, ap)
+			}
+		}
+	} else if utf8.RuneCountInString(op.Name) > 64 || strings.IndexFunc(op.Name, unicode.IsControl) >= 0 {
+		return Effect{}, ErrBadName
+	}
+	old, err := t.Rename(op.Node, op.Name)
+	return Effect{Before: old, After: op.Name}, err
 }
 
 // set sets one field, or several together (0045). If any of them cannot be

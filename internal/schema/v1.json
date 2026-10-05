@@ -82,6 +82,15 @@
       "propertyNames": { "$ref": "#/$defs/id" },
       "additionalProperties": { "$ref": "#/$defs/concentrator" }
     },
+    "ap": {
+      "readOnly": true,
+      "description": "What the manager fills in for the AP itself: its hostname, which is its name in Aeolus (0076).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hostname": { "type": "string", "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$" }
+      }
+    },
     "rrm": {
       "x-aeolus-tree": "locations",
       "description": "Radio resource management (0073): the APs find the other Aeolus APs they hear, and keep neighbours with them over the wire.",

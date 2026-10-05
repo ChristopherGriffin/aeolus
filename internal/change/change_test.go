@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
@@ -129,7 +130,8 @@ func TestBadOps(t *testing.T) {
 		op   Op
 		want error
 	}{
-		{Op{Kind: "rename", Tree: Locations, Node: "house"}, ErrUnknownKind},
+		{Op{Kind: "frobnicate", Tree: Locations, Node: "house"}, ErrUnknownKind},
+		{Op{Kind: Rename, Tree: Locations, Node: "house"}, ErrBadName},
 		{Op{Kind: AddFolder, Tree: "sites", Node: "x", Name: "X", Parent: "symtus"}, ErrUnknownTree},
 		{Op{Kind: AddFolder, Tree: Locations, Name: "X", Parent: "symtus"}, ErrNoNode},
 		{Op{Kind: Set, Tree: Locations, Node: "house", Value: json.RawMessage(`1`)}, ErrNoPath},
@@ -158,5 +160,38 @@ func mustApply(t *testing.T, o *State, op Op) {
 	t.Helper()
 	if _, _, err := Apply(o, op); err != nil {
 		t.Fatalf("%+v: %v", op, err)
+	}
+}
+
+// An AP's name is its hostname (0076): a rename must give it one, and no
+// other AP's; a folder's name is freer.
+func TestRename(t *testing.T) {
+	o := org(t)
+	mustApply(t, o, Op{Kind: AddAP, Tree: Locations, Node: "office-ap", Name: "OfficeOpenWrt", Parent: "house"})
+	mustApply(t, o, Op{Kind: AddAP, Tree: Locations, Node: "gate-ap", Name: "GateOpenWrt", Parent: "house"})
+	for _, c := range []struct {
+		node, name string
+		want       error
+	}{
+		{"office-ap", "Office-AP", nil},
+		{"office-ap", "office ap", ErrBadHostname},
+		{"office-ap", "-office", ErrBadHostname},
+		{"office-ap", strings.Repeat("a", 64), ErrBadHostname},
+		{"office-ap", "gateopenwrt", ErrNameTaken},
+		{"house", "The House, north wing", nil},
+		{"house", strings.Repeat("h", 65), ErrBadName},
+		{"house", "two\nlines", ErrBadName},
+	} {
+		_, eff, err := Apply(o, Op{Kind: Rename, Tree: Locations, Node: hierarchy.NodeID(c.node), Name: c.name})
+		if !errors.Is(err, c.want) {
+			t.Errorf("rename %s to %q: %v, want %v", c.node, c.name, err, c.want)
+			continue
+		}
+		if err == nil && eff.After != c.name {
+			t.Errorf("rename %s: effect %+v", c.node, eff)
+		}
+	}
+	if n, _ := o.Org.Locations.Node("office-ap"); n.Name != "Office-AP" {
+		t.Errorf("office-ap is named %q", n.Name)
 	}
 }

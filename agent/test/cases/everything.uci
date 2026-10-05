@@ -197,7 +197,7 @@ config interface 'aeolus_sweet_lab'
 package system
 
 config system
-	option hostname 'OpenWrtnight'
+	option hostname 'Pumphouse-AP'
 	option timezone 'CST6CDT,M3.2.0,M11.1.0'
 	option zonename 'America/Chicago'
 	option ttylogin '0'

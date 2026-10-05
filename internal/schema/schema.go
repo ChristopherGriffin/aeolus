@@ -497,7 +497,9 @@ func (s *Schema) Leaves() []string {
 		}
 		props, _ := node["properties"].(map[string]any)
 		for name, child := range props {
-			if m, ok := child.(map[string]any); ok {
+			// A part the manager fills in, such as the AP's hostname (0076),
+			// holds no fields.
+			if m, ok := child.(map[string]any); ok && !(prefix == "" && m["readOnly"] == true) {
 				walk(m, join(name))
 			}
 		}

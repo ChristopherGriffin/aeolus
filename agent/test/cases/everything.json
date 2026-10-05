@@ -1,5 +1,5 @@
 {
-	"about": "Every rule at once: radio settings, a new VLAN and a reused one, roaming, a hidden 2.4 GHz-only network, a disabled network, the time zone, NTP and syslog, and a leftover Aeolus section to remove.",
+	"about": "Every rule at once: radio settings, a new VLAN and a reused one, roaming, a hidden 2.4 GHz-only network, a disabled network, the time zone, the hostname (0076), NTP and syslog, and a leftover Aeolus section to remove.",
 	"current": "pumphouse-current.json",
 	"stale": ["aeolus_gone_radio0"],
 	"facts": {
@@ -13,6 +13,7 @@
 		"timezone": "CST6CDT,M3.2.0,M11.1.0"
 	},
 	"intent": {
+		"ap": { "hostname": "Pumphouse-AP" },
 		"radio": {
 			"2g": { "enabled": true, "channel": 11, "width": 20 },
 			"5g": { "channel": 36, "width": 160, "power": 20 },

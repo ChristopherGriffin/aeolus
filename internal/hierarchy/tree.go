@@ -99,6 +99,17 @@ func (t *Tree) Node(id NodeID) (Node, bool) {
 	return *n, true
 }
 
+// Rename renames a node, and returns its old name.
+func (t *Tree) Rename(id NodeID, name string) (string, error) {
+	n, ok := t.nodes[id]
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	old := n.Name
+	n.Name = name
+	return old, nil
+}
+
 // AddFolder adds a folder under parent.
 func (t *Tree) AddFolder(id NodeID, name string, parent NodeID) error {
 	return t.add(id, name, KindFolder, parent)

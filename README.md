@@ -129,6 +129,7 @@ Each milestone ends in something checkable before the next starts.
 | [0073](docs/decisions/0073-radio-neighbours.md) | Radio resource management: APs as neighbours, channels by rating |
 | [0074](docs/decisions/0074-time-zones.md) | Time zones from a list |
 | [0075](docs/decisions/0075-channel-sets.md) | Channel sets, and an APs tab |
+| [0076](docs/decisions/0076-ap-names.md) | An AP's name is its hostname (proposed) |
 
 ## Open questions
 

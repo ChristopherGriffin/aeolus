@@ -276,3 +276,6 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .ch .ap.none { visibility: hidden; }
 .panel > h2 .title { display: flex; align-items: center; gap: 10px; }
 .panel > h2 .title .chip { text-transform: none; letter-spacing: 0; height: 22px; }
+
+/* Rename beside an AP's name on the APs tab (0076). */
+.button.rename { margin-left: 8px; height: 24px; padding: 0 8px; font-size: 12px; }

@@ -807,6 +807,9 @@ function host_port(s) {
 function system(pkg, intent, facts) {
 	let want = intent.system ?? {};
 	let s = of_type(pkg, 'system')[0];
+	// The AP's name in Aeolus is its hostname (0076).
+	if (s && intent.ap?.hostname)
+		s.hostname = intent.ap.hostname;
 	if (s && want.tz != null) {
 		s.zonename = want.tz;
 		if (facts.timezone)
