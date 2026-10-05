@@ -584,6 +584,43 @@ func TestAvoidingDFSRefusesWhatNeedsIt(t *testing.T) {
 	}
 }
 
+// A set of channels an automatic channel may be (0075) that leaves the
+// radio no whole block at its width, or none outside DFS while it is
+// avoided, is held.
+func TestChannelSetsNeedAWholeBlock(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("radio.5g.width", 80)
+	set("radio.5g.channels", []int{36, 40, 44, 48, 149, 153})
+	if p := problems(); strings.Contains(p, "channels") {
+		t.Fatalf("36–48 is a whole 80 MHz block: %s", p)
+	}
+	set("radio.5g.channels", []int{36, 40, 149, 153})
+	if p := problems(); !strings.Contains(p, "radio.5g.channels: no 80 MHz block is wholly in the set") {
+		t.Fatalf("no whole block: %s", p)
+	}
+	set("radio.5g.width", 40)
+	if p := problems(); strings.Contains(p, "channels") {
+		t.Fatalf("at 40 MHz, 36/40 and 149/153 are whole: %s", p)
+	}
+	set("radio.5g.dfs", "avoid")
+	set("radio.5g.channels", []int{52, 56, 60, 64})
+	if p := problems(); !strings.Contains(p, "radio.5g.channels: no 40 MHz block outside DFS is wholly in the set, and radio.5g.dfs is avoid") {
+		t.Fatalf("only DFS: %s", p)
+	}
+}
+
 func contains(list []string, sub string) bool {
 	return strings.Contains(strings.Join(list, "\n"), sub)
 }

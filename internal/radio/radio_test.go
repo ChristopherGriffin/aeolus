@@ -2,6 +2,7 @@ package radio
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -61,5 +62,32 @@ func TestRadar(t *testing.T) {
 		if got := Radar(c.band, c.channel, c.w); got != c.want {
 			t.Errorf("Radar(%s, %d, %d) = %v, want %v", c.band, c.channel, c.w, got, c.want)
 		}
+	}
+}
+
+// A set keeps only whole blocks at the width on 5 GHz (0075): hostapd
+// checks only a block's primary channel against its list.
+func TestWhole(t *testing.T) {
+	set := []int{36, 40, 44, 48, 52, 56, 149, 153, 165}
+	for _, c := range []struct {
+		band  string
+		width int
+		avoid bool
+		want  []int
+	}{
+		{"5g", 20, false, []int{36, 40, 44, 48, 52, 56, 149, 153, 165}},
+		{"5g", 20, true, []int{36, 40, 44, 48, 149, 153, 165}},
+		{"5g", 40, false, []int{36, 40, 44, 48, 52, 56, 149, 153}},
+		{"5g", 40, true, []int{36, 40, 44, 48, 149, 153}},
+		{"5g", 80, false, []int{36, 40, 44, 48}},
+		{"5g", 160, false, nil},
+		{"2g", 20, true, []int{36, 40, 44, 48, 52, 56, 149, 153, 165}},
+	} {
+		if got := Whole(c.band, set, c.width, c.avoid); !slices.Equal(got, c.want) {
+			t.Errorf("Whole(%s, %d MHz, avoid %v) = %v, want %v", c.band, c.width, c.avoid, got, c.want)
+		}
+	}
+	if got := Whole("2g", []int{11, 1, 6, 6}, 20, false); !slices.Equal(got, []int{1, 6, 11}) {
+		t.Errorf("2.4 GHz: %v", got)
 	}
 }

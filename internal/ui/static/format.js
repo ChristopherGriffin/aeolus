@@ -79,7 +79,7 @@ export function value(path, v, names) {
 	if (Array.isArray(v)) return v.map((x) => (last === 'bands' ? BANDS[x] || x : String(x))).join(', ');
 	if (last === 'security') return SECURITY[v] || v;
 	if (last === 'width' && typeof v === 'number') return v + ' MHz';
-	if (last === 'channel' && v === 'auto') return path.includes('.2g.') ? 'automatic (1, 6, 11)' : 'automatic';
+	if (last === 'channel' && v === 'auto') return 'automatic'; // within the band's channel set (0075)
 	if (last === 'power' && typeof v === 'number') return v + ' dBm';
 	if (last === 'dfs') return v === 'avoid' ? 'avoided' : 'allowed';
 	if (path === 'rrm.window') return `${String(v).replace('-', '–')}, the AP's local time`;

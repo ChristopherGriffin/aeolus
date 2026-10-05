@@ -157,6 +157,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
 	problems = append(problems, bondingProblems(doc)...)
 	problems = append(problems, dfsProblems(doc)...)
+	problems = append(problems, channelsProblems(doc)...)
 	problems = append(problems, snmpProblems(doc)...)
 	problems = append(problems, portProblems(doc)...)
 	problems = append(problems, tunnelProblems(doc)...)
@@ -246,6 +247,40 @@ func dfsProblems(doc map[string]any) []string {
 		}
 		if ch, ok := set["channel"].(float64); ok && radio.Radar(band, int(ch), int(w)) {
 			out = append(out, fmt.Sprintf("radio.%s.channel: channel %d uses DFS channels, but radio.%s.dfs is avoid", band, int(ch), band))
+		}
+	}
+	return out
+}
+
+// channelsProblems refuses a set of channels an automatic channel may be
+// (0075) that leaves the radio nowhere to go: on 5 GHz, no block of the
+// width wholly in the set, or none outside DFS while it is avoided.
+func channelsProblems(doc map[string]any) []string {
+	radios, _ := doc["radio"].(map[string]any)
+	var out []string
+	for _, band := range sortedKeys(radios) {
+		set, _ := radios[band].(map[string]any)
+		list, ok := set["channels"].([]any)
+		if !ok || band != "5g" {
+			continue
+		}
+		var chans []int
+		for _, c := range list {
+			if f, ok := c.(float64); ok {
+				chans = append(chans, int(f))
+			}
+		}
+		w, _ := set["width"].(float64)
+		width := max(20, int(w))
+		avoid := set["dfs"] == "avoid"
+		if len(radio.Whole(band, chans, width, avoid)) > 0 {
+			continue
+		}
+		switch {
+		case avoid:
+			out = append(out, fmt.Sprintf("radio.%s.channels: no %d MHz block outside DFS is wholly in the set, and radio.%s.dfs is avoid", band, width, band))
+		default:
+			out = append(out, fmt.Sprintf("radio.%s.channels: no %d MHz block is wholly in the set", band, width))
 		}
 	}
 	return out

@@ -1,0 +1,274 @@
+package wireless
+
+config wifi-device 'radio0'
+	option type 'mac80211'
+	option path 'soc/1b500000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0'
+	option band '5g'
+	option channel 'auto'
+	option htmode 'VHT80'
+	option disabled '0'
+	option ucentral_path '/radios/1'
+	option txantenna '15'
+	option rxantenna '15'
+	option noscan '1'
+	option country 'US'
+	option legacy_rates '0'
+	option maxassoc_ignore_probe '0'
+	option reconf '1'
+	option acs_exclude_dfs '1'
+	list channels '36'
+	list channels '40'
+	list channels '44'
+	list channels '48'
+	list channels '52'
+	list channels '56'
+	list channels '60'
+	list channels '64'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option path 'soc/1b700000.pcie/pci0001:00/0001:00:00.0/0001:01:00.0'
+	option band '2g'
+	option channel 'auto'
+	option htmode 'HT20'
+	option disabled '0'
+	option ucentral_path '/radios/0'
+	option txantenna '15'
+	option rxantenna '15'
+	option noscan '1'
+	option country 'US'
+	option legacy_rates '0'
+	option maxassoc_ignore_probe '0'
+	option reconf '1'
+	option acs_exclude_dfs '0'
+	list channels '1'
+	list channels '11'
+
+config wifi-iface 'iot24'
+	option device 'radio1'
+	option network 'iot'
+	option mode 'ap'
+	option ssid 'Sweet_Spot_IoT'
+	option encryption 'psk2'
+	option key 'fixture-key-iot24'
+
+config wifi-iface 'trusted_radio0'
+	option device 'radio0'
+	option network 'trusted'
+	option mode 'ap'
+	option ssid 'Sweet Spot'
+	option encryption 'psk2'
+	option key 'fixture-key-trusted_radio0'
+	option ieee80211r '1'
+	option ft_over_ds '0'
+	option ft_psk_generate_local '1'
+
+config wifi-iface 'trusted_radio1'
+	option device 'radio1'
+	option network 'trusted'
+	option mode 'ap'
+	option ssid 'Sweet Spot'
+	option encryption 'psk2'
+	option key 'fixture-key-trusted_radio1'
+	option ieee80211r '1'
+	option ft_over_ds '0'
+	option ft_psk_generate_local '1'
+
+config wifi-iface 'aeolus_lab_radio0'
+	option device 'radio0'
+	option mode 'ap'
+	option network 'aeolus_lab'
+	option ssid 'Aeolus Lab'
+	option encryption 'psk2'
+	option key 'fixture-passphrase-1'
+
+config wifi-iface 'aeolus_lab_radio1'
+	option device 'radio1'
+	option mode 'ap'
+	option network 'aeolus_lab'
+	option ssid 'Aeolus Lab'
+	option encryption 'psk2'
+	option key 'fixture-passphrase-1'
+
+package network
+
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option ifname 'lo'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option dhcp_default_duid '0004fixture'
+	option ula_prefix 'fd59:2068:3844::/48'
+	option packet_steering '1'
+
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'lan1'
+	list ports 'lan2'
+	list ports 'lan3'
+	list ports 'lan4'
+	list ports 'wan'
+	option ipv6 '0'
+
+config interface 'lan'
+	option device 'br-lan.1'
+	option proto 'dhcp'
+	option multipath 'off'
+
+config bridge-vlan 'vlan1'
+	option device 'br-lan'
+	option vlan '1'
+	list ports 'wan:u*'
+	list ports 'lan1:u*'
+	list ports 'lan2:u*'
+	list ports 'lan3:u*'
+	list ports 'lan4:u*'
+
+config bridge-vlan 'vlan10'
+	option device 'br-lan'
+	option vlan '10'
+	list ports 'wan:t'
+
+config interface 'iot'
+	option proto 'none'
+	option device 'br-lan.10'
+
+config bridge-vlan 'vlan20'
+	option device 'br-lan'
+	option vlan '20'
+	list ports 'wan:t'
+
+config interface 'trusted'
+	option proto 'none'
+	option device 'br-lan.20'
+
+config interface 'aeolus_lab'
+	option proto 'none'
+	option device 'br-lan.20'
+
+package system
+
+config system
+	option hostname 'OpenWrtnight'
+	option timezone 'GMT0'
+	option zonename 'UTC'
+	option ttylogin '0'
+	option log_size '128'
+	option urandom_seed '0'
+	option compat_version '1.1'
+	option log_proto 'udp'
+	option conloglevel '8'
+	option cronloglevel '7'
+
+config timeserver 'ntp'
+
+config led 'led_wan'
+	option name 'WAN'
+	option sysfs 'white:wan'
+	option trigger 'netdev'
+	option mode 'link tx rx'
+	option dev 'wan'
+
+package aeolus
+
+config agent 'agent'
+	option url 'https://aeolus.symtus.com:8443'
+	option uplink 'wan'
+	option poll '60'
+	list rebind 'aeolus.symtus.com'
+
+config watch 'aeolus_watch20'
+	option vlan '20'
+	option device 'wan'
+	option tagged '1'
+
+package usteer
+
+config usteer
+	option network 'lan'
+	option syslog '1'
+	option local_mode '0'
+	option ipv6 '0'
+	option debug_level '2'
+	option band_steering_interval '0'
+
+package snmpd
+
+config snmpd 'general'
+	option enabled '0'
+
+package firewall
+
+config defaults
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	option synflood_protect '1'
+
+config zone
+	option name 'lan'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	list network 'lan'
+
+config zone
+	option name 'wan'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'DROP'
+	option masq '1'
+	option mtu_fix '1'
+
+config forwarding
+	option src 'lan'
+	option dest 'wan'
+
+config rule
+	option name 'Allow-Ping'
+	option src 'wan'
+	option proto 'icmp'
+	option icmp_type 'echo-request'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+package dhcp
+
+config dnsmasq
+	option domainneeded '1'
+	option boguspriv '1'
+	option filterwin2k '0'
+	option localise_queries '1'
+	option rebind_protection '1'
+	option rebind_localhost '1'
+	option local '/lan/'
+	option domain 'lan'
+	option expandhosts '1'
+	option nonegcache '0'
+	option cachesize '1000'
+	option authoritative '1'
+	option readethers '1'
+	option leasefile '/tmp/dhcp.leases'
+	option resolvfile '/tmp/resolv.conf.d/resolv.conf.auto'
+	option nonwildcard '1'
+	option localservice '1'
+	option ednspacket_max '1232'
+	list rebind_domain 'aeolus.symtus.com'
+
+config dhcp 'lan'
+	option interface 'lan'
+	option start '100'
+	option limit '150'
+	option leasetime '12h'
+	option dhcpv4 'server'
+	option ignore '1'
+
+config odhcpd 'odhcpd'
+	option maindhcp '0'
+	option leasefile '/tmp/odhcpd.leases'
+	option leasetrigger '/usr/sbin/odhcpd-update'
+	option loglevel '4'

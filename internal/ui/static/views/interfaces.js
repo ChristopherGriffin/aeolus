@@ -1,6 +1,7 @@
 // The Interfaces tab of a Locations folder or AP (0053, 0072): its APs'
 // radios, Ethernet ports and tunnels. Radios has the band cards, the
-// channels each AP picked (0047), and its radio neighbours (0073). Ethernet has the ports of its APs, as each
+// channel map, where the channels the APs may go to are picked (0075), and
+// its radio neighbours and their ratings (0073). Ethernet has the ports of its APs, as each
 // last reported them, and what Aeolus sets for each
 // port, with an editor built from the schema. A port is set by name, so a
 // folder's setting for lan2 reaches every AP below with a lan2. The uplink
@@ -15,7 +16,8 @@ import { h, link } from '../dom.js';
 import { schema } from '../api.js';
 import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY, uplinkJudgment, switchPort } from '../format.js';
 import { tabBar, pick } from '../layout.js';
-import { configs, channelsSection } from './sections.js';
+import { configs } from './sections.js';
+import { channelMap } from './channels.js';
 import { radiosSection } from './hardware.js';
 import { neighboursSection, ratingsSection } from './neighbours.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -24,8 +26,8 @@ import { followButton } from './follow.js';
 import { tunnelsAt, tunnelName } from './networks.js';
 
 const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
-// Radios' views: the band cards, the channels each AP picked, the other
-// Aeolus APs each hears, and how it rates each channel (0073).
+// Radios' views: the band cards, the channel map (0075), the other Aeolus
+// APs each hears, and how it rates each channel (0073).
 const RADIOS = [['bands', 'Bands'], ['channels', 'Channels'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings']];
 
 // The port fields offered, in order. LACP and its bond are not applied yet,
@@ -58,13 +60,12 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 		view = pick(RADIOS, view);
 		const rows = () => (ap ? [ap] : configs(page.hardware?.aps || []));
 		let body;
-		if (view === 'channels') body = channelsSection(ctx, await rows());
+		const at = { node: id, nodeName: page.node.name, page, canEdit: !!edit,
+			parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null };
+		if (view === 'channels') body = channelMap(ctx, at, await rows());
 		else if (view === 'ratings') body = ratingsSection(ctx, await rows());
-		else if (view === 'neighbours') {
-			const at = { node: id, nodeName: page.node.name, page, canEdit: !!edit,
-				parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null };
-			body = neighboursSection(ctx, at, await rows());
-		} else body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state);
+		else if (view === 'neighbours') body = neighboursSection(ctx, at, await rows());
+		else body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state);
 		return [bar, tabBar(`${base}/interfaces/radios`, RADIOS, view, 'minor'), body];
 	}
 	const body = sub === 'tunnels' ? await tunnels(ctx, id, page, ap, edit) : await ethernet(ctx, id, page, ap, edit);

@@ -1,0 +1,185 @@
+// The channel map (0075): for each band, every real channel, shaded in the
+// blocks the band's width makes, where the channels an automatic channel may
+// be are picked a block at a time, as sets the APs can jump to. The APs on
+// each channel now are marked under it.
+
+import { h } from '../dom.js';
+import { bandName, origin } from '../format.js';
+import { ask, confirm } from './confirm.js';
+import { followButton } from './follow.js';
+
+// The 5 GHz blocks at each width, by their lowest and highest 20 MHz
+// channel, as internal/radio has them.
+const BLOCKS5 = {
+	40: [[36, 40], [44, 48], [52, 56], [60, 64], [100, 104], [108, 112], [116, 120], [124, 128], [132, 136], [140, 144], [149, 153], [157, 161]],
+	80: [[36, 48], [52, 64], [100, 112], [116, 128], [132, 144], [149, 161]],
+	160: [[36, 64], [100, 128]],
+};
+
+const step = (lo, hi, by) => Array.from({ length: (hi - lo) / by + 1 }, (_, i) => lo + i * by);
+
+// ranges are a band's 20 MHz channels, in the stretches of spectrum they
+// fall in: 2.4 GHz's 1–11, or 1–13 outside North America; 5 GHz's three.
+function ranges(band, country) {
+	if (band === '2g') return [step(1, country === 'US' || country === 'CA' ? 11 : 13, 1)];
+	return [step(36, 64, 4), step(100, 144, 4), step(149, 165, 4)];
+}
+
+// DEFAULT is what an unset set means: 1, 6 and 11 on 2.4 GHz, every
+// channel on 5 GHz.
+const DEFAULT = { '2g': () => [1, 6, 11], '5g': () => ranges('5g').flat() };
+
+const radar = (band, c) => band === '5g' && c >= 52 && c <= 144;
+
+// block is the channels a radio at width takes up with ch among them, or
+// null where no block at that width holds it.
+function block(band, ch, width) {
+	if (band !== '5g' || width <= 20) return [ch];
+	const b = (BLOCKS5[width] || []).find(([lo, hi]) => ch >= lo && ch <= hi);
+	return b ? step(b[0], b[1], 4) : null;
+}
+
+// spans writes a set of channels as runs, such as 36–48, 149–161, each run
+// channels by apart.
+function spans(list, by) {
+	const runs = [];
+	for (const c of [...list].sort((a, b) => a - b)) {
+		const last = runs[runs.length - 1];
+		if (last && c === last[1] + by) last[1] = c;
+		else runs.push([c, c]);
+	}
+	return runs.map(([a, b]) => (a === b ? String(a) : `${a}–${b}`)).join(', ');
+}
+
+// channelMap draws a map for each band the APs here have. at is the node's
+// page ({ node, nodeName, page, canEdit, parentName }); rows are its APs,
+// each with its config and condition.
+export function channelMap(ctx, at, rows) {
+	const bands = (at.page.hardware?.bands || []).map((b) => b.band).filter((b) => b === '2g' || b === '5g');
+	if (!bands.length) return h('div', { class: 'banner info' }, 'No AP here has a 2.4 or 5 GHz radio.');
+	return [
+		h('div', { class: 'sub lead' }, 'The channels an automatic channel may be, for the APs here: picked a block at a time, at the band\'s width. RRM moves radios only within them.'),
+		bands.map((band) => bandMap(ctx, at, band, rows)),
+	];
+}
+
+function bandMap(ctx, at, band, rows) {
+	const { node, nodeName, page, canEdit, parentName } = at;
+	const path = `radio.${band}.channels`;
+	const field = page.fields?.[path];
+	const lockedAbove = field?.origin === 'locked' && field.from !== node;
+	const editable = canEdit && !lockedAbove;
+	const country = page.fields?.['system.country']?.value;
+	const avoid = band === '5g' && page.fields?.['radio.5g.dfs']?.value === 'avoid';
+
+	// The width the blocks are drawn at: the band's in force here, or what
+	// most of the APs below report.
+	const reports = rows.flatMap(({ ap, cfg }) => (cfg?.condition?.state?.report?.radios || [])
+		.filter((r) => r.band === band).map((r) => ({ ap, r })));
+	let width = page.fields?.[`radio.${band}.width`]?.value;
+	const fromAPs = width == null;
+	if (fromAPs) {
+		const count = {};
+		for (const { r } of reports) if (r.width) count[r.width] = (count[r.width] || 0) + 1;
+		width = Number(Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || 20);
+	}
+
+	// The APs on each channel now.
+	const on = new Map();
+	for (const { ap, r } of reports) {
+		for (const c of (r.channel && block(band, r.channel, r.width || 20)) || []) {
+			if (!on.has(c)) on.set(c, []);
+			on.get(c).push(ap.name);
+		}
+	}
+
+	const saved = new Set(field ? field.value : DEFAULT[band]());
+	let chosen = new Set(saved);
+	const box = h('div', { class: 'edit' });
+	const map = h('div', { class: 'chmap' });
+	const summary = h('span', { class: 'sub' });
+	const save = h('button', { type: 'button', class: 'button small primary', disabled: true }, 'Save…');
+	const reset = h('button', { type: 'button', class: 'button small', disabled: true }, 'Undo');
+	const panel = h('section', { class: 'panel' });
+
+	const same = (a, b) => a.size === b.size && [...a].every((c) => b.has(c));
+	const draw = () => {
+		const dirty = !same(chosen, saved);
+		if (dirty) panel.setAttribute('data-editing', 'true');
+		else panel.removeAttribute('data-editing');
+		save.disabled = !dirty;
+		reset.disabled = !dirty;
+		map.replaceChildren(...ranges(band, country).map((list) => {
+			// Group the range's channels by block, so each block reads as one.
+			const groups = [];
+			for (const c of list) {
+				const b = block(band, c, width);
+				const key = b ? b[0] : `x${c}`;
+				const last = groups[groups.length - 1];
+				if (last && last.key === key) last.chans.push(c);
+				else groups.push({ key, chans: [c], whole: b });
+			}
+			return h('div', { class: 'chrange' }, groups.map((g, i) => {
+				const all = g.whole && g.whole.every((c) => chosen.has(c));
+				const some = g.whole && !all && g.whole.some((c) => chosen.has(c));
+				const off = !g.whole || (avoid && g.chans.some((c) => radar(band, c)));
+				// At 20 MHz each channel is its own block: one shade for all.
+				return h('div', { class: `chblock ${width > 20 && band === '5g' && i % 2 ? 'b' : 'a'}` }, g.chans.map((c) => {
+					const aps = on.get(c) || [];
+					const why = !g.whole ? `No ${width} MHz block includes ${c}`
+						: avoid && radar(band, c) ? 'DFS is avoided here'
+							: radar(band, c) ? 'Shared with radar (DFS)' : '';
+					return h('button', {
+						type: 'button',
+						class: `ch${all ? ' on' : ''}${some ? ' part' : ''}${off ? ' off' : ''}${radar(band, c) ? ' dfs' : ''}`,
+						disabled: !editable || off,
+						title: [why, some && 'Part of this block was picked at another width', aps.length && `Now: ${aps.join(', ')}`].filter(Boolean).join(' · '),
+						onclick: () => {
+							const next = new Set(chosen);
+							for (const x of g.whole) (all ? next.delete(x) : next.add(x));
+							chosen = next;
+							draw();
+						},
+					}, h('span', null, String(c)), h('span', { class: aps.length ? 'ap' : 'ap none' }));
+				}));
+			}));
+		}));
+		const usable = [...chosen].filter((c) => block(band, c, width)?.every((x) => chosen.has(x)) && !(avoid && radar(band, c)));
+		summary.textContent = usable.length
+			? `${usable.length} channel${usable.length === 1 ? '' : 's'} usable at ${width} MHz`
+			: `No whole ${width} MHz block picked: the APs would have nowhere to go.`;
+		summary.className = usable.length ? 'sub' : 'sub warn';
+		save.disabled = save.disabled || !usable.length;
+	};
+	reset.addEventListener('click', () => { chosen = new Set(saved); draw(); });
+	save.addEventListener('click', async () => {
+		const value = [...chosen].sort((a, b) => a - b);
+		const op = { kind: 'set', tree: 'locations', node, path, value };
+		const p = await ask(box, op);
+		if (!p) return;
+		const list = (s) => [...s].sort((a, b) => a - b).join(', ');
+		confirm(ctx, box, op, p, [
+			h('div', null, h('strong', null, `${bandName(band)} channels on ${nodeName}: `),
+				field ? list(saved) : `${list(saved)} (not set)`, ' → ', list(chosen)),
+		], [
+			h('div', { class: 'sub warn' }, `Applying restarts the ${bandName(band)} radio on each AP listed whose channel is automatic: its clients drop for a few seconds and reconnect, and it picks a channel from the set. RRM then moves it only within the set.`),
+		]);
+	});
+	draw();
+
+	panel.append(
+		h('h2', null, bandName(band), h('span', { class: 'note' },
+			`${width} MHz blocks${fromAPs ? ', the width most APs here report' : ''}${avoid ? ' · DFS avoided' : ''}`)),
+		h('div', { class: 'row' },
+			h('div', { class: 'label' }, 'Channels'),
+			h('div', { class: 'value' }, field ? spans(field.value, band === '2g' ? 1 : 4) : h('span', { class: 'sealed' }, band === '2g' ? '1, 6 and 11 (not set)' : 'any (not set)')),
+			field && origin('locations', node, field, (id) => ctx.name('locations', id)),
+			h('span', { class: 'controls' },
+				editable && field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
+				editable && reset, editable && save)),
+		map,
+		h('div', { class: 'chlegend' }, summary,
+			h('span', { class: 'sub' }, 'Each shade is one block. Hatched: shared with radar. A dot: an AP is on it now.')),
+		box);
+	return panel;
+}

@@ -27,11 +27,12 @@ import (
 // "" means it is checked; anything else says why not yet. "*" stands for any
 // one name. A test holds it to the schema, so no field is left out unnoticed.
 var Coverage = map[string]string{
-	"radio.*.enabled": "",
-	"radio.*.channel": "",
-	"radio.*.width":   "",
-	"radio.*.power":   "",
-	"radio.*.dfs":     "",
+	"radio.*.enabled":  "",
+	"radio.*.channel":  "",
+	"radio.*.width":    "",
+	"radio.*.power":    "",
+	"radio.*.dfs":      "",
+	"radio.*.channels": "",
 
 	"system.country":               "",
 	"system.tz":                    "",
@@ -237,6 +238,34 @@ var auto2g = []string{"1", "6", "11"}
 
 var htmodeRE = regexp.MustCompile(`^(NOHT|HT|VHT|HE|EHT)([0-9]*)$`)
 
+// autoChannels are the channels an automatic channel may be, as UCI lists
+// them (0075): the set's, at the radio's width, in whole blocks; unset, on
+// 2.4 GHz, 1, 6 and 11.
+func autoChannels(r device, set map[string]any) []string {
+	list, ok := set["channels"].([]any)
+	if !ok {
+		if r.band == "2g" {
+			return auto2g
+		}
+		return nil
+	}
+	var chans []int
+	for _, c := range list {
+		if f, ok := c.(float64); ok {
+			chans = append(chans, int(f))
+		}
+	}
+	w := 20
+	if m := htmodeRE.FindStringSubmatch(value(r.s, "htmode")); m != nil && m[2] != "" {
+		w, _ = strconv.Atoi(m[2])
+	}
+	var out []string
+	for _, c := range radio.Whole(r.band, chans, w, false) {
+		out = append(out, strconv.Itoa(c))
+	}
+	return out
+}
+
 func (k *checker) radioSettings(doc map[string]any, radios []device) {
 	country, hasCountry := obj(doc, "system")["country"].(string)
 	for _, r := range radios {
@@ -251,8 +280,8 @@ func (k *checker) radioSettings(doc map[string]any, radios []device) {
 		if v, ok := set["channel"]; ok {
 			k.option(where, r.s, "channel", text(v))
 			var want []string
-			if v == "auto" && r.band == "2g" {
-				want = auto2g
+			if v == "auto" {
+				want = autoChannels(r, set)
 			}
 			if got := r.s.List("channels"); !slices.Equal(got, want) {
 				k.add("%s: channels is %q, want %q", where, got, want)

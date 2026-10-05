@@ -6,6 +6,7 @@ package radio
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -108,3 +109,40 @@ func Radar(band string, channel, width int) bool {
 }
 
 func radar(lo, hi int) bool { return lo <= 144 && hi >= 52 }
+
+// Whole keeps, of a set of channels an automatic channel may be (0075), the
+// ones a radio at width can use: on 5 GHz at 40 MHz or more, those of the
+// blocks wholly in the set, as hostapd checks only a block's primary
+// channel against its list. Elsewhere, the set itself. With radar, blocks
+// shared with radar are dropped too. Sorted, without repeats.
+func Whole(band string, set []int, width int, avoidRadar bool) []int {
+	in := map[int]bool{}
+	for _, c := range set {
+		in[c] = true
+	}
+	var out []int
+	if band != "5g" || width <= 20 {
+		for c := range in {
+			if !avoidRadar || band != "5g" || !radar(c, c) {
+				out = append(out, c)
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+	for _, g := range groups5g[width] {
+		if avoidRadar && radar(g[0], g[1]) {
+			continue
+		}
+		all := true
+		for c := g[0]; c <= g[1]; c += 4 {
+			all = all && in[c]
+		}
+		if all {
+			for c := g[0]; c <= g[1]; c += 4 {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}

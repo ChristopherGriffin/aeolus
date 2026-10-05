@@ -244,3 +244,22 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .keys .handout { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--warn-bg); }
 .panel.keys form, .panel.keys .handout, .panel.keys > div > .sub, .panel.keys > div > div > .sub { margin-left: 20px; margin-right: 20px; }
 .panel.keys > div:last-child { padding-bottom: 14px; }
+
+/* The channel map (0075): a band's channels, each block of the width one
+   shade, picked a block at a time. */
+.chmap { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 6px; }
+.chrange { display: flex; gap: 6px; }
+.chblock { display: flex; gap: 1px; padding: 2px; border-radius: 6px; }
+.chblock.a { background: #D7E7EE; }
+.chblock.b { background: #E8E1D2; }
+.ch { width: 34px; padding: 4px 0 3px; border: 1px solid transparent; border-radius: 4px; background: var(--panel); color: var(--ink-2); font: 12px var(--mono); display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; }
+.chblock.a .ch.on { background: var(--accent); color: #FFFFFF; }
+.chblock.b .ch.on { background: #8A6A2E; color: #FFFFFF; }
+.ch.part { border-color: var(--warn); border-style: dashed; }
+.ch.dfs { background-image: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.09) 0 3px, transparent 3px 7px); }
+.ch.on.dfs { background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0 3px, transparent 3px 7px); }
+.ch.off { opacity: 0.4; cursor: not-allowed; }
+.ch:disabled:not(.off) { cursor: default; }
+.ch .ap { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ch .ap.none { visibility: hidden; }
+.chlegend { display: flex; flex-wrap: wrap; gap: 16px; }

@@ -132,6 +132,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "channel": { "oneOf": [{ "const": "auto" }, { "type": "integer", "minimum": 1, "maximum": 14 }] },
+        "channels": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 13 }, "uniqueItems": true, "minItems": 1, "maxItems": 13, "description": "The channels an automatic channel may be (0075). Unset, 1, 6 and 11." },
         "width": { "enum": [20, 40], "description": "MHz." },
         "power": { "$ref": "#/$defs/power" }
       }
@@ -142,6 +143,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "channel": { "oneOf": [{ "const": "auto" }, { "enum": [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 169, 173, 177] }] },
+        "channels": { "type": "array", "items": { "enum": [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165] }, "uniqueItems": true, "minItems": 1, "maxItems": 25, "description": "The channels an automatic channel may be, chosen in whole blocks of the width (0075). Unset, any; DFS avoided still keeps it off 52–144." },
         "width": { "enum": [20, 40, 80, 160], "description": "MHz." },
         "power": { "$ref": "#/$defs/power" },
         "dfs": { "enum": ["allow", "avoid"], "default": "allow", "description": "avoid keeps an automatic channel off the DFS channels, 52–144, which are shared with radar; a channel or width that needs them is refused (0071). allow (the default) lets the AP pick any." }
