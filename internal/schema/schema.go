@@ -29,6 +29,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
+	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -46,6 +47,47 @@ var zonesUC []byte
 //
 //go:embed zone.tab
 var zoneTab []byte
+
+// iso3166 is tzdata's list of countries (2026b): each ISO 3166 alpha-2 code
+// with its usual English name (0074).
+//
+//go:embed iso3166.tab
+var iso3166 []byte
+
+// Country is one country: its code and its name.
+type Country struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+var (
+	countriesOnce sync.Once
+	countries     []Country
+	countryCodes  []string
+)
+
+// Countries lists the countries a country field takes, by name, as
+// tzselect offers them.
+func Countries() []Country {
+	countriesOnce.Do(func() {
+		for _, line := range strings.Split(string(iso3166), "\n") {
+			line = strings.TrimSuffix(line, "\r")
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if code, name, ok := strings.Cut(line, "\t"); ok {
+				countries = append(countries, Country{Code: code, Name: name})
+			}
+		}
+		// By name as English sorts them: Åland Islands after Afghanistan.
+		order := collate.New(language.English)
+		sort.SliceStable(countries, func(i, j int) bool { return order.CompareString(countries[i].Name, countries[j].Name) < 0 })
+		for _, c := range countries {
+			countryCodes = append(countryCodes, c.Code)
+		}
+	})
+	return countries
+}
 
 // ZoneInfo is a zone's country, ISO 3166 alpha-2, and tzdata's note on it.
 type ZoneInfo struct {
@@ -117,14 +159,19 @@ func ZoneRule(name string) (string, bool) {
 }
 
 // listed is the list of values a field the schema marks x-aeolus-enum
-// takes, kept once, where it is used: "zones" is the time zones (0074).
+// takes, kept once, where it is used: "zones" is the time zones, and
+// "countries" the countries (0074).
 //
 // A new value must be one of them. A document is not checked against the
 // list: a value set before the list was, such as the alias US/Eastern, stays
 // as it was, so an AP's config isn't held for it.
 func listed(name any) []string {
-	if name == "zones" {
+	switch name {
+	case "zones":
 		return Zones()
+	case "countries":
+		Countries()
+		return countryCodes
 	}
 	return nil
 }
@@ -493,8 +540,11 @@ func (s *Schema) Describe() Description {
 			// country's.
 			if list := listed(node["x-aeolus-enum"]); list != nil {
 				f["enum"] = list
-				if node["x-aeolus-enum"] == "zones" {
+				switch node["x-aeolus-enum"] {
+				case "zones":
 					f["x-aeolus-zones"] = Places()
+				case "countries":
+					f["x-aeolus-countries"] = Countries()
 				}
 			}
 			f["x-aeolus-tree"] = tree

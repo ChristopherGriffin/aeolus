@@ -38,6 +38,7 @@ export function systemEditor(ctx, d, here, nodeName, fields, box) {
 	const country = rows.get('system.country')?.it.el;
 	const narrow = () => rows.get('system.tz')?.it.narrow?.(country?.value.trim().toUpperCase());
 	country?.addEventListener('input', narrow);
+	country?.addEventListener('change', narrow);
 	narrow();
 
 	const out = h('div', { class: 'edit flush' });

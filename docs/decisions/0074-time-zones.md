@@ -30,6 +30,7 @@
   - It offers UTC, then the country's zones in tzdata's order, each with tzdata's note. For the US that's 29, east to west: "Eastern (most areas) · New York", "Central (most areas) · Chicago", and so on.
   - A last choice shows them all.
   - A zone set outside the country shows as it is.
+  - **The country is a dropdown too** (Griff, 2026-10-05): tzdata's `iso3166.tab` (2026b, public domain), embedded as `internal/schema/iso3166.tab`, 249 countries by name, such as "United States (US)". `system.country` carries `x-aeolus-enum: countries`, so, as with zones, a newly set code must be in the list, and one set before stays as it was.
   - The countries come from tzdata's `zone.tab` (2026b, public domain), embedded beside the table as `internal/schema/zone.tab`. Every zone in it is in the table; UTC and the `Etc` zones have no country. It narrows only what the editor offers: the manager still takes any zone in the table.
 - **The agent looks the rule up in its own table,** and in LuCI's only if its own is missing. So every AP renders the same rule for a name, LuCI or not.
 - **The render check holds the AP to both:** `zonename` is the name, and `timezone` the table's rule, for a name in the table.
