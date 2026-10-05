@@ -143,6 +143,7 @@ package system
 
 config system
 	option zonename 'America/Chicago'
+	option timezone 'CST6CDT,M3.2.0,M11.1.0'
 	option log_ip '192.168.20.50'
 	option log_port '514'
 
@@ -224,6 +225,7 @@ func TestEachRuleCatchesItsMistake(t *testing.T) {
 		{"clamp", "config include 'aeolus_clamp'", "config include 'other'", "MTU 1450 needs the MSS clamp"},
 		{"no firewall", "package firewall", "package fire", "package firewall is missing"},
 		{"zonename", "option zonename 'America/Chicago'", "option zonename 'UTC'", "zonename is \"UTC\""},
+		{"timezone", "option timezone 'CST6CDT,M3.2.0,M11.1.0'", "option timezone 'GMT0'", "timezone is \"GMT0\""},
 		{"ntp", "\tlist server '0.pool.ntp.org'\n", "", "system.ntp: servers"},
 		{"syslog", "option log_port '514'", "option log_port '515'", "log_port is \"515\""},
 		{"no wireless", "package wireless", "package wifi", "package wireless is missing"},

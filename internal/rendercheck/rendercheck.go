@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/ChristopherGriffin/aeolus/internal/radio"
+	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/uci"
 )
 
@@ -1543,6 +1544,10 @@ func (k *checker) system(sys map[string]any) {
 	} else {
 		if tz, ok := sys["tz"].(string); ok {
 			k.option("system", s, "zonename", tz)
+			// The rule sets the clock: a name alone leaves it on UTC (0074).
+			if rule, ok := schema.ZoneRule(tz); ok {
+				k.option("system", s, "timezone", rule)
+			}
 		}
 		if syslog, ok := sys["syslog"].(string); ok {
 			host, port := splitHostPort(syslog)

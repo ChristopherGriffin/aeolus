@@ -277,11 +277,13 @@ function facts() {
 function posix_tz(zone) {
 	if (!zone)
 		return null;
-	for (let line in split(fs.readfile('/usr/share/ucode/luci/zoneinfo.uc') ?? '', '\n')) {
-		let m = match(line, /^[ \t]*'([^']+)': '([^']*)',?$/);
-		if (m && m[1] == zone)
-			return m[2];
-	}
+	// Aeolus's own table, which every AP has alike, else LuCI's (0074).
+	for (let path in ['/usr/share/ucode/aeolus/zones.uc', '/usr/share/ucode/luci/zoneinfo.uc'])
+		for (let line in split(fs.readfile(path) ?? '', '\n')) {
+			let m = match(line, /^[ \t]*'([^']+)': '([^']*)',?$/);
+			if (m && m[1] == zone)
+				return m[2];
+		}
 	return null;
 }
 

@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -35,6 +36,57 @@ import (
 //go:embed v1.json
 var v1JSON []byte
 
+// zonesUC is Aeolus's table of time zones (0074), which the agent ships too.
+//
+//go:embed zones.uc
+var zonesUC []byte
+
+// zoneLine is one zone in the table: its IANA name and its POSIX rule.
+var zoneLine = regexp.MustCompile(`^\t'([^']+)': '([^']*)',$`)
+
+var (
+	zonesOnce sync.Once
+	zoneNames []string
+	zoneRules map[string]string
+)
+
+func loadZones() {
+	zoneRules = map[string]string{}
+	for _, line := range strings.Split(string(zonesUC), "\n") {
+		if m := zoneLine.FindStringSubmatch(strings.TrimSuffix(line, "\r")); m != nil {
+			zoneNames = append(zoneNames, m[1])
+			zoneRules[m[1]] = m[2]
+		}
+	}
+}
+
+// Zones lists the time zones Aeolus offers (0074), as its table has them:
+// UTC first, then by name.
+func Zones() []string {
+	zonesOnce.Do(loadZones)
+	return zoneNames
+}
+
+// ZoneRule is a zone's POSIX TZ rule, which sets an AP's clock (0074).
+func ZoneRule(name string) (string, bool) {
+	zonesOnce.Do(loadZones)
+	r, ok := zoneRules[name]
+	return r, ok
+}
+
+// listed is the list of values a field the schema marks x-aeolus-enum
+// takes, kept once, where it is used: "zones" is the time zones (0074).
+//
+// A new value must be one of them. A document is not checked against the
+// list: a value set before the list was, such as the alias US/Eastern, stays
+// as it was, so an AP's config isn't held for it.
+func listed(name any) []string {
+	if name == "zones" {
+		return Zones()
+	}
+	return nil
+}
+
 var (
 	ErrUnknownField = errors.New("unknown field")
 	ErrNotAField    = errors.New("not a field; set the fields inside it")
@@ -42,6 +94,7 @@ var (
 	ErrWrongTree    = errors.New("field belongs to the other tree")
 	ErrPlainSecret  = errors.New("secret fields must be sealed before they are committed")
 	ErrNoKey        = errors.New("no secret key to seal this field with")
+	ErrNotListed    = errors.New("not one of the values Aeolus offers")
 )
 
 // FieldError is a problem with a field path or its value.
@@ -59,6 +112,7 @@ type Field struct {
 	Tree    change.TreeName
 	Secret  bool
 	pointer string
+	list    []string // the values it takes, where the schema marks x-aeolus-enum
 }
 
 // Schema is a compiled field list.
@@ -145,6 +199,7 @@ func (s *Schema) Field(p hierarchy.Path) (Field, error) {
 	}
 	f.Secret = node["writeOnly"] == true
 	f.pointer = ptr
+	f.list = listed(node["x-aeolus-enum"])
 	return f, nil
 }
 
@@ -164,6 +219,9 @@ func (s *Schema) checkLeaf(f Field, v any) error {
 	}
 	if err := sch.Validate(v); err != nil {
 		return &FieldError{Path: f.Path, Err: tidy(err)}
+	}
+	if s, ok := v.(string); ok && f.list != nil && !slices.Contains(f.list, s) {
+		return &FieldError{Path: f.Path, Err: fmt.Errorf("%w: %q", ErrNotListed, s)}
 	}
 	return nil
 }
@@ -387,6 +445,10 @@ func (s *Schema) Describe() Description {
 			// follow a $ref: tagged VLANs are integers.
 			if items, ok := node["items"].(map[string]any); ok {
 				f["items"], _ = s.deref(items, "")
+			}
+			// A listed field's values, for a dropdown (0074).
+			if list := listed(node["x-aeolus-enum"]); list != nil {
+				f["enum"] = list
 			}
 			f["x-aeolus-tree"] = tree
 			d.Fields[prefix] = f
