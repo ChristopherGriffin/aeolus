@@ -1,8 +1,8 @@
 # 0076. An AP's name is its hostname
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-05
-- Proposed by: Griff: change an AP's hostname from the APs tab. Written up by Claude
+- Proposed by: Griff: change an AP's hostname from the APs tab. Written up by Claude, and accepted with the merge
 - Refines: 0032, 0040, 0075
 
 ## Context
