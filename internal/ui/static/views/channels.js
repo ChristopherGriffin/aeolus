@@ -97,7 +97,8 @@ function bandMap(ctx, at, band, rows) {
 	let chosen = new Set(saved);
 	const box = h('div', { class: 'edit' });
 	const map = h('div', { class: 'chmap' });
-	const summary = h('span', { class: 'sub' });
+	// How many channels the set leaves the APs, beside the band's name.
+	const count = h('span', { class: 'chip' });
 	const save = h('button', { type: 'button', class: 'button small primary', disabled: true }, 'Save…');
 	const reset = h('button', { type: 'button', class: 'button small', disabled: true }, 'Undo');
 	const panel = h('section', { class: 'panel' });
@@ -166,10 +167,9 @@ function bandMap(ctx, at, band, rows) {
 		}));
 		requestAnimationFrame(joinBracket);
 		const usable = [...chosen].filter((c) => block(band, c, width)?.every((x) => chosen.has(x)) && !(avoid && radar(band, c)));
-		summary.textContent = usable.length
-			? `${usable.length} channel${usable.length === 1 ? '' : 's'} usable at ${width} MHz`
-			: `No whole ${width} MHz block picked: the APs would have nowhere to go.`;
-		summary.className = usable.length ? 'sub' : 'sub warn';
+		count.textContent = `${usable.length} Channel${usable.length === 1 ? '' : 's'} Available`;
+		count.className = usable.length ? 'chip ok' : 'chip bad';
+		count.title = usable.length ? '' : `No whole ${width} MHz block is picked: the APs would have nowhere to go.`;
 		save.disabled = save.disabled || !usable.length;
 	};
 	// joinBracket draws the DFS bracket as one where 52–64 and 100–144 sit on
@@ -203,7 +203,7 @@ function bandMap(ctx, at, band, rows) {
 	draw();
 
 	panel.append(
-		h('h2', null, bandName(band), h('span', { class: 'note' },
+		h('h2', null, h('span', { class: 'title' }, bandName(band), count), h('span', { class: 'note' },
 			`${width} MHz blocks${fromAPs ? ', the width most APs here report' : ''}${avoid ? ' · DFS avoided' : ''}`)),
 		h('div', { class: 'row' },
 			h('div', { class: 'label' }, 'Channels'),
@@ -213,8 +213,6 @@ function bandMap(ctx, at, band, rows) {
 				editable && field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
 				editable && reset, editable && save)),
 		map,
-		h('div', { class: 'chlegend' }, summary,
-			h('span', { class: 'sub' }, 'Each shade is one block. Hatched: shared with radar. A dot: an AP is on it now.')),
 		box);
 	return panel;
 }
