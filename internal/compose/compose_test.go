@@ -540,6 +540,50 @@ func TestChannelThatCannotCarryTheWidthIsAProblem(t *testing.T) {
 	}
 }
 
+// With DFS avoided, a channel or width that needs DFS channels is held, not
+// quietly ignored (0071).
+func TestAvoidingDFSRefusesWhatNeedsIt(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("radio.5g.dfs", "avoid")
+	set("radio.5g.width", 80)
+	set("radio.5g.channel", 48)
+	if p := problems(); strings.Contains(p, "dfs") {
+		t.Fatalf("48 at 80 MHz is outside DFS: %s", p)
+	}
+	set("radio.5g.channel", 108)
+	if p := problems(); !strings.Contains(p, "radio.5g.channel: channel 108 uses DFS channels, but radio.5g.dfs is avoid") {
+		t.Fatalf("108: %s", p)
+	}
+	set("radio.5g.channel", "auto")
+	if p := problems(); strings.Contains(p, "dfs") {
+		t.Fatalf("auto at 80 MHz: %s", p)
+	}
+	// Every 160 MHz block holds DFS channels; the width is the problem,
+	// not the channel within it.
+	set("radio.5g.width", 160)
+	set("radio.5g.channel", 36)
+	p := problems()
+	if !strings.Contains(p, "radio.5g.width: every 160 MHz channel uses DFS channels, but radio.5g.dfs is avoid") || strings.Contains(p, "radio.5g.channel: channel 36") {
+		t.Fatalf("160: %s", p)
+	}
+	set("radio.5g.dfs", "allow")
+	if p := problems(); strings.Contains(p, "dfs") {
+		t.Fatalf("allow: %s", p)
+	}
+}
+
 func contains(list []string, sub string) bool {
 	return strings.Contains(strings.Join(list, "\n"), sub)
 }

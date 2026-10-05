@@ -3,7 +3,7 @@
 // power and on/off, each with where it comes from. A width some AP's channel
 // cannot carry sets the channel to automatic in the same change, so each AP
 // picks one that fits (0045). A value set here can follow the folder above
-// again (0046).
+// again (0046). On 5 GHz, DFS channels can be avoided (0071).
 
 import { h } from '../dom.js';
 import { bandName, origin, ago, value } from '../format.js';
@@ -52,15 +52,52 @@ function card(at, band, b, now) {
 		OTHER.map(([k, label]) => {
 			const path = `radio.${band}.${k}`;
 			const field = page.fields?.[path];
-			return h('div', { class: 'row' },
+			return [h('div', { class: 'row' },
 				h('div', { class: 'label' }, label),
 				h('div', { class: 'value' }, field ? value(path, field.value) : h('span', { class: 'sealed' }, unset)),
 				field && origin('locations', node, field, (id) => ctx.name('locations', id)),
 				isAP && field?.origin === 'self' && h('span', { class: 'chip warn' }, 'custom'),
 				at.canEdit && field?.origin === 'self' && h('span', { class: 'controls' },
-					followButton(ctx, 'locations', node, at.nodeName, at.parentName, [path], box)));
+					followButton(ctx, 'locations', node, at.nodeName, at.parentName, [path], box))),
+			k === 'channel' && band === '5g' && dfsRow(at, now, box)];
 		}),
 		box);
+}
+
+// dfsRow is whether the 5 GHz radio may use the DFS channels, 52–144, which
+// it shares with radar (0071). Avoided, an automatic channel is picked
+// outside them; allowed, the default, it may be any.
+function dfsRow(at, now, box) {
+	const { ctx, node, nodeName, page, isAP, canEdit, parentName } = at;
+	const path = 'radio.5g.dfs';
+	const field = page.fields?.[path];
+	const lockedAbove = field?.origin === 'locked' && field.from !== node;
+	const next = field?.value === 'avoid' ? 'allow' : 'avoid';
+	return h('div', { class: 'row' },
+		h('div', { class: 'label' }, 'DFS channels'),
+		h('div', { class: 'value' }, field ? value(path, field.value) : h('span', { class: 'sealed' }, 'allowed (not set)')),
+		field && origin('locations', node, field, (id) => ctx.name('locations', id)),
+		isAP && field?.origin === 'self' && h('span', { class: 'chip warn' }, 'custom'),
+		canEdit && !lockedAbove && h('span', { class: 'controls' },
+			field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
+			h('button', { type: 'button', class: 'button small', onclick: () => dfsPreview(at, now, path, field, next, box) },
+				next === 'avoid' ? 'Avoid…' : 'Allow…')));
+}
+
+async function dfsPreview(at, now, path, field, choice, box) {
+	const { ctx, node, nodeName, isAP } = at;
+	const op = { kind: 'set', tree: 'locations', node, path, value: choice };
+	const p = await ask(box, op);
+	if (!p) return;
+	const was = field ? `${value(path, field.value)}${field.from !== node ? ` (from ${ctx.name('locations', field.from)})` : ''}` : 'allowed (not set)';
+	const clients = isAP && now ? `its ${now.clients} client${now.clients === 1 ? '' : 's'}` : 'clients on it';
+	confirm(ctx, box, op, p, [
+		h('div', null, h('strong', null, `DFS channels on ${nodeName}: `), was, ' → ', value(path, choice)),
+	], [
+		h('div', { class: 'sub warn' }, choice === 'avoid'
+			? `Applying restarts the 5 GHz radio where its channel is automatic, and it picks one outside 52–144; ${clients} drop for a few seconds and reconnect. A set channel stays as it is.`
+			: `Applying restarts the 5 GHz radio where its channel is automatic, and it may pick a DFS channel: it then listens for radar for about a minute before it transmits, and ${clients} wait that long to reconnect.`),
+	]);
 }
 
 function widthRow(at, b, now, box, unset) {

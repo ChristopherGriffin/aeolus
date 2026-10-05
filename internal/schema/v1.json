@@ -131,7 +131,8 @@
         "enabled": { "type": "boolean" },
         "channel": { "oneOf": [{ "const": "auto" }, { "enum": [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 169, 173, 177] }] },
         "width": { "enum": [20, 40, 80, 160], "description": "MHz." },
-        "power": { "$ref": "#/$defs/power" }
+        "power": { "$ref": "#/$defs/power" },
+        "dfs": { "enum": ["allow", "avoid"], "default": "allow", "description": "avoid keeps an automatic channel off the DFS channels, 52–144, which are shared with radar; a channel or width that needs them is refused (0071). allow (the default) lets the AP pick any." }
       }
     },
     "radio6g": {
