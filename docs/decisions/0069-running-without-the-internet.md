@@ -1,8 +1,8 @@
 # 0069. Running without the internet
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
-- Proposed by: Griff: Aeolus should work independent of the cloud. Pulling packages once at setup is fine, but nothing should need the internet continuously. And a "swarm": packages come to the manager once, then to the APs, rather than every AP fetching them from outside. Written up by Claude
+- Proposed by: Griff: Aeolus should work independent of the cloud. Pulling packages once at setup is fine, but nothing should need the internet continuously. And a "swarm": packages come to the manager once, then to the APs, rather than every AP fetching them from outside. Written up by Claude, and accepted with the merge
 - Refines: 0033, 0040
 
 ## Context
