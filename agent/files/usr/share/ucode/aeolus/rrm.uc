@@ -220,10 +220,30 @@ function covers(band, channel, width) {
 	return [channel];
 }
 
+// pick chooses a band's channel from its ratings ([{ channel, cost,
+// blotted_by }]): the best rated no neighbour uses; or, where neighbours
+// use them all, as they can 2.4 GHz's three, the one whose nearest user is
+// furthest away, by signal (close is { <ap>: dBm }, an AP not in it counted
+// as near). Of those alike, the best rated.
+function pick(rates, close) {
+	let best = null, key = null;
+	for (let r in rates ?? []) {
+		let near = -200;
+		for (let ap in r.blotted_by ?? [])
+			near = max(near, close?.[ap] ?? 0);
+		let k = [length(r.blotted_by ?? []) ? 1 : 0, near, r.cost];
+		if (!best || k[0] < key[0] || (k[0] == key[0] && (k[1] < key[1] || (k[1] == key[1] && k[2] < key[2])))) {
+			best = r;
+			key = k;
+		}
+	}
+	return best?.channel;
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
 	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW,
 	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits,
-	weight, cost, blend, covers
+	weight, cost, blend, covers, pick
 };

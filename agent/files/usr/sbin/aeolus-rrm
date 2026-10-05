@@ -308,7 +308,9 @@ function rate(r, sc, networks, at) {
 	} else {
 		let s = survey(r, sc.freq);
 		if (s?.time && s.busy != null) {
-			busy = s.busy / (1.0 * s.time);
+			// Less its own sending: on its own channel, at the first visit, the
+			// counts run from the radio's start. Elsewhere there is none.
+			busy = (s.busy - (s.time_tx ?? 0)) / (1.0 * s.time);
 			noise = s.noise;
 		}
 	}
@@ -533,8 +535,23 @@ function blotted(at) {
 	return out;
 }
 
+// close is, on a band, how near each neighbour is by signal: the stronger
+// of how this AP hears it and how its hellos say it hears this AP.
+function close(band) {
+	let out = {};
+	for (let ap, h in heard)
+		if (h.bands[band]?.signal != null)
+			out[ap] = h.bands[band].signal;
+	for (let ap, n in nbrs)
+		for (let x in (type(n.msg?.heard) == 'array' ? n.msg.heard : []))
+			if (x?.ap == cfg.ap && x.band == band && dbm(x.signal) != null)
+				out[ap] = max(out[ap] ?? -200, dbm(x.signal));
+	return out;
+}
+
 // ratings are the channels rated, as the agent reports them, with whether
-// one of this AP's radios is on each, and who blots it out.
+// one of this AP's radios is on each, who blots it out, and which is the
+// best on each band (rrm.pick).
 function ratings(at) {
 	let blot = blotted(at), list = [];
 	for (let k in keys(rates)) {
@@ -550,8 +567,14 @@ function ratings(at) {
 		push(list, {
 			band: rt.band, channel: rt.channel, cost: int(rt.cost + 0.5), now: int(rt.now + 0.5),
 			busy: int(rt.busy * 100 + 0.5), noise: dbm(rt.noise), networks: rt.networks, visits: rt.visits,
-			ago: int(at - rt.at), own: own, blotted_by: slice(uniq(sort(blot[k] ?? [])), 0, 8),
+			ago: int(at - rt.at), own: own, blotted_by: slice(uniq(sort(blot[k] ?? [])), 0, 8), best: false,
 		});
+	}
+	for (let band in uniq(map(list, x => x.band))) {
+		let these = filter(list, x => x.band == band);
+		let ch = rrm.pick(these, close(band));
+		for (let x in these)
+			x.best = x.channel == ch;
 	}
 	return slice(sort(list, (a, b) => a.band < b.band ? -1 : a.band > b.band ? 1 : a.channel - b.channel), 0, RATED);
 }

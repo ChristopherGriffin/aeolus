@@ -67,6 +67,7 @@ Radio resource management (RRM) runs on the APs, as a link-state protocol does o
 ### Choosing and moving
 
 - **When its radio starts,** the AP takes its best-rated channel that isn't blotted out. This replaces hostapd's ACS.
+- **Where neighbours use every channel,** as they easily can 2.4 GHz's three, the AP takes the one whose nearest user is furthest away by signal: the stronger of how each hears the other. Of those alike, the best rated (Griff, 2026-10-05).
 - **While it runs, it moves only for a clear gain.** The best channel must beat the current one by a margin, and keep doing so for a while. A small or brief difference doesn't move it, so it doesn't hop between channels.
   - **Such a planned move waits for off hours,** a window the policy sets.
 - **If interference suddenly appears on its channel,** for example the channel stays very busy for some seconds, it moves at once to its next best channel. The interference is disrupting clients already, so the move costs little more.
@@ -146,7 +147,7 @@ The second part (v0.41.0). Moves come next.
 - **Each visit rates the channel it visited,** as a cost, lower being better. It's built from three things:
   - **Busy:** the share of the visit others kept the channel busy, times 100.
     - Off the radio's channel, it's from the survey of the visit itself. Both lab drivers keep only the last visit's counts for a channel not in use: about 140 ms on ath10k and 170 ms on mt76.
-    - On its own channel, it's from the survey's running counts since the last visit, with the AP's own sending taken out where the driver says how much that was. mt76 does; ath10k doesn't, so the R7800's own channel counts its own traffic too.
+    - On its own channel, it's from the survey's running counts since the last visit, less the AP's own sending, which both drivers count on the channel in use (`time_tx`). At the first visit the counts run from the radio's start; they're taken less its own sending too (v0.42.0; before, the first visit wasn't).
   - **Noise:** 2 for each dB of noise floor above −95 dBm, where the driver says. A noise floor outside −127 to −20 dBm is taken as unknown: ath10k gives 0 for its own 5 GHz channel. Elsewhere ath10k reports −102 to −108, so on the R7800 noise hardly tells channels apart.
   - **Other networks:** each adds up to 10, fully at −55 dBm or stronger and nothing at −95. On 2.4 GHz a network up to three channels away counts too, 6 dB weaker for each channel between. Other Aeolus APs' adverts aren't counted, but their other networks are.
 - **Each channel keeps two ratings:**
@@ -154,7 +155,8 @@ The second part (v0.41.0). Moves come next.
   - its rating now, which each visit moves by half.
 - **A rating not refreshed for 30 minutes is dropped.**
 - **Blotted out:** a channel is blotted out by a neighbour using it, at its width, on a band where that neighbour is among the three this AP hears best, or its hellos say it hears this AP. Its channel and width are its hellos'.
-- **What the AP reports:** in its state report's `rrm.ratings` (docs/api.md). The manager shows them under **Interfaces › Radios › Ratings**: by AP and band, with the channel each radio is on, the best channel no neighbour uses, and who blots out the others.
+- **What the AP reports:** in its state report's `rrm.ratings` (docs/api.md). The manager shows them under **Interfaces › Radios › Ratings**: by AP and band, with the channel each radio is on, and who blots out the others.
+- **The best on each band** is the AP's own pick, reported as `best` (v0.42.0, `rrm.pick`): the best rated no neighbour uses; or, where neighbours use them all, the one whose nearest user is furthest away, as above. A neighbour heard at no known strength counts as near.
 - **A fix in v0.40.0:** ucode divides whole numbers to a whole number, so the check that holds a visit back while a radio's own channel is busy read 0 unless the channel was busy all the time. It now divides as decimals.
 
 ## Lab checks, 2026-10-05
@@ -189,7 +191,7 @@ The second part (v0.41.0). Moves come next.
 
 - **The hello and dead intervals.**
 - **The rating's weights and smoothing,** and the margin and time a move needs.
-- **The R7800's own channel looks busier than it is:** ath10k gives no count of the AP's own sending to take out. Moves must allow for that, for example by comparing an own channel's rating with others only over what both can measure.
+- **A channel busy with what the radio can't decode:** the R7800's own channel 157 was 36% busy over ten seconds, while it sent 1.3% and received nothing it could decode. That's energy from interference, or from traffic on overlapping channels, and it counts against the channel, rightly.
 - **The tie-break** for two APs claiming one channel.
 - **The default off-hours window.**
 - **Power management,** to be discussed later: transmit power that brings each AP's three neighbours to −70 dBm or better. Width stays Aeolus's setting.
