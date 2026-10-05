@@ -30,24 +30,13 @@ export function input(path, f, current) {
 		el = h('input', { type: 'checkbox', checked: current === true });
 		read = () => el.checked;
 	} else if (f['x-aeolus-enum'] === 'zones' && f.enum) {
-		// Time zones, as Linux lists them: by region, each by its city (0074).
-		const regions = new Map();
-		for (const z of f.enum) {
-			const i = z.indexOf('/');
-			const region = i < 0 ? '' : z.slice(0, i);
-			if (!regions.has(region)) regions.set(region, []);
-			regions.get(region).push(z);
-		}
-		const option = (z, label) => h('option', { value: z, selected: z === current }, label.replaceAll('_', ' '));
-		// A zone set before the list was, such as an alias, shows as it is.
-		const unlisted = typeof current === 'string' && !f.enum.includes(current);
-		el = h('select', null,
-			current === undefined && h('option', { value: '' }, '—'),
-			unlisted && h('option', { value: current, selected: true }, `${current} (not in the list)`),
-			[...regions].map(([region, zones]) => (region
-				? h('optgroup', { label: region }, zones.map((z) => option(z, z.slice(region.length + 1))))
-				: zones.map((z) => option(z, z)))));
-		read = () => (el.value === '' ? undefined : el.value);
+		el = h('select');
+		const zones = zoneSelect(el, f, current);
+		read = () => (el.value === '' || el.value === ALL ? undefined : el.value);
+		const it = { el, read, narrow: zones.narrow };
+		const initial = JSON.stringify(read());
+		it.changed = () => JSON.stringify(read()) !== initial;
+		return it;
 	} else if (f.enum) {
 		el = h('select', null,
 			current === undefined && h('option', { value: '' }, '—'),
@@ -105,6 +94,71 @@ export function input(path, f, current) {
 			} catch {
 				return true; // invalid now, so it was changed
 			}
+		},
+	};
+}
+
+// ALL is the zone dropdown's last choice when it offers one country's
+// zones: it offers them all instead.
+const ALL = '*';
+
+// zoneSelect fills select with time zones (0074), showing current. All of
+// them, by region as Linux lists them, each by its city; or, narrowed to a
+// country (narrow('US')), UTC and that country's, in tzselect's order and
+// with its notes ("Central (most areas) · Chicago"), and a last choice that
+// shows them all. A zone set outside the list, or the country, shows as it
+// is, so nothing changes unless the person changes it.
+function zoneSelect(select, f, current) {
+	const places = f['x-aeolus-zones'] || [];
+	const city = (z) => z.slice(z.indexOf('/') + 1).replaceAll('_', ' ');
+	const option = (z, label) => h('option', { value: z }, label);
+	let country = null;
+	const fill = () => {
+		const keep = select.value && select.value !== ALL ? select.value : current;
+		const mine = country ? places.filter((p) => p.country === country) : [];
+		let body;
+		if (mine.length) {
+			body = [option('UTC', 'UTC'), mine.map((p) => option(p.zone, p.note ? `${p.note} · ${city(p.zone)}` : city(p.zone))),
+				option(ALL, 'Show all zones…')];
+		} else {
+			const regions = new Map();
+			for (const z of f.enum) {
+				const i = z.indexOf('/');
+				const region = i < 0 ? '' : z.slice(0, i);
+				if (!regions.has(region)) regions.set(region, []);
+				regions.get(region).push(z);
+			}
+			body = [...regions].map(([region, list]) => (region
+				? h('optgroup', { label: region }, list.map((z) => option(z, city(z))))
+				: list.map((z) => option(z, z))));
+		}
+		const shown = new Set([...(mine.length ? ['UTC', ...mine.map((p) => p.zone)] : f.enum)]);
+		select.replaceChildren(...[
+			keep === undefined && option('', '—'),
+			typeof keep === 'string' && !shown.has(keep) &&
+				option(keep, f.enum.includes(keep) ? `${keep} (outside ${country})` : `${keep} (not in the list)`),
+			body,
+		].flat(Infinity).filter(Boolean));
+		select.value = keep ?? '';
+	};
+	let last = current;
+	select.addEventListener('change', () => {
+		if (select.value !== ALL) {
+			last = select.value || undefined;
+			return;
+		}
+		country = null;
+		select.value = '';
+		current = last;
+		fill();
+	});
+	fill();
+	return {
+		narrow(c) {
+			const next = /^[A-Z]{2}$/.test(c || '') ? c : null;
+			if (next === country) return;
+			country = next;
+			fill();
 		},
 	};
 }

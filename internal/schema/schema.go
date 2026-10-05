@@ -41,6 +41,48 @@ var v1JSON []byte
 //go:embed zones.uc
 var zonesUC []byte
 
+// zoneTab is tzdata's zone.tab (2026b): each zone's country, with a note
+// such as "Central (most areas)", as Linux's tzselect offers them (0074).
+//
+//go:embed zone.tab
+var zoneTab []byte
+
+// ZoneInfo is a zone's country, ISO 3166 alpha-2, and tzdata's note on it.
+type ZoneInfo struct {
+	Zone    string `json:"zone"`
+	Country string `json:"country"`
+	Note    string `json:"note,omitempty"`
+}
+
+var (
+	placesOnce sync.Once
+	places     []ZoneInfo
+)
+
+// Places lists the zones zone.tab gives a country, in its order: by
+// country, and within one, as tzselect lists them, east to west in the US.
+// UTC and the Etc zones have none.
+func Places() []ZoneInfo {
+	placesOnce.Do(func() {
+		for _, line := range strings.Split(string(zoneTab), "\n") {
+			line = strings.TrimSuffix(line, "\r")
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			f := strings.Split(line, "\t")
+			if len(f) < 3 {
+				continue
+			}
+			z := ZoneInfo{Zone: f[2], Country: f[0]}
+			if len(f) > 3 {
+				z.Note = f[3]
+			}
+			places = append(places, z)
+		}
+	})
+	return places
+}
+
 // zoneLine is one zone in the table: its IANA name and its POSIX rule.
 var zoneLine = regexp.MustCompile(`^\t'([^']+)': '([^']*)',$`)
 
@@ -446,9 +488,14 @@ func (s *Schema) Describe() Description {
 			if items, ok := node["items"].(map[string]any); ok {
 				f["items"], _ = s.deref(items, "")
 			}
-			// A listed field's values, for a dropdown (0074).
+			// A listed field's values, for a dropdown (0074), and for zones,
+			// each one's country and note, so the dropdown can offer only the
+			// country's.
 			if list := listed(node["x-aeolus-enum"]); list != nil {
 				f["enum"] = list
+				if node["x-aeolus-enum"] == "zones" {
+					f["x-aeolus-zones"] = Places()
+				}
 			}
 			f["x-aeolus-tree"] = tree
 			d.Fields[prefix] = f
