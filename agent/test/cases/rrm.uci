@@ -286,6 +286,9 @@ config watch 'aeolus_watch20'
 config rrm 'aeolus_rrm'
 	option enabled '1'
 	option ap 'ap-a0046021365e'
+	option moves '1'
+	option window '02:00-05:00'
+	option margin '20'
 
 package usteer
 

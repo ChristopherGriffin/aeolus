@@ -88,7 +88,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": false, "description": "On, the AP marks its beacons as an Aeolus AP's, listens on its channels for the others, and exchanges hellos with the three it hears most strongly on each band. Unset, it does none of this." }
+        "enabled": { "type": "boolean", "default": false, "description": "On, the AP marks its beacons as an Aeolus AP's, listens on its channels for the others, and exchanges hellos with the three it hears most strongly on each band. Unset, it does none of this." },
+        "moves": { "type": "boolean", "default": true, "description": "With RRM on, each AP moves a radio whose channel is automatic to its best channel: at once when the radio has just started or interference fills its channel, otherwise only in the window. Off, it only rates the channels." },
+        "window": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$", "default": "02:00-05:00", "description": "When planned moves may happen, in the AP's local time, such as 02:00-05:00 (the default). It may run past midnight; one that starts where it ends is the whole day." },
+        "margin": { "type": "integer", "minimum": 5, "maximum": 100, "default": 20, "description": "How much better, in rating points, a channel must rate than the radio's own for a move to it. 20 unless set." }
       }
     }
   },

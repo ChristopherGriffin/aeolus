@@ -747,12 +747,17 @@ function watches(cfg, intent, facts, keep) {
 }
 
 // rrm turns radio resource management on (0073): the agent's daemon then
-// advertises this AP in its beacons and keeps neighbours with the others.
-// Off, there is no section, and the daemon stays idle.
+// advertises this AP in its beacons, keeps neighbours with the others, and
+// moves its radios as the policy says, defaults written out. Off, there is
+// no section, and the daemon stays idle.
 function rrm(a, intent, facts, keep) {
-	if (intent.rrm?.enabled != true)
+	let r = intent.rrm;
+	if (r?.enabled != true)
 		return;
-	put(a, 'aeolus_rrm', 'rrm', { enabled: 1, ap: facts.ap || null });
+	put(a, 'aeolus_rrm', 'rrm', {
+		enabled: 1, ap: facts.ap || null, moves: r.moves == false ? 0 : 1,
+		window: r.window ?? '02:00-05:00', margin: r.margin ?? 20,
+	});
 	keep['aeolus_rrm'] = true;
 }
 

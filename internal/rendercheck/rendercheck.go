@@ -94,6 +94,9 @@ var Coverage = map[string]string{
 	"concentrators.*.underlay_vlan":  "",
 
 	"rrm.enabled": "",
+	"rrm.moves":   "",
+	"rrm.window":  "",
+	"rrm.margin":  "",
 }
 
 const layout = "depends on the device's port layout; checked with the agent in M5"
@@ -309,8 +312,9 @@ func (k *checker) dfs(where string, r device, v string) {
 }
 
 // rrm checks radio resource management (0073): on, the agent's package has
-// the daemon's section, which names the AP it advertises; otherwise there
-// is none, and the daemon stays idle.
+// the daemon's section, which names the AP it advertises and holds the
+// policy for moves, defaults written out; otherwise there is none, and the
+// daemon stays idle.
 func (k *checker) rrm(set map[string]any) {
 	const where = "aeolus.aeolus_rrm"
 	s := k.c.Package("aeolus").Named("aeolus_rrm")
@@ -328,6 +332,13 @@ func (k *checker) rrm(set map[string]any) {
 	if k.ap != "" {
 		k.option(where, s, "ap", k.ap)
 	}
+	moves := "1"
+	if set["moves"] == false {
+		moves = "0"
+	}
+	k.option(where, s, "moves", moves)
+	k.option(where, s, "window", cmp.Or(text(set["window"]), "02:00-05:00"))
+	k.option(where, s, "margin", cmp.Or(text(set["margin"]), "20"))
 }
 
 // bonding checks that a 5 GHz radio's channel can carry its width, whoever

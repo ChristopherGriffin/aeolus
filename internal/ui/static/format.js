@@ -16,6 +16,9 @@ const SYSTEM = {
 	'management.gateway': 'Gateway', 'management.dns': 'DNS',
 };
 
+// Radio resource management's fields (0073).
+const RRM = { enabled: 'Neighbours', moves: 'Moves', window: 'Window for planned moves', margin: 'Margin for a move' };
+
 const SNMP = {
 	'enabled': 'Answer SNMP', 'community': 'v2c community', 'v3.user': 'v3 user',
 	'v3.auth': 'v3 auth passphrase (SHA)', 'v3.privacy': 'v3 privacy passphrase (AES)',
@@ -56,6 +59,7 @@ export function group(path) {
 	if (p[0] === 'ports') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: PORT[p[2]] || p[2] };
 	if (p[0] === 'concentrators') return { key: 'concentrators.' + p[1], title: 'Tunnel ' + p[1], order: 4.5, label: TUNNEL[p[2]] || p[2] };
 	if (p[0] === 'services') return { key: 'services', title: 'Services', order: 5, label: 'Service folders' };
+	if (p[0] === 'rrm') return { key: 'rrm', title: 'Radio resource management', order: 6, label: RRM[p[1]] || p[1] };
 	if (p[0] === 'network') {
 		const f = p.slice(2).join('.');
 		let label = NETWORK[f];
@@ -78,6 +82,8 @@ export function value(path, v, names) {
 	if (last === 'channel' && v === 'auto') return path.includes('.2g.') ? 'automatic (1, 6, 11)' : 'automatic';
 	if (last === 'power' && typeof v === 'number') return v + ' dBm';
 	if (last === 'dfs') return v === 'avoid' ? 'avoided' : 'allowed';
+	if (path === 'rrm.window') return `${String(v).replace('-', '–')}, the AP's local time`;
+	if (path === 'rrm.margin') return `${v} rating points`;
 	if (last === 'poll' || last === 'holddown' || last === 'probe_interval') return v + ' s';
 	if (last.endsWith('_kbps')) return v === 0 ? 'no limit' : v + ' kbps';
 	if (last === 'type' && path.includes('.transport.')) return v === 'vxlan' ? 'VXLAN' : 'VLAN';

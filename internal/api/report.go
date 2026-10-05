@@ -208,13 +208,30 @@ type stateReport struct {
 
 // rrmState is what the AP's radio resource management found (0073): its
 // management address, where its neighbours reach it; the bands its beacons
-// say it is an Aeolus AP on; and the other Aeolus APs it hears in the air or
-// keeps neighbours with over the wire.
+// say it is an Aeolus AP on; the other Aeolus APs it hears in the air or
+// keeps neighbours with over the wire; how it rates each channel; and its
+// last moves.
 type rrmState struct {
 	Address    string         `json:"address"`
 	Advertised []string       `json:"advertised"`
 	Neighbours []rrmNeighbour `json:"neighbours"`
 	Ratings    []rrmRating    `json:"ratings"`
+	Moves      []rrmMove      `json:"moves"`
+}
+
+// rrmMove is one of the AP's moves (0073): a radio's band, the channel it
+// was on and the one it went for; why: start, shared, better or
+// interference; what came of it: announced (claimed in its hellos, not yet
+// made), moved, yielded (to AP's claim), withdrawn or failed; and when it
+// came to that, in Unix seconds.
+type rrmMove struct {
+	Band  string `json:"band"`
+	From  int    `json:"from"`
+	To    int    `json:"to"`
+	Why   string `json:"why"`
+	State string `json:"state"`
+	At    int64  `json:"at"`
+	AP    string `json:"ap,omitempty"`
 }
 
 // rrmRating is one channel as the AP rates it (0073), lower being better:
@@ -266,6 +283,8 @@ type rrmBand struct {
 var (
 	apIDRE    = regexp.MustCompile(`^ap-[0-9a-f]{12}$`)
 	rrmStates = map[string]bool{"up": true, "one-way": true, "heard": true, "down": true}
+	rrmWhys   = map[string]bool{"start": true, "shared": true, "better": true, "interference": true}
+	rrmEnds   = map[string]bool{"announced": true, "moved": true, "yielded": true, "withdrawn": true, "failed": true}
 	rrmWidths = map[int]bool{0: true, 20: true, 40: true, 80: true, 160: true, 320: true}
 )
 
@@ -287,6 +306,15 @@ func (r *rrmState) check() error {
 			if !apIDRE.MatchString(ap) {
 				return bad
 			}
+		}
+	}
+	if len(r.Moves) > 16 {
+		return bad
+	}
+	for _, m := range r.Moves {
+		if !bands[m.Band] || m.From < 0 || m.From > 233 || m.To < 1 || m.To > 233 || !rrmWhys[m.Why] || !rrmEnds[m.State] || m.At < 0 ||
+			(m.AP != "" && !apIDRE.MatchString(m.AP)) {
+			return badRequest("rrm: at most 16 moves, each a band, the channels from and to, why (start, shared, better or interference), what came of it (announced, moved, yielded, withdrawn or failed), when, and the AP it yielded to")
 		}
 	}
 	for _, b := range r.Advertised {

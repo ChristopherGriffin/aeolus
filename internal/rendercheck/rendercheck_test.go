@@ -1223,10 +1223,10 @@ config wifi-device 'b'
 // Radio resource management on puts the daemon's section in the agent's
 // package, naming the AP; off, there is none (0073).
 func TestRRM(t *testing.T) {
-	check := func(on bool, text string) string {
+	check := func(rrm string, text string) string {
 		t.Helper()
 		var doc map[string]any
-		if err := json.Unmarshal([]byte(fmt.Sprintf(`{"rrm": {"enabled": %v}}`, on)), &doc); err != nil {
+		if err := json.Unmarshal([]byte(`{"rrm": `+rrm+`}`), &doc); err != nil {
 			t.Fatal(err)
 		}
 		c, err := uci.Parse(text)
@@ -1235,21 +1235,35 @@ func TestRRM(t *testing.T) {
 		}
 		return strings.Join(CheckAP(doc, c, "ap-a0046021365e"), "\n")
 	}
-	section := "package aeolus\nconfig rrm 'aeolus_rrm'\n\toption enabled '1'\n\toption ap 'ap-a0046021365e'\n"
-	if got := check(true, section); strings.Contains(got, "aeolus_rrm") {
+	on, off := `{"enabled": true}`, `{"enabled": false}`
+	section := "package aeolus\nconfig rrm 'aeolus_rrm'\n\toption enabled '1'\n\toption ap 'ap-a0046021365e'\n" +
+		"\toption moves '1'\n\toption window '02:00-05:00'\n\toption margin '20'\n"
+	if got := check(on, section); strings.Contains(got, "aeolus_rrm") {
 		t.Errorf("on, with its section: %s", got)
 	}
-	if got := check(true, "package aeolus\n"); !strings.Contains(got, "aeolus.aeolus_rrm: radio resource management is on, but its section is missing") {
+	if got := check(on, "package aeolus\n"); !strings.Contains(got, "aeolus.aeolus_rrm: radio resource management is on, but its section is missing") {
 		t.Errorf("on, without: %s", got)
 	}
-	if got := check(true, strings.Replace(section, "a0046021365e", "2005b6018be0", 1)); !strings.Contains(got, `aeolus.aeolus_rrm: ap is "ap-2005b6018be0", want "ap-a0046021365e"`) {
+	if got := check(on, strings.Replace(section, "a0046021365e", "2005b6018be0", 1)); !strings.Contains(got, `aeolus.aeolus_rrm: ap is "ap-2005b6018be0", want "ap-a0046021365e"`) {
 		t.Errorf("another AP's: %s", got)
 	}
-	if got := check(false, section); !strings.Contains(got, "aeolus.aeolus_rrm: radio resource management is not on, but its section is there") {
+	if got := check(off, section); !strings.Contains(got, "aeolus.aeolus_rrm: radio resource management is not on, but its section is there") {
 		t.Errorf("off, with its section: %s", got)
 	}
-	if got := check(false, "package aeolus\n"); strings.Contains(got, "aeolus_rrm") {
+	if got := check(off, "package aeolus\n"); strings.Contains(got, "aeolus_rrm") {
 		t.Errorf("off, without: %s", got)
+	}
+	// The policy for moves, set: the section must hold it, not the defaults.
+	policy := `{"enabled": true, "moves": false, "window": "22:30-04:00", "margin": 35}`
+	got := check(policy, section)
+	for _, want := range []string{`moves is "1", want "0"`, `window is "02:00-05:00", want "22:30-04:00"`, `margin is "20", want "35"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the policy set, the defaults written: want %s, got %s", want, got)
+		}
+	}
+	set := strings.NewReplacer("moves '1'", "moves '0'", "02:00-05:00", "22:30-04:00", "margin '20'", "margin '35'").Replace(section)
+	if got := check(policy, set); strings.Contains(got, "aeolus_rrm") {
+		t.Errorf("the policy set, and written: %s", got)
 	}
 }
 

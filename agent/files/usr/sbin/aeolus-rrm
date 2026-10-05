@@ -21,6 +21,14 @@
 // channel keeps a lasting rating, which it earns over many visits, and one
 // for now. A channel a neighbour on that band uses is blotted out.
 //
+// It moves a radio whose channel is automatic to its best channel on the
+// band, where that is clearly better: at once when the radio has just
+// started, or interference suddenly fills its channel; otherwise only in
+// the policy's window. It claims the channel in its hellos first, and waits.
+// Where two neighbours claim at once, the one whose channel rates worse
+// moves first. The move is hostapd's channel switch announcement, which
+// clients that support it follow without reconnecting.
+//
 // Its settings are the agent's own UCI package, as the renderer made it,
 // and the key the agent keeps. What it finds goes to
 // /var/run/aeolus/rrm.json, which the agent reports. procd runs it beside
@@ -64,6 +72,17 @@ const SCAN_FLAG_AP = 4;     // NL80211_SCAN_FLAG_AP: scan on an AP's own interfa
 const LISTED = 64;          // other APs reported at most
 const RATED_FOR = 1800;     // seconds a channel's rating is kept without a visit
 const RATED = 64;           // channel ratings reported at most
+const HOLD = 30;            // seconds a move is claimed in hellos before it is made
+const STEADY = 600;         // seconds a planned move's reason must hold first
+const COOL = 900;           // seconds a radio stays put after it moved, or a move failed
+const START = 600;          // seconds after a radio starts in which it moves at once
+const SETTLE = 20;          // seconds after a neighbour's claim ends before this AP claims
+const WARM_UP = 60;         // seconds the daemon runs before it moves anything
+const HOT = 3;              // own-channel reads in a row, busier than rrm.SUDDEN, that are interference
+const ANNOUNCE = 10;        // beacons a channel switch is announced for
+const KEPT = 16;            // moves reported at most
+const WHYS = ['start', 'shared', 'better', 'interference'];
+const STATES = ['announced', 'moved', 'yielded', 'withdrawn', 'failed'];
 
 let bus = connect();
 openlog('aeolus-rrm', LOG_PID, LOG_DAEMON);
@@ -101,21 +120,32 @@ function dbm(v) {
 let cfg = { on: false };
 let address = null;   // the AP's management address, where its neighbours reach it
 let sock = null;
-let radios = {};      // radio -> { band, bss, channel, width, dfs, list, next, due, put_off, survey, scan }
+let radios = {};      // radio -> { band, bss, index, channel, width, mode, dfs, pinned, started, list, next, due, put_off, survey, scan, hot, claim, since }
 let adverts = {};     // the network carrying a radio's element -> { hex, index }
 let heard = {};       // AP -> { address, port, bands: { <band>: { signal, at } } }
 let nbrs = {};        // AP -> { address, port, last: { at, seq }, at, msg, state }
 let chosen = {};      // AP -> true, among the three heard most strongly on a band
 let picks = {};       // band -> the APs heard most strongly there
 let rates = {};       // '<band> <channel>' -> { band, channel, cost, now, busy, noise, networks, visits, at }
+let moves = [];       // this AP's last moves: { band, from, to, why, state, at, ap }
+let claimed = {};     // band -> when a neighbour's claim there was last seen
+let began = 0;        // when the daemon started
+let looked = false;   // whether it has looked at the radios since it started, or was turned on
 let seq = 0;
 
-// settings reads whether RRM is on, the AP it advertises, and the key.
+// settings reads whether RRM is on, the AP it advertises, the key, and the
+// policy for moves: whether to move, the window for planned moves, and the
+// margin a better channel must beat the radio's own by.
 function settings() {
 	let s = cursor(confdir).get_all('aeolus', 'aeolus_rrm');
 	let key = rrm.unhex(read(keyfile) ?? '');
 	let on = s?.['.type'] == 'rrm' && s.enabled == '1' && match(s.ap ?? '', /^ap-[0-9a-f]{12}$/) != null && key != null && length(key) >= 16;
-	return { on: on, ap: s?.ap, key: key };
+	let margin = int(s?.margin ?? rrm.MARGIN);
+	return {
+		on: on, ap: s?.ap, key: key, moves: s?.moves != '0',
+		window: rrm.window(s?.window ?? rrm.WINDOW) ?? rrm.window(rrm.WINDOW),
+		margin: margin >= 5 && margin <= 100 ? margin : rrm.MARGIN,
+	};
 }
 
 // management is the address of the interface that holds the default route,
@@ -133,8 +163,45 @@ function ifindex(name) {
 	return read(`/sys/class/net/${name}/ifindex`);
 }
 
+// uptime is how long the AP has been up, in seconds.
+function uptime() {
+	return int(split(read('/proc/uptime') ?? '0', ' ')[0]);
+}
+
+// calm forgets what a radio's channel was like: its survey's counts, and
+// whether it was busy with interference. They are another channel's once it
+// moves.
+function calm(r) {
+	r.survey = null;
+	r.hot = null;
+	r.hot_n = 0;
+	r.hot_sum = 0;
+}
+
+function record(m) {
+	push(moves, m);
+	if (length(moves) > KEPT)
+		moves = slice(moves, length(moves) - KEPT);
+}
+
+// end_claim ends a radio's claim: moved, yielded to a neighbour's claim
+// (ap's), withdrawn, or failed.
+function end_claim(r, how, ap) {
+	let m = r.claim.move;
+	m.state = how;
+	m.at = time();
+	if (ap)
+		m.ap = ap;
+	r.claim = null;
+	r.since = null;
+	log('%s: the move from channel %d to %d: %s%s', r.band, m.from, m.to, how, ap ? ' to ' + ap : '');
+}
+
 // look_radios finds the radios that are up, and on each, the network whose
-// beacons carry the element: Aeolus's own where it has one.
+// beacons carry the element: Aeolus's own where it has one. A radio counts
+// as started when that network's interface is made anew, or when it comes
+// up while the daemon runs; one the daemon finds up when it starts, only if
+// the AP booted within START.
 function look_radios(at) {
 	let seen = {};
 	for (let name, d in bus.call('network.wireless', 'status') ?? {}) {
@@ -146,23 +213,35 @@ function look_radios(at) {
 			continue;
 		let pick = filter(ifs, i => index(i.section ?? '', 'aeolus_') == 0)[0] ?? ifs[0];
 		let info = bus.call('iwinfo', 'info', { device: pick.ifname }) ?? {};
+		let idx = ifindex(pick.ifname);
+		let fresh = !radios[name];
 		let r = radios[name] ??= { next: 0, due: at + 2 + 5 * length(keys(radios)), put_off: 0 };
+		if (fresh)
+			r.started = looked || uptime() < START ? at : null;
+		else if (r.bss != pick.ifname || r.index != idx)
+			r.started = at;
+		r.index = idx;
 		let ch = info.channel ?? 0;
 		// The survey's running counts are another network's or another
 		// channel's once any of these change: they start again.
 		if (r.band != band || r.bss != pick.ifname || r.channel != ch)
-			r.survey = null;
+			calm(r);
 		r.band = band;
 		r.bss = pick.ifname;
 		r.channel = ch;
 		r.width = int(match(info.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
+		r.mode = info.htmode;
 		r.dfs = !(d.config?.acs_exclude_dfs in [true, '1']);
+		// A channel set for the radio is left alone.
+		let set = d.config?.channel;
+		r.pinned = !(set == null || set == 'auto' || set == '0' || set == 0);
 		r.list = rrm.visits(band, r.channel, r.dfs);
 		seen[name] = true;
 	}
 	for (let name in keys(radios))
 		if (!seen[name])
 			delete radios[name];
+	looked = true;
 }
 
 // advertise puts the element on each radio's chosen network, again whenever
@@ -218,6 +297,9 @@ function look(at) {
 	if (cfg.on != was)
 		log(cfg.on ? 'on, as %s' : 'off', cfg.ap);
 	if (!cfg.on) {
+		for (let name, r in radios)
+			if (r.claim)
+				end_claim(r, 'withdrawn');
 		advertise();
 		if (sock) {
 			sock.close();
@@ -230,6 +312,7 @@ function look(at) {
 		picks = {};
 		rates = {};
 		radios = {};   // and their survey counts, which would be stale when it is on again
+		looked = false;
 		return;
 	}
 	let a = management();
@@ -274,6 +357,12 @@ function visit(r, at) {
 	if (!length(r.list))
 		return;
 	let l = load(r);
+	// Interference: others kept its own channel busy, read after read.
+	if (l) {
+		r.hot_n = l.others > rrm.SUDDEN ? (r.hot_n ?? 0) + 1 : 0;
+		r.hot_sum = r.hot_n ? (r.hot_sum ?? 0) + l.others : 0;
+		r.hot = r.hot_n >= HOT ? r.hot_sum / r.hot_n : null;
+	}
 	let f = r.list[r.next % length(r.list)];
 	let own = rrm.freq(r.band, r.channel);
 	if (f != own && l && l.all > BUSY && r.put_off < PUT_OFF) {
@@ -421,7 +510,11 @@ function hellos(at) {
 				push(mine, { ap: ap, band: band, signal: dbm(s) });
 	let msg = {
 		v: 1, t: 'hello', ap: cfg.ap, at: time(), seq: ++seq,
-		radios: map(values(radios), r => ({ band: r.band, channel: r.channel, width: r.width })),
+		// A radio's claim: where it is about to move, and its own channel's
+		// rating, for the tie-break.
+		radios: map(values(radios), r => r.claim
+			? { band: r.band, channel: r.channel, width: r.width, to: r.claim.to, cost: r.claim.cost }
+			: { band: r.band, channel: r.channel, width: r.width }),
 		heard: slice(sort(mine, (a, b) => b.signal - a.signal), 0, 24),
 		sees: filter(keys(nbrs), ap => nbrs[ap].at != null && at - nbrs[ap].at <= rrm.DEAD),
 	};
@@ -507,31 +600,54 @@ function listing(ap, at) {
 	};
 }
 
-// blotted is, by '<band> <channel>', the neighbours using each channel: on
-// a band, those among the three this AP hears best there, and those whose
-// hellos say they hear it there. Their channels and widths are their
-// hellos'.
-function blotted(at) {
-	let near = {};
+// near is, on each band, the neighbours that count there: those among the
+// three this AP hears best there, and those whose hellos say they hear it
+// there.
+function near(at) {
+	let out = {};
 	for (let band, list in picks)
 		for (let ap in list)
-			(near[band] ??= {})[ap] = true;
+			(out[band] ??= {})[ap] = true;
 	for (let ap, n in nbrs)
 		if (state(n, at) in ['up', 'one-way'])
 			for (let x in (type(n.msg.heard) == 'array' ? n.msg.heard : []))
 				if (x?.ap == cfg.ap && x.band in ['2g', '5g', '6g'])
-					(near[x.band] ??= {})[ap] = true;
+					(out[x.band] ??= {})[ap] = true;
+	return out;
+}
+
+// blotted is, by '<band> <channel>', the neighbours that count on the band
+// using each channel, or claiming it for a move. Their channels, claims and
+// widths are their hellos'.
+function blotted(at) {
 	let out = {};
-	for (let band, aps in near)
+	for (let band, aps in near(at))
 		for (let ap in keys(aps)) {
 			let n = nbrs[ap];
 			if (!(state(n, at) in ['up', 'one-way']))
 				continue;
 			for (let x in (type(n.msg.radios) == 'array' ? n.msg.radios : []))
-				if (x?.band == band && type(x.channel) == 'int' && x.channel > 0 && x.channel <= 233)
-					for (let c in rrm.covers(band, x.channel, x.width))
-						push(out[band + ' ' + c] ??= [], ap);
+				if (x?.band == band)
+					for (let ch in [x.channel, x.to])
+						if (type(ch) == 'int' && ch > 0 && ch <= 233)
+							for (let c in rrm.covers(band, ch, x.width))
+								push(out[band + ' ' + c] ??= [], ap);
 		}
+	return out;
+}
+
+// claims are the moves the neighbours that count on a band have claimed
+// there: { ap, to, cost }.
+function claims(at, band) {
+	let out = [];
+	for (let ap in keys(near(at)[band] ?? {})) {
+		let n = nbrs[ap];
+		if (!(state(n, at) in ['up', 'one-way']))
+			continue;
+		for (let x in (type(n.msg.radios) == 'array' ? n.msg.radios : []))
+			if (x?.band == band && type(x.to) == 'int' && x.to > 0 && x.to <= 233)
+				push(out, { ap: ap, to: x.to, cost: type(x.cost) == 'int' ? x.cost : 0 });
+	}
 	return out;
 }
 
@@ -549,10 +665,17 @@ function close(band) {
 	return out;
 }
 
-// ratings are the channels rated, as the agent reports them, with whether
-// one of this AP's radios is on each, who blots it out, and which is the
-// best on each band (rrm.pick).
-function ratings(at) {
+// targets are the blocks a radio may move to, from its band's ratings: at
+// its width, and none shared with radar, as a move there would first have
+// to listen for radar, off the air.
+function targets(r, list) {
+	return filter(rrm.blocks(list, r.band, r.width), x => !length(filter(x.members, c => rrm.radar(r.band, c))));
+}
+
+// table is the channels rated, as the agent reports them, with whether one
+// of this AP's radios is on each, who blots it out, and which is the best on
+// each band: where its radio would move (rrm.best_of).
+function table(at) {
 	let blot = blotted(at), list = [];
 	for (let k in keys(rates)) {
 		let rt = rates[k];
@@ -570,13 +693,117 @@ function ratings(at) {
 			ago: int(at - rt.at), own: own, blotted_by: slice(uniq(sort(blot[k] ?? [])), 0, 8), best: false,
 		});
 	}
-	for (let band in uniq(map(list, x => x.band))) {
-		let these = filter(list, x => x.band == band);
-		let ch = rrm.pick(these, close(band));
+	for (let name, r in radios) {
+		let these = filter(list, x => x.band == r.band);
+		let b = rrm.best_of(targets(r, these), close(r.band));
 		for (let x in these)
-			x.best = x.channel == ch;
+			x.best = x.channel == b?.channel;
 	}
-	return slice(sort(list, (a, b) => a.band < b.band ? -1 : a.band > b.band ? 1 : a.channel - b.channel), 0, RATED);
+	return list;
+}
+
+// complete says whether every channel a radio visits has been rated: until
+// then it doesn't know where it could go.
+function complete(r) {
+	for (let f in r.list)
+		if (!rates[r.band + ' ' + channel(r.band, f)])
+			return false;
+	return true;
+}
+
+// cooling says whether a radio on band moved, or failed to, within COOL.
+function cooling(band) {
+	let wall = time();
+	for (let m in moves)
+		if (m.band == band && m.state in ['moved', 'failed'] && wall - m.at < COOL)
+			return true;
+	return false;
+}
+
+// claim announces a radio's move in its hellos.
+function claim(r, at, to, why, cost, start) {
+	let m = { band: r.band, from: r.channel, to: to, why: why, state: 'announced', at: time() };
+	record(m);
+	r.claim = { to: to, cost: int(cost + 0.5), start: start, since: at, move: m };
+	log('%s: claims channel %d, to move from %d (%s)', r.band, to, r.channel, why);
+}
+
+// switch_to moves a radio to channel to, by hostapd's channel switch
+// announcement on one of its networks, which moves them all.
+function switch_to(r, to) {
+	let args = rrm.switch_args(r.band, to, r.width, r.mode, ANNOUNCE);
+	let err = 'its width does not fit there';
+	if (args) {
+		bus.call(`hostapd.${r.bss}`, 'switch_chan', args);
+		err = bus.error();
+	}
+	if (err) {
+		note('%s: cannot move from channel %d to %d: %s', r.band, r.channel, to, err);
+		end_claim(r, 'failed');
+		return;
+	}
+	end_claim(r, 'moved');
+	r.channel = to;
+	r.list = rrm.visits(r.band, to, r.dfs);
+	calm(r);
+}
+
+// decide moves the radios that should (0073). A move is claimed in hellos
+// first, and made HOLD later, unless a neighbour's claim at the same time
+// goes first, or it is no longer worth it. Planned moves wait for their
+// reason to hold STEADY, and for the window.
+function decide(at, list) {
+	let lt = localtime(), windowed = rrm.in_window(cfg.window, lt.hour * 60 + lt.min);
+	for (let name, r in radios) {
+		let others = claims(at, r.band);
+		if (length(others))
+			claimed[r.band] = at;
+		if (!cfg.moves || r.pinned) {
+			if (r.claim)
+				end_claim(r, 'withdrawn');
+			r.since = null;
+			continue;
+		}
+		let cl = close(r.band), these = filter(list, x => x.band == r.band);
+		let cur = filter(rrm.blocks(these, r.band, r.width), x => index(x.members, r.channel) >= 0)[0];
+		let to = targets(r, these);
+		let c = r.claim;
+		if (c) {
+			// Two claims at once: the tie-break says which goes first.
+			for (let o in others)
+				if (!rrm.first({ ap: cfg.ap, cost: c.cost }, o)) {
+					end_claim(r, 'yielded', o.ap);
+					break;
+				}
+			if (!r.claim || at - c.since < HOLD)
+				continue;
+			let t = filter(to, x => x.channel == c.to)[0];
+			if (rrm.reason(cur, t, cl, cfg.margin, r.hot, c.start))
+				switch_to(r, c.to);
+			else
+				end_claim(r, 'withdrawn');
+			continue;
+		}
+		if (at - began < WARM_UP || !cur || !complete(r)) {
+			r.since = null;
+			continue;
+		}
+		let start = r.started != null && at - r.started < START;
+		let best = rrm.best_of(to, cl);
+		let why = rrm.reason(cur, best, cl, cfg.margin, r.hot, start);
+		if (!why) {
+			r.since = null;
+			continue;
+		}
+		r.since ??= at;
+		if (why in ['shared', 'better'] && !start && (at - r.since < STEADY || !windowed))
+			continue;
+		// One move at a time among neighbours: none while one of theirs is
+		// claimed, or just after.
+		if (cooling(r.band) || length(others) || at - (claimed[r.band] ?? -SETTLE) < SETTLE)
+			continue;
+		claim(r, at, best.channel, why, cur.cost, start);
+	}
 }
 
 function write(at) {
@@ -597,10 +824,46 @@ function write(at) {
 	for (let name, r in radios)
 		if (adverts[r.bss])
 			push(advertised, r.band);
+	let rated = sort(table(at), (a, b) => a.band < b.band ? -1 : a.band > b.band ? 1 : a.channel - b.channel);
 	store(out, sprintf('%J', {
 		at: time(), on: true, address: address ?? '', advertised: slice(uniq(sort(advertised)), 0, 3),
-		neighbours: slice(list, 0, LISTED), ratings: ratings(at),
+		neighbours: slice(list, 0, LISTED), ratings: slice(rated, 0, RATED), moves: moves,
 	}));
+}
+
+// restore reads back what the daemon's last run found, as when the agent
+// was updated: the ratings the channels earned, and the moves made, so a
+// radio that just moved stays put. A move it had claimed is withdrawn.
+function restore(at) {
+	let r = null;
+	try {
+		r = json(read(out) ?? 'null');
+	} catch (e) {
+	}
+	if (r?.on != true || type(r.at) != 'int')
+		return;
+	let wall = time();
+	for (let x in (type(r.ratings) == 'array' ? r.ratings : [])) {
+		if (!(x?.band in ['2g', '5g', '6g']) || type(x.channel) != 'int' || type(x.ago) != 'int' ||
+		    !(type(x.cost) in ['int', 'double']) || !(type(x.now) in ['int', 'double']))
+			continue;
+		let ago = wall - r.at + x.ago;
+		if (ago < 0 || ago > RATED_FOR)
+			continue;
+		rates[x.band + ' ' + x.channel] = {
+			band: x.band, channel: x.channel, cost: x.cost, now: x.now, busy: (x.busy ?? 0) / 100.0,
+			noise: x.noise, networks: x.networks ?? 0, visits: x.visits ?? 1, at: at - ago,
+		};
+	}
+	for (let m in (type(r.moves) == 'array' ? r.moves : []))
+		if (m?.band in ['2g', '5g', '6g'] && type(m.from) == 'int' && type(m.to) == 'int' && type(m.at) == 'int' &&
+		    m.why in WHYS && m.state in STATES) {
+			if (m.state == 'announced') {
+				m.state = 'withdrawn';
+				m.at = wall;
+			}
+			record(m);
+		}
 }
 
 // stop takes the element off the beacons, so no AP keeps taking this one
@@ -615,6 +878,8 @@ function main() {
 	signal('SIGTERM', stop);
 	signal('SIGINT', stop);
 	fs.mkdir('/var/run/aeolus');
+	began = now();
+	restore(began);
 	let next_look = 0, next_hello = 0, next_write = 0;
 	// The agent sends a SIGHUP when it has applied a config, so a change is
 	// taken up at once.
@@ -633,9 +898,11 @@ function main() {
 					visit(r, at);
 					r.due = at + VISIT_EVERY;
 				}
+			// A claim goes out in the hello that follows it.
 			if (at >= next_hello) {
-				hellos(at);
 				changes(at);
+				decide(at, table(at));
+				hellos(at);
 				next_hello = at + rrm.HELLO_EVERY;
 			}
 		}
