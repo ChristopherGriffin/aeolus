@@ -276,6 +276,8 @@ type wifiClient struct {
 	DHCP       string   `json:"dhcp"`
 	// What it said of itself in DHCP, and the 802.11 features its
 	// association showed (0067).
+	// The VLAN a per-user key put it in, if any (0070).
+	VLAN        *int   `json:"vlan"`
 	VendorClass string `json:"vendor_class"`
 	Params      string `json:"params"`
 	Gen         string `json:"gen"`
@@ -326,7 +328,8 @@ func (c wifiClient) check() error {
 		!rate(c.RxRate) || !rate(c.TxRate) || !inRange(c.RxMCS, 0, 31) || !inRange(c.TxMCS, 0, 31) || !inRange(c.RxNSS, 0, 16) || !inRange(c.TxNSS, 0, 16) ||
 		c.RxBytes < 0 || c.TxBytes < 0 || c.RxPackets < 0 || c.TxPackets < 0 || c.TxRetries < 0 || c.TxFailed < 0 || c.Connected < 0 || c.InactiveMS < 0 ||
 		(c.Address != "" && (ip == nil || ip.To4() == nil)) || len(c.Host) > 64 || !printable(c.Host) || !clientDHCP[c.DHCP] ||
-		len(c.VendorClass) > 64 || !printable(c.VendorClass) || !paramsRE.MatchString(c.Params) || !gens[c.Gen] {
+		len(c.VendorClass) > 64 || !printable(c.VendorClass) || !paramsRE.MatchString(c.Params) || !gens[c.Gen] ||
+		(c.VLAN != nil && (*c.VLAN < 1 || *c.VLAN > 4094)) {
 		return bad
 	}
 	return nil

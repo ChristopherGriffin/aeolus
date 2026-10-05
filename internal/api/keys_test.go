@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,35 @@ func TestKeysThroughTheAPI(t *testing.T) {
 		t.Fatal("the held request did not answer")
 	}
 
+	// Keys added one after another while a request is held reach the AP
+	// together, once they have settled.
+	_, _, got = f.apDo("GET", "/v1/ap/keys", token, nil, nil)
+	version, _ = got["version"].(string)
+	go func() {
+		code, _, b := f.apDo("GET", "/v1/ap/keys?wait=20", token, nil, map[string]string{"If-None-Match": `"` + version + `"`})
+		held <- answer{code, b}
+	}()
+	time.Sleep(1200 * time.Millisecond)
+	for i, name := range []string{"Unit 102", "Unit 103"} {
+		if code, b := f.key("office", "add-key", "", map[string]any{"name": name, "passphrase": fmt.Sprintf("unit-10%d-secret", i+2)}); code != 200 {
+			t.Fatalf("%s: %d %v", name, code, b)
+		}
+		time.Sleep(700 * time.Millisecond)
+	}
+	select {
+	case a := <-held:
+		if n := len(a.body["networks"].(map[string]any)["sweet"].(map[string]any)["keys"].([]any)); a.code != 200 || n != 3 {
+			t.Fatalf("after a burst: %d, %d keys: %v", a.code, n, a.body)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("the held request did not answer after a burst")
+	}
+	for _, k := range keysOf(t, f) {
+		if k != id {
+			f.key("office", "remove-key", k, nil)
+		}
+	}
+
 	// The AP's page says how many keys it should have, and the AP reports it.
 	_, cfg := f.do("GET", "/v1/aps/"+ap+"/config", "griff", nil)
 	if cfg["keys"].(map[string]any)["count"] != 1.0 {
@@ -123,4 +153,14 @@ func TestKeysThroughTheAPI(t *testing.T) {
 	if len(got["networks"].(map[string]any)) != 0 {
 		t.Fatalf("after remove: %v", got)
 	}
+}
+
+func keysOf(t *testing.T, f *fixture) []string {
+	t.Helper()
+	_, list := f.do("GET", "/v1/keys?folder=household&network=sweet", "office", nil)
+	var out []string
+	for _, k := range list["keys"].([]any) {
+		out = append(out, k.(map[string]any)["id"].(string))
+	}
+	return out
 }
