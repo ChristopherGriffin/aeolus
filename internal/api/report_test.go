@@ -212,6 +212,13 @@ func TestStateReports(t *testing.T) {
 		}},
 		// Its clock, as ntpd last said (0069).
 		"time": map[string]any{"synced": true, "stratum": 3, "offset": -0.0012, "ago": 40, "servers": []string{"rutm50.symtus.com", "10.0.1.253"}},
+		// Its radio neighbours (0073): one up on 2.4 GHz, heard both ways, and
+		// one only heard in the air.
+		"rrm": map[string]any{"address": "192.168.1.38", "advertised": []string{"2g", "5g"}, "neighbours": []any{
+			map[string]any{"ap": "ap-2005b6018be0", "address": "192.168.1.45", "state": "up", "chosen": true, "hello_ago": 4,
+				"bands": []any{map[string]any{"band": "2g", "signal": -73, "their_signal": -73, "channel": 11, "width": 20}}},
+			map[string]any{"ap": "ap-a0046021365f", "address": "", "state": "heard", "chosen": true, "hello_ago": nil,
+				"bands": []any{map[string]any{"band": "5g", "signal": -81, "their_signal": nil, "channel": nil, "width": nil}}}}},
 		// Every Wi-Fi client (0066): one on an Aeolus network, one on the AP's own.
 		"clients": []any{
 			map[string]any{"mac": "7e:2a:ea:9b:2b:8f", "network": "lab", "ssid": "Aeolus Lab", "band": "5g", "signal": -49, "signal_avg": -50,
@@ -285,6 +292,10 @@ func TestStateReports(t *testing.T) {
 		"client params": {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "params": "1;3;6"}}},
 		"time stratum":  {"version": 1, "time": map[string]any{"synced": true, "stratum": 17}},
 		"client vlan":   {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "vlan": 5000}}},
+		"rrm ap":        {"version": 1, "rrm": map[string]any{"neighbours": []any{map[string]any{"ap": "office", "state": "up"}}}},
+		"rrm state":     {"version": 1, "rrm": map[string]any{"neighbours": []any{map[string]any{"ap": "ap-2005b6018be0", "state": "friends"}}}},
+		"rrm signal":    {"version": 1, "rrm": map[string]any{"neighbours": []any{map[string]any{"ap": "ap-2005b6018be0", "state": "up", "bands": []any{map[string]any{"band": "2g", "signal": 12}}}}}},
+		"rrm address":   {"version": 1, "rrm": map[string]any{"address": "office.lan"}},
 		"time servers":  {"version": 1, "time": map[string]any{"servers": []string{"a\tb"}}},
 		"active":        {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
 		"network":       {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},

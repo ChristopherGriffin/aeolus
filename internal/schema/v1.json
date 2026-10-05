@@ -81,6 +81,15 @@
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/id" },
       "additionalProperties": { "$ref": "#/$defs/concentrator" }
+    },
+    "rrm": {
+      "x-aeolus-tree": "locations",
+      "description": "Radio resource management (0073): the APs find the other Aeolus APs they hear, and keep neighbours with them over the wire.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false, "description": "On, the AP marks its beacons as an Aeolus AP's, listens on its channels for the others, and exchanges hellos with the three it hears most strongly on each band. Unset, it does none of this." }
+      }
     }
   },
   "$defs": {

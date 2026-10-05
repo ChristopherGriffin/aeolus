@@ -28,6 +28,19 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	}
 }
 
+// A derived key is the same for the same label and key, and another for
+// another label or key (0073).
+func TestDerive(t *testing.T) {
+	b := box(t)
+	one, again, other := b.Derive("rrm"), b.Derive("rrm"), b.Derive("other")
+	if len(one) != 32 || string(one) != string(again) || string(one) == string(other) {
+		t.Fatalf("Derive: %x, %x, %x", one, again, other)
+	}
+	if string(box(t).Derive("rrm")) == string(one) {
+		t.Fatal("another box's key derives the same")
+	}
+}
+
 func TestSealedValueSurvivesJSON(t *testing.T) {
 	b := box(t)
 	sealed, err := b.Seal("p", "x1234567")

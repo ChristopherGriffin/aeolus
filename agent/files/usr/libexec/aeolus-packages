@@ -9,15 +9,17 @@
 #
 # The packages: usteer, for band steering (0050); snmpd-ssl, for SNMP (0052);
 # vxlan and kmod-nft-bridge, for VXLAN tunnels and their MSS clamp (0054);
-# ucode-mod-socket, for the prober (0059); and kmod-veth, for a network with
-# a fallback (0061). Without one, everything else works, and a setting that
-# needs it is refused until it is installed.
+# ucode-mod-socket, for the prober (0059); kmod-veth, for a network with a
+# fallback (0061); and ucode-mod-nl80211 and ucode-mod-digest, for radio
+# resource management (0073), which OpenWrt's image has already. Without
+# one, everything else works, and a setting that needs it is refused until
+# it is installed.
 #
 # install exits 3 when it installed vxlan: netifd loads its protocols only
 # when it starts, so the network must be restarted (0057). restore restarts
 # it itself, and the agent when it installed the prober's module.
 
-PACKAGES="usteer snmpd-ssl vxlan kmod-nft-bridge ucode-mod-socket kmod-veth"
+PACKAGES="usteer snmpd-ssl vxlan kmod-nft-bridge ucode-mod-socket kmod-veth ucode-mod-nl80211 ucode-mod-digest"
 LIST=/etc/aeolus/packages      # what was installed; kept over a sysupgrade
 DONE=/usr/lib/aeolus/packages  # not kept: present until the next sysupgrade
 UPSTREAM=https://downloads.openwrt.org/releases/
@@ -83,6 +85,7 @@ why() {
 	vxlan | kmod-nft-bridge) echo "VXLAN tunnels will be refused on this AP" ;;
 	ucode-mod-socket) echo "the tunnels go unprobed, and tunnel ports unguarded" ;;
 	kmod-veth) echo "a network with a VLAN transport and a fallback will be refused on this AP" ;;
+	ucode-mod-nl80211 | ucode-mod-digest) echo "radio resource management stays off on this AP" ;;
 	esac
 }
 
@@ -134,7 +137,7 @@ restore() {
 		/etc/init.d/network restart
 		;;
 	esac
-	case " $missing " in *" ucode-mod-socket "*) /etc/init.d/aeolus restart ;; esac
+	case " $missing " in *" ucode-mod-socket "* | *" ucode-mod-nl80211 "* | *" ucode-mod-digest "*) /etc/init.d/aeolus restart ;; esac
 	return 0
 }
 

@@ -1,0 +1,485 @@
+#!/usr/bin/ucode -S
+// aeolus-rrm: the Aeolus agent's radio resource management (0073), its
+// control plane: the AP's neighbours.
+//
+// Its beacons say it is an Aeolus AP and where to reach it: on each radio,
+// one of its networks, Aeolus's own where it has one, carries a vendor
+// element with its AP ID and its management address. It listens for the
+// others' on its channels, visiting one at a time, briefly, every few
+// seconds, and less while the radio is busy. On each band, the three APs it
+// hears most strongly become its neighbours.
+//
+// Neighbours exchange hellos over the wire, from management address to
+// management address, signed with the key the manager gives, so nothing
+// else on the LAN can pose as one. A hello says its radios, how strongly it
+// hears the APs it hears, and whose hellos it gets. An AP whose hellos come
+// is a neighbour too, though it isn't among the three this one hears best.
+// A neighbour is up when hellos go both ways, and down when its hellos stop.
+//
+// Its settings are the agent's own UCI package, as the renderer made it,
+// and the key the agent keeps. What it finds goes to
+// /var/run/aeolus/rrm.json, which the agent reports. procd runs it beside
+// the agent.
+//
+//	aeolus-rrm [-c <UCI directory>] [-o <results file>]
+
+'use strict';
+
+import * as fs from 'fs';
+import * as socket from 'socket';
+import { cursor } from 'uci';
+import { connect } from 'ubus';
+import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING } from 'log';
+import * as rrm from 'aeolus.rrm';
+
+let nl = require('nl80211');
+
+let confdir = null, out = '/var/run/aeolus/rrm.json';
+for (let i = 0; i < length(ARGV); i++) {
+	if (ARGV[i] == '-c')
+		confdir = ARGV[++i];
+	else if (ARGV[i] == '-o')
+		out = ARGV[++i];
+}
+
+const KEY = '/etc/aeolus/rrm.key';   // the key hellos are signed with, from the manager
+const LOOK_EVERY = 10;      // seconds between looks at the settings, the radios and the address
+const VISIT_EVERY = 15;     // seconds between a radio's visits to a channel
+const VISIT_WAIT = 2;       // seconds a visit is given before its results are read
+const BUSY = 0.6;           // a radio's own channel busier than this puts off a visit elsewhere
+const PUT_OFF = 4;          // visits put off in a row at most
+const HEARD_FOR = 1200;     // seconds an AP stays heard after it was last heard in the air
+const FORGET = 900;         // seconds after which a neighbour that went down is forgotten
+const WRITE_EVERY = 5;      // seconds between writes of the results
+const SCAN_FLAG_AP = 4;     // NL80211_SCAN_FLAG_AP: scan on an AP's own interface
+const LISTED = 64;          // other APs reported at most
+
+let bus = connect();
+openlog('aeolus-rrm', LOG_PID, LOG_DAEMON);
+
+function log(fmt, ...args) {
+	syslog(LOG_INFO, fmt, ...args);
+}
+
+function note(fmt, ...args) {
+	syslog(LOG_WARNING, fmt, ...args);
+}
+
+function read(path) {
+	let v = fs.readfile(path);
+	return v == null ? null : trim(v);
+}
+
+function store(path, data) {
+	let tmp = path + '.new';
+	if (fs.writefile(tmp, data) == null)
+		return false;
+	return fs.rename(tmp, path);
+}
+
+// now is monotonic time in seconds, to the microsecond.
+function now() {
+	let c = clock(true);
+	return c[0] + c[1] / 1e9;
+}
+
+function dbm(v) {
+	return type(v) in ['int', 'double'] && v >= -127 && v <= 0 ? int(v < 0 ? v - 0.5 : v) : null;
+}
+
+let cfg = { on: false };
+let address = null;   // the AP's management address, where its neighbours reach it
+let sock = null;
+let radios = {};      // radio -> { band, bss, channel, width, dfs, list, next, due, put_off, survey, scan }
+let adverts = {};     // the network carrying a radio's element -> { hex, index }
+let heard = {};       // AP -> { address, port, bands: { <band>: { signal, at } } }
+let nbrs = {};        // AP -> { address, port, last: { at, seq }, at, msg, state }
+let chosen = {};      // AP -> true, among the three heard most strongly on a band
+let seq = 0;
+
+// settings reads whether RRM is on, the AP it advertises, and the key.
+function settings() {
+	let s = cursor(confdir).get_all('aeolus', 'aeolus_rrm');
+	let key = rrm.unhex(read(KEY) ?? '');
+	let on = s?.['.type'] == 'rrm' && s.enabled == '1' && match(s.ap ?? '', /^ap-[0-9a-f]{12}$/) != null && key != null && length(key) >= 16;
+	return { on: on, ap: s?.ap, key: key };
+}
+
+// management is the address of the interface that holds the default route,
+// as the agent finds its management (0040).
+function management() {
+	for (let i in bus.call('network.interface', 'dump')?.interface ?? [])
+		if (!i.ip4table)
+			for (let r in i.route ?? [])
+				if (r.target == '0.0.0.0' && r.mask == 0)
+					return i['ipv4-address']?.[0]?.address;
+	return null;
+}
+
+function ifindex(name) {
+	return read(`/sys/class/net/${name}/ifindex`);
+}
+
+// look_radios finds the radios that are up, and on each, the network whose
+// beacons carry the element: Aeolus's own where it has one.
+function look_radios(at) {
+	let seen = {};
+	for (let name, d in bus.call('network.wireless', 'status') ?? {}) {
+		let band = d.config?.band;
+		if (!(band in ['2g', '5g', '6g']) || !d.up)
+			continue;
+		let ifs = filter(d.interfaces ?? [], i => i.ifname && i.config?.mode == 'ap');
+		if (!length(ifs))
+			continue;
+		let pick = filter(ifs, i => index(i.section ?? '', 'aeolus_') == 0)[0] ?? ifs[0];
+		let info = bus.call('iwinfo', 'info', { device: pick.ifname }) ?? {};
+		let r = radios[name] ??= { next: 0, due: at + 2 + 5 * length(keys(radios)), put_off: 0 };
+		r.band = band;
+		r.bss = pick.ifname;
+		r.channel = info.channel ?? 0;
+		r.width = int(match(info.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
+		r.dfs = !(d.config?.acs_exclude_dfs in [true, '1']);
+		r.list = rrm.visits(band, r.channel, r.dfs);
+		seen[name] = true;
+	}
+	for (let name in keys(radios))
+		if (!seen[name])
+			delete radios[name];
+}
+
+// advertise puts the element on each radio's chosen network, again whenever
+// that network's interface was made anew, and takes it off where it no
+// longer belongs.
+function advertise() {
+	let want = {};
+	if (cfg.on && address)
+		for (let name, r in radios) {
+			let hex = rrm.advert(cfg.ap, address, rrm.PORT);
+			if (hex)
+				want[r.bss] = hex;
+		}
+	for (let ifn, hex in want) {
+		let idx = ifindex(ifn);
+		if (adverts[ifn]?.hex == hex && adverts[ifn].index == idx)
+			continue;
+		bus.call(`hostapd.${ifn}`, 'set_vendor_elements', { vendor_elements: hex });
+		let err = bus.error();
+		if (err)
+			note('%s: its beacons cannot carry the element: %s', ifn, err);
+		else
+			adverts[ifn] = { hex: hex, index: idx };
+	}
+	for (let ifn in keys(adverts))
+		if (!want[ifn]) {
+			bus.call(`hostapd.${ifn}`, 'set_vendor_elements', { vendor_elements: '' });
+			delete adverts[ifn];
+		}
+}
+
+// listen opens the socket hellos come in on, at the management address.
+function listen() {
+	if (sock) {
+		sock.close();
+		sock = null;
+	}
+	if (!address)
+		return;
+	let s = socket.create(socket.AF_INET, socket.SOCK_DGRAM);
+	if (!s || !s.bind({ address: address, port: rrm.PORT })) {
+		note('cannot listen on %s:%d: %s', address, rrm.PORT, socket.error());
+		s?.close();
+		return;
+	}
+	sock = s;
+	log('listening for hellos on %s:%d', address, rrm.PORT);
+}
+
+function look(at) {
+	let was = cfg.on;
+	cfg = settings();
+	if (cfg.on != was)
+		log(cfg.on ? 'on, as %s' : 'off', cfg.ap);
+	if (!cfg.on) {
+		advertise();
+		if (sock) {
+			sock.close();
+			sock = null;
+		}
+		address = null;
+		heard = {};
+		nbrs = {};
+		chosen = {};
+		return;
+	}
+	let a = management();
+	if (a != address || !sock) {
+		address = a;
+		listen();
+	}
+	look_radios(at);
+	advertise();
+}
+
+// busy says whether a radio's own channel has been busier than BUSY since
+// it was last asked, by the radio's survey.
+function busy(r) {
+	let own = rrm.freq(r.band, r.channel), s = null;
+	for (let x in nl.request(nl.const.NL80211_CMD_GET_SURVEY, nl.const.NLM_F_DUMP, { dev: r.bss }) ?? [])
+		if (x.survey_info?.frequency == own)
+			s = x.survey_info;
+	let was = r.survey;
+	r.survey = s?.time ? { time: s.time, busy: s.busy ?? 0 } : null;
+	if (!was || !r.survey || r.survey.time <= was.time)
+		return false;
+	return (r.survey.busy - was.busy) / (r.survey.time - was.time) > BUSY;
+}
+
+// visit listens on a radio's next channel. Off its own, it goes only while
+// its channel isn't busy, or once it put that off PUT_OFF times. It asks with
+// a probe, but only listens on a radar channel.
+function visit(r, at) {
+	if (!length(r.list))
+		return;
+	let f = r.list[r.next % length(r.list)];
+	let own = rrm.freq(r.band, r.channel);
+	if (f != own && busy(r) && r.put_off < PUT_OFF) {
+		r.put_off++;
+		f = own;
+	} else {
+		r.next++;
+		r.put_off = 0;
+	}
+	let ask = { dev: r.bss, scan_frequencies: [ f ], scan_flags: SCAN_FLAG_AP };
+	if (!rrm.radar(f))
+		ask.scan_ssids = [ '' ];
+	nl.request(nl.const.NL80211_CMD_TRIGGER_SCAN, 0, ask);
+	if (nl.error())
+		return;   // a scan already running, or the radio restarting: the next visit tries again
+	r.scan = { freq: f, started: at };
+}
+
+// heard_on reads the adverts a visit heard.
+function heard_on(r, at) {
+	let sc = r.scan;
+	r.scan = null;
+	let within = (at - sc.started) * 1000 + 500;
+	for (let x in nl.request(nl.const.NL80211_CMD_GET_SCAN, nl.const.NLM_F_DUMP, { dev: r.bss }) ?? []) {
+		let b = x.bss;
+		if (b?.frequency != sc.freq || (b.seen_ms_ago ?? within + 1) > within)
+			continue;
+		for (let e in b.information_elements ?? b.beacon_ies ?? []) {
+			let a = e.type == 221 ? rrm.read_advert(e.data) : null;
+			if (!a || a.ap == cfg.ap)
+				continue;
+			let h = heard[a.ap] ??= { bands: {} };
+			h.address = a.address;
+			h.port = a.port;
+			let hb = h.bands[rrm.band_of(b.frequency)] ??= {};
+			hb.signal = rrm.smooth(hb.signal, b.signal_mbm / 100);
+			hb.at = at;
+			break;
+		}
+	}
+}
+
+// signals are how strongly each AP is heard now, by band.
+function signals(at) {
+	let out = {};
+	for (let ap, h in heard)
+		for (let band, hb in h.bands)
+			if (at - hb.at <= HEARD_FOR)
+				(out[ap] ??= {})[band] = hb.signal;
+	return out;
+}
+
+// state is a neighbour's: up when hellos go both ways, one-way when its
+// come but don't list this AP, down when they stopped, and heard when it is
+// only heard in the air.
+function state(n, at) {
+	if (n?.at == null)
+		return 'heard';
+	if (at - n.at > rrm.DEAD)
+		return 'down';
+	return index(n.msg?.sees ?? [], cfg.ap) >= 0 ? 'up' : 'one-way';
+}
+
+// hellos sends this round's hello to each neighbour: the three heard most
+// strongly on each band, and those whose hellos come.
+function hellos(at) {
+	let sig = signals(at);
+	chosen = {};
+	for (let band, list in rrm.choose(sig, rrm.NEIGHBOURS))
+		for (let ap in list)
+			chosen[ap] = true;
+	let to = {};
+	for (let ap in keys(chosen))
+		to[ap] = true;
+	for (let ap, n in nbrs)
+		if (n.at != null && at - n.at <= rrm.DEAD)
+			to[ap] = true;
+	if (!sock || !length(keys(to)))
+		return;
+	let mine = [];
+	for (let ap, bands in sig)
+		for (let band, s in bands)
+			if (dbm(s) != null)
+				push(mine, { ap: ap, band: band, signal: dbm(s) });
+	let msg = {
+		v: 1, t: 'hello', ap: cfg.ap, at: time(), seq: ++seq,
+		radios: map(values(radios), r => ({ band: r.band, channel: r.channel, width: r.width })),
+		heard: slice(sort(mine, (a, b) => b.signal - a.signal), 0, 24),
+		sees: filter(keys(nbrs), ap => nbrs[ap].at != null && at - nbrs[ap].at <= rrm.DEAD),
+	};
+	let pkt = rrm.seal(cfg.key, msg);
+	for (let ap in keys(to)) {
+		let where = heard[ap] ?? nbrs[ap];
+		if (where?.address)
+			sock.send(pkt, 0, { address: where.address, port: where.port ?? rrm.PORT });
+	}
+}
+
+// receive reads the hellos waiting: signed with the key, from another AP,
+// and newer than its last.
+function receive(at) {
+	let from = {}, pkt;
+	while ((pkt = sock.recv(2048, socket.MSG_DONTWAIT, from)) != null) {
+		let m = rrm.open(cfg.key, pkt);
+		if (!m || m.t != 'hello' || m.ap == cfg.ap)
+			continue;
+		let n = nbrs[m.ap] ??= {};
+		if (!rrm.fresh(n.last, m, time()))
+			continue;
+		n.last = { at: m.at, seq: m.seq };
+		n.address = from.address;
+		n.port = from.port;
+		n.at = at;
+		n.msg = m;
+		from = {};
+	}
+}
+
+// changes logs neighbours coming up and going down, and forgets those down
+// long enough.
+function changes(at) {
+	for (let ap, n in nbrs) {
+		let s = state(n, at);
+		if (s != n.state) {
+			if (s == 'up' || n.state == 'up')
+				log('neighbour %s at %s: %s, was %s', ap, n.address, s, n.state ?? 'new');
+			n.state = s;
+		}
+		if (s == 'down' && at - n.at > FORGET)
+			delete nbrs[ap];
+	}
+}
+
+// listing is what the agent reports of another AP: on each band, how
+// strongly each hears the other, and its channel and width, as its hellos
+// say. What a neighbour says is checked, so a bad one can't spoil the
+// report.
+function listing(ap, at) {
+	let h = heard[ap], n = nbrs[ap], m = n?.msg;
+	let bands = {};
+	let band = (b) => bands[b] ??= { band: b, signal: null, their_signal: null, channel: null, width: null };
+	for (let b, hb in h?.bands ?? {})
+		if (at - hb.at <= HEARD_FOR)
+			band(b).signal = dbm(hb.signal);
+	if (state(n, at) in ['up', 'one-way']) {
+		for (let x in (type(m.heard) == 'array' ? m.heard : []))
+			if (x?.ap == cfg.ap && x.band in ['2g', '5g', '6g'])
+				band(x.band).their_signal = dbm(x.signal);
+		for (let x in (type(m.radios) == 'array' ? m.radios : []))
+			if (x?.band in ['2g', '5g', '6g']) {
+				band(x.band).channel = type(x.channel) == 'int' && x.channel >= 0 && x.channel <= 233 ? x.channel : null;
+				band(x.band).width = x.width in [20, 40, 80, 160, 320] ? x.width : null;
+			}
+	}
+	return {
+		ap: ap, address: h?.address ?? n?.address ?? '', state: state(n, at), chosen: !!chosen[ap],
+		hello_ago: n?.at != null ? int(at - n.at) : null,
+		bands: slice(sort(values(bands), (a, b) => a.band < b.band ? -1 : 1), 0, 3),
+	};
+}
+
+function write(at) {
+	if (!cfg.on) {
+		store(out, sprintf('%J', { at: time(), on: false }));
+		return;
+	}
+	let aps = {};
+	for (let ap, h in heard)
+		for (let b, hb in h.bands)
+			if (at - hb.at <= HEARD_FOR)
+				aps[ap] = true;
+	for (let ap in keys(nbrs))
+		aps[ap] = true;
+	let list = map(keys(aps), ap => listing(ap, at));
+	list = sort(list, (a, b) => (b.chosen - a.chosen) || (a.ap < b.ap ? -1 : 1));
+	let advertised = [];
+	for (let name, r in radios)
+		if (adverts[r.bss])
+			push(advertised, r.band);
+	store(out, sprintf('%J', {
+		at: time(), on: true, address: address ?? '', advertised: slice(uniq(sort(advertised)), 0, 3),
+		neighbours: slice(list, 0, LISTED),
+	}));
+}
+
+// stop takes the element off the beacons, so no AP keeps taking this one
+// for a neighbour after it stops.
+function stop() {
+	cfg = { on: false };
+	advertise();
+	exit(0);
+}
+
+function main() {
+	signal('SIGTERM', stop);
+	signal('SIGINT', stop);
+	fs.mkdir('/var/run/aeolus');
+	let next_look = 0, next_hello = 0, next_write = 0;
+	// The agent sends a SIGHUP when it has applied a config, so a change is
+	// taken up at once.
+	signal('SIGHUP', () => { next_look = 0; });
+	while (true) {
+		let at = now();
+		if (at >= next_look) {
+			look(at);
+			next_look = at + LOOK_EVERY;
+		}
+		if (cfg.on) {
+			for (let name, r in radios)
+				if (r.scan && at >= r.scan.started + VISIT_WAIT)
+					heard_on(r, at);
+				else if (!r.scan && at >= r.due) {
+					visit(r, at);
+					r.due = at + VISIT_EVERY;
+				}
+			if (at >= next_hello) {
+				hellos(at);
+				changes(at);
+				next_hello = at + rrm.HELLO_EVERY;
+			}
+		}
+		if (at >= next_write) {
+			write(at);
+			next_write = at + WRITE_EVERY;
+		}
+		let due = min(next_look, next_write);
+		if (cfg.on) {
+			due = min(due, next_hello);
+			for (let name, r in radios)
+				due = min(due, r.scan ? r.scan.started + VISIT_WAIT : r.due);
+		}
+		let wait = max(10, min(1000, int((due - now()) * 1000)));
+		if (!sock) {
+			sleep(wait);
+			continue;
+		}
+		for (let x in socket.poll(wait, [sock, socket.POLLIN]) ?? [])
+			if (x[1] & (socket.POLLIN | socket.POLLERR))
+				receive(now());
+	}
+}
+
+main();

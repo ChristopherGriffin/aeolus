@@ -746,6 +746,16 @@ function watches(cfg, intent, facts, keep) {
 	}
 }
 
+// rrm turns radio resource management on (0073): the agent's daemon then
+// advertises this AP in its beacons and keeps neighbours with the others.
+// Off, there is no section, and the daemon stays idle.
+function rrm(a, intent, facts, keep) {
+	if (intent.rrm?.enabled != true)
+		return;
+	put(a, 'aeolus_rrm', 'rrm', { enabled: 1, ap: facts.ap || null });
+	keep['aeolus_rrm'] = true;
+}
+
 // host_port splits "host", "host:port", "[v6]" or "[v6]:port".
 function host_port(s) {
 	let m = match(s, /^\[([^\]]+)\](:([0-9]+))?$/);
@@ -978,6 +988,7 @@ function render(intent, current, facts) {
 				delete pkg[k];
 	probes(cfg, intent, facts ?? {}, keep);
 	watches(cfg, intent, facts ?? {}, keep);
+	rrm(cfg.aeolus, intent, facts ?? {}, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
 			delete cfg.aeolus[k];

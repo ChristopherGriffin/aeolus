@@ -10,7 +10,9 @@ package secret
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -29,7 +31,10 @@ var (
 )
 
 // Box seals and opens values with one key.
-type Box struct{ aead cipher.AEAD }
+type Box struct {
+	aead cipher.AEAD
+	key  []byte
+}
 
 // New returns a Box for a 32-byte key.
 func New(key []byte) (*Box, error) {
@@ -44,7 +49,17 @@ func New(key []byte) (*Box, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Box{aead: aead}, nil
+	return &Box{aead: aead, key: append([]byte(nil), key...)}, nil
+}
+
+// Derive returns a key for another use, made from the box's own and a
+// label, so the box's key itself never leaves it. The same label always
+// gives the same key, and another label another: for example the key the
+// APs sign their hellos to each other with (0073).
+func (b *Box) Derive(label string) []byte {
+	m := hmac.New(sha256.New, b.key)
+	m.Write([]byte("aeolus derive\x00" + label))
+	return m.Sum(nil)
 }
 
 // LoadOrCreate reads the key file at path, creating it with a fresh random
