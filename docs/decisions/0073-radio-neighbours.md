@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-10-05
-- Proposed by: Griff: each AP still picks its own channel, but with reliable scanning and collision avoidance. APs that hear each other become neighbours and talk over the wire. Each rates every channel after each scan and keeps the ratings like a link-state protocol's link costs. Better channels become more likely to be chosen over time. A neighbour's channel is blotted out, and sudden interference moves an AP to its next best channel. Written up by Claude
+- Proposed by: Griff: each AP still picks its own channel, but with reliable scanning and collision avoidance. APs that hear each other become neighbours and talk over the wire. Each rates every channel after each scan and keeps the ratings like a link-state protocol's link costs. Better channels become more likely to be chosen over time. A neighbour's channel is blotted out, and sudden interference moves an AP to its next best channel. Three neighbours each, ideally at −70 dBm or better. A client that can't follow a move is accepted, with planned moves in off hours. Written up by Claude
 - Refines: 0045, 0050, 0071
 
 ## Context
@@ -29,7 +29,8 @@ Radio resource management (RRM) runs on the APs, as a link-state protocol does o
 - **An AP finds the other Aeolus APs it hears.**
   - Each Aeolus AP's beacons carry a small vendor-specific element, through hostapd's `vendor_elements`: its AP ID and its management address.
   - An AP that hears such a beacon knows it as an Aeolus AP and knows how to reach it over the wire, without asking the manager.
-- **The closest by RF become its neighbours,** on each band separately: the strongest heard, above a threshold, up to a limit.
+- **The closest by RF become its neighbours:** the three strongest heard, on each band separately, however strong they are.
+  - The aim is for each of the three to be heard at −70 dBm or better, which makes for seamless roaming. Power management, a later decision, will help get there.
   - Two APs can be neighbours on 2.4 GHz and not on 5 GHz, as the lab's are.
 - **Neighbours keep in touch over the wire,** from management address to management address, as routers exchange hellos.
   - They exchange hellos at an interval. A neighbour silent for a dead interval is dropped.
@@ -67,12 +68,14 @@ Radio resource management (RRM) runs on the APs, as a link-state protocol does o
 
 - **When its radio starts,** the AP takes its best-rated channel that isn't blotted out. This replaces hostapd's ACS.
 - **While it runs, it moves only for a clear gain.** The best channel must beat the current one by a margin, and keep doing so for a while. A small or brief difference doesn't move it, so it doesn't hop between channels.
-- **If interference suddenly appears on its channel,** for example the channel stays very busy for some seconds, it moves at once to its next best channel.
+  - **Such a planned move waits for off hours,** a window the policy sets.
+- **If interference suddenly appears on its channel,** for example the channel stays very busy for some seconds, it moves at once to its next best channel. The interference is disrupting clients already, so the move costs little more.
 - **Collision avoidance:**
   - Before moving, the AP tells its neighbours where it's going, and waits a short hold time.
   - If a neighbour claims the same channel in that time, one of them, by a fixed tie-break, picks again.
   - A channel a neighbour has claimed is blotted out like one it uses.
-- **A move announces itself to clients first,** with hostapd's channel switch announcement, so clients that support it follow without disconnecting. The rest reconnect. It doesn't restart the radio.
+- **A move announces itself to clients first,** with hostapd's channel switch announcement, so clients that support it follow without disconnecting. It doesn't restart the radio.
+  - A client that can't follow has to find the AP again. That's accepted: planned moves happen in off hours, and sudden ones happen when interference is already disrupting clients.
 
 ### The manager: policy and view
 
@@ -80,7 +83,8 @@ Radio resource management (RRM) runs on the APs, as a link-state protocol does o
   - channels and widths (0044, 0045);
   - DFS allowed or avoided (0071);
   - whether RRM is on;
-  - its thresholds and margins.
+  - the off-hours window for planned moves;
+  - its margins.
 
   An AP or folder can still pin a channel, which RRM then leaves alone.
 - **What it shows,** from the state reports:
@@ -92,7 +96,7 @@ Radio resource management (RRM) runs on the APs, as a link-state protocol does o
 ## Consequences
 
 - **APs that hear each other spread out on their own,** and keep doing so as things change, not only at a restart.
-- **Moves cost clients little:** a channel switch announcement where the client supports it, a reconnect where it doesn't.
+- **Moves cost clients little:** a channel switch announcement where the client supports it, a reconnect where it doesn't, and planned moves only in off hours.
 - **Off-channel listening costs a little airtime,** spread thin, and is held back while clients are busy.
 - **A new piece runs on every AP,** with a port open on the management address to its neighbours.
 - **What usteer does stays as it is.** Whether RRM later feeds usteer, or takes over its sharing, is open.
@@ -104,15 +108,16 @@ Before building, on both lab APs (OfficeOpenWrt, mt76; OpenWrtnight, ath10k):
 - **Vendor elements:** an AP's beacon element with its ID and address, read back from the other's scan.
 - **Off-channel visits:** how long each driver is away for one channel, and what a busy client and an idle IoT device see.
 - **Survey counters:** busy time and noise per channel, read repeatedly, and how often mt76 lacks the noise floor.
-- **Channel switch announcement:** `ubus call hostapd.<bss> switch_chan` on both drivers. Which clients follow, and which drop: a phone, a laptop, and the Espressif and Nest devices.
+- **Channel switch announcement:** `ubus call hostapd.<bss> switch_chan` on both drivers. Which clients follow, and which have to find the AP again: a phone, a laptop, and the Espressif and Nest devices. This is to know, not a gate: clients that can't follow are accepted.
 - **The wire:** UDP between the APs' management addresses, through their firewalls.
 
 ## Open
 
-- **The neighbour threshold and limit,** and the hello and dead intervals.
+- **The hello and dead intervals.**
 - **The rating's weights and smoothing,** and the margin and time a move needs.
 - **The tie-break** for two APs claiming one channel.
-- **Whether RRM chooses width and power too.** For now, width stays Aeolus's setting. Transmit power control is the natural next part of RRM.
+- **The default off-hours window.**
+- **Power management,** to be discussed later: transmit power that brings each AP's three neighbours to −70 dBm or better. Width stays Aeolus's setting.
 
 ## Until then
 
