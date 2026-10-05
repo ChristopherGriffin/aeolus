@@ -181,7 +181,7 @@ The third part (v0.43.0).
   - **interference:** for three visits in a row (about 45 seconds), others kept the radio's own channel more than half busy, and the target rates better than that by the margin;
   - **start:** within ten minutes of the radio starting, while its clients reconnect anyway, another channel ranks above its own, by any margin.
 - **When:**
-  - Shared and better are planned moves: their reason must hold for ten minutes, and they wait for the window.
+  - Shared and better are planned moves: their reason must hold for ten minutes, for the same target, and they wait for the window. Another target, or another reason, starts the ten minutes again (v0.43.1).
   - Interference moves at once, as do moves within ten minutes of the radio starting. A radio counts as started when its network interface is made anew, when it comes up while the daemon runs, or when the daemon starts within ten minutes of the AP booting. Turning RRM on doesn't count.
   - Before any move, every channel the radio visits must have been rated, and the daemon must have run for a minute, so it knows its neighbours' channels.
   - After a move, or a switch that failed, the radio stays put for 15 minutes.

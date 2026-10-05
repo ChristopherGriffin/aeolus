@@ -120,7 +120,7 @@ function dbm(v) {
 let cfg = { on: false };
 let address = null;   // the AP's management address, where its neighbours reach it
 let sock = null;
-let radios = {};      // radio -> { band, bss, index, channel, width, mode, dfs, pinned, started, list, next, due, put_off, survey, scan, hot, claim, since }
+let radios = {};      // radio -> { band, bss, index, channel, width, mode, dfs, pinned, started, list, next, due, put_off, survey, scan, hot, claim, plan }
 let adverts = {};     // the network carrying a radio's element -> { hex, index }
 let heard = {};       // AP -> { address, port, bands: { <band>: { signal, at } } }
 let nbrs = {};        // AP -> { address, port, last: { at, seq }, at, msg, state }
@@ -193,7 +193,7 @@ function end_claim(r, how, ap) {
 	if (ap)
 		m.ap = ap;
 	r.claim = null;
-	r.since = null;
+	r.plan = null;
 	log('%s: the move from channel %d to %d: %s%s', r.band, m.from, m.to, how, ap ? ' to ' + ap : '');
 }
 
@@ -761,7 +761,7 @@ function decide(at, list) {
 		if (!cfg.moves || r.pinned) {
 			if (r.claim)
 				end_claim(r, 'withdrawn');
-			r.since = null;
+			r.plan = null;
 			continue;
 		}
 		let cl = close(r.band), these = filter(list, x => x.band == r.band);
@@ -785,18 +785,22 @@ function decide(at, list) {
 			continue;
 		}
 		if (at - began < WARM_UP || !cur || !complete(r)) {
-			r.since = null;
+			r.plan = null;
 			continue;
 		}
 		let start = r.started != null && at - r.started < START;
 		let best = rrm.best_of(to, cl);
 		let why = rrm.reason(cur, best, cl, cfg.margin, r.hot, start);
 		if (!why) {
-			r.since = null;
+			r.plan = null;
 			continue;
 		}
-		r.since ??= at;
-		if (why in ['shared', 'better'] && !start && (at - r.since < STEADY || !windowed))
+		// The wait is for this move: another target, or another reason,
+		// starts it again.
+		let plan = why + ' ' + best.channel;
+		if (r.plan?.move != plan)
+			r.plan = { move: plan, since: at };
+		if (why in ['shared', 'better'] && !start && (at - r.plan.since < STEADY || !windowed))
 			continue;
 		// One move at a time among neighbours: none while one of theirs is
 		// claimed, or just after.
