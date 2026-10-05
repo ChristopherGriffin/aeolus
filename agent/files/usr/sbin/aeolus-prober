@@ -855,6 +855,21 @@ function dhcp_scan(at) {
 			if (id)
 				nets[id] = true;
 		}
+	// A per-user key's client is on its VLAN's own Wi-Fi interface, which
+	// hostapd makes as <bss>-k<vlan> (0070): its stations are read there, and
+	// what it says of itself in DHCP too. The DHCP watch's findings stay
+	// with the network's own segment.
+	let names = fs.lsdir('/sys/class/net') ?? [];
+	for (let a in slice(all)) {
+		let prefix = a.ifname + '-k';
+		for (let name in names) {
+			let vlan = substr(name, 0, length(prefix)) == prefix ? int(substr(name, length(prefix))) : 0;
+			if (vlan > 0 && vlan < 4095 && name == prefix + vlan) {
+				push(all, { ifname: name, ssid: a.ssid, band: a.band, network: a.network, vlan: vlan, parent: a.ifname });
+				want[name] = null;
+			}
+		}
+	}
 	for (let ifn in keys(dw.ifaces))
 		if (!(ifn in want) || want[ifn] != dw.ifaces[ifn].network || ifindex(ifn) != dw.ifaces[ifn].index) {
 			close(dw.ifaces[ifn].sock);
@@ -887,15 +902,17 @@ function dhcp_scan(at) {
 	for (let id, n in dw.nets)
 		for (let mac, c in n.clients)
 			c.here = false;
+	let hcs = {};
 	for (let a in all) {
-		let w = dw.ifaces[a.ifname], n = a.network ? dhcp_net(a.network) : null;
-		let hc = bus.call('hostapd.' + a.ifname, 'get_clients')?.clients ?? {};
+		let w = dw.ifaces[a.ifname], n = a.network && !a.vlan ? dhcp_net(a.network) : null;
+		let bss = a.parent ?? a.ifname;
+		let hc = hcs[bss] ??= bus.call('hostapd.' + bss, 'get_clients')?.clients ?? {};
 		for (let st in nl80211.request(nl80211.const.NL80211_CMD_GET_STATION, nl80211.const.NLM_F_DUMP, { dev: a.ifname }) ?? []) {
 			let mac = lc(st.mac ?? ''), s = st.sta_info ?? {};
 			if (!mac || s.connected_time == null)
 				continue;
 			here[mac] = true;
-			push(dw.clients, { mac: mac, ssid: a.ssid, band: a.band, network: a.network, sta: s, features: features(hc[mac]) });
+			push(dw.clients, { mac: mac, ssid: a.ssid, band: a.band, network: a.network, vlan: a.vlan, sta: s, features: features(hc[mac]) });
 			if (!n || !w)
 				continue;
 			let joined = at - s.connected_time, c = n.clients[mac];
@@ -1042,8 +1059,9 @@ function dhcp_results(at) {
 // and its average, rates each way in Mbit/s with MCS and streams, data and
 // packets each way, retries and failures, seconds connected, milliseconds
 // since last heard; the address it uses, the host name, vendor class and
-// fingerprint it gave in DHCP, and its 802.11 features (0067); and on
-// Aeolus's networks how it does with DHCP (0065). At most 256.
+// fingerprint it gave in DHCP, and its 802.11 features (0067); the VLAN a
+// per-user key put it in, if any (0070); and on Aeolus's networks how it
+// does with DHCP (0065). At most 256.
 function clients_report(at) {
 	let mbit = (b) => (b?.bitrate32 ?? b?.bitrate) != null ? (b.bitrate32 ?? b.bitrate) / 10.0 : null;
 	let mcs = (b) => b?.mcs ?? b?.vht_mcs ?? b?.he_mcs ?? b?.eht_mcs;
@@ -1052,7 +1070,7 @@ function clients_report(at) {
 	for (let c in dw.clients) {
 		let s = c.sta, n = c.network ? dw.nets[c.network] : null, d = n?.clients[c.mac], id = dw.ident[c.mac], x = c.features;
 		push(out, {
-			mac: c.mac, network: c.network, ssid: c.ssid, band: c.band,
+			mac: c.mac, network: c.network, ssid: c.ssid, band: c.band, vlan: c.vlan,
 			signal: s.signal, signal_avg: s.signal_avg,
 			rx_rate: mbit(s.rx_bitrate), rx_mcs: mcs(s.rx_bitrate), rx_nss: nss(s.rx_bitrate),
 			tx_rate: mbit(s.tx_bitrate), tx_mcs: mcs(s.tx_bitrate), tx_nss: nss(s.tx_bitrate),

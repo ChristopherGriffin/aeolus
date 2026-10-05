@@ -115,6 +115,17 @@ function clockTrouble(cfg, base) {
 		h('div', null, says, ' Set its time servers under ', link(`${base}/system`, 'System'), ", or have the site's DHCP give one."));
 }
 
+// keysLine says whether the AP has the per-user keys it should (0070), from
+// the version it last reported.
+function keysLine(cfg) {
+	const want = cfg.keys;
+	const have = cfg.condition?.state?.report?.keys;
+	if (!want || (!want.count && !have)) return null;
+	const current = have?.version === want.version;
+	return [' · ', h('span', { class: current ? null : 'warn', title: current ? 'its keys are the latest' : 'its key agent has not yet reported the latest keys' },
+		`${want.count} per-user ${want.count === 1 ? 'key' : 'keys'}${current ? '' : ', not yet on the AP'}`)];
+}
+
 function statusPanel(st, cfg, cond) {
 	return h('section', { class: 'panel' },
 		h('div', { class: 'status' },
@@ -124,7 +135,8 @@ function statusPanel(st, cfg, cond) {
 				h('div', { class: 'detail' },
 					cond.seen ? `Last seen ${ago(cond.seen.at)} from ${cond.seen.source}` : 'Never seen',
 					' · its version is ', String(cfg.version),
-					cond.seen?.running != null && ` · running ${cond.seen.running}`))));
+					cond.seen?.running != null && ` · running ${cond.seen.running}`,
+					keysLine(cfg)))));
 }
 
 function latest(cond) {

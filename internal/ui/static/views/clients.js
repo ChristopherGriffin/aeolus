@@ -87,7 +87,7 @@ function table(all, folder, draw) {
 		shown.map((c) => h('tr', null,
 			h('td', null, c.host || h('span', { class: 'mono' }, c.mac), c.host && h('div', { class: 'sub mono' }, c.mac), who(c)),
 			folder && h('td', null, link(`/aps/${encodeURIComponent(c.ap.id)}`, c.ap.name)),
-			h('td', null, c.ssid || '—'),
+			h('td', null, c.ssid || '—', c.vlan && h('div', { class: 'sub', title: 'a per-user key put it in this VLAN' }, `VLAN ${c.vlan}`)),
 			h('td', null, bandName(c.band) || '—', c.signal != null && h('div', { class: 'sub' }, `${c.signal} dBm`)),
 			h('td', null, rate(c)),
 			h('td', null, features(c)),

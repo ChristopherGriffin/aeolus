@@ -125,6 +125,10 @@ func Authorize(s *State, actor string, op Op) error {
 			return err
 		}
 		return need(access.Admin, Services, root)
+	case AddKey, SetKey, RemoveKey:
+		// A network's keys are its folder's operators' (0070): a leasing
+		// office, say.
+		return need(access.Operator, Services, op.Node)
 	case SetConcentrator, RemoveConcentrator, SetVNI, RemoveVNI:
 		// The library serves every network (0037).
 		return need(access.Admin, Services, s.Org.Services.Root())

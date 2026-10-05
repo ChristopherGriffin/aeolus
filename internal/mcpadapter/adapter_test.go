@@ -126,7 +126,7 @@ func TestToolsActAsTheCaller(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := "get_ap_config get_ap_history get_library get_node get_relayed_dhcp list_changes list_detected list_tree make_change preview_change whoami"
+	want := "get_ap_config get_ap_history get_library get_node get_relayed_dhcp list_changes list_detected list_keys list_tree make_change preview_change whoami"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("tools = %v", names)
 	}

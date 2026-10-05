@@ -200,6 +200,22 @@ type stateReport struct {
 	Clients []wifiClient `json:"clients,omitempty"`
 	// Its clock (0069).
 	Time *timeState `json:"time,omitempty"`
+	// The per-user keys it has (0070): their version, and how many.
+	Keys *keysState `json:"keys,omitempty"`
+}
+
+type keysState struct {
+	Version string `json:"version"`
+	Count   int    `json:"count"`
+}
+
+var keysVersionRE = regexp.MustCompile(`^[0-9a-f]{0,64}$`)
+
+func (k *keysState) check() error {
+	if k != nil && (!keysVersionRE.MatchString(k.Version) || k.Count < 0 || k.Count > 1<<20) {
+		return badRequest("keys: version is hex, count 0 or more")
+	}
+	return nil
 }
 
 // timeState is whether the AP's clock is synchronized, as ntpd last said
@@ -260,6 +276,8 @@ type wifiClient struct {
 	DHCP       string   `json:"dhcp"`
 	// What it said of itself in DHCP, and the 802.11 features its
 	// association showed (0067).
+	// The VLAN a per-user key put it in, if any (0070).
+	VLAN        *int   `json:"vlan"`
 	VendorClass string `json:"vendor_class"`
 	Params      string `json:"params"`
 	Gen         string `json:"gen"`
@@ -310,7 +328,8 @@ func (c wifiClient) check() error {
 		!rate(c.RxRate) || !rate(c.TxRate) || !inRange(c.RxMCS, 0, 31) || !inRange(c.TxMCS, 0, 31) || !inRange(c.RxNSS, 0, 16) || !inRange(c.TxNSS, 0, 16) ||
 		c.RxBytes < 0 || c.TxBytes < 0 || c.RxPackets < 0 || c.TxPackets < 0 || c.TxRetries < 0 || c.TxFailed < 0 || c.Connected < 0 || c.InactiveMS < 0 ||
 		(c.Address != "" && (ip == nil || ip.To4() == nil)) || len(c.Host) > 64 || !printable(c.Host) || !clientDHCP[c.DHCP] ||
-		len(c.VendorClass) > 64 || !printable(c.VendorClass) || !paramsRE.MatchString(c.Params) || !gens[c.Gen] {
+		len(c.VendorClass) > 64 || !printable(c.VendorClass) || !paramsRE.MatchString(c.Params) || !gens[c.Gen] ||
+		(c.VLAN != nil && (*c.VLAN < 1 || *c.VLAN > 4094)) {
 		return bad
 	}
 	return nil
@@ -757,6 +776,9 @@ func (st *stateReport) check() error {
 		return badRequest("version and uptime cannot be negative")
 	}
 	if err := st.Time.check(); err != nil {
+		return err
+	}
+	if err := st.Keys.check(); err != nil {
 		return err
 	}
 	if err := plainText("openwrt", st.OpenWrt, maxText); err != nil {

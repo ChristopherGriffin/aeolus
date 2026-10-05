@@ -97,13 +97,13 @@ func (c client) call(ctx context.Context, method, path string, body any) (any, e
 
 // Op is a change, as the model writes it.
 type Op struct {
-	Kind     string         `json:"kind" jsonschema:"one of: add-folder, add-ap, remove-ap, move, set, unset, lock, unlock, break-hierarchy, assign-services, add-account, grant, revoke, revoke-token, set-concentrator, remove-concentrator, set-vni, remove-vni"`
+	Kind     string         `json:"kind" jsonschema:"one of: add-folder, add-ap, remove-ap, move, set, unset, lock, unlock, break-hierarchy, assign-services, add-account, grant, revoke, revoke-token, set-concentrator, remove-concentrator, set-vni, remove-vni, add-key, set-key, remove-key"`
 	Tree     string         `json:"tree,omitempty" jsonschema:"locations or services"`
 	Node     string         `json:"node,omitempty" jsonschema:"the folder or AP the change targets; for add-folder and add-ap, the new node's ID"`
 	Parent   string         `json:"parent,omitempty" jsonschema:"parent folder, for add-folder, add-ap and move"`
 	Name     string         `json:"name,omitempty" jsonschema:"display name, for add-folder, add-ap and add-account"`
 	Path     string         `json:"path,omitempty" jsonschema:"field path, e.g. radio.5g.width or network.sweet.transport.primary.vlan"`
-	Value    any            `json:"value,omitempty" jsonschema:"the field's new value, for set; for set-concentrator the definition {name, address, port, mtu, scope}"`
+	Value    any            `json:"value,omitempty" jsonschema:"the field's new value, for set; for set-concentrator the definition {name, address, port, mtu, scope}; for add-key and set-key the key {name, passphrase, vlan, macs, expires}, its passphrase in plain text, which the manager seals (set-key may leave it out to keep it)"`
 	Values   map[string]any `json:"values,omitempty" jsonschema:"several fields of one node to set together, for set, in place of path and value: {path: value}; all or none are set"`
 	Paths    []string       `json:"paths,omitempty" jsonschema:"several fields of one node to unset together, for unset, in place of path; all or none are unset"`
 	Services []string       `json:"services,omitempty" jsonschema:"service folder IDs, for assign-services on a Locations node"`
@@ -113,6 +113,14 @@ type Op struct {
 
 	Concentrator string `json:"concentrator,omitempty" jsonschema:"library concentrator ID, for the concentrator and VNI kinds"`
 	VNI          int    `json:"vni,omitempty" jsonschema:"VNI number, for set-vni and remove-vni (its label goes in name)"`
+
+	Network string `json:"network,omitempty" jsonschema:"for the key kinds: the network, as the Services folder in node offers it"`
+	Key     string `json:"key,omitempty" jsonschema:"for the key kinds: the key's ID; add-key makes one if it is left out"`
+}
+
+type keysIn struct {
+	Folder  string `json:"folder" jsonschema:"the Services folder that offers the network"`
+	Network string `json:"network" jsonschema:"the network's ID"`
 }
 
 type treeIn struct {
@@ -186,6 +194,12 @@ func server(c client, version string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_detected", Description: "Devices that may be unconfigured OpenWiFi APs (0034, 0068): possible when a relayed DHCP request asks for options 138 and 224, confirmed when the device knocked on the manager's option 224 listener; and the knocks no device could be matched to by address.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, any, error) {
 			out, err := c.call(ctx, "GET", "/v1/detected", nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "list_keys", Description: "A network's per-user keys (0070): each its own passphrase on a shared WPA2-PSK network, and the VLAN its client lands in. Lists each key's ID, name, VLAN, the MACs it is bound to and its expiry; passphrases are sealed and never shown. Keys are made, changed and removed with make_change (add-key, set-key, remove-key), and re-version no AP.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in keysIn) (*mcp.CallToolResult, any, error) {
+			q := url.Values{"folder": {in.Folder}, "network": {in.Network}}
+			out, err := c.call(ctx, "GET", "/v1/keys?"+q.Encode(), nil)
 			return nil, out, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list_changes", Description: "Read the change log: who changed what, when and why.", Annotations: readOnly},

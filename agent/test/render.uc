@@ -7,7 +7,7 @@
 'use strict';
 
 import * as fs from 'fs';
-import { render, clamp, PACKAGES } from 'aeolus.render';
+import { render, clamp, PACKAGES, without_keys } from 'aeolus.render';
 import { text } from 'aeolus.uciexport';
 
 let path = ARGV[0];
@@ -30,4 +30,4 @@ for (let e in out.errors)
 if (ARGV[1] == 'clamp')
 	print(clamp(out.config.network, out.config.aeolus));
 else
-	print(join('\n', map(PACKAGES, p => text(p, out.config[p]))));
+	print(join('\n', map(PACKAGES, p => text(p, p == 'wireless' ? without_keys(out.config[p]) : out.config[p]))));

@@ -284,6 +284,7 @@ func TestStateReports(t *testing.T) {
 		"client gen":    {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "gen": "wifi7"}}},
 		"client params": {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "params": "1;3;6"}}},
 		"time stratum":  {"version": 1, "time": map[string]any{"synced": true, "stratum": 17}},
+		"client vlan":   {"version": 1, "clients": []any{map[string]any{"mac": "aa:bb:cc:dd:ee:06", "vlan": 5000}}},
 		"time servers":  {"version": 1, "time": map[string]any{"servers": []string{"a\tb"}}},
 		"active":        {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
 		"network":       {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},

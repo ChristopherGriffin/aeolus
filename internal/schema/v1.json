@@ -197,6 +197,14 @@
             "btm": { "type": "boolean", "description": "802.11v." }
           }
         },
+        "keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-user keys (0070).",
+          "properties": {
+            "vlans": { "type": "array", "items": { "$ref": "#/$defs/vlan" }, "uniqueItems": true, "maxItems": 512, "description": "The VLANs a per-user key may put its client in." }
+          }
+        },
         "rate_limit": {
           "type": "object",
           "additionalProperties": false,

@@ -15,6 +15,7 @@ import { fieldPanels, editing } from './fields.js';
 import { only, configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
+import { keysBlock } from './keys.js';
 
 const BANDS = ['2g', '5g', '6g'];
 
@@ -25,6 +26,7 @@ const MORE = 'More settings';
 const SECTIONS = [
 	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation', 'multicast_to_unicast']],
 	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
+	['Per-user keys', ['keys.vlans']],
 	['Traffic', [
 		'transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni', 'transport.primary.probe',
 		'transport.fallback.type', 'transport.fallback.vlan', 'transport.fallback.concentrator', 'transport.fallback.vni', 'transport.fallback.probe',
@@ -106,6 +108,7 @@ function networkCard(ctx, d, n, bandsHere, noUsteer, lib) {
 				h('button', { type: 'button', class: 'button small', onclick: () => { box.replaceChildren(); body.replaceChildren(editForm(ctx, d, n, close, lib)); } }, 'Edit'),
 				n.fields.ssid?.origin === 'self' && h('button', { type: 'button', class: 'button small danger', onclick: () => { close(); deleteNetwork(ctx, n, box); } }, 'Delete'))),
 		body,
+		n.fields.security?.value === 'wpa2-psk' && keysBlock(ctx, n),
 		box);
 }
 

@@ -103,7 +103,15 @@
   - **Tests:** parsing, the book's counts, bursts, saving and trimming, both listeners over real sockets, and `serve` starting them and saving what they heard.
   - **The API:** a client possible by its fingerprint and confirmed by a knock, a Wi-Fi client confirmed through its AP's report, and an unmatched knock.
   - **The harness:** both views, with an Edgecore AP's fingerprint and knock, and a burst of 80 discovers.
-- **The lab plan above waits for the release.**
+- **Live, with v0.35.0 on 2026-10-04 and 05:**
+  - **The manager bound UDP 67 and TCP 15002** as user `aeolus`, with the unit's one capability.
+  - **The knock stand-in:** a TLS connection from OpenWrtnight, by `uclient-fetch`, was recorded from 192.168.20.78, asking for 192.168.20.60, with TLS 1.2, 1.1 and 1.0.
+  - **The relay:** Griff added `ip helper-address 192.168.20.60` to the Arista's `Vlan50`, and the AP's prober was restarted, so it leased afresh. The manager recorded both of its VLAN 50 clients, relayed from 192.168.50.1:
+    - `02:21:36:5e:00:50`, `OpenWrtnight-vni50`, 192.168.50.10;
+    - `06:21:36:5e:00:50`, `OpenWrtnight-vlan50`, 192.168.50.12.
+
+    Each made a discover and a request. The copies came from the Arista's VLAN 50 address, the same as the `giaddr`.
+  - **Only broadcasts are relayed.** A client's renewal goes to its server directly, so a relay copies it only when the client joins, or rebinds.
 
 ## Not now
 

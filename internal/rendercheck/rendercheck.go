@@ -61,6 +61,7 @@ var Coverage = map[string]string{
 	"network.*.security":                 "",
 	"network.*.passphrase":               "",
 	"network.*.isolation":                "",
+	"network.*.keys.vlans":               "",
 	"network.*.roaming.ft":               "",
 	"network.*.roaming.rrm":              "",
 	"network.*.roaming.btm":              "",
@@ -302,6 +303,7 @@ func (k *checker) networks(doc map[string]any, radios []device) {
 	w := k.c.Package("wireless")
 	nets := obj(doc, "network")
 	expected := map[string]bool{}
+	vlanSections := map[string]bool{}
 	for _, id := range keys(nets) {
 		n := obj(nets, id)
 		if on, ok := n["enabled"].(bool); ok && !on {
@@ -311,6 +313,7 @@ func (k *checker) networks(doc map[string]any, radios []device) {
 		for _, b := range list(n["bands"]) {
 			bands[b] = true
 		}
+		var ifaces []string
 		for _, r := range radios {
 			if len(bands) > 0 && !bands[r.band] {
 				continue
@@ -323,14 +326,79 @@ func (k *checker) networks(doc map[string]any, radios []device) {
 				continue
 			}
 			k.iface(id, n, r, s)
+			ifaces = append(ifaces, name)
 		}
 		k.transports(id, n, obj(doc, "concentrators"))
+		for _, name := range k.keyVLANs(id, n, ifaces) {
+			vlanSections[name] = true
+		}
 	}
 	for _, s := range w.OfType("wifi-iface") {
 		if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {
 			k.add("wireless.%s: no network calls for it", s.Name)
 		}
 	}
+	for _, s := range w.OfType("wifi-vlan") {
+		if strings.HasPrefix(s.Name, "aeolus_") && !vlanSections[s.Name] {
+			k.add("wireless.%s: no network offers its VLAN to keys", s.Name)
+		}
+	}
+}
+
+// KeyVLANInterface is the interface a network's per-user keys' VLAN is on,
+// and KeyVLANSection the wifi-vlan that puts a key's client there (0070).
+func KeyVLANInterface(network, vlan string) string { return InterfaceName(network) + "_k" + vlan }
+func KeyVLANSection(network, vlan string) string   { return InterfaceName(network) + "_kv" + vlan }
+
+// keyVLANs checks the VLANs a network offers its per-user keys (0070): for
+// each, a bridge-vlan carrying it on the uplink, an interface on it, and a
+// wifi-vlan on the network's wifi-ifaces that puts a key's client there. It
+// returns the wifi-vlan sections it expects.
+func (k *checker) keyVLANs(id string, n map[string]any, ifaces []string) []string {
+	vlans := list(obj(n, "keys")["vlans"])
+	if len(vlans) == 0 {
+		return nil
+	}
+	w, net := k.c.Package("wireless"), k.c.Package("network")
+	if net == nil {
+		if !k.noNet {
+			k.add("package network is missing")
+			k.noNet = true
+		}
+		return nil
+	}
+	var out []string
+	for _, v := range vlans {
+		where := fmt.Sprintf("network.%s.keys.vlans: VLAN %s", id, v)
+		iface, section := KeyVLANInterface(id, v), KeyVLANSection(id, v)
+		out = append(out, section)
+		carried := false
+		for _, bv := range net.OfType("bridge-vlan") {
+			if value(bv, "vlan") == v {
+				carried = true
+			}
+		}
+		if !carried {
+			k.add("%s: no bridge-vlan carries it", where)
+		}
+		if i := net.Named(iface); i == nil || i.Type != "interface" || !strings.HasSuffix(value(i, "device"), "."+v) {
+			k.add("%s: no interface %s on it", where, iface)
+		}
+		x := w.Named(section)
+		if x == nil || x.Type != "wifi-vlan" {
+			k.add("%s: no wifi-vlan %s", where, section)
+			continue
+		}
+		k.option("wireless."+section, x, "vid", v)
+		k.option("wireless."+section, x, "name", "k"+v)
+		if got := x.List("network"); !sameSet(got, []string{iface}) {
+			k.add("wireless.%s: network is %v, want %s", section, got, iface)
+		}
+		if got := x.List("iface"); !sameSet(got, ifaces) {
+			k.add("wireless.%s: iface is %v, want %v", section, got, ifaces)
+		}
+	}
+	return out
 }
 
 func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {

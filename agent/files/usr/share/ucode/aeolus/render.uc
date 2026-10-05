@@ -12,7 +12,8 @@
 // own package, the prober's plan, 0059), and the time zone, NTP and syslog
 // settings. It takes OpenWrt's internet pool out of the time servers, and
 // adds to dnsmasq's rebind_domain the names it uses on the AP (0069). A
-// section it did not create is never otherwise edited, or removed.
+// section it did not create is never otherwise edited, or removed; nor are
+// the key agent's wifi-station sections, which hold per-user keys (0070).
 
 'use strict';
 
@@ -414,12 +415,27 @@ function networks(cfg, intent, facts, errors, keep) {
 			push(errors, `network.${id}: band steering and BSS transition need 802.11v, which this AP's hostapd lacks (install wpad-mbedtls)`);
 			btm = false;
 		}
+		let names = [];
 		for (let d in of_type(w, 'wifi-device')) {
 			if (net.bands && index(net.bands, d.band) < 0)
 				continue;
 			let name = iface_name(id, d['.name']);
 			put(w, name, 'wifi-iface', iface_options(net, d['.name'], iface, btm));
 			keep[name] = true;
+			push(names, name);
+		}
+		// The VLANs the network's per-user keys may put clients in (0070):
+		// each tagged on the uplink, an interface on it, and a wifi-vlan on
+		// the network's Wi-Fi. hostapd makes the VLAN's Wi-Fi interface,
+		// <bss>-k<vlan>, and netifd puts it on that interface.
+		for (let v in net.keys?.vlans ?? []) {
+			if (!uplink())
+				break;
+			ensure_vlan(n, bridge, facts.uplink, v, keep);
+			let vi = `${iface}_k${v}`, wv = `${iface}_kv${v}`;
+			put(n, vi, 'interface', { proto: 'none', device: `${bridge}.${v}` });
+			put(w, wv, 'wifi-vlan', { iface: names, name: `k${v}`, vid: '' + v, network: [vi] });
+			keep[vi] = keep[wv] = true;
 		}
 	}
 }
@@ -949,7 +965,7 @@ function render(intent, current, facts) {
 	// follows what is left, and then goes the same way.
 	for (let pkg in [cfg.wireless, cfg.network, cfg.firewall])
 		for (let k in keys(pkg))
-			if (owned(k) && !keep[k])
+			if (owned(k) && !keep[k] && pkg[k]['.type'] != 'wifi-station')
 				delete pkg[k];
 	probes(cfg, intent, facts ?? {}, keep);
 	watches(cfg, intent, facts ?? {}, keep);
@@ -965,6 +981,16 @@ function render(intent, current, facts) {
 	return { config: cfg, changed: changed, errors: errors };
 }
 
+// without_keys is a wireless package without the key agent's wifi-station
+// sections (0070): keys are not config, and never go to the render check.
+function without_keys(pkg) {
+	let out = {};
+	for (let k, v in pkg ?? {})
+		if (v['.type'] != 'wifi-station')
+			out[k] = v;
+	return out;
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
-export { PACKAGES, CLAMP, VLAN_END, iface_name, render, clamp };
+export { PACKAGES, CLAMP, VLAN_END, iface_name, render, clamp, without_keys };
