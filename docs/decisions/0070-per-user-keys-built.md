@@ -37,6 +37,7 @@
   - the VLAN tagged on the uplink.
 
   Adding a unit's VLAN is a config change, made once at setup. Adding or revoking a key isn't.
+- **Adding or removing one of those VLANs restarts the radios** that carry the network (found in the lab, below). Like any wireless change, it drops their clients for seconds, or for a minute or more on a DFS channel. So a site adds the VLANs it will need at setup, and the preview says so.
 
 ### Keys are changes, but not config
 
@@ -54,7 +55,7 @@
 
 ### On the AP
 
-- **The key agent writes the keys as `wifi-station` sections,** named `aeolus_key_<n>`. Each section holds:
+- **The key agent writes the keys as `wifi-station` sections,** named `aeolus_key_<n>`, through ucode's UCI library in its own process. The `uci` command is far too slow: 500 keys took more than 30 seconds. The library took 0.8 seconds. Each section holds:
   - the network's wifi-ifaces;
   - the key's MACs, or the wildcard;
   - its PSK;
@@ -81,16 +82,29 @@
 - **Per-user keys are WPA2-PSK only.**
 - **A unit's VLAN is set up once,** as config. The number of VLANs one AP can carry this way is measured in the lab.
 
-## Lab plan
+## Lab checks
 
-On OpenWrtnight, with Griff told first, because it touches the wireless config:
+On OpenWrtnight on 2026-10-05, on `tedt` (WPA2-PSK, `phy0-ap2` and `phy1-ap3`), with Griff told first. Every key was given as a 64-hex PSK, worked out for the SSID as the manager will.
 
-- **Two `wifi-station` sections by hand on `tedt`,** one with a VLAN:
-  - Check the reload: hostapd logs `RELOAD_WPA_PSK`, and the IoT clients' connected times don't reset.
-  - With Griff's phone: the network's passphrase lands on its own segment, a key without a VLAN the same, and a key with one in its VLAN.
-- **Reload with 500 keys:** how long it takes, and that no client drops.
-- **Which reload command** touches only what changed.
-- **Whether hostapd reports each client's VLAN,** so the Clients tab can show which key's VLAN a client is in.
+- **One key, without a VLAN** (`wifi-station`, wildcard MAC):
+  - after `ubus call network reload`, hostapd logged "Update config data files" and "Reloaded settings";
+  - the key was in both BSSes' PSK files;
+  - the four IoT clients' connected times kept counting. No one dropped.
+- **A key with VLAN 50, and a `wifi-vlan` putting VLAN 50 in aeolus-50's bridge:**
+  - **This restarted both radios.** The 2.4 GHz BSSes went down and came back in about 12 seconds, and the IoT clients rejoined within 15 to 27.
+  - On 5 GHz, ACS chose DFS channel 60, so it came back after its 60-second radar check. No one was on 5 GHz.
+  - hostapd made `phy0-ap2-v50` and `phy1-ap3-v50`, and netifd put both in `br-n351c496e`, beside aeolus-50's own interfaces and tunnel.
+  - The PSK file had the line `vlanid=50 00:00:00:00:00:00 <psk>`.
+- **500 more keys:**
+  - The `uci` command, one `uci batch`, didn't finish in 30 seconds.
+  - ucode's UCI library staged them in 0.71 s and committed in 0.11 s.
+  - The reload took about a second: "Update config data files" on each BSS. The PSK files grew to 556 lines and no one dropped.
+  - Taking the 500 out again was the same.
+- **To do, with Griff's phone on `tedt`:**
+  - the lab key without a VLAN should land on VLAN 20, `tedt`'s own segment;
+  - the lab key with VLAN 50 on aeolus-50's segment;
+  - and whether hostapd's `get_clients` says each client's VLAN.
+- **Then, the lab keys and the VLAN come out.** Taking the VLAN out restarts the radios again.
 
 ## Not now
 
