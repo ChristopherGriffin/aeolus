@@ -25,6 +25,9 @@
 - **The APs tab** offers **Rename…** beside each AP for someone who may change it, previewed and logged as other changes are.
 - **A folder's page** offers **Rename…** beside its name, in both trees (Griff, 2026-10-05). Renaming a folder changes no AP's config.
 - **An AP's own page** offers Rename… and Move… beside its name too (Griff, 2026-10-05).
+- **A folder's page offers Move… too** (Griff, 2026-10-05): into any other folder of its tree, nesting it there with everything inside it. The Org and isolated folders, such as Landing Zone, stay where they are, and a folder can't go inside itself.
+  - What's set on the folder and inside it stays. What it inherited from its old place now comes from its new one, as inheritance always works.
+  - A value the new place locks, set on the folder or inside it, gives way to the lock, and the preview lists each, with where it was set.
 - **The APs tab offers Move…** beside each AP too (Griff, 2026-10-05): to any Locations folder outside Landing Zone, by its path from the Org, with the existing `move` change.
   - The preview says which of the AP's own settings the new folder's locks would drop.
   - It warns that the AP takes its new folder's settings, which restarts its Wi-Fi where its networks or radios differ.

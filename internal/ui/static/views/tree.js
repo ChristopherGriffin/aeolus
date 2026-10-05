@@ -11,6 +11,7 @@ import { fieldPanels, editing } from './fields.js';
 import { apPage } from './ap.js';
 import { systemSection, configs, channelsSection } from './sections.js';
 import { renameButton } from './rename.js';
+import { moveButton } from './move.js';
 import { networksTab } from './networks.js';
 import { keysSection } from './keys.js';
 import { interfacesTab, interfacesLive } from './interfaces.js';
@@ -35,14 +36,18 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		? `Org · root of ${tree === 'locations' ? 'Locations' : 'Services'}`
 		: n.isolated ? 'Isolated folder · APs wait here to be adopted' : 'Folder';
 
-	// A folder can be renamed by someone who may change it (0076).
+	// A folder can be renamed, and moved into another with everything in it,
+	// by someone who may change it (0076). The Org and isolated folders, such
+	// as Landing Zone, stay where they are.
 	const renameBox = h('div', { class: 'edit' });
+	const movable = n.kind !== 'org' && !n.isolated;
 	const main = [
 		crumbs(ctx, tree, page.ancestry),
 		h('div', { class: 'head' },
 			h('div', null,
 				h('h1', null, n.name, n.broken && h('span', { class: 'chip break' }, 'Break Hierarchy'),
-					editing(ctx, tree, page) && renameButton(ctx, tree, { id, name: n.name, kind: n.kind }, renameBox, 'rename head')),
+					editing(ctx, tree, page) && renameButton(ctx, tree, { id, name: n.name, kind: n.kind }, renameBox, 'rename head'),
+					editing(ctx, tree, page) && movable && moveButton(ctx, tree, { id, name: n.name, kind: n.kind }, renameBox, 'rename head')),
 				h('div', { class: 'sub' }, kind, ' · your role here: ', page.role)),
 			overrides(ctx, tree, page.overrides)),
 		renameBox,
