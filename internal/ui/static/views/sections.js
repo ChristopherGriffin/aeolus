@@ -1,6 +1,6 @@
 // The parts of a Locations folder or AP page besides its networks and
-// interfaces (0047, 0053, 0072): the channels its APs picked, shown under
-// Interfaces › Radios, and its system settings.
+// interfaces (0047, 0053, 0072, 0075): its APs' radios as each last
+// reported, on a folder's APs tab, and its system settings.
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
@@ -19,9 +19,10 @@ export async function configs(aps) {
 	return aps.map((a, i) => ({ ap: a, cfg: all[i].status === 'fulfilled' ? all[i].value : null }));
 }
 
-// channelsSection lists the channel each radio is on now, as its AP last
-// reported, beside what Aeolus sets. With automatic channels each AP picks
-// its own when its radio starts (0045).
+// channelsSection lists each AP's radios as it last reported them, on a
+// folder's APs tab (0075): the channel each is on, its width and clients,
+// beside what Aeolus sets. With automatic channels each AP picks its own
+// (0045), within the band's channel set.
 export function channelsSection(ctx, rows) {
 	if (!rows.length) return h('div', { class: 'banner info' }, 'No APs here yet.');
 	const lines = rows.flatMap(({ ap, cfg }) => {
@@ -43,7 +44,7 @@ export function channelsSection(ctx, rows) {
 		});
 	});
 	return h('section', { class: 'panel' },
-		h('h2', null, 'Channels now', h('span', { class: 'note' }, 'as each AP last reported')),
+		h('h2', null, 'Radios now', h('span', { class: 'note' }, 'as each AP last reported')),
 		h('table', { class: 'list' },
 			h('tr', null, ['AP', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
 			lines));

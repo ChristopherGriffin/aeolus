@@ -61,6 +61,7 @@ printf('smooth %J %J\n', rrm.smooth(null, -70), rrm.smooth(-70, -50));
 // Where a radio listens.
 printf('visits 2g 11 %J\n', rrm.visits('2g', 11, false));
 printf('visits 2g 3 %J\n', rrm.visits('2g', 3, false));
+printf('visits 2g set %J\n', rrm.visits('2g', 6, false, [11, 1, 6, 3]));
 printf('visits 5g 149 %J\n', rrm.visits('5g', 149, false));
 printf('visits 5g 100 dfs %d\n', length(rrm.visits('5g', 100, true)));
 printf('band %s %s %J\n', rrm.band_of(2462), rrm.band_of(5745), rrm.band_of(900));

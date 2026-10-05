@@ -1,0 +1,71 @@
+{
+	"about": "Channel sets (0075): on 5 GHz at 80 MHz, with DFS avoided, only the blocks wholly in the set are listed (36–48 and 52–64, not 149/153), and on 2.4 GHz the set replaces 1, 6 and 11.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"radio": {
+			"2g": {
+				"channel": "auto",
+				"channels": [
+					1,
+					11
+				]
+			},
+			"5g": {
+				"channel": "auto",
+				"width": 80,
+				"dfs": "avoid",
+				"channels": [
+					36,
+					40,
+					44,
+					48,
+					52,
+					56,
+					60,
+					64,
+					149,
+					153
+				]
+			}
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	}
+}

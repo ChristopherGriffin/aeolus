@@ -128,6 +128,7 @@ Each milestone ends in something checkable before the next starts.
 | [0072](docs/decisions/0072-one-interfaces-tab.md) | One Interfaces tab: radios, Ethernet and tunnels |
 | [0073](docs/decisions/0073-radio-neighbours.md) | Radio resource management: APs as neighbours, channels by rating |
 | [0074](docs/decisions/0074-time-zones.md) | Time zones from a list |
+| [0075](docs/decisions/0075-channel-sets.md) | Channel sets, and an APs tab (proposed) |
 
 ## Open questions
 

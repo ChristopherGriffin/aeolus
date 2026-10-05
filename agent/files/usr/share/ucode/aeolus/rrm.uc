@@ -166,13 +166,13 @@ function band_of(f) {
 }
 
 // visits are the frequencies a radio listens on for other APs: on 2.4 GHz,
-// channels 1, 6 and 11, where automatic channels go (0045); on 5 GHz,
-// every 20 MHz channel, those shared with radar (DFS) only where the radio
-// may use them (0071); and its own channel, wherever it is.
-function visits(band, own, dfs) {
+// the channels automatic channels go to, its set (0075) or else 1, 6 and 11
+// (0045); on 5 GHz, every 20 MHz channel, those shared with radar (DFS) only
+// where the radio may use them (0071); and its own channel, wherever it is.
+function visits(band, own, dfs, set) {
 	let ch = [];
 	if (band == '2g')
-		ch = [1, 6, 11];
+		ch = length(set ?? []) ? sort([...set], (a, b) => a - b) : [1, 6, 11];
 	else if (band == '5g')
 		ch = [36, 40, 44, 48, ...(dfs ? [52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144] : []), 149, 153, 157, 161, 165];
 	let out = map(ch, c => freq(band, c));

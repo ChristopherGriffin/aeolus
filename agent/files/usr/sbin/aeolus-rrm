@@ -235,7 +235,12 @@ function look_radios(at) {
 		// A channel set for the radio is left alone.
 		let set = d.config?.channel;
 		r.pinned = !(set == null || set == 'auto' || set == '0' || set == 0);
-		r.list = rrm.visits(band, r.channel, r.dfs);
+		// The channels an automatic channel may be (0075), as the renderer
+		// wrote them: whole blocks at the radio's width.
+		let chans = d.config?.channels;
+		chans = type(chans) == 'array' ? chans : type(chans) == 'string' ? split(trim(chans), /[ \t]+/) : [];
+		r.allowed = length(chans) ? map(chans, c => int(c)) : null;
+		r.list = rrm.visits(band, r.channel, r.dfs, r.allowed);
 		seen[name] = true;
 	}
 	for (let name in keys(radios))
@@ -666,10 +671,11 @@ function close(band) {
 }
 
 // targets are the blocks a radio may move to, from its band's ratings: at
-// its width, and none shared with radar, as a move there would first have
-// to listen for radar, off the air.
+// its width, wholly in its set where it has one (0075), and none shared with
+// radar, as a move there would first have to listen for radar, off the air.
 function targets(r, list) {
-	return filter(rrm.blocks(list, r.band, r.width), x => !length(filter(x.members, c => rrm.radar(r.band, c))));
+	return filter(rrm.blocks(list, r.band, r.width), x =>
+		!length(filter(x.members, c => rrm.radar(r.band, c) || (r.allowed && index(r.allowed, c) < 0))));
 }
 
 // table is the channels rated, as the agent reports them, with whether one

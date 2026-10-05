@@ -1,7 +1,7 @@
 // A folder in Locations or Services: its values and where they come from, its
 // overrides, and what it holds (0012, 0013). A Locations folder's settings
-// are in tabs: Interfaces, Networks, Clients and System (0047, 0053, 0066,
-// 0072). Landing Zone lists the APs waiting in it (0032).
+// are in tabs: Interfaces, APs, Networks, Clients and System (0047, 0053,
+// 0066, 0072, 0075). Landing Zone lists the APs waiting in it (0032).
 
 import { h, link, icon } from '../dom.js';
 import { get } from '../api.js';
@@ -9,13 +9,13 @@ import { group, value, ago } from '../format.js';
 import { treeAside, crumbs, fleetMap, tabBar, pick, keepPath, moved } from '../layout.js';
 import { fieldPanels, editing } from './fields.js';
 import { apPage } from './ap.js';
-import { systemSection } from './sections.js';
+import { systemSection, configs, channelsSection } from './sections.js';
 import { networksTab } from './networks.js';
 import { keysSection } from './keys.js';
 import { interfacesTab, interfacesLive } from './interfaces.js';
 import { clientsTab } from './clients.js';
 
-const TABS = [['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['system', 'System']];
+const TABS = [['interfaces', 'Interfaces'], ['aps', 'APs'], ['networks', 'Networks'], ['clients', 'Clients'], ['system', 'System']];
 
 export async function treePage(ctx, tree, id, tab, sub, view) {
 	const t = ctx.trees[tree];
@@ -58,10 +58,11 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		tab = pick(TABS, tab);
 		main.push(tabBar(base, TABS, tab));
 		if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, null, editing(ctx, tree, page)));
+		else if (tab === 'aps') main.push(channelsSection(ctx, await configs(page.hardware?.aps || [])));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 		else if (tab === 'clients') main.push(await clientsTab(ctx, page, null));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
-		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients') refresh = 30; // live
+		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients' || tab === 'aps') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
 		// A Services folder's networks' per-user keys (0070).

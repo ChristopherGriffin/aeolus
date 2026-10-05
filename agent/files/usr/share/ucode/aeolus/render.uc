@@ -100,6 +100,37 @@ function htmode(band, width, current, modes) {
 	return (m ? m[1] : 'HT') + width;
 }
 
+// BLOCKS5 are the 5 GHz channels joined at each width, by their lowest and
+// highest 20 MHz channel, as internal/radio has them.
+const BLOCKS5 = {
+	'40': [[36, 40], [44, 48], [52, 56], [60, 64], [100, 104], [108, 112], [116, 120], [124, 128], [132, 136], [140, 144], [149, 153], [157, 161]],
+	'80': [[36, 48], [52, 64], [100, 112], [116, 128], [132, 144], [149, 161]],
+	'160': [[36, 64], [100, 128]],
+};
+
+// whole keeps, of the channels an automatic channel may be (0075), those a
+// radio at width can use: on 5 GHz at 40 MHz or more, the blocks wholly in
+// the set, as hostapd checks only a block's primary channel against its
+// list. Sorted, as strings for UCI.
+function whole(band, set, width) {
+	let have = {};
+	for (let c in set)
+		have['' + c] = true;
+	let out = [];
+	if (band != '5g' || width <= 20)
+		out = map(keys(have), c => +c);
+	else
+		for (let b in BLOCKS5['' + width] ?? []) {
+			let all = true;
+			for (let c = b[0]; c <= b[1]; c += 4)
+				all = all && have['' + c];
+			if (all)
+				for (let c = b[0]; c <= b[1]; c += 4)
+					push(out, c);
+		}
+	return map(sort(out, (a, b) => a - b), c => '' + c);
+}
+
 function radios(w, intent, facts) {
 	let country = intent.system?.country;
 	for (let s in of_type(w, 'wifi-device')) {
@@ -108,17 +139,20 @@ function radios(w, intent, facts) {
 			s.country = country;
 		if (set.enabled != null)
 			s.disabled = set.enabled ? '0' : '1';
+		if (set.width != null)
+			s.htmode = htmode(s.band, set.width, s.htmode, facts.radios?.[s['.name']]?.htmodes);
 		if (set.channel != null) {
 			s.channel = '' + set.channel;
-			// An automatic 2.4 GHz channel is one of 1, 6 and 11, the only
-			// ones that do not overlap (0045).
-			if (set.channel == 'auto' && s.band == '2g')
-				s.channels = ['1', '6', '11'];
+			// An automatic channel is one of the set's (0075), at the radio's
+			// width; unset, on 2.4 GHz, one of 1, 6 and 11, the only ones that
+			// do not overlap (0045).
+			let width = int(match(s.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
+			let list = set.channel != 'auto' ? [] : set.channels ? whole(s.band, set.channels, width) : s.band == '2g' ? ['1', '6', '11'] : [];
+			if (length(list))
+				s.channels = list;
 			else
 				delete s.channels;
 		}
-		if (set.width != null)
-			s.htmode = htmode(s.band, set.width, s.htmode, facts.radios?.[s['.name']]?.htmodes);
 		if (set.power == 'auto')
 			delete s.txpower;
 		else if (set.power != null)
