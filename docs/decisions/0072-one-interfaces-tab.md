@@ -1,8 +1,8 @@
 # 0072. One Interfaces tab: radios, Ethernet and tunnels
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-05
-- Proposed by: Griff: fold the Hardware and Interfaces tabs together, since radios, Ethernet and VXLAN are all interfaces, with channels as a sub-menu under radios. Written up by Claude
+- Proposed by: Griff: fold the Hardware and Interfaces tabs together, since radios, Ethernet and VXLAN are all interfaces, with channels as a sub-menu under radios. Written up by Claude, and accepted with the merge
 - Refines: 0047, 0053, 0055
 
 ## Context

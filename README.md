@@ -120,7 +120,7 @@ Each milestone ends in something checkable before the next starts.
 | [0069](docs/decisions/0069-running-without-the-internet.md) | Running without the internet |
 | [0070](docs/decisions/0070-per-user-keys-built.md) | Per-user keys, as built on OpenWrt |
 | [0071](docs/decisions/0071-avoiding-dfs.md) | Avoiding DFS channels, for now |
-| [0072](docs/decisions/0072-one-interfaces-tab.md) | One Interfaces tab: radios, Ethernet and tunnels (proposed) |
+| [0072](docs/decisions/0072-one-interfaces-tab.md) | One Interfaces tab: radios, Ethernet and tunnels |
 
 ## Open questions
 
