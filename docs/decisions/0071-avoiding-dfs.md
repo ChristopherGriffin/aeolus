@@ -1,8 +1,8 @@
 # 0071. Avoiding DFS channels, for now
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-05
-- Proposed by: Griff: keep the 5 GHz radios off DFS channels for now, without losing them for good, since DFS channels are a large part of the band. Written up by Claude
+- Proposed by: Griff: keep the 5 GHz radios off DFS channels for now, without losing them for good, since DFS channels are a large part of the band. Written up by Claude, and accepted with the merge
 - Refines: 0044, 0045
 
 ## Context

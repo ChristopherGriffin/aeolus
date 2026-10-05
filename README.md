@@ -119,7 +119,7 @@ Each milestone ends in something checkable before the next starts.
 | [0068](docs/decisions/0068-manager-dhcp-listeners.md) | The manager's DHCP listeners |
 | [0069](docs/decisions/0069-running-without-the-internet.md) | Running without the internet |
 | [0070](docs/decisions/0070-per-user-keys-built.md) | Per-user keys, as built on OpenWrt |
-| [0071](docs/decisions/0071-avoiding-dfs.md) | Avoiding DFS channels, for now (proposed) |
+| [0071](docs/decisions/0071-avoiding-dfs.md) | Avoiding DFS channels, for now |
 
 ## Open questions
 
