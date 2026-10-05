@@ -1,8 +1,8 @@
 # 0074. Time zones from a list
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-05
-- Proposed by: Griff: a time zone can be set per folder, picked from a dropdown as on Linux. Written up by Claude
+- Proposed by: Griff: a time zone can be set per folder, picked from a dropdown as on Linux. Written up by Claude, and accepted with the merge
 - Refines: 0040, 0052
 
 ## Context
