@@ -222,7 +222,11 @@ func TestStateReports(t *testing.T) {
 			// Its channel ratings: one in use, one blotted out by a neighbour.
 			"ratings": []any{
 				map[string]any{"band": "2g", "channel": 1, "cost": 38, "now": 41, "busy": 29, "noise": -92, "networks": 6, "visits": 12, "ago": 30, "own": false, "blotted_by": []string{}, "best": true},
-				map[string]any{"band": "2g", "channel": 11, "cost": 12, "now": 9, "busy": 4, "noise": nil, "networks": 0, "visits": 40, "ago": 5, "own": true, "blotted_by": []string{"ap-2005b6018be0"}}}},
+				map[string]any{"band": "2g", "channel": 11, "cost": 12, "now": 9, "busy": 4, "noise": nil, "networks": 0, "visits": 40, "ago": 5, "own": true, "blotted_by": []string{"ap-2005b6018be0"}}},
+			// Its moves: one made, and one that yielded to a neighbour's claim.
+			"moves": []any{
+				map[string]any{"band": "2g", "from": 11, "to": 6, "why": "shared", "state": "moved", "at": 1791223832},
+				map[string]any{"band": "5g", "from": 157, "to": 44, "why": "better", "state": "yielded", "at": 1791224000, "ap": "ap-2005b6018be0"}}},
 		// Every Wi-Fi client (0066): one on an Aeolus network, one on the AP's own.
 		"clients": []any{
 			map[string]any{"mac": "7e:2a:ea:9b:2b:8f", "network": "lab", "ssid": "Aeolus Lab", "band": "5g", "signal": -49, "signal_avg": -50,
@@ -302,6 +306,9 @@ func TestStateReports(t *testing.T) {
 		"rrm address":   {"version": 1, "rrm": map[string]any{"address": "office.lan"}},
 		"rrm rating":    {"version": 1, "rrm": map[string]any{"ratings": []any{map[string]any{"band": "2g", "channel": 1, "busy": 140}}}},
 		"rrm blotter":   {"version": 1, "rrm": map[string]any{"ratings": []any{map[string]any{"band": "2g", "channel": 1, "blotted_by": []string{"office"}}}}},
+		"rrm move why":  {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 6, "why": "bored", "state": "moved"}}}},
+		"rrm move to":   {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 0, "why": "shared", "state": "moved"}}}},
+		"rrm move ap":   {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 6, "why": "shared", "state": "yielded", "ap": "office"}}}},
 		"time servers":  {"version": 1, "time": map[string]any{"servers": []string{"a\tb"}}},
 		"active":        {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
 		"network":       {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},

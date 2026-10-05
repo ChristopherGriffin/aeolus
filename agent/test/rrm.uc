@@ -83,3 +83,43 @@ printf('pick alike %J\n', rrm.pick([{ channel: 1, cost: 60, blotted_by: ['ap-000
 printf('pick unknown is near %J\n', rrm.pick([{ channel: 1, cost: 60, blotted_by: ['ap-00000000000f'] }, { channel: 6, cost: 30, blotted_by: ['ap-000000000001'] }], close));
 printf('pick none %J\n', rrm.pick([], close));
 printf('covers %J %J %J %J %J\n', rrm.covers('2g', 11, 20), rrm.covers('5g', 149, 40), rrm.covers('5g', 157, 80), rrm.covers('5g', 165, 40), rrm.covers('5g', 100, 160));
+
+// Moves (0073): what a radio at a width may move to, why it would, the
+// tie-break, the window, and hostapd's switch arguments.
+let five = [
+	{ channel: 36, cost: 10, now: 12, blotted_by: [] }, { channel: 40, cost: 30, now: 20, blotted_by: [] },
+	{ channel: 44, cost: 5, now: 5, blotted_by: ['ap-000000000001'] }, { channel: 48, cost: 8, now: 8, blotted_by: [] },
+	{ channel: 149, cost: 50, now: 60, blotted_by: [] },
+];
+printf('blocks 20 %J\n', map(rrm.blocks(five, '5g', 20), x => x.channel));
+printf('blocks 40 %J\n', rrm.blocks(five, '5g', 40));
+printf('blocks 2g %J\n', map(rrm.blocks(free, '2g', 40), x => x.members));
+printf('radar %J %J %J %J\n', rrm.radar('5g', 52), rrm.radar('5g', 48), rrm.radar('5g', 144), rrm.radar('2g', 1));
+close['ap-000000000004'] = -64;
+let b = (ch, cost, by) => ({ channel: ch, cost: cost, blotted_by: by, members: [ch] });
+printf('reason shared %J\n', rrm.reason(b(11, 5, ['ap-000000000001']), b(6, 30, []), close, 20, null, false));
+printf('reason all used, further %J\n', rrm.reason(b(11, 5, ['ap-000000000001']), b(1, 60, ['ap-000000000002']), close, 20, null, false));
+printf('reason all used, not far enough %J\n', rrm.reason(b(11, 5, ['ap-000000000001']), b(1, 60, ['ap-000000000004']), close, 20, null, false));
+printf('reason better %J\n', rrm.reason(b(1, 60, []), b(6, 30, []), close, 20, null, false));
+printf('reason not by the margin %J\n', rrm.reason(b(1, 45, []), b(6, 30, []), close, 20, null, false));
+printf('reason start %J\n', rrm.reason(b(1, 45, []), b(6, 30, []), close, 20, null, true));
+printf('reason interference %J\n', rrm.reason(b(6, 10, []), b(1, 20, []), close, 20, 0.7, false));
+printf('reason busy, nowhere better %J\n', rrm.reason(b(6, 10, []), b(1, 40, []), close, 20, 0.55, false));
+printf('reason free to shared %J\n', rrm.reason(b(6, 60, []), b(1, 5, ['ap-000000000002']), close, 20, null, false));
+printf('reason same block %J\n', rrm.reason({ channel: 36, cost: 50, blotted_by: [], members: [36, 40] }, b(40, 5, []), close, 20, null, true));
+printf('first worse %J\n', rrm.first({ ap: 'ap-000000000002', cost: 40 }, { ap: 'ap-000000000001', cost: 30 }));
+printf('first alike %J %J\n', rrm.first({ ap: 'ap-000000000002', cost: 30 }, { ap: 'ap-000000000001', cost: 30 }),
+	rrm.first({ ap: 'ap-000000000001', cost: 30 }, { ap: 'ap-000000000002', cost: 30 }));
+printf('window %J %J %J %J\n', rrm.window('02:00-05:00'), rrm.window('22:30-04:15'), rrm.window('08:09-09:00'), rrm.window('25:00-01:00'));
+printf('in window %J %J %J %J %J %J %J\n', rrm.in_window([120, 300], 150), rrm.in_window([120, 300], 300),
+	rrm.in_window([1350, 255], 1400), rrm.in_window([1350, 255], 100), rrm.in_window([1350, 255], 600),
+	rrm.in_window([60, 60], 900), rrm.in_window(null, 150));
+printf('switch 2g 6 %J\n', rrm.switch_args('2g', 6, 20, 'HT20', 10));
+printf('switch 2g 11 he %J\n', rrm.switch_args('2g', 11, 20, 'HE20', 10));
+printf('switch 2g 11 40 %J\n', rrm.switch_args('2g', 11, 40, 'HT40', 10));
+printf('switch 5g 36 he40 %J\n', rrm.switch_args('5g', 36, 40, 'HE40', 10));
+printf('switch 5g 40 vht40 %J\n', rrm.switch_args('5g', 40, 40, 'VHT40', 10));
+printf('switch 5g 157 vht80 %J\n', rrm.switch_args('5g', 157, 80, 'VHT80', 10));
+printf('switch 5g 161 vht80 %J\n', rrm.switch_args('5g', 161, 80, 'VHT80', 10));
+printf('switch 5g 165 40 %J\n', rrm.switch_args('5g', 165, 40, 'HE40', 10));
+printf('switch 5g 36 legacy %J\n', rrm.switch_args('5g', 36, 40, 'NOHT', 10));

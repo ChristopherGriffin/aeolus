@@ -74,6 +74,7 @@ Radio resource management (RRM) runs on the APs, as a link-state protocol does o
 - **Collision avoidance:**
   - Before moving, the AP tells its neighbours where it's going, and waits a short hold time.
   - If a neighbour claims the same channel in that time, one of them, by a fixed tie-break, picks again.
+  - **The tie-break:** the AP whose current channel rates worse moves first; where they rate alike, the one with the lower AP ID (Griff, 2026-10-05). The other waits, and once the first has moved, looks again: often it no longer needs to move.
   - A channel a neighbour has claimed is blotted out like one it uses.
 - **A move announces itself to clients first,** with hostapd's channel switch announcement, so clients that support it follow without disconnecting. It doesn't restart the radio.
   - A client that can't follow has to find the AP again. That's accepted: planned moves happen in off hours, and sudden ones happen when interference is already disrupting clients.
@@ -156,8 +157,44 @@ The second part (v0.41.0). Moves come next.
 - **A rating not refreshed for 30 minutes is dropped.**
 - **Blotted out:** a channel is blotted out by a neighbour using it, at its width, on a band where that neighbour is among the three this AP hears best, or its hellos say it hears this AP. Its channel and width are its hellos'.
 - **What the AP reports:** in its state report's `rrm.ratings` (docs/api.md). The manager shows them under **Interfaces › Radios › Ratings**: by AP and band, with the channel each radio is on, and who blots out the others.
-- **The best on each band** is the AP's own pick, reported as `best` (v0.42.0, `rrm.pick`): the best rated no neighbour uses; or, where neighbours use them all, the one whose nearest user is furthest away, as above. A neighbour heard at no known strength counts as near.
+- **The best on each band** is the AP's own pick, reported as `best` (v0.42.0, `rrm.pick`): the best rated no neighbour uses; or, where neighbours use them all, the one whose nearest user is furthest away, as above. A neighbour heard at no known strength counts as near. Since v0.43.0 it's where the radio would move, as below: at its width, and never a channel shared with radar.
 - **A fix in v0.40.0:** ucode divides whole numbers to a whole number, so the check that holds a visit back while a radio's own channel is busy read 0 unless the channel was busy all the time. It now divides as decimals.
+
+## As built: moves
+
+The third part (v0.43.0).
+
+- **The policy,** in Locations, beside `rrm.enabled`:
+  - `rrm.moves`: on unless set off. Off, the APs rate channels but don't move.
+  - `rrm.window`: when planned moves may happen, in the AP's local time (`system.tz`); 02:00–05:00 unless set. It may run past midnight.
+  - `rrm.margin`: how much better, in rating points, a channel must rate than the radio's own for a move to it; 20 unless set.
+
+  The renderer writes all three into the daemon's section, defaults included, and the render check holds the AP to them.
+- **Which radios move:** those whose channel is automatic. A set channel is left alone, as is a radio whose own channel isn't rated yet.
+- **Where to:** the AP's best on the band (`rrm.best_of`), at the radio's own width.
+  - On 5 GHz at 40 MHz or more, it weighs blocks, not channels: a block rates as its worst channel, is blotted out where any of its channels is, and is entered on its best-rated channel.
+  - Moves don't go to DFS channels, even where they're allowed: the radio would first have to listen for radar for a minute, off the air.
+  - A move never goes from a free channel to a shared one.
+- **Why it moves,** as the report says:
+  - **shared:** a neighbour uses the radio's channel, and a free one is there, or, with all of them used, one whose nearest user is at least 6 dB further away;
+  - **better:** another channel rates better by the margin, and is no more shared;
+  - **interference:** for three visits in a row (about 45 seconds), others kept the radio's own channel more than half busy, and the target rates better than that by the margin;
+  - **start:** within ten minutes of the radio starting, while its clients reconnect anyway, another channel ranks above its own, by any margin.
+- **When:**
+  - Shared and better are planned moves: their reason must hold for ten minutes, and they wait for the window.
+  - Interference moves at once, as do moves within ten minutes of the radio starting. A radio counts as started when its network interface is made anew, when it comes up while the daemon runs, or when the daemon starts within ten minutes of the AP booting. Turning RRM on doesn't count.
+  - Before any move, every channel the radio visits must have been rated, and the daemon must have run for a minute, so it knows its neighbours' channels.
+  - After a move, or a switch that failed, the radio stays put for 15 minutes.
+- **Collision avoidance:**
+  - The AP claims the target in its hellos (each radio's `to`, with its own block's rating as `cost`), in one sent at once, and waits 30 seconds.
+  - It claims nothing while a neighbour's claim on the band is in its hellos, nor for 20 seconds after one ends.
+  - Two claims at once go by the tie-break: the higher `cost` goes first, then the lower AP ID. The other yields and looks again later.
+  - A neighbour's claimed channel is blotted out, as is one it uses.
+  - Before moving, the AP checks again that the move is still worth it; if not, it withdraws.
+- **The move:** hostapd's `switch_chan` on one of the radio's networks, which moves all of them, announced for 10 beacons, about a second. No restart.
+- **What the AP reports:** in its state report's `rrm.moves`, its last 16 moves, each with its band, from and to, why, and what came of it: announced, moved, yielded (to which AP), withdrawn or failed. The manager shows them under **Interfaces › Radios › Ratings**. The daemon logs each one too.
+- **Across a restart of the daemon,** as when the agent is updated, it keeps its ratings and its moves: it reads them back from its last results.
+- **Not yet:** ACS still picks the channel a radio starts on; RRM moves it within its first minutes, as above. Giving the radio its pick before it starts is a later step.
 
 ## Lab checks, 2026-10-05
 
@@ -187,15 +224,20 @@ The second part (v0.41.0). Moves come next.
     - On the R7800, the office's block, 149 and 153, was blotted out.
   - No client dropped.
 
+- **Channel switch announcements,** with `ubus call hostapd.<bss> switch_chan`, announced for 10 beacons:
+  - The pumphouse's 2.4 GHz (ath10k), 11 to 6 at 20 MHz: all five networks moved with the one call, and its four clients followed without dropping. Their connected times ran on, and each sent within seconds.
+  - The office's 5 GHz (mt76), 149 to 36 at 40 MHz (HE): both clients followed.
+  - The office went on hearing the pumphouse's advert on its new channel, at −70 dBm, and its hellos gave the new channel. 11 was then free on the office, and its best.
+- **Moves, by the daemon,** run on both APs with an all-day window and the live RRM paused, both put back on 2.4 GHz channel 11 (one Espressif device dropped at that switch, and was back within a second):
+  - **2.4 GHz:** both found 11 shared, and rated 6 best. The office's reason held ten minutes first. It claimed 6 at 18:46:02 and moved at 18:46:32, its nine clients following.
+  - The pumphouse saw the claim, 6 blotted out by the office, and claimed nothing. Once the office had moved, 11 was free there and its best, so it stayed: one move settled it for both.
+  - **5 GHz:** the pumphouse's block, 157 and 161, rated 35, against 0 for 44 and 48. It claimed 44 (better) at 18:47:15 and moved at 18:47:45, to VHT40 there.
+
 ## Open
 
 - **The hello and dead intervals.**
-- **The rating's weights and smoothing,** and the margin and time a move needs.
+- **The rating's weights and smoothing,** and the margin, hold and wait times a move needs.
 - **A channel busy with what the radio can't decode:** the R7800's own channel 157 was 36% busy over ten seconds, while it sent 1.3% and received nothing it could decode. That's energy from interference, or from traffic on overlapping channels, and it counts against the channel, rightly.
-- **The tie-break** for two APs claiming one channel.
-- **The default off-hours window.**
+- **The default off-hours window,** 02:00–05:00 for now.
+- **How often an interference move** is right: a client sending a lot also keeps the channel busy, and a move doesn't help it.
 - **Power management,** to be discussed later: transmit power that brings each AP's three neighbours to −70 dBm or better. Width stays Aeolus's setting.
-
-## Until then
-
-The lab's two APs share 2.4 GHz channel 11. Pinning one of them to 1 or 6 separates them now. Restarting that radio drops the Sweet_Spot_IoT devices for a few seconds, so it waits for Griff's word.

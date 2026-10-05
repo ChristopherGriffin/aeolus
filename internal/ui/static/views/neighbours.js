@@ -1,13 +1,15 @@
 // An AP's radio neighbours (0073): the other Aeolus APs it hears in the air
 // and exchanges hellos with over the wire, as each AP last reported, with
-// how strongly each hears the other and the neighbour's channel; and the
-// channels as it rates them. Radio resource management is turned on and
-// off here too.
+// how strongly each hears the other and the neighbour's channel; the
+// channels as it rates them; and its moves. Radio resource management, and
+// its policy for moves, are set here too.
 
 import { h, link } from '../dom.js';
-import { bandName, origin } from '../format.js';
+import { bandName, origin, group, value, ago } from '../format.js';
+import { schema } from '../api.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
+import { fieldsForm, changedValues } from './edit.js';
 
 // A neighbour's state: its chip, and what it means.
 const STATE = {
@@ -17,9 +19,13 @@ const STATE = {
 	down: ['bad', 'its hellos stopped'],
 };
 
-// neighboursSection draws the switch and the table. at is the node's page
-// ({ node, nodeName, page, canEdit, parentName }); rows are its APs, each
-// with its config and condition.
+// The policy for moves (0073), and what each means unset.
+const POLICY = ['rrm.moves', 'rrm.window', 'rrm.margin'];
+const DEFAULT = { 'rrm.moves': true, 'rrm.window': '02:00-05:00', 'rrm.margin': 20 };
+
+// neighboursSection draws the switch, the policy for moves, and the table.
+// at is the node's page ({ node, nodeName, page, canEdit, parentName });
+// rows are its APs, each with its config and condition.
 export function neighboursSection(ctx, at, rows) {
 	return [switchRow(ctx, at), table(ctx, rows)];
 }
@@ -38,9 +44,69 @@ function switchRow(ctx, at) {
 			field && origin('locations', node, field, (id) => ctx.name('locations', id)),
 			canEdit && !lockedAbove && h('span', { class: 'controls' },
 				field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
+				on && h('button', { type: 'button', class: 'button small', onclick: async () => movesEditor(ctx, await schema(), at, box) }, 'Edit moves…'),
 				h('button', { type: 'button', class: 'button small', onclick: () => turn(ctx, at, path, field, !on, box) },
 					on ? 'Turn off…' : 'Turn on…'))),
+		on && POLICY.map((p) => policyRow(ctx, at, p)),
 		box);
+}
+
+// policyRow shows one of the policy's fields, as set here or above, or its
+// default.
+function policyRow(ctx, at, path) {
+	const { node, nodeName, page, canEdit, parentName } = at;
+	const field = page.fields?.[path];
+	const box = h('div', { class: 'edit' });
+	return [h('div', { class: 'row' },
+		h('div', { class: 'label' }, group(path).label),
+		h('div', { class: 'value' }, field ? value(path, field.value) : h('span', { class: 'sealed' }, value(path, DEFAULT[path]), ' (not set)')),
+		field && origin('locations', node, field, (id) => ctx.name('locations', id)),
+		canEdit && field?.origin === 'self' && h('span', { class: 'controls' },
+			followButton(ctx, 'locations', node, nodeName, parentName, [path], box))),
+	box];
+}
+
+// movesEditor opens, in box, the policy's fields as the schema describes
+// them (d), set on this node in one change.
+function movesEditor(ctx, d, at, box) {
+	const { node, nodeName, page } = at;
+	const { body, inputs, rows } = fieldsForm(d, [[null, POLICY]], page.fields || {}, node);
+	const out = h('div', { class: 'edit flush' });
+	const msg = h('div', { class: 'error' });
+	const review = async () => {
+		msg.replaceChildren();
+		let values;
+		try {
+			values = changedValues(inputs, rows);
+		} catch (e) {
+			msg.replaceChildren(e.message);
+			return;
+		}
+		const paths = Object.keys(values);
+		if (!paths.length) {
+			msg.replaceChildren('Nothing has changed.');
+			return;
+		}
+		const op = paths.length === 1
+			? { kind: 'set', tree: 'locations', node, path: paths[0], value: values[paths[0]] }
+			: { kind: 'set', tree: 'locations', node, values };
+		const p = await ask(out, op);
+		if (!p) return;
+		confirm(ctx, out, op, p, [
+			h('div', null, h('strong', null, `Moves on ${nodeName}`)),
+			h('ul', { class: 'becomes' }, paths.map((path) => h('li', null, `${group(path).label}: `,
+				page.fields?.[path] ? value(path, page.fields[path].value) : [value(path, DEFAULT[path]), ' (not set)'], ' → ', value(path, values[path])))),
+		], [
+			h('div', { class: 'sub' }, 'Nothing restarts: each AP\'s RRM takes it up once it applies the config.'),
+		]);
+	};
+	box.replaceChildren(h('div', { class: 'fieldform', 'data-editing': true },
+		body,
+		msg,
+		h('div', { class: 'actions' },
+			h('button', { type: 'button', class: 'button primary', onclick: review }, 'Review changes'),
+			h('button', { type: 'button', class: 'button', onclick: () => box.replaceChildren() }, 'Cancel')),
+		out));
 }
 
 async function turn(ctx, at, path, field, on, box) {
@@ -52,8 +118,8 @@ async function turn(ctx, at, path, field, on, box) {
 		h('div', null, h('strong', null, `Neighbours on ${nodeName}: `), field?.value === true ? 'on' : 'off', ' → ', on ? 'on' : 'off'),
 	], [
 		h('div', { class: 'sub' }, on
-			? 'Nothing restarts. Each AP\'s beacons say it is an Aeolus AP, it listens briefly on its other channels, one at a time, while its radio isn\'t busy, and it exchanges hellos with the APs it hears best.'
-			: 'Nothing restarts. Each AP takes the mark off its beacons and stops its hellos.'),
+			? 'Nothing restarts. Each AP\'s beacons say it is an Aeolus AP, it listens briefly on its other channels, one at a time, while its radio isn\'t busy, and it exchanges hellos with the APs it hears best. Unless moves are off, it moves a radio whose channel is automatic to its best channel, as the policy says, with an announcement clients can follow.'
+			: 'Nothing restarts. Each AP takes the mark off its beacons, stops its hellos, and moves no radio.'),
 	]);
 }
 
@@ -93,10 +159,14 @@ function table(ctx, rows) {
 // ratingsSection lists each AP's channel ratings (0073), lower being better:
 // the lasting one, earned over many visits, and the one now; what went into
 // the last visit's; the channel its radio is on, the neighbours that blot
-// channels out, and the AP's best on each band: the best rated no neighbour
-// uses, or where they use them all, the one whose nearest user is furthest
-// away.
+// channels out, and the AP's best on each band, where its radio would move:
+// the best rated no neighbour uses, or where they use them all, the one
+// whose nearest user is furthest away. Then each AP's moves.
 export function ratingsSection(ctx, rows) {
+	return [ratingsPanel(ctx, rows), movesPanel(ctx, rows)];
+}
+
+function ratingsPanel(ctx, rows) {
 	const name = (id) => ctx.name('locations', id);
 	const lines = rows.flatMap(({ ap, cfg }) => {
 		const r = cfg?.condition?.state?.report?.rrm;
@@ -127,4 +197,34 @@ export function ratingsSection(ctx, rows) {
 				h('tr', null, ['AP', 'Band', 'Channel', 'Rating', 'Now', 'Busy', 'Noise', 'Networks', 'Last visit', ''].map((c) => h('th', null, c))),
 				lines)
 			: h('div', { class: 'sub' }, 'No APs here yet.'));
+}
+
+// Why a move was made, and what came of it, with its chip.
+const WHY = {
+	start: 'the radio had just started', shared: 'a neighbour uses its channel',
+	better: 'another rates better', interference: 'interference on its channel',
+};
+const CAME = { announced: 'warn', moved: 'ok', yielded: 'idle', withdrawn: 'idle', failed: 'bad' };
+
+// movesPanel lists each AP's last moves, newest first (0073).
+function movesPanel(ctx, rows) {
+	const name = (id) => ctx.name('locations', id);
+	const lines = rows.flatMap(({ ap, cfg }) => {
+		const moves = [...(cfg?.condition?.state?.report?.rrm?.moves || [])].reverse();
+		const apLink = link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/ratings`, ap.name);
+		return moves.map((m, i) => h('tr', null,
+			h('td', null, i === 0 && apLink),
+			h('td', null, bandName(m.band)),
+			h('td', { class: 'mono' }, `${m.from} → ${m.to}`),
+			h('td', null, WHY[m.why] || m.why),
+			h('td', null, h('span', { class: `chip ${CAME[m.state] || 'idle'}` }, m.state === 'yielded' && m.ap ? `yielded to ${name(m.ap)}` : m.state)),
+			h('td', null, ago(m.at * 1000))));
+	});
+	return h('section', { class: 'panel' },
+		h('h2', null, 'Moves', h('span', { class: 'note' }, 'newest first; a move is announced to neighbours before it is made')),
+		lines.length
+			? h('table', { class: 'list' },
+				h('tr', null, ['AP', 'Band', 'Channel', 'Why', 'What came of it', 'When'].map((c) => h('th', null, c))),
+				lines)
+			: h('div', { class: 'sub' }, 'No moves yet.'));
 }

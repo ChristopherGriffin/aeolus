@@ -2,7 +2,8 @@
 // anywhere: the element an AP's beacons carry to say it is an Aeolus AP and
 // where to reach it; HMAC-SHA256, which signs the hellos neighbours
 // exchange; the hellos themselves; which APs become neighbours; the
-// channels a radio listens on for them; and how each channel is rated.
+// channels a radio listens on for them; how each channel is rated; and
+// when and where a radio moves.
 
 'use strict';
 
@@ -20,6 +21,10 @@ const DEAD = 40;              // seconds without a hello after which a neighbour
 const SKEW = 60;              // seconds a hello's time may be off from this AP's clock
 const LASTING = 0.1;          // how much one visit moves a channel's lasting rating
 const NOW = 0.5;              // and its rating now
+const SUDDEN = 0.5;           // a radio's own channel kept busier than this by others is interference
+const NEAR = 6;               // dB further away a shared channel's nearest user must be, to move to it
+const WINDOW = '02:00-05:00'; // when planned moves may happen, unless the policy says
+const MARGIN = 20;            // rating points a channel must beat the radio's own by, unless the policy says
 
 // The 5 GHz channels taken up together at each width, by the lowest and
 // highest 20 MHz channel, as internal/radio has them.
@@ -220,30 +225,159 @@ function covers(band, channel, width) {
 	return [channel];
 }
 
-// pick chooses a band's channel from its ratings ([{ channel, cost,
+// nearest is how strongly a channel's nearest user is heard: of those
+// blotting it out, by signal (close is { <ap>: dBm }, an AP not in it
+// counted as near), or -200 where no one uses it.
+function nearest(r, close) {
+	let near = -200;
+	for (let ap in r?.blotted_by ?? [])
+		near = max(near, close?.[ap] ?? 0);
+	return near;
+}
+
+// best_of chooses a band's channel from its ratings ([{ channel, cost,
 // blotted_by }]): the best rated no neighbour uses; or, where neighbours
 // use them all, as they can 2.4 GHz's three, the one whose nearest user is
-// furthest away, by signal (close is { <ap>: dBm }, an AP not in it counted
-// as near). Of those alike, the best rated.
-function pick(rates, close) {
+// furthest away. Of those alike, the best rated.
+function best_of(rates, close) {
 	let best = null, key = null;
 	for (let r in rates ?? []) {
-		let near = -200;
-		for (let ap in r.blotted_by ?? [])
-			near = max(near, close?.[ap] ?? 0);
-		let k = [length(r.blotted_by ?? []) ? 1 : 0, near, r.cost];
+		let k = [length(r.blotted_by ?? []) ? 1 : 0, nearest(r, close), r.cost];
 		if (!best || k[0] < key[0] || (k[0] == key[0] && (k[1] < key[1] || (k[1] == key[1] && k[2] < key[2])))) {
 			best = r;
 			key = k;
 		}
 	}
-	return best?.channel;
+	return best;
+}
+
+// pick is the channel best_of chooses.
+function pick(rates, close) {
+	return best_of(rates, close)?.channel;
+}
+
+// radar says whether a 5 GHz channel is one shared with radar (DFS).
+function radar(band, channel) {
+	return band == '5g' && channel >= 52 && channel <= 144;
+}
+
+// blocks are what a radio at width may move to, from its band's ratings
+// ([{ channel, cost, now, blotted_by }]): on 2.4 GHz, or at 20 MHz, each
+// channel; on 5 GHz at 40 MHz or more, each block whose channels are all
+// rated, rated as its worst, blotted out by whoever uses any of them, and
+// entered on its best-rated channel. Each lists its channels as members.
+function blocks(list, band, width) {
+	if (band != '5g' || !width || width <= 20)
+		return map(list ?? [], x => ({ channel: x.channel, cost: x.cost, now: x.now ?? x.cost, blotted_by: x.blotted_by ?? [], members: [x.channel] }));
+	let by = {};
+	for (let x in list ?? [])
+		by['' + x.channel] = x;
+	let out = [];
+	for (let b in BLOCKS5['' + width] ?? []) {
+		let members = [], all = true;
+		for (let c = b[0]; c <= b[1]; c += 4) {
+			push(members, c);
+			if (!by['' + c])
+				all = false;
+		}
+		if (!all)
+			continue;
+		let entry = null, cost = 0, now = 0, blot = [];
+		for (let c in members) {
+			let x = by['' + c];
+			cost = max(cost, x.cost);
+			now = max(now, x.now ?? x.cost);
+			for (let ap in x.blotted_by ?? [])
+				push(blot, ap);
+			if (!entry || x.cost < entry.cost)
+				entry = x;
+		}
+		push(out, { channel: entry.channel, cost: cost, now: now, blotted_by: uniq(sort(blot)), members: members });
+	}
+	return out;
+}
+
+// reason says why a radio on block cur should move to block best, both as
+// blocks gives them, or null:
+//   interference: others kept cur busier than SUDDEN for a while (hot, that
+//     share, else null), and best rates better than that by margin;
+//   shared: a neighbour uses cur, and best is free, or its nearest user is
+//     at least NEAR dB further away;
+//   better: best rates better than cur by margin, and is no more shared;
+//   start: the radio just started (start true), and best_of ranks best
+//     above cur.
+function reason(cur, best, close, margin, hot, start) {
+	if (!cur || !best || index(cur.members ?? [cur.channel], best.channel) >= 0)
+		return null;
+	let used = length(cur.blotted_by ?? []) > 0, free = !length(best.blotted_by ?? []);
+	if (type(hot) in ['int', 'double'] && hot > SUDDEN && best.cost + margin <= 100 * hot)
+		return 'interference';
+	if (used && (free || nearest(best, close) + NEAR <= nearest(cur, close)))
+		return 'shared';
+	if (best.cost + margin <= cur.cost && (free || (used && nearest(best, close) <= nearest(cur, close))))
+		return 'better';
+	return start && best_of([cur, best], close) == best ? 'start' : null;
+}
+
+// first says whether claim a ({ ap, cost }) goes before claim b, made at
+// the same time on one band: the AP whose own channel rates worse moves
+// first; where they rate alike, the one with the lower AP ID.
+function first(a, b) {
+	return a.cost > b.cost || (a.cost == b.cost && a.ap < b.ap);
+}
+
+// window reads a window such as '02:00-05:00' as its start and end, in
+// minutes of the day, or null.
+function window(s) {
+	let m = match(s ?? '', /^([01][0-9]|2[0-3]):([0-5][0-9])-([01][0-9]|2[0-3]):([0-5][0-9])$/);
+	return m ? [int(m[1]) * 60 + int(m[2]), int(m[3]) * 60 + int(m[4])] : null;
+}
+
+// in_window says whether minute t of the day is in window w. It may run
+// past midnight; one that starts where it ends is the whole day.
+function in_window(w, t) {
+	if (!w)
+		return false;
+	if (w[0] == w[1])
+		return true;
+	return w[0] < w[1] ? t >= w[0] && t < w[1] : t >= w[0] || t < w[1];
+}
+
+// switch_args are hostapd's switch_chan arguments to move a radio running
+// mode (its htmode, such as HE40) to channel at width, announced for count
+// beacons; or null where the channel can't carry the width.
+function switch_args(band, channel, width, mode, count) {
+	let f = freq(band, channel);
+	if (!(band in ['2g', '5g']) || !f)
+		return null;
+	let fam = match(mode ?? '', /^(NOHT|HT|VHT|HE|EHT)/)?.[1] ?? 'HT';
+	let w = fam == 'NOHT' ? 20 : (width ?? 20);
+	let a = {
+		freq: f, center_freq1: f, bandwidth: w, sec_channel_offset: 0, ht: fam != 'NOHT',
+		vht: band == '5g' && fam in ['VHT', 'HE', 'EHT'], he: fam in ['HE', 'EHT'], bcn_count: count,
+	};
+	if (w <= 20)
+		return a;
+	if (band == '2g') {
+		if (w != 40 || channel < 1 || channel > 13)
+			return null;
+		a.sec_channel_offset = channel <= 7 ? 1 : -1;
+		a.center_freq1 = f + 10 * a.sec_channel_offset;
+		return a;
+	}
+	for (let b in BLOCKS5['' + w] ?? [])
+		if (channel >= b[0] && channel <= b[1]) {
+			a.center_freq1 = int((freq(band, b[0]) + freq(band, b[1])) / 2);
+			a.sec_channel_offset = int((channel - b[0]) / 4) % 2 ? -1 : 1;
+			return a;
+		}
+	return null;
 }
 
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW,
+	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW, SUDDEN, NEAR, WINDOW, MARGIN,
 	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits,
-	weight, cost, blend, covers, pick
+	weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args
 };

@@ -37,3 +37,30 @@ pick alike 6
 pick unknown is near 6
 pick none null
 covers [ 11 ] [ 149, 153 ] [ 149, 153, 157, 161 ] [ 165 ] [ 100, 104, 108, 112, 116, 120, 124, 128 ]
+blocks 20 [ 36, 40, 44, 48, 149 ]
+blocks 40 [ { "channel": 36, "cost": 30, "now": 20, "blotted_by": [ ], "members": [ 36, 40 ] }, { "channel": 44, "cost": 8, "now": 8, "blotted_by": [ "ap-000000000001" ], "members": [ 44, 48 ] } ]
+blocks 2g [ [ 1 ], [ 6 ], [ 11 ] ]
+radar true false true false
+reason shared "shared"
+reason all used, further "shared"
+reason all used, not far enough null
+reason better "better"
+reason not by the margin null
+reason start "start"
+reason interference "interference"
+reason busy, nowhere better null
+reason free to shared null
+reason same block null
+first worse true
+first alike false true
+window [ 120, 300 ] [ 1350, 255 ] [ 489, 540 ] null
+in window true false true true false true false
+switch 2g 6 { "freq": 2437, "center_freq1": 2437, "bandwidth": 20, "sec_channel_offset": 0, "ht": true, "vht": false, "he": false, "bcn_count": 10 }
+switch 2g 11 he { "freq": 2462, "center_freq1": 2462, "bandwidth": 20, "sec_channel_offset": 0, "ht": true, "vht": false, "he": true, "bcn_count": 10 }
+switch 2g 11 40 { "freq": 2462, "center_freq1": 2452, "bandwidth": 40, "sec_channel_offset": -1, "ht": true, "vht": false, "he": false, "bcn_count": 10 }
+switch 5g 36 he40 { "freq": 5180, "center_freq1": 5190, "bandwidth": 40, "sec_channel_offset": 1, "ht": true, "vht": true, "he": true, "bcn_count": 10 }
+switch 5g 40 vht40 { "freq": 5200, "center_freq1": 5190, "bandwidth": 40, "sec_channel_offset": -1, "ht": true, "vht": true, "he": false, "bcn_count": 10 }
+switch 5g 157 vht80 { "freq": 5785, "center_freq1": 5775, "bandwidth": 80, "sec_channel_offset": 1, "ht": true, "vht": true, "he": false, "bcn_count": 10 }
+switch 5g 161 vht80 { "freq": 5805, "center_freq1": 5775, "bandwidth": 80, "sec_channel_offset": -1, "ht": true, "vht": true, "he": false, "bcn_count": 10 }
+switch 5g 165 40 null
+switch 5g 36 legacy { "freq": 5180, "center_freq1": 5180, "bandwidth": 20, "sec_channel_offset": 0, "ht": false, "vht": false, "he": false, "bcn_count": 10 }
