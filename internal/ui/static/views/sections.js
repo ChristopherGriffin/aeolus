@@ -19,22 +19,26 @@ export async function configs(aps) {
 	return aps.map((a, i) => ({ ap: a, cfg: all[i].status === 'fulfilled' ? all[i].value : null }));
 }
 
-// channelsSection lists each AP's radios as it last reported them, on a
-// folder's APs tab (0075): the channel each is on, its width and clients,
+// channelsSection lists each AP below a folder on its APs tab (0075): its
+// state, such as In sync (status, by AP ID, from the fleet), and its radios
+// as it last reported them: the channel each is on, its width and clients,
 // beside what Aeolus sets. With automatic channels each AP picks its own
 // (0045), within the band's channel set.
-export function channelsSection(ctx, rows) {
+export function channelsSection(ctx, rows, status) {
 	if (!rows.length) return h('div', { class: 'banner info' }, 'No APs here yet.');
 	const lines = rows.flatMap(({ ap, cfg }) => {
 		const rep = cfg?.condition?.state;
 		const radios = rep?.report?.radios || [];
 		const apLink = link(`/aps/${encodeURIComponent(ap.id)}`, ap.name);
-		if (!radios.length) return [h('tr', null, h('td', null, apLink), h('td', { colspan: 6, class: 'sub' }, cfg ? 'No report yet.' : 'You cannot see this AP.'))];
+		const st = status?.get(ap.id);
+		const state = st && h('span', { class: 'chip ' + st.chip, title: st.detail }, st.label);
+		if (!radios.length) return [h('tr', null, h('td', null, apLink), h('td', null, state), h('td', { colspan: 6, class: 'sub' }, cfg ? 'No report yet.' : 'You cannot see this AP.'))];
 		return radios.map((r, i) => {
 			const path = `radio.${r.band}.channel`;
 			const set = cfg.location?.[path];
 			return h('tr', null,
 				h('td', null, i === 0 && apLink),
+				h('td', null, i === 0 && state),
 				h('td', null, bandName(r.band)),
 				h('td', { class: 'mono' }, r.channel || 'starting'),
 				h('td', { class: 'mono' }, r.width ? r.width + ' MHz' : '—'),
@@ -44,9 +48,9 @@ export function channelsSection(ctx, rows) {
 		});
 	});
 	return h('section', { class: 'panel' },
-		h('h2', null, 'Radios now', h('span', { class: 'note' }, 'as each AP last reported')),
+		h('h2', null, 'APs', h('span', { class: 'note' }, 'radios as each last reported')),
 		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
+			h('tr', null, ['AP', 'State', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
 			lines));
 }
 

@@ -58,7 +58,7 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		tab = pick(TABS, tab);
 		main.push(tabBar(base, TABS, tab));
 		if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, null, editing(ctx, tree, page)));
-		else if (tab === 'aps') main.push(channelsSection(ctx, await configs(page.hardware?.aps || [])));
+		else if (tab === 'aps') main.push(channelsSection(ctx, await configs([...(page.hardware?.aps || []), ...(page.hardware?.unknown || [])]), status));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 		else if (tab === 'clients') main.push(await clientsTab(ctx, page, null));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
@@ -68,7 +68,9 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		// A Services folder's networks' per-user keys (0070).
 		main.push(await keysSection(ctx, id, page));
 	}
-	main.push(inside(ctx, tree, t, id, status));
+	// A Locations folder's APs, with their state, are on its APs tab, and its
+	// folders in the tree beside it.
+	if (tree !== 'locations') main.push(inside(ctx, tree, t, id, status));
 	// Moving to another folder or AP in the tree keeps the tab, so folders
 	// can be compared side by side.
 	const keep = tree === 'locations' && !n.isolated ? keepPath(tab, sub, view) : '';
