@@ -39,8 +39,11 @@ export function input(path, f, current) {
 			regions.get(region).push(z);
 		}
 		const option = (z, label) => h('option', { value: z, selected: z === current }, label.replaceAll('_', ' '));
+		// A zone set before the list was, such as an alias, shows as it is.
+		const unlisted = typeof current === 'string' && !f.enum.includes(current);
 		el = h('select', null,
 			current === undefined && h('option', { value: '' }, '—'),
+			unlisted && h('option', { value: current, selected: true }, `${current} (not in the list)`),
 			[...regions].map(([region, zones]) => (region
 				? h('optgroup', { label: region }, zones.map((z) => option(z, z.slice(region.length + 1))))
 				: zones.map((z) => option(z, z)))));

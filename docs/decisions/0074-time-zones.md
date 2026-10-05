@@ -22,13 +22,15 @@
 - **Aeolus carries its own table of zones:** each IANA name, with its POSIX rule.
   - It's OpenWrt's own table, LuCI's `zoneinfo.uc` from luci-base 26.180, generated from tzdata, plus `UTC`.
   - It's one file in two places: the manager embeds `internal/schema/zones.uc`, and the agent ships `aeolus/zones.uc`. A test holds them byte for byte alike.
-- **The manager takes only a name from the table.** The schema marks `system.tz` with `x-aeolus-enum: zones`, and the manager fills in the list when it loads the schema. So a name outside it is refused, like any wrong value, and the schema's description gives the UI the list.
+- **The manager takes only a name from the table, when one is set.** The schema marks `system.tz` with `x-aeolus-enum: zones`. A change setting a name outside the table is refused, and the schema's description gives the UI the list.
+  - A name set before the list was, such as an alias like `US/Eastern`, stays as it was: a whole config is not checked against the list, so no AP's config is held for it. It renders as before: the name, with LuCI's rule if LuCI has one. Setting it again means picking from the list.
 - **The System editor offers it as a dropdown,** grouped by region as Linux lists zones: UTC first, then Africa, America and the rest, each zone by its city. It's set on any folder or AP, and inherits as before.
 - **The agent looks the rule up in its own table,** and in LuCI's only if its own is missing. So every AP renders the same rule for a name, LuCI or not.
-- **The render check holds the AP to both:** `zonename` is the name, and `timezone` the table's rule.
+- **The render check holds the AP to both:** `zonename` is the name, and `timezone` the table's rule, for a name in the table.
 
 ## Consequences
 
 - A zone set anywhere sets the clocks below it, on any AP, with no LuCI needed.
 - A rule change in tzdata reaches the APs with an Aeolus release, the table copied again from a newer luci-base.
 - The schema gets one marker, not 446 names: the list lives in the table.
+- No zone is set in the lab today, so none needs moving to the list.

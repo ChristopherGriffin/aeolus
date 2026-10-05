@@ -343,8 +343,17 @@ func TestZonesMatchTheAgents(t *testing.T) {
 	}
 	// The description gives the UI the list, for its dropdown.
 	tz := v1(t).Describe().Fields["system.tz"]
-	if list, _ := tz["enum"].([]any); len(list) != 446 || tz["x-aeolus-enum"] != "zones" {
+	if list, _ := tz["enum"].([]string); len(list) != 446 || tz["x-aeolus-enum"] != "zones" {
 		t.Errorf("system.tz is described with %d zones (%v)", len(list), tz["x-aeolus-enum"])
+	}
+	// A zone set before the list was, such as an alias, isn't refused in a
+	// document, so the AP's config isn't held for it; a new one is.
+	s := v1(t)
+	if err := s.CheckDocument(map[string]any{"system": map[string]any{"tz": "US/Eastern"}}); err != nil {
+		t.Errorf("a document with an old alias: %v", err)
+	}
+	if err := s.Check("system.tz", "US/Eastern"); !errors.Is(err, ErrNotListed) {
+		t.Errorf("setting the alias now: %v, want ErrNotListed", err)
 	}
 }
 

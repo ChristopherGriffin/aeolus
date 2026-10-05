@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -73,27 +74,17 @@ func ZoneRule(name string) (string, bool) {
 	return r, ok
 }
 
-// fill gives each field the schema marks x-aeolus-enum its list of values,
-// so the list is kept once, where it is used: "zones" is the time zones
-// (0074).
-func fill(node any) {
-	switch n := node.(type) {
-	case map[string]any:
-		if n["x-aeolus-enum"] == "zones" {
-			list := make([]any, 0, len(Zones()))
-			for _, z := range Zones() {
-				list = append(list, z)
-			}
-			n["enum"] = list
-		}
-		for _, v := range n {
-			fill(v)
-		}
-	case []any:
-		for _, v := range n {
-			fill(v)
-		}
+// listed is the list of values a field the schema marks x-aeolus-enum
+// takes, kept once, where it is used: "zones" is the time zones (0074).
+//
+// A new value must be one of them. A document is not checked against the
+// list: a value set before the list was, such as the alias US/Eastern, stays
+// as it was, so an AP's config isn't held for it.
+func listed(name any) []string {
+	if name == "zones" {
+		return Zones()
 	}
+	return nil
 }
 
 var (
@@ -103,6 +94,7 @@ var (
 	ErrWrongTree    = errors.New("field belongs to the other tree")
 	ErrPlainSecret  = errors.New("secret fields must be sealed before they are committed")
 	ErrNoKey        = errors.New("no secret key to seal this field with")
+	ErrNotListed    = errors.New("not one of the values Aeolus offers")
 )
 
 // FieldError is a problem with a field path or its value.
@@ -120,6 +112,7 @@ type Field struct {
 	Tree    change.TreeName
 	Secret  bool
 	pointer string
+	list    []string // the values it takes, where the schema marks x-aeolus-enum
 }
 
 // Schema is a compiled field list.
@@ -155,7 +148,6 @@ func Load(data []byte) (*Schema, error) {
 	if !ok {
 		return nil, errors.New("schema is not a JSON object")
 	}
-	fill(raw)
 	id, _ := raw["$id"].(string)
 	c := jsonschema.NewCompiler()
 	if err := c.AddResource(id, doc); err != nil {
@@ -207,6 +199,7 @@ func (s *Schema) Field(p hierarchy.Path) (Field, error) {
 	}
 	f.Secret = node["writeOnly"] == true
 	f.pointer = ptr
+	f.list = listed(node["x-aeolus-enum"])
 	return f, nil
 }
 
@@ -226,6 +219,9 @@ func (s *Schema) checkLeaf(f Field, v any) error {
 	}
 	if err := sch.Validate(v); err != nil {
 		return &FieldError{Path: f.Path, Err: tidy(err)}
+	}
+	if s, ok := v.(string); ok && f.list != nil && !slices.Contains(f.list, s) {
+		return &FieldError{Path: f.Path, Err: fmt.Errorf("%w: %q", ErrNotListed, s)}
 	}
 	return nil
 }
@@ -449,6 +445,10 @@ func (s *Schema) Describe() Description {
 			// follow a $ref: tagged VLANs are integers.
 			if items, ok := node["items"].(map[string]any); ok {
 				f["items"], _ = s.deref(items, "")
+			}
+			// A listed field's values, for a dropdown (0074).
+			if list := listed(node["x-aeolus-enum"]); list != nil {
+				f["enum"] = list
 			}
 			f["x-aeolus-tree"] = tree
 			d.Fields[prefix] = f
