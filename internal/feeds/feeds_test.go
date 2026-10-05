@@ -190,3 +190,30 @@ func TestReopened(t *testing.T) {
 		t.Fatalf("reopened: %q, upstream %d", body, u.count(pkg))
 	}
 }
+
+// An upstream that takes the connection and never answers is given up on
+// soon, and a kept copy is served (0069): offline, connections often go
+// unanswered rather than refused.
+func TestAnUpstreamThatNeverAnswers(t *testing.T) {
+	hang := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-hang:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(hang)
+	c, err := New(t.TempDir(), srv.URL+"/releases/", 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.client = client(time.Second, 200*time.Millisecond)
+	start := time.Now()
+	if code, _ := get(t, c, "GET", "/feeds/"+pkg); code != http.StatusBadGateway {
+		t.Fatalf("never fetched: %d", code)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took %v", d)
+	}
+}

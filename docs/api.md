@@ -71,7 +71,7 @@ Every AP request updates when it was last seen. An AP in Landing Zone can only p
 - **The first request for a file fetches it,** once however many ask at the same time, and keeps it.
 - **An index** (`*.adb`, `Packages*`, `sha256sums*`, `*.json`, `*.sig`, `*.asc`) is fetched again when it is more than a day old. If OpenWrt's server doesn't answer, the copy kept is served.
 - **Anything else never changes,** and is kept until the cache is full. Then the least recently used goes.
-- **What it doesn't have and can't fetch:** 502. What OpenWrt doesn't have: 404.
+- **What it doesn't have and can't fetch:** 502, once connecting has taken 10 seconds or an answer 30. What OpenWrt doesn't have: 404.
 
 `AEOLUS_FEED_CACHE` (default `feeds` beside the change log, `/var/lib/aeolus/feeds`) and `AEOLUS_FEED_CACHE_MB` (default 2048), or `-feed-cache` and `-feed-cache-mb`, place and size it; `off` turns it off.
 

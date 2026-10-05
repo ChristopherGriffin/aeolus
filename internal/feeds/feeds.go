@@ -16,6 +16,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -34,7 +35,12 @@ const Upstream = "https://downloads.openwrt.org/releases/"
 const (
 	IndexAge   = 24 * time.Hour // an index is fetched again when older, if the upstream answers
 	FetchLimit = 10 * time.Minute
-	maxFile    = 256 << 20 // a firmware image fits; nothing in the tree is bigger
+	// Without the internet, a connection often goes unanswered rather than
+	// refused, so these say soon that the upstream is not there; FetchLimit
+	// leaves a large file the time it needs once it is coming.
+	ConnectLimit = 10 * time.Second
+	AnswerLimit  = 30 * time.Second
+	maxFile      = 256 << 20 // a firmware image fits; nothing in the tree is bigger
 )
 
 // segment is one part of a path the cache answers: OpenWrt's tree uses
@@ -68,7 +74,7 @@ func New(dir, upstream string, max int64) (*Cache, error) {
 		return nil, err
 	}
 	c := &Cache{dir: dir, upstream: strings.TrimSuffix(upstream, "/") + "/", max: max,
-		client: &http.Client{Timeout: FetchLimit}, now: time.Now,
+		client: client(ConnectLimit, AnswerLimit), now: time.Now,
 		used: map[string]time.Time{}, sizes: map[string]int64{}, inflight: map[string]*fetch{}}
 	os.RemoveAll(filepath.Join(dir, ".tmp"))
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -86,6 +92,20 @@ func New(dir, upstream string, max int64) (*Cache, error) {
 		return nil
 	})
 	return c, err
+}
+
+func client(connect, answer time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: FetchLimit,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: connect, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   connect,
+			ResponseHeaderTimeout: answer,
+			MaxIdleConns:          8,
+			IdleConnTimeout:       90 * time.Second,
+		},
+	}
 }
 
 // clean is the cache path a request names, or false if it isn't one the

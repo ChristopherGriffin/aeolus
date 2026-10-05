@@ -124,7 +124,24 @@ Only two things go out, each when a person starts it:
     - the clamp files are unchanged.
   - **The package script,** on copies of its files: the feeds were moved and a second run changed nothing; a feed for another manager was moved; an older AP's packages were recorded; and a package that couldn't be installed left the restore due.
   - **The agent:** its read-only `state` showed `time` from the hook, with ntpd's two servers, `rutm50.symtus.com` and 10.0.1.253.
-- **The lab plan's live checks follow the release.**
+- **Live, with v0.36.0 on 2026-10-04:**
+  - **When the agent started:**
+    - it pointed OpenWrtnight's feeds at `https://192.168.20.60:8443/feeds/`;
+    - it put the manager's certificate in `/etc/ssl/certs`;
+    - it recorded the six packages.
+  - **The new renderer's first apply** changed only `aeolus` and `dhcp`. `rutm50.symtus.com` went into `rebind_domain`, and now resolves on the AP, to 10.0.1.253.
+  - **`apk update`** through the cache:
+    - the manager fetched the release's 8 indexes, 1.6 MB, once;
+    - a second update came from the cache, and `apk` accepted OpenWrt's signatures on them.
+  - **Packages:**
+    - `apk fetch usteer` fetched the package once, and a second fetch came from the cache. It was identical to the file straight from `downloads.openwrt.org`.
+    - `apk verify` says "UNTRUSTED signature" of both. OpenWrt's packages carry no signature of their own; `apk` checks them against the signed index.
+    - `tcpdump-mini` and its dependency installed through the cache, ran, and were removed.
+  - **With the manager's outbound HTTPS dropped** (a temporary nft table, since removed):
+    - `apk update` and the cached usteer came from the cache;
+    - a file never fetched would have waited out the connection, about two minutes. **Since v0.36.1**, the fetch gives up connecting after 10 seconds, and waits 30 for an answer.
+  - **`sysupgrade -l`** lists the agent's programs, its start link, the package script, the ntp hook and the certificate.
+  - **ntpd's hook**, after sysntpd restarted, wrote stratum 3 and an offset of −2 ms. ntpd was started with `rutm50.symtus.com` and 10.0.1.253.
 
 ## Not now
 
