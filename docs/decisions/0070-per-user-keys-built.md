@@ -101,7 +101,7 @@
   - It checks a passphrase given in plain text, opens the network's and the other keys' to refuse a repeat, and seals it. A sealed value handed in is refused.
   - `GET /v1/keys` lists a network's keys.
   - `GET /v1/ap/keys` works out the AP's set from its resolved networks: WPA2-PSK and on, from the key's folder or one below. Its version is a hash of the keys' sealed passphrases, VLANs and MACs and the SSIDs, so rotating a key, or one expiring, changes it.
-  - A held request looks again every second, up to 50 seconds.
+  - A held request looks again every second, up to 50 seconds. When the set changes while it is held, the answer waits until it has been still for 2 seconds, up to 10, so a paste of many keys reaches an AP as one reload, not one a key.
   - PSKs are kept in a cache, by sealed passphrase and SSID.
   - The AP's config view says how many keys it should have and their version, and its state report says which it has.
 - **The schema** adds `network.*.keys.vlans`, up to 512 VLANs. The render check covers it: for each VLAN, a bridge-vlan, an interface `aeolus_<net>_k<v>` on `<bridge>.<v>`, and a wifi-vlan `aeolus_<net>_kv<v>` with name `k<v>`, its VID, that interface, and the network's wifi-ifaces. A stray `aeolus_` wifi-vlan is refused.
@@ -114,14 +114,26 @@
   - If its sections change behind it, such as by a revert of the wireless config, it asks for the whole set again.
 - **MCP:** `list_keys`, and the key kinds in `make_change`.
 - **The UI:**
-  - A WPA2-PSK network's card has a "Per-user keys" line: how many, and the VLANs offered. It opens to the keys, with Rotate and Revoke, and a form to add one, for those who may edit.
+  - **A Services folder's page** has a "Per-user keys" panel for each WPA2-PSK network the folder offers: its keys, with Rotate and Revoke; a form to add one, with a passphrase generator; and "Add many", for those who may edit.
+    - **Add many:** paste one key a line, its name, passphrase (blank or `*` makes one) and VLAN, by commas or tabs. The keys it made are shown once with their passphrases, to hand out, and can be saved as a CSV file. The lines it couldn't add stay in the box, with the reasons.
+    - **Generated passphrases** are four groups of four letters and digits, without ones that look alike.
+  - **A network's card on a location's Networks tab** has a "Per-user keys" line: how many keys, and the VLANs offered. It opens to the keys and links to the folder's page.
   - The network's edit form has a "Per-user keys" section for `keys.vlans`.
   - The AP's status line says how many keys it should have, and warns when its key agent hasn't reported them yet.
 - **Checked:**
   - **Tests:** the change kinds, the strand guard and who may change keys; the API's checks, its list, delivery to an adopted AP, a held request answering when a key is rotated, removal, and that no passphrase reaches the change log.
   - **On OpenWrtnight:** the render case `keys` (with the existing goldens unchanged), the agent compiling, and probe.out.
   - **In the UI harness:** the panel listing, adding (with a made ID), and refusing a repeated passphrase; and the AP's status line.
-- **The phone test waits for the release,** on OfficeOpenWrt.
+- **The prober reads key VLANs too** (v0.37.1). A key's client is on its VLAN's own Wi-Fi interface, `<bss>-k<vlan>`, not the BSS's, so the prober finds those interfaces by name.
+  - It reads their stations, with the features from the BSS's hostapd.
+  - It reads what their clients say in DHCP, for their address and identity. The DHCP watch's findings (0065) stay with the network's own segment.
+  - A client's report says its `vlan`, and the Clients tab shows it under the network.
+- **Live, on 2026-10-05,** with v0.37.0 on both lab APs:
+  - **A key without a VLAN** (change 47, `lab-key-a` on `tedt`): it reached the pumphouse AP's key agent within the second it was made. hostapd updated both `tedt` BSSes' files with no drop, and the PSK was the one for its SSID.
+  - **Griff's phone on that key,** on OfficeOpenWrt: `tedt` at 5 GHz, Wi-Fi 6, 192.168.20.84 on VLAN 20.
+  - **VLAN 50 offered to `tedt`'s keys** (change 48): this restarted both APs' radios, as the lab check said. hostapd made `phy0-ap4-k50` and `phy1-ap4-k50` on the office AP, and netifd put them in `br-lan` as VLAN 50.
+  - **A key with VLAN 50** (change 49, `lab-key-b`): hostapd logged `AP-STA-CONNECTED 56:9e:48:9c:e8:20 vlanid=50`. The phone's MAC was on `phy1-ap4-k50` in VLAN 50, and the site's VLAN 50 DHCP server leased it 192.168.50.16.
+  - **The gap this showed:** the phone was missing from the Clients tab, since the prober read only the BSS interfaces. Fixed in v0.37.1, as above.
 
 ## Lab checks
 

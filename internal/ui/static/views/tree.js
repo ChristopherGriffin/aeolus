@@ -11,6 +11,7 @@ import { fieldPanels, editing } from './fields.js';
 import { apPage } from './ap.js';
 import { hardwareTab, systemSection } from './sections.js';
 import { networksTab } from './networks.js';
+import { keysSection } from './keys.js';
 import { interfacesTab } from './interfaces.js';
 import { clientsTab } from './clients.js';
 
@@ -63,6 +64,8 @@ export async function treePage(ctx, tree, id, tab, sub) {
 		if ((tab === 'hardware' && sub === 'channels') || tab === 'interfaces' || tab === 'clients') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
+		// A Services folder's networks' per-user keys (0070).
+		main.push(await keysSection(ctx, id, page));
 	}
 	main.push(inside(ctx, tree, t, id, status));
 	// Moving to another folder or AP in the tree keeps the tab, so folders

@@ -24,8 +24,14 @@ import (
 // holds its request open until its keys change.
 
 // keyWaitMax is the longest an AP's request for its keys is held, inside the
-// server's write timeout.
-const keyWaitMax = 50 * time.Second
+// server's write timeout. When its keys change while it is held, the answer
+// waits until they have been still for keySettle, up to keySettleMax, so a
+// burst of changes, such as many keys pasted at once, reaches the AP as one.
+const (
+	keyWaitMax   = 50 * time.Second
+	keySettle    = 2 * time.Second
+	keySettleMax = 10 * time.Second
+)
 
 // prepareKey readies an add-key or set-key: a new key gets an ID if it has
 // none, and a passphrase given in plain text is checked, found unlike the
@@ -223,10 +229,15 @@ func (s *Server) apKeys(w http.ResponseWriter, r *http.Request, c apCall) error 
 	}
 	have := strings.Trim(r.Header.Get("If-None-Match"), `"`)
 	deadline := time.Now().Add(wait)
+	held := false
 	for {
 		state := s.log.Snapshot()
 		refs, version := keyRefs(state, c.ap, time.Now())
 		if version != have {
+			if held {
+				version = s.settle(r, c.ap, version)
+				refs, version = keyRefs(s.log.Snapshot(), c.ap, time.Now())
+			}
 			return s.sendKeys(w, refs, version)
 		}
 		if !time.Now().Before(deadline) {
@@ -239,7 +250,27 @@ func (s *Server) apKeys(w http.ResponseWriter, r *http.Request, c apCall) error 
 			return nil
 		case <-time.After(time.Second):
 		}
+		held = true
 	}
+}
+
+// settle waits until an AP's key set has been still for keySettle, up to
+// keySettleMax, and returns its version then.
+func (s *Server) settle(r *http.Request, ap hierarchy.NodeID, version string) string {
+	until := time.Now().Add(keySettleMax)
+	for time.Now().Before(until) {
+		select {
+		case <-r.Context().Done():
+			return version
+		case <-time.After(keySettle):
+		}
+		_, now := keyRefs(s.log.Snapshot(), ap, time.Now())
+		if now == version {
+			return version
+		}
+		version = now
+	}
+	return version
 }
 
 func (s *Server) sendKeys(w http.ResponseWriter, refs map[string]apKeyNet, version string) error {
