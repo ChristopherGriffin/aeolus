@@ -1,8 +1,8 @@
 # 0075. Channel sets, and an APs tab
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-05
-- Proposed by: Griff: a folder's tabs gain an APs tab, holding what Interfaces › Radios › Channels shows now. Channels becomes where the channels an AP may go to are chosen: every real channel, shaded in the blocks the band's width makes, picked a block at a time, as sets the APs can jump to. Written up by Claude
+- Proposed by: Griff: a folder's tabs gain an APs tab, holding what Interfaces › Radios › Channels shows now. Channels becomes where the channels an AP may go to are chosen: every real channel, shaded in the blocks the band's width makes, picked a block at a time, as sets the APs can jump to. Written up by Claude, and accepted with the merge
 - Refines: 0045, 0071, 0072, 0073
 
 ## Context
