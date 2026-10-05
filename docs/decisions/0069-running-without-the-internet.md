@@ -139,7 +139,7 @@ Only two things go out, each when a person starts it:
     - `tcpdump-mini` and its dependency installed through the cache, ran, and were removed.
   - **With the manager's outbound HTTPS dropped** (a temporary nft table, since removed):
     - `apk update` and the cached usteer came from the cache;
-    - a file never fetched would have waited out the connection, about two minutes. **Since v0.36.1**, the fetch gives up connecting after 10 seconds, and waits 30 for an answer.
+    - a file never fetched would have waited out the connection, about two minutes. **Since v0.36.1**, the fetch gives up connecting after 10 seconds, and waits 30 for an answer. A deadline of 40 seconds covers everything up to the answer, a proxy's tunnel included, which the transport's own limits don't.
   - **`sysupgrade -l`** lists the agent's programs, its start link, the package script, the ntp hook and the certificate.
   - **ntpd's hook**, after sysntpd restarted, wrote stratum 3 and an offset of −2 ms. ntpd was started with `rutm50.symtus.com` and 10.0.1.253.
 

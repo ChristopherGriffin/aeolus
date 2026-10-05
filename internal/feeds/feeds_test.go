@@ -2,8 +2,10 @@ package feeds
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -208,10 +210,42 @@ func TestAnUpstreamThatNeverAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.client = client(time.Second, 200*time.Millisecond)
+	c.client, c.answerBy = client(time.Second, 200*time.Millisecond), time.Second
 	start := time.Now()
 	if code, _ := get(t, c, "GET", "/feeds/"+pkg); code != http.StatusBadGateway {
 		t.Fatalf("never fetched: %d", code)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took %v", d)
+	}
+}
+
+// A proxy that takes the connection and never answers the CONNECT is given
+// up on as soon: the transport's own limits don't cover the tunnel.
+func TestAProxyThatNeverAnswers(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close() // held open, never answered
+		}
+	}()
+	c, err := New(t.TempDir(), "https://downloads.invalid/releases/", 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.client, c.answerBy = client(time.Second, time.Second), 300*time.Millisecond
+	c.client.Transport.(*http.Transport).Proxy = http.ProxyURL(&url.URL{Scheme: "http", Host: ln.Addr().String()})
+	start := time.Now()
+	if code, _ := get(t, c, "GET", "/feeds/"+pkg); code != http.StatusBadGateway {
+		t.Fatalf("through a silent proxy: %d", code)
 	}
 	if d := time.Since(start); d > 5*time.Second {
 		t.Fatalf("took %v", d)

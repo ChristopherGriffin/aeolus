@@ -53,6 +53,7 @@ type Cache struct {
 	upstream string
 	max      int64
 	client   *http.Client
+	answerBy time.Duration // from asking to the answer's first line, a proxy's tunnel included
 	now      func() time.Time
 
 	mu       sync.Mutex
@@ -74,7 +75,7 @@ func New(dir, upstream string, max int64) (*Cache, error) {
 		return nil, err
 	}
 	c := &Cache{dir: dir, upstream: strings.TrimSuffix(upstream, "/") + "/", max: max,
-		client: client(ConnectLimit, AnswerLimit), now: time.Now,
+		client: client(ConnectLimit, AnswerLimit), answerBy: ConnectLimit + AnswerLimit, now: time.Now,
 		used: map[string]time.Time{}, sizes: map[string]int64{}, inflight: map[string]*fetch{}}
 	os.RemoveAll(filepath.Join(dir, ".tmp"))
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -214,7 +215,21 @@ func (c *Cache) fetch(ctx context.Context, p string) error {
 }
 
 func (c *Cache) get(p string) error {
-	resp, err := c.client.Get(c.upstream + p)
+	// The transport's limits don't cover a proxy's CONNECT, so a deadline
+	// covers everything up to the answer's first line; FetchLimit, the body.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	late := time.AfterFunc(c.answerBy, cancel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.upstream+p, nil)
+	if err != nil {
+		late.Stop()
+		return err
+	}
+	resp, err := c.client.Do(req)
+	if !late.Stop() && err == nil {
+		resp.Body.Close()
+		err = fmt.Errorf("no answer within %v", c.answerBy)
+	}
 	if err != nil {
 		return err
 	}
