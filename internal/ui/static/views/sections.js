@@ -35,7 +35,7 @@ export function channelsSection(ctx, rows, status, canEdit) {
 		const radios = rep?.report?.radios || [];
 		const apLink = [link(`/aps/${encodeURIComponent(ap.id)}`, ap.name),
 			canEdit && renameButton(ctx, 'locations', { id: ap.id, name: ap.name, kind: 'ap' }, box),
-			canEdit && moveButton(ctx, ap, box)];
+			canEdit && moveButton(ctx, 'locations', { id: ap.id, name: ap.name, kind: 'ap' }, box)];
 		const st = status?.get(ap.id);
 		const state = st && h('span', { class: 'chip ' + st.chip, title: st.detail }, st.label);
 		if (!radios.length) return [h('tr', null, h('td', null, apLink), h('td', null, state), h('td', { colspan: 6, class: 'sub' }, cfg ? 'No report yet.' : 'You cannot see this AP.'))];

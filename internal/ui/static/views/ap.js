@@ -46,7 +46,7 @@ export async function apPage(ctx, id, tab, sub, view) {
 			h('div', null,
 				h('h1', null, page.node.name,
 					edit && renameButton(ctx, 'locations', { id, name: page.node.name, kind: 'ap' }, nameBox, 'rename head'),
-					edit && moveButton(ctx, { id, name: page.node.name }, nameBox, 'rename head')),
+					edit && moveButton(ctx, 'locations', { id, name: page.node.name, kind: 'ap' }, nameBox, 'rename head')),
 				h('div', { class: 'sub' }, ['AP', facts.model, cond.seen?.source].filter(Boolean).join(' · '))),
 			edit && own.length > 0 && followButton(ctx, 'locations', id, page.node.name, edit.parentName, own, revertBox,
 				`Revert to ${edit.parentName} (${own.length} custom setting${own.length === 1 ? '' : 's'})`)),
