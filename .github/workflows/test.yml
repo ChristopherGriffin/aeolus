@@ -59,17 +59,18 @@ jobs:
           go-version-file: go.mod
       # The agent's renderer is tested against the manager's check (0040):
       # build ucode as OpenWrt 25.12 ships it (the version on PumphouseAP),
-      # with only the modules the renderer and its test use. The build is
-      # kept by its commit, so it is made once.
+      # with only the modules the renderer and its tests use: fs, and digest
+      # for radio resource management's HMAC (0073). The build is kept by its
+      # commit and those modules, so it is made once.
       - name: ucode's build, kept
         id: ucode-cache
         uses: actions/cache@v4
         with:
           path: ~/.ucode
-          key: ucode-${{ runner.os }}-${{ env.UCODE_COMMIT }}-v1
+          key: ucode-${{ runner.os }}-${{ env.UCODE_COMMIT }}-v2
       - name: ucode
         run: |
-          sudo apt-get install -y --no-install-recommends cmake libjson-c-dev
+          sudo apt-get install -y --no-install-recommends cmake libjson-c-dev libmd-dev
           if [ "${{ steps.ucode-cache.outputs.cache-hit }}" != "true" ]; then
             git clone --filter=blob:none https://github.com/jow-/ucode.git /tmp/ucode
             git -C /tmp/ucode checkout "$UCODE_COMMIT"
@@ -77,7 +78,7 @@ jobs:
               -DFS_SUPPORT=ON -DMATH_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF \
               -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF \
               -DULOOP_SUPPORT=OFF -DLOG_SUPPORT=OFF -DSOCKET_SUPPORT=OFF -DZLIB_SUPPORT=OFF \
-              -DDIGEST_SUPPORT=OFF -DDEBUG_SUPPORT=OFF
+              -DDIGEST_SUPPORT=ON -DDEBUG_SUPPORT=OFF
             cmake --build /tmp/ucode/build -j
             cmake --install /tmp/ucode/build
           fi
