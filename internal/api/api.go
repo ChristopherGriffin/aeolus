@@ -27,6 +27,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/dhcpwatch"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/keys"
 	"github.com/ChristopherGriffin/aeolus/internal/library"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 	"github.com/ChristopherGriffin/aeolus/internal/secret"
@@ -39,6 +40,7 @@ type Server struct {
 	box    *secret.Box
 	conds  *conditions.Store
 	watch  *dhcpwatch.Book // what the manager's DHCP listeners hear (0068); nil if none
+	psks   pskCache        // per-user keys' PSKs, worked out (0070)
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
@@ -74,6 +76,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/schema", s.auth(s.describe))
 	mux.Handle("GET /v1/dhcp/relayed", s.auth(s.relayed))
 	mux.Handle("GET /v1/detected", s.auth(s.detected))
+	mux.Handle("GET /v1/keys", s.auth(s.keyList))
 	mux.Handle("POST /v1/changes", s.auth(s.commit))
 	mux.Handle("POST /v1/preview", s.auth(s.preview))
 	mux.Handle("POST /v1/tokens", s.auth(s.issueToken))
@@ -85,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/ap/render", s.apAuth(s.render))
 	mux.Handle("POST /v1/ap/applied", s.apAuth(s.applied))
 	mux.Handle("POST /v1/ap/state", s.apAuth(s.state))
+	mux.Handle("GET /v1/ap/keys", s.apAuth(s.apKeys))
 	return mux
 }
 
@@ -157,8 +161,12 @@ func status(err error) int {
 	case errors.Is(err, hierarchy.ErrNotFound), errors.Is(err, access.ErrNoAccount),
 		errors.Is(err, access.ErrNoToken), errors.Is(err, access.ErrNoGrant):
 		return http.StatusNotFound
-	case errors.Is(err, library.ErrNoConcentrator), errors.Is(err, library.ErrNoVNI):
+	case errors.Is(err, library.ErrNoConcentrator), errors.Is(err, library.ErrNoVNI), errors.Is(err, keys.ErrNoKey):
 		return http.StatusNotFound
+	case errors.Is(err, change.ErrBadKey):
+		return http.StatusBadRequest
+	case errors.Is(err, keys.ErrKeyExists), errors.Is(err, keys.ErrTooMany):
+		return http.StatusConflict
 	case errors.As(err, &le), errors.As(err, &be), errors.As(err, &ce), errors.Is(err, change.ErrInUse),
 		errors.Is(err, hierarchy.ErrExists), errors.Is(err, access.ErrExists), errors.Is(err, access.ErrRevoked):
 		return http.StatusConflict
