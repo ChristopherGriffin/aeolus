@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -210,10 +211,22 @@ func (s *Server) apPoll(w http.ResponseWriter, r *http.Request, c apCall) error 
 		out["state"], out["problems"] = "held", res.Problems
 	default:
 		out["state"], out["config"] = "ready", res.Doc
+		// The key the APs sign their hellos to each other with, while radio
+		// resource management is on (0073). It is the same for every AP, and
+		// comes beside the config, so it versions nothing.
+		if rrmOn(res.Doc) {
+			out["rrm"] = map[string]any{"key": hex.EncodeToString(s.box.Derive("rrm"))}
+		}
 		w.Header().Set("ETag", etag)
 	}
 	writeJSON(w, http.StatusOK, out)
 	return nil
+}
+
+// rrmOn says whether a config turns radio resource management on (0073).
+func rrmOn(doc map[string]any) bool {
+	r, _ := doc["rrm"].(map[string]any)
+	return r["enabled"] == true
 }
 
 // matches reports whether an If-None-Match header names the ETag.

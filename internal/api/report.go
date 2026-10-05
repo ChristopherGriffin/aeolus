@@ -202,6 +202,79 @@ type stateReport struct {
 	Time *timeState `json:"time,omitempty"`
 	// The per-user keys it has (0070): their version, and how many.
 	Keys *keysState `json:"keys,omitempty"`
+	// What its radio resource management found (0073).
+	RRM *rrmState `json:"rrm,omitempty"`
+}
+
+// rrmState is what the AP's radio resource management found (0073): its
+// management address, where its neighbours reach it; the bands its beacons
+// say it is an Aeolus AP on; and the other Aeolus APs it hears in the air or
+// keeps neighbours with over the wire.
+type rrmState struct {
+	Address    string         `json:"address"`
+	Advertised []string       `json:"advertised"`
+	Neighbours []rrmNeighbour `json:"neighbours"`
+}
+
+// rrmNeighbour is one other Aeolus AP: its ID and management address; up
+// when hellos go both ways, one-way when its hellos come but don't list this
+// AP, heard when it is only heard in the air, down when its hellos stopped;
+// whether it is among the three this AP hears most strongly on a band;
+// seconds since its last hello; and on each band, how strongly each hears
+// the other, and its channel and width there, as its hellos say.
+type rrmNeighbour struct {
+	AP       string    `json:"ap"`
+	Address  string    `json:"address"`
+	State    string    `json:"state"`
+	Chosen   bool      `json:"chosen"`
+	HelloAgo *int64    `json:"hello_ago"`
+	Bands    []rrmBand `json:"bands"`
+}
+
+type rrmBand struct {
+	Band        string `json:"band"`
+	Signal      *int   `json:"signal"`
+	TheirSignal *int   `json:"their_signal"`
+	Channel     *int   `json:"channel"`
+	Width       *int   `json:"width"`
+}
+
+var (
+	apIDRE    = regexp.MustCompile(`^ap-[0-9a-f]{12}$`)
+	rrmStates = map[string]bool{"up": true, "one-way": true, "heard": true, "down": true}
+	rrmWidths = map[int]bool{0: true, 20: true, 40: true, 80: true, 160: true, 320: true}
+)
+
+func (r *rrmState) check() error {
+	if r == nil {
+		return nil
+	}
+	bad := badRequest("rrm: an address, at most 3 bands, and at most 64 neighbours, each an AP ID with its address, state, and on each band a signal from -127 to 0 dBm, a channel and a width")
+	if (r.Address != "" && net.ParseIP(r.Address) == nil) || len(r.Advertised) > 3 || len(r.Neighbours) > 64 {
+		return bad
+	}
+	for _, b := range r.Advertised {
+		if !bands[b] {
+			return bad
+		}
+	}
+	for _, n := range r.Neighbours {
+		if !apIDRE.MatchString(n.AP) || (n.Address != "" && net.ParseIP(n.Address) == nil) || !rrmStates[n.State] ||
+			(n.HelloAgo != nil && *n.HelloAgo < 0) || len(n.Bands) > 3 {
+			return bad
+		}
+		for _, b := range n.Bands {
+			if !bands[b.Band] || !dbm(b.Signal) || !dbm(b.TheirSignal) ||
+				(b.Channel != nil && (*b.Channel < 0 || *b.Channel > 233)) || (b.Width != nil && !rrmWidths[*b.Width]) {
+				return bad
+			}
+		}
+	}
+	return nil
+}
+
+func dbm(v *int) bool {
+	return v == nil || (*v >= -127 && *v <= 0)
 }
 
 type keysState struct {
@@ -779,6 +852,9 @@ func (st *stateReport) check() error {
 		return err
 	}
 	if err := st.Keys.check(); err != nil {
+		return err
+	}
+	if err := st.RRM.check(); err != nil {
 		return err
 	}
 	if err := plainText("openwrt", st.OpenWrt, maxText); err != nil {

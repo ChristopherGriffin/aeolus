@@ -108,12 +108,13 @@ jobs:
       - name: go test
         if: env.CODE == 'true'
         run: go test -race -cover ./...
-      - name: the agent renders its expected output, and builds the prober's frames
+      - name: the agent renders its expected output, builds the prober's frames, and works out RRM's
         if: env.CODE == 'true'
         run: |
           go test -count=1 -v -run 'Agent' ./internal/rendercheck/ | tee /tmp/agent.log
           grep -q -- '--- PASS: TestAgentRendersItsOutput' /tmp/agent.log
           grep -q -- '--- PASS: TestAgentProbeFrames' /tmp/agent.log
+          grep -q -- '--- PASS: TestAgentRRM' /tmp/agent.log
       # Keep the later port to APs possible (0019): the manager must still
       # build for AP hardware.
       - name: the manager builds for AP hardware

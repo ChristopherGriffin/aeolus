@@ -9,10 +9,12 @@ The program that runs on each AP (0040). It's written in ucode and needs nothing
 | `files/usr/share/ucode/aeolus/uciexport.uc` | Writes packages as `uci export` text. The same text is checked and then applied. |
 | `files/usr/sbin/aeolus-prober` | The prober (0059): it probes each tunnel's segment and its concentrator, which keeps the tunnel open too, and guards tunnel ports against loops. Its plan is the agent's UCI package, as the renderer made it. |
 | `files/usr/share/ucode/aeolus/probe.uc` | The prober's frames, kernel filters and verdicts: pure, so they are tested anywhere. |
-| `files/etc/init.d/aeolus` | procd service: the agent, and the prober where ucode-mod-socket is installed. |
+| `files/usr/sbin/aeolus-rrm` | Radio resource management (0073): it marks the AP's beacons as an Aeolus AP's, listens on its channels for the others, and exchanges signed hellos with its radio neighbours over the wire. It stays idle until Aeolus turns it on. |
+| `files/usr/share/ucode/aeolus/rrm.uc` | Its advert, HMAC-SHA256, hellos and choice of neighbours: pure, so they are tested anywhere. |
+| `files/etc/init.d/aeolus` | procd service: the agent, its key agent, the prober where ucode-mod-socket is installed, and radio resource management where ucode's nl80211, digest and socket modules are. |
 | `files/lib/upgrade/keep.d/aeolus` | Keeps the token, the certificate and the settings across a sysupgrade. |
 | `install.sh` | Installs everything on an AP. |
-| `test/` | Test cases for the renderer: an intent, the config it starts from, and the UCI it must produce (`cases/*.uci`); and `probe.uc`, which prints the prober's frames and verdicts, with `probe.out`, what it must print. |
+| `test/` | Test cases for the renderer: an intent, the config it starts from, and the UCI it must produce (`cases/*.uci`); `probe.uc`, which prints the prober's frames and verdicts, with `probe.out`, what it must print; and `rrm.uc` and `rrm.out`, the same for radio resource management. |
 
 ## Install
 

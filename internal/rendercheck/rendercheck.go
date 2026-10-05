@@ -92,6 +92,8 @@ var Coverage = map[string]string{
 	"concentrators.*.mtu":            "",
 	"concentrators.*.probe_interval": "",
 	"concentrators.*.underlay_vlan":  "",
+
+	"rrm.enabled": "",
 }
 
 const layout = "depends on the device's port layout; checked with the agent in M5"
@@ -189,6 +191,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.snmp(obj(obj(doc, "system"), "snmp"))
 	k.ports(obj(doc, "ports"), obj(doc, "concentrators"))
 	k.probes(doc)
+	k.rrm(obj(doc, "rrm"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -302,6 +305,28 @@ func (k *checker) dfs(where string, r device, v string) {
 	}
 	if radio.Radar(r.band, ch, w) {
 		k.add("%s: channel %d at %d MHz uses DFS channels, but radio.%s.dfs is avoid", where, ch, w, r.band)
+	}
+}
+
+// rrm checks radio resource management (0073): on, the agent's package has
+// the daemon's section, which names the AP it advertises; otherwise there
+// is none, and the daemon stays idle.
+func (k *checker) rrm(set map[string]any) {
+	const where = "aeolus.aeolus_rrm"
+	s := k.c.Package("aeolus").Named("aeolus_rrm")
+	if set["enabled"] != true {
+		if s != nil {
+			k.add("%s: radio resource management is not on, but its section is there", where)
+		}
+		return
+	}
+	if s == nil || s.Type != "rrm" {
+		k.add("%s: radio resource management is on, but its section is missing", where)
+		return
+	}
+	k.option(where, s, "enabled", "1")
+	if k.ap != "" {
+		k.option(where, s, "ap", k.ap)
 	}
 }
 
@@ -1385,6 +1410,7 @@ func (k *checker) probes(doc map[string]any) {
 	for _, name := range k.watches(doc, uplink) {
 		expected[name] = true
 	}
+	expected["aeolus_rrm"] = true // radio resource management's, which k.rrm judges (0073)
 	if a != nil {
 		for _, s := range a.Sections {
 			if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {

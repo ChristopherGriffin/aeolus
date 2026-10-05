@@ -168,7 +168,7 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 func TestAgentCallsOnlyWhatIsDeclaredAbove(t *testing.T) {
 	decl := regexp.MustCompile(`^(?:export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	call := regexp.MustCompile(`(^|[^A-Za-z0-9_.$])([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober"}
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm"}
 	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
 	for _, m := range mods {
 		rel, _ := filepath.Rel(agentDir, m)
@@ -271,5 +271,33 @@ func TestAgentProbeFrames(t *testing.T) {
 	}
 	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
 		t.Errorf("the prober's frames are not what probe.out says:\n%s", out)
+	}
+}
+
+// Radio resource management's pure parts (0073), as the agent's own ucode
+// works them out: agent/test/rrm.uc prints them, and rrm.out is what it must
+// print. Its HMACs are RFC 4231's, or worked out with Python's hmac.
+func TestAgentRRM(t *testing.T) {
+	ucode, err := exec.LookPath("ucode")
+	if err != nil {
+		t.Skip("ucode is not installed; CI builds it (0040)")
+	}
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", "rrm.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "rrm.uc"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Errorf("radio resource management works out other than rrm.out says:\n%s", out)
 	}
 }

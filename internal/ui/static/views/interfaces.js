@@ -1,6 +1,6 @@
 // The Interfaces tab of a Locations folder or AP (0053, 0072): its APs'
-// radios, Ethernet ports and tunnels. Radios has the band cards and the
-// channels each AP picked (0047). Ethernet has the ports of its APs, as each
+// radios, Ethernet ports and tunnels. Radios has the band cards, the
+// channels each AP picked (0047), and its radio neighbours (0073). Ethernet has the ports of its APs, as each
 // last reported them, and what Aeolus sets for each
 // port, with an editor built from the schema. A port is set by name, so a
 // folder's setting for lan2 reaches every AP below with a lan2. The uplink
@@ -17,14 +17,16 @@ import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY, uplinkJud
 import { tabBar, pick } from '../layout.js';
 import { configs, channelsSection } from './sections.js';
 import { radiosSection } from './hardware.js';
+import { neighboursSection } from './neighbours.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
 import { tunnelsAt, tunnelName } from './networks.js';
 
 const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
-// Radios has two views: the band cards, and the channels each AP picked.
-const RADIOS = [['bands', 'Bands'], ['channels', 'Channels']];
+// Radios' views: the band cards, the channels each AP picked, and the
+// other Aeolus APs each hears (0073).
+const RADIOS = [['bands', 'Bands'], ['channels', 'Channels'], ['neighbours', 'Neighbours']];
 
 // The port fields offered, in order. LACP and its bond are not applied yet,
 // and the uplink is the agent's own setting.
@@ -54,9 +56,14 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 	const bar = tabBar(`${base}/interfaces`, INTERFACES, sub, true);
 	if (sub === 'radios') {
 		view = pick(RADIOS, view);
-		const body = view === 'channels'
-			? channelsSection(ctx, ap ? [ap] : await configs(page.hardware?.aps || []))
-			: radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state);
+		const rows = () => (ap ? [ap] : configs(page.hardware?.aps || []));
+		let body;
+		if (view === 'channels') body = channelsSection(ctx, await rows());
+		else if (view === 'neighbours') {
+			const at = { node: id, nodeName: page.node.name, page, canEdit: !!edit,
+				parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null };
+			body = neighboursSection(ctx, at, await rows());
+		} else body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state);
 		return [bar, tabBar(`${base}/interfaces/radios`, RADIOS, view, 'minor'), body];
 	}
 	const body = sub === 'tunnels' ? await tunnels(ctx, id, page, ap, edit) : await ethernet(ctx, id, page, ap, edit);
@@ -66,7 +73,7 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 // interfacesLive says whether a part of the Interfaces tab shows what the
 // APs report, and so is drawn again every 30 seconds: all but the band cards.
 export function interfacesLive(sub, view) {
-	return pick(INTERFACES, sub) !== 'radios' || pick(RADIOS, view) === 'channels';
+	return pick(INTERFACES, sub) !== 'radios' || pick(RADIOS, view) !== 'bands';
 }
 
 // tunnels shows the tunnels set here, each with its editor, and a way to add

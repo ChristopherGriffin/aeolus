@@ -1220,6 +1220,39 @@ config wifi-device 'b'
 	}
 }
 
+// Radio resource management on puts the daemon's section in the agent's
+// package, naming the AP; off, there is none (0073).
+func TestRRM(t *testing.T) {
+	check := func(on bool, text string) string {
+		t.Helper()
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(fmt.Sprintf(`{"rrm": {"enabled": %v}}`, on)), &doc); err != nil {
+			t.Fatal(err)
+		}
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(CheckAP(doc, c, "ap-a0046021365e"), "\n")
+	}
+	section := "package aeolus\nconfig rrm 'aeolus_rrm'\n\toption enabled '1'\n\toption ap 'ap-a0046021365e'\n"
+	if got := check(true, section); strings.Contains(got, "aeolus_rrm") {
+		t.Errorf("on, with its section: %s", got)
+	}
+	if got := check(true, "package aeolus\n"); !strings.Contains(got, "aeolus.aeolus_rrm: radio resource management is on, but its section is missing") {
+		t.Errorf("on, without: %s", got)
+	}
+	if got := check(true, strings.Replace(section, "a0046021365e", "2005b6018be0", 1)); !strings.Contains(got, `aeolus.aeolus_rrm: ap is "ap-2005b6018be0", want "ap-a0046021365e"`) {
+		t.Errorf("another AP's: %s", got)
+	}
+	if got := check(false, section); !strings.Contains(got, "aeolus.aeolus_rrm: radio resource management is not on, but its section is there") {
+		t.Errorf("off, with its section: %s", got)
+	}
+	if got := check(false, "package aeolus\n"); strings.Contains(got, "aeolus_rrm") {
+		t.Errorf("off, without: %s", got)
+	}
+}
+
 // Every schema field is either checked or deferred with a reason, and every
 // entry names a real field (0039).
 func TestCoverageMatchesTheSchema(t *testing.T) {

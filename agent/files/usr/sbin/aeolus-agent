@@ -39,6 +39,8 @@ const PACKAGES_DONE = '/usr/lib/aeolus/packages';      // gone after a sysupgrad
 const RESTORE_EVERY = 3600;   // seconds between tries to install them again
 const TIME = '/var/run/aeolus/time.json';   // ntpd's word on the clock, from its hotplug (0069)
 const KEYS_VERSION = DIR + '/keys.version';  // the per-user keys the AP has (0070)
+const RRM_KEY = DIR + '/rrm.key';   // the key radio neighbours sign their hellos with (0073)
+const RRM = '/var/run/aeolus/rrm.json';   // what radio resource management found (0073)
 const KEYS_WAIT = 40;      // seconds the manager may hold a request for keys
 
 let bus = connect();
@@ -229,9 +231,11 @@ function write_clamp(network, aeolus) {
 
 // wake_prober has the prober read its plan now rather than within 10
 // seconds: a network with a fallback has no transport until the prober
-// attaches one (0061). A SIGHUP is the same number on every architecture.
+// attaches one (0061). Radio resource management takes up its settings too
+// (0073). A SIGHUP is the same number on every architecture.
 function wake_prober() {
-	bus.call('service', 'signal', { name: 'aeolus', instance: 'prober', signal: 1 });
+	for (let i in ['prober', 'rrm'])
+		bus.call('service', 'signal', { name: 'aeolus', instance: i, signal: 1 });
 }
 
 function macs() {
@@ -452,6 +456,21 @@ function recover(token) {
 	}
 	revert(pending);
 	report_applied(pending.version, pending.hash, false, 'lost the manager after applying; reverted', token);
+}
+
+// keep_rrm_key keeps the key radio neighbours sign their hellos with
+// (0073), readable by root alone, while the manager sends it beside the
+// config; without it, radio resource management stays off. A new key is
+// kept before its config is applied. It goes only once a config without it
+// runs: one that is refused or reverted leaves the AP on a config that
+// still needs the key.
+function keep_rrm_key(poll) {
+	let key = poll.rrm?.key;
+	if (type(key) == 'string' && match(key, /^[0-9a-f]{64}$/)) {
+		if (read(RRM_KEY) != key)
+			store(RRM_KEY, key + '\n', 384);
+	} else if (running_version() == poll.version && fs.access(RRM_KEY))
+		fs.unlink(RRM_KEY);
 }
 
 // Each exact render is checked and applied at most once per run, so a
@@ -752,6 +771,19 @@ function time_state() {
 	};
 }
 
+// rrm_state reads what radio resource management found (0073), while it is
+// on and its results are recent.
+function rrm_state() {
+	let r = null;
+	try {
+		r = json(read(RRM) ?? 'null');
+	} catch (e) {
+	}
+	if (r?.on != true || type(r.at) != 'int' || time() - r.at > PROBES_STALE)
+		return null;
+	return { address: r.address ?? '', advertised: r.advertised ?? [], neighbours: r.neighbours ?? [] };
+}
+
 // state_report is what the AP tells the manager about itself (0039).
 function state_report(running) {
 	let b = bus.call('system', 'board') ?? {};
@@ -814,6 +846,10 @@ function state_report(running) {
 	if (have)
 		report.keys = { version: have, count: length(filter(values(cursor().get_all('wireless') ?? {}),
 			s => s['.type'] == 'wifi-station' && index(s['.name'], 'aeolus_key_') == 0)) };
+	// Its radio neighbours (0073).
+	let rr = rrm_state();
+	if (rr)
+		report.rrm = rr;
 	return report;
 }
 
@@ -976,7 +1012,9 @@ function main() {
 			let state = r.json?.state;
 			assigned = state != 'unassigned';
 			if (state == 'ready') {
+				keep_rrm_key(r.json);
 				converge(r.json, token);
+				keep_rrm_key(r.json);
 				let now = running_version();
 				if (now != running) {
 					running = now;
