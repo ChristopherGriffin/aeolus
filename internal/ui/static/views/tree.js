@@ -12,6 +12,7 @@ import { apPage } from './ap.js';
 import { systemSection, configs, channelsSection } from './sections.js';
 import { renameButton } from './rename.js';
 import { moveButton } from './move.js';
+import { newFolderButton } from './newfolder.js';
 import { networksTab } from './networks.js';
 import { keysSection } from './keys.js';
 import { interfacesTab, interfacesLive } from './interfaces.js';
@@ -47,7 +48,8 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 			h('div', null,
 				h('h1', null, n.name, n.broken && h('span', { class: 'chip break' }, 'Break Hierarchy'),
 					editing(ctx, tree, page) && renameButton(ctx, tree, { id, name: n.name, kind: n.kind }, renameBox, 'rename head'),
-					editing(ctx, tree, page) && movable && moveButton(ctx, tree, { id, name: n.name, kind: n.kind }, renameBox, 'rename head')),
+					editing(ctx, tree, page) && movable && moveButton(ctx, tree, { id, name: n.name, kind: n.kind }, renameBox, 'rename head'),
+					editing(ctx, tree, page) && !n.isolated && newFolderButton(ctx, tree, { id, name: n.name }, renameBox)),
 				h('div', { class: 'sub' }, kind, ' · your role here: ', page.role)),
 			overrides(ctx, tree, page.overrides)),
 		renameBox,

@@ -195,3 +195,27 @@ func TestRename(t *testing.T) {
 		t.Errorf("office-ap is named %q", n.Name)
 	}
 }
+
+// A new folder's ID and name are checked when it is made, not when the log
+// is replayed (0076).
+func TestGuardChecksNewFolders(t *testing.T) {
+	for _, c := range []struct {
+		node, name string
+		want       error
+	}{
+		{"north-wing", "North wing", nil},
+		{"North Wing", "North wing", ErrBadFolderID},
+		{"-wing", "Wing", ErrBadFolderID},
+		{strings.Repeat("a", 33), "Wing", ErrBadFolderID},
+		{"wing", "", ErrBadName},
+		{"wing", "two\nlines", ErrBadName},
+	} {
+		op := Op{Kind: AddFolder, Tree: Locations, Node: hierarchy.NodeID(c.node), Name: c.name, Parent: "symtus"}
+		if err := Guard(op); !errors.Is(err, c.want) {
+			t.Errorf("add folder %q named %q: %v, want %v", c.node, c.name, err, c.want)
+		}
+	}
+	if err := Guard(Op{Kind: Set, Tree: Locations, Node: "Odd Old ID"}); err != nil {
+		t.Errorf("a set is not guarded here: %v", err)
+	}
+}
