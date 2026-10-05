@@ -171,22 +171,22 @@ The third part (v0.43.0).
 
   The renderer writes all three into the daemon's section, defaults included, and the render check holds the AP to them.
 - **Which radios move:** those whose channel is automatic. A set channel is left alone, as is a radio whose own channel isn't rated yet.
-- **Where to:** the AP's best on the band (`rrm.pick`), at the radio's own width.
+- **Where to:** the AP's best on the band (`rrm.best_of`), at the radio's own width.
   - On 5 GHz at 40 MHz or more, it weighs blocks, not channels: a block rates as its worst channel, is blotted out where any of its channels is, and is entered on its best-rated channel.
   - Moves don't go to DFS channels, even where they're allowed: the radio would first have to listen for radar for a minute, off the air.
-  - A move stays within reason: the target must beat the radio's own block by the policy's margin, or be free where the own one is shared, or, where both are shared, have its nearest user 6 dB further away.
+  - A move never goes from a free channel to a shared one.
 - **Why it moves,** as the report says:
-  - **shared:** a neighbour uses the radio's channel, and a free one is there, or one whose nearest user is further away;
-  - **better:** another channel rates better by the margin;
+  - **shared:** a neighbour uses the radio's channel, and a free one is there, or, with all of them used, one whose nearest user is at least 6 dB further away;
+  - **better:** another channel rates better by the margin, and is no more shared;
   - **interference:** for three visits in a row (about 45 seconds), others kept the radio's own channel more than half busy, and the target rates better than that by the margin;
-  - **start:** within ten minutes of the radio starting, its clients reconnecting anyway.
+  - **start:** within ten minutes of the radio starting, while its clients reconnect anyway, another channel ranks above its own, by any margin.
 - **When:**
   - Shared and better are planned moves: their reason must hold for ten minutes, and they wait for the window.
-  - Interference moves at once, as do moves within ten minutes of the radio starting. A radio counts as started when its network interface is made anew, or when the daemon starts within ten minutes of the AP booting.
+  - Interference moves at once, as do moves within ten minutes of the radio starting. A radio counts as started when its network interface is made anew, when it comes up while the daemon runs, or when the daemon starts within ten minutes of the AP booting. Turning RRM on doesn't count.
   - Before any move, every channel the radio visits must have been rated, and the daemon must have run for a minute, so it knows its neighbours' channels.
   - After a move, or a switch that failed, the radio stays put for 15 minutes.
 - **Collision avoidance:**
-  - The AP claims the target in its hellos (each radio's `to`, with its own block's rating as `cost`), sends one at once, and waits 30 seconds.
+  - The AP claims the target in its hellos (each radio's `to`, with its own block's rating as `cost`), in one sent at once, and waits 30 seconds.
   - It claims nothing while a neighbour's claim on the band is in its hellos, nor for 20 seconds after one ends.
   - Two claims at once go by the tie-break: the higher `cost` goes first, then the lower AP ID. The other yields and looks again later.
   - A neighbour's claimed channel is blotted out, as is one it uses.
@@ -228,6 +228,10 @@ The third part (v0.43.0).
   - The pumphouse's 2.4 GHz (ath10k), 11 to 6 at 20 MHz: all five networks moved with the one call, and its four clients followed without dropping. Their connected times ran on, and each sent within seconds.
   - The office's 5 GHz (mt76), 149 to 36 at 40 MHz (HE): both clients followed.
   - The office went on hearing the pumphouse's advert on its new channel, at −70 dBm, and its hellos gave the new channel. 11 was then free on the office, and its best.
+- **Moves, by the daemon,** run on both APs with an all-day window and the live RRM paused, both put back on 2.4 GHz channel 11 (one Espressif device dropped at that switch, and was back within a second):
+  - **2.4 GHz:** both found 11 shared, and rated 6 best. The office's reason held ten minutes first. It claimed 6 at 18:46:02 and moved at 18:46:32, its nine clients following.
+  - The pumphouse saw the claim, 6 blotted out by the office, and claimed nothing. Once the office had moved, 11 was free there and its best, so it stayed: one move settled it for both.
+  - **5 GHz:** the pumphouse's block, 157 and 161, rated 35, against 0 for 44 and 48. It claimed 44 (better) at 18:47:15 and moved at 18:47:45, to VHT40 there.
 
 ## Open
 
