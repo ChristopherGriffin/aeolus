@@ -214,6 +214,27 @@ type rrmState struct {
 	Address    string         `json:"address"`
 	Advertised []string       `json:"advertised"`
 	Neighbours []rrmNeighbour `json:"neighbours"`
+	Ratings    []rrmRating    `json:"ratings"`
+}
+
+// rrmRating is one channel as the AP rates it (0073), lower being better:
+// its lasting rating, earned over many visits, and its rating now; how busy
+// others kept it on the last visit, in percent; its noise floor, where the
+// driver says; how many other networks were heard there; how many visits it
+// has had, and seconds since the last; whether one of the AP's radios is
+// on it; and the neighbours using it, which blot it out.
+type rrmRating struct {
+	Band      string   `json:"band"`
+	Channel   int      `json:"channel"`
+	Cost      int      `json:"cost"`
+	Now       int      `json:"now"`
+	Busy      int      `json:"busy"`
+	Noise     *int     `json:"noise"`
+	Networks  int      `json:"networks"`
+	Visits    int      `json:"visits"`
+	Ago       int64    `json:"ago"`
+	Own       bool     `json:"own"`
+	BlottedBy []string `json:"blotted_by"`
 }
 
 // rrmNeighbour is one other Aeolus AP: its ID and management address; up
@@ -250,8 +271,20 @@ func (r *rrmState) check() error {
 		return nil
 	}
 	bad := badRequest("rrm: an address, at most 3 bands, and at most 64 neighbours, each an AP ID with its address, state, and on each band a signal from -127 to 0 dBm, a channel and a width")
-	if (r.Address != "" && net.ParseIP(r.Address) == nil) || len(r.Advertised) > 3 || len(r.Neighbours) > 64 {
+	if (r.Address != "" && net.ParseIP(r.Address) == nil) || len(r.Advertised) > 3 || len(r.Neighbours) > 64 || len(r.Ratings) > 64 {
 		return bad
+	}
+	for _, rt := range r.Ratings {
+		if !bands[rt.Band] || rt.Channel < 1 || rt.Channel > 233 || rt.Cost < 0 || rt.Cost > 100000 || rt.Now < 0 || rt.Now > 100000 ||
+			rt.Busy < 0 || rt.Busy > 100 || !dbm(rt.Noise) || rt.Networks < 0 || rt.Networks > 1000 || rt.Visits < 0 || rt.Ago < 0 ||
+			len(rt.BlottedBy) > 8 {
+			return badRequest("rrm: a rating is a band, a channel from 1 to 233, costs from 0, busy from 0 to 100, a noise floor in dBm, counts from 0, and at most 8 APs blotting it out")
+		}
+		for _, ap := range rt.BlottedBy {
+			if !apIDRE.MatchString(ap) {
+				return bad
+			}
+		}
 	}
 	for _, b := range r.Advertised {
 		if !bands[b] {

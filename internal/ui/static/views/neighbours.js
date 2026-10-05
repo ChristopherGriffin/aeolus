@@ -1,7 +1,8 @@
 // An AP's radio neighbours (0073): the other Aeolus APs it hears in the air
 // and exchanges hellos with over the wire, as each AP last reported, with
-// how strongly each hears the other and the neighbour's channel. Radio
-// resource management is turned on and off here too.
+// how strongly each hears the other and the neighbour's channel; and the
+// channels as it rates them. Radio resource management is turned on and
+// off here too.
 
 import { h, link } from '../dom.js';
 import { bandName, origin } from '../format.js';
@@ -85,6 +86,47 @@ function table(ctx, rows) {
 		rows.length
 			? h('table', { class: 'list' },
 				h('tr', null, ['AP', 'Neighbour', 'Band', 'Hears it', 'It hears this AP', 'Its channel', 'State', 'Last hello'].map((c) => h('th', null, c))),
+				lines)
+			: h('div', { class: 'sub' }, 'No APs here yet.'));
+}
+
+// ratingsSection lists each AP's channel ratings (0073), lower being better:
+// the lasting one, earned over many visits, and the one now; what went into
+// the last visit's; the channel its radio is on, the best one no neighbour
+// uses, and the neighbours that blot the others out.
+export function ratingsSection(ctx, rows) {
+	const name = (id) => ctx.name('locations', id);
+	const lines = rows.flatMap(({ ap, cfg }) => {
+		const r = cfg?.condition?.state?.report?.rrm;
+		const apLink = link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/ratings`, ap.name);
+		const none = (why) => [h('tr', null, h('td', null, apLink), h('td', { colspan: 9, class: 'sub' }, why))];
+		if (!cfg) return none('You cannot see this AP.');
+		if (!r) return none('Off, or not reported yet.');
+		if (!r.ratings?.length) return none('No channel rated yet.');
+		const best = {};
+		for (const x of r.ratings) {
+			if (!x.blotted_by.length && (!best[x.band] || x.cost < best[x.band].cost)) best[x.band] = x;
+		}
+		return r.ratings.map((x, i) => h('tr', null,
+			h('td', null, i === 0 && apLink),
+			h('td', null, bandName(x.band)),
+			h('td', { class: 'mono' }, String(x.channel)),
+			h('td', { class: 'mono' }, String(x.cost)),
+			h('td', { class: 'mono' }, String(x.now)),
+			h('td', { class: 'mono' }, `${x.busy}%`),
+			h('td', { class: 'mono' }, x.noise != null ? `${x.noise} dBm` : '—'),
+			h('td', null, String(x.networks)),
+			h('td', null, `${x.ago} s ago`),
+			h('td', null,
+				x.own && h('span', { class: 'chip here' }, 'in use'), ' ',
+				best[x.band] === x && h('span', { class: 'chip ok' }, 'best'),
+				x.blotted_by.length > 0 && h('div', { class: 'sub' }, `used by ${x.blotted_by.map(name).join(', ')}`))));
+	});
+	return h('section', { class: 'panel' },
+		h('h2', null, 'Channel ratings', h('span', { class: 'note' }, 'lower is better; the rating is earned over many visits, now is the last few')),
+		rows.length
+			? h('table', { class: 'list' },
+				h('tr', null, ['AP', 'Band', 'Channel', 'Rating', 'Now', 'Busy', 'Noise', 'Networks', 'Last visit', ''].map((c) => h('th', null, c))),
 				lines)
 			: h('div', { class: 'sub' }, 'No APs here yet.'));
 }

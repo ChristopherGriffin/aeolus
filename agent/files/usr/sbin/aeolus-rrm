@@ -16,6 +16,11 @@
 // is a neighbour too, though it isn't among the three this one hears best.
 // A neighbour is up when hellos go both ways, and down when its hellos stop.
 //
+// Each visit rates the channel visited, as a cost, lower being better: how
+// busy others kept it, its noise, and the other networks heard on it. Each
+// channel keeps a lasting rating, which it earns over many visits, and one
+// for now. A channel a neighbour on that band uses is blotted out.
+//
 // Its settings are the agent's own UCI package, as the renderer made it,
 // and the key the agent keeps. What it finds goes to
 // /var/run/aeolus/rrm.json, which the agent reports. procd runs it beside
@@ -57,6 +62,8 @@ const FORGET = 900;         // seconds after which a neighbour that went down is
 const WRITE_EVERY = 5;      // seconds between writes of the results
 const SCAN_FLAG_AP = 4;     // NL80211_SCAN_FLAG_AP: scan on an AP's own interface
 const LISTED = 64;          // other APs reported at most
+const RATED_FOR = 1800;     // seconds a channel's rating is kept without a visit
+const RATED = 64;           // channel ratings reported at most
 
 let bus = connect();
 openlog('aeolus-rrm', LOG_PID, LOG_DAEMON);
@@ -99,6 +106,8 @@ let adverts = {};     // the network carrying a radio's element -> { hex, index 
 let heard = {};       // AP -> { address, port, bands: { <band>: { signal, at } } }
 let nbrs = {};        // AP -> { address, port, last: { at, seq }, at, msg, state }
 let chosen = {};      // AP -> true, among the three heard most strongly on a band
+let picks = {};       // band -> the APs heard most strongly there
+let rates = {};       // '<band> <channel>' -> { band, channel, cost, now, busy, noise, networks, visits, at }
 let seq = 0;
 
 // settings reads whether RRM is on, the AP it advertises, and the key.
@@ -138,9 +147,14 @@ function look_radios(at) {
 		let pick = filter(ifs, i => index(i.section ?? '', 'aeolus_') == 0)[0] ?? ifs[0];
 		let info = bus.call('iwinfo', 'info', { device: pick.ifname }) ?? {};
 		let r = radios[name] ??= { next: 0, due: at + 2 + 5 * length(keys(radios)), put_off: 0 };
+		let ch = info.channel ?? 0;
+		// The survey's running counts are another network's or another
+		// channel's once any of these change: they start again.
+		if (r.band != band || r.bss != pick.ifname || r.channel != ch)
+			r.survey = null;
 		r.band = band;
 		r.bss = pick.ifname;
-		r.channel = info.channel ?? 0;
+		r.channel = ch;
 		r.width = int(match(info.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
 		r.dfs = !(d.config?.acs_exclude_dfs in [true, '1']);
 		r.list = rrm.visits(band, r.channel, r.dfs);
@@ -213,6 +227,9 @@ function look(at) {
 		heard = {};
 		nbrs = {};
 		chosen = {};
+		picks = {};
+		rates = {};
+		radios = {};   // and their survey counts, which would be stale when it is on again
 		return;
 	}
 	let a = management();
@@ -224,18 +241,30 @@ function look(at) {
 	advertise();
 }
 
-// busy says whether a radio's own channel has been busier than BUSY since
-// it was last asked, by the radio's survey.
-function busy(r) {
-	let own = rrm.freq(r.band, r.channel), s = null;
+// survey reads a radio's survey of one frequency. For its own channel the
+// counts run on; for another, both lab APs' drivers keep only the last
+// visit's.
+function survey(r, f) {
 	for (let x in nl.request(nl.const.NL80211_CMD_GET_SURVEY, nl.const.NLM_F_DUMP, { dev: r.bss }) ?? [])
-		if (x.survey_info?.frequency == own)
-			s = x.survey_info;
+		if (x.survey_info?.frequency == f)
+			return x.survey_info;
+	return null;
+}
+
+// load reads how busy a radio's own channel has been since it was last
+// read: all told, for whether to visit elsewhere now; and with this AP's
+// own sending taken out, where the driver says what that was, for the
+// channel's rating. Null the first time.
+function load(r) {
+	let s = survey(r, rrm.freq(r.band, r.channel));
 	let was = r.survey;
-	r.survey = s?.time ? { time: s.time, busy: s.busy ?? 0 } : null;
+	// A survey without a busy count says nothing of how busy the channel is.
+	r.survey = s?.time && s.busy != null ? { time: s.time, busy: s.busy, tx: s.time_tx ?? 0 } : null;
 	if (!was || !r.survey || r.survey.time <= was.time)
-		return false;
-	return (r.survey.busy - was.busy) / (r.survey.time - was.time) > BUSY;
+		return null;
+	// The counts are whole numbers, which ucode divides to a whole number.
+	let t = 1.0 * (r.survey.time - was.time), b = r.survey.busy - was.busy;
+	return { all: b / t, others: (b - (r.survey.tx - was.tx)) / t, noise: s.noise };
 }
 
 // visit listens on a radio's next channel. Off its own, it goes only while
@@ -244,9 +273,10 @@ function busy(r) {
 function visit(r, at) {
 	if (!length(r.list))
 		return;
+	let l = load(r);
 	let f = r.list[r.next % length(r.list)];
 	let own = rrm.freq(r.band, r.channel);
-	if (f != own && busy(r) && r.put_off < PUT_OFF) {
+	if (f != own && l && l.all > BUSY && r.put_off < PUT_OFF) {
 		r.put_off++;
 		f = own;
 	} else {
@@ -256,34 +286,92 @@ function visit(r, at) {
 	nl.request(nl.const.NL80211_CMD_TRIGGER_SCAN, 0, { dev: r.bss, scan_frequencies: [ f ], scan_flags: SCAN_FLAG_AP });
 	if (nl.error())
 		return;   // a scan already running, or the radio restarting: the next visit tries again
-	r.scan = { freq: f, started: at };
+	r.scan = { freq: f, started: at, load: f == own ? l : null };
 }
 
-// heard_on reads the adverts a visit heard.
+// channel is a frequency's channel number, as a whole number: the report
+// says so.
+function channel(band, f) {
+	if (band == '2g')
+		return f == 2484 ? 14 : int((f - 2407) / 5);
+	return int((f - (band == '5g' ? 5000 : 5950)) / 5);
+}
+
+// rate folds a visit into its channel's ratings. On its own channel, how
+// busy others kept it comes from the survey's counts since the last visit;
+// elsewhere, from the visit's own.
+function rate(r, sc, networks, at) {
+	let busy = null, noise = null;
+	if (sc.load) {
+		busy = sc.load.others;
+		noise = sc.load.noise;
+	} else {
+		let s = survey(r, sc.freq);
+		if (s?.time && s.busy != null) {
+			busy = s.busy / (1.0 * s.time);
+			noise = s.noise;
+		}
+	}
+	if (busy == null)
+		return;   // the driver said nothing of the visit
+	busy = min(1, max(0, busy));
+	// A driver may give 0 for a noise floor it didn't measure, as the R7800's
+	// does on its own 5 GHz channel.
+	if (!(type(noise) in ['int', 'double']) || noise < -127 || noise > -20)
+		noise = null;
+	let ch = channel(r.band, sc.freq);
+	let c = rrm.cost(busy, noise, networks);
+	let rt = rates[r.band + ' ' + ch] ??= { band: r.band, channel: ch, visits: 0 };
+	rt.cost = rrm.blend(rt.cost, c, rrm.LASTING);
+	rt.now = rrm.blend(rt.now, c, rrm.NOW);
+	rt.busy = busy;
+	rt.noise = noise;
+	rt.networks = length(networks);
+	rt.visits++;
+	rt.at = at;
+}
+
+// heard_on reads what a visit heard: other Aeolus APs' adverts, and the
+// other networks there, which go into the channel's rating. On 2.4 GHz, a
+// network up to three channels away counts too, 6 dB weaker for each
+// channel between.
 function heard_on(r, at) {
 	let sc = r.scan;
 	r.scan = null;
 	let within = (at - sc.started) * 1000 + 500;
+	let networks = [];
 	for (let x in nl.request(nl.const.NL80211_CMD_GET_SCAN, nl.const.NLM_F_DUMP, { dev: r.bss }) ?? []) {
 		let b = x.bss;
-		if (b?.frequency != sc.freq || (b.seen_ms_ago ?? within + 1) > within)
+		if (!b?.frequency || (b.seen_ms_ago ?? within + 1) > within)
+			continue;
+		let d = b.frequency - sc.freq;
+		if (d < 0)
+			d = -d;
+		if (d > (r.band == '2g' ? 15 : 0))
 			continue;
 		// Beacons only: both lab APs' drivers answer probes from a template
 		// that misses the element's changes, without it once it is put on, or
 		// with it once it is taken off.
+		let a = null;
 		for (let e in b.beacon_ies ?? []) {
-			let a = e.type == 221 ? rrm.read_advert(e.data) : null;
-			if (!a || a.ap == cfg.ap)
-				continue;
-			let h = heard[a.ap] ??= { bands: {} };
-			h.address = a.address;
-			h.port = a.port;
-			let hb = h.bands[rrm.band_of(b.frequency)] ??= {};
-			hb.signal = rrm.smooth(hb.signal, b.signal_mbm / 100);
-			hb.at = at;
-			break;
+			a = e.type == 221 ? rrm.read_advert(e.data) : null;
+			if (a)
+				break;
 		}
+		if (!a) {
+			push(networks, b.signal_mbm / 100 - 6 * d / 5);
+			continue;
+		}
+		if (a.ap == cfg.ap || d)
+			continue;
+		let h = heard[a.ap] ??= { bands: {} };
+		h.address = a.address;
+		h.port = a.port;
+		let hb = h.bands[rrm.band_of(b.frequency)] ??= {};
+		hb.signal = rrm.smooth(hb.signal, b.signal_mbm / 100);
+		hb.at = at;
 	}
+	rate(r, sc, networks, at);
 }
 
 // signals are how strongly each AP is heard now, by band.
@@ -312,7 +400,8 @@ function state(n, at) {
 function hellos(at) {
 	let sig = signals(at);
 	chosen = {};
-	for (let band, list in rrm.choose(sig, rrm.NEIGHBOURS))
+	picks = rrm.choose(sig, rrm.NEIGHBOURS);
+	for (let band, list in picks)
 		for (let ap in list)
 			chosen[ap] = true;
 	let to = {};
@@ -416,6 +505,57 @@ function listing(ap, at) {
 	};
 }
 
+// blotted is, by '<band> <channel>', the neighbours using each channel: on
+// a band, those among the three this AP hears best there, and those whose
+// hellos say they hear it there. Their channels and widths are their
+// hellos'.
+function blotted(at) {
+	let near = {};
+	for (let band, list in picks)
+		for (let ap in list)
+			(near[band] ??= {})[ap] = true;
+	for (let ap, n in nbrs)
+		if (state(n, at) in ['up', 'one-way'])
+			for (let x in (type(n.msg.heard) == 'array' ? n.msg.heard : []))
+				if (x?.ap == cfg.ap && x.band in ['2g', '5g', '6g'])
+					(near[x.band] ??= {})[ap] = true;
+	let out = {};
+	for (let band, aps in near)
+		for (let ap in keys(aps)) {
+			let n = nbrs[ap];
+			if (!(state(n, at) in ['up', 'one-way']))
+				continue;
+			for (let x in (type(n.msg.radios) == 'array' ? n.msg.radios : []))
+				if (x?.band == band && type(x.channel) == 'int' && x.channel > 0 && x.channel <= 233)
+					for (let c in rrm.covers(band, x.channel, x.width))
+						push(out[band + ' ' + c] ??= [], ap);
+		}
+	return out;
+}
+
+// ratings are the channels rated, as the agent reports them, with whether
+// one of this AP's radios is on each, and who blots it out.
+function ratings(at) {
+	let blot = blotted(at), list = [];
+	for (let k in keys(rates)) {
+		let rt = rates[k];
+		if (at - rt.at > RATED_FOR) {
+			delete rates[k];
+			continue;
+		}
+		let own = false;
+		for (let name, r in radios)
+			if (r.band == rt.band && index(rrm.covers(r.band, r.channel, r.width), rt.channel) >= 0)
+				own = true;
+		push(list, {
+			band: rt.band, channel: rt.channel, cost: int(rt.cost + 0.5), now: int(rt.now + 0.5),
+			busy: int(rt.busy * 100 + 0.5), noise: dbm(rt.noise), networks: rt.networks, visits: rt.visits,
+			ago: int(at - rt.at), own: own, blotted_by: slice(uniq(sort(blot[k] ?? [])), 0, 8),
+		});
+	}
+	return slice(sort(list, (a, b) => a.band < b.band ? -1 : a.band > b.band ? 1 : a.channel - b.channel), 0, RATED);
+}
+
 function write(at) {
 	if (!cfg.on) {
 		store(out, sprintf('%J', { at: time(), on: false }));
@@ -436,7 +576,7 @@ function write(at) {
 			push(advertised, r.band);
 	store(out, sprintf('%J', {
 		at: time(), on: true, address: address ?? '', advertised: slice(uniq(sort(advertised)), 0, 3),
-		neighbours: slice(list, 0, LISTED),
+		neighbours: slice(list, 0, LISTED), ratings: ratings(at),
 	}));
 }
 

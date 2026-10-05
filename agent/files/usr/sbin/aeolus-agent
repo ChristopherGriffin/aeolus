@@ -781,7 +781,7 @@ function rrm_state() {
 	}
 	if (r?.on != true || type(r.at) != 'int' || time() - r.at > PROBES_STALE)
 		return null;
-	return { address: r.address ?? '', advertised: r.advertised ?? [], neighbours: r.neighbours ?? [] };
+	return { address: r.address ?? '', advertised: r.advertised ?? [], neighbours: r.neighbours ?? [], ratings: r.ratings ?? [] };
 }
 
 // state_report is what the AP tells the manager about itself (0039).

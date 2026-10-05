@@ -64,3 +64,12 @@ printf('visits 2g 3 %J\n', rrm.visits('2g', 3, false));
 printf('visits 5g 149 %J\n', rrm.visits('5g', 149, false));
 printf('visits 5g 100 dfs %d\n', length(rrm.visits('5g', 100, true)));
 printf('band %s %s %J\n', rrm.band_of(2462), rrm.band_of(5745), rrm.band_of(900));
+
+// Channel ratings: a network's weight, a visit's cost, the ratings, and the
+// channels a neighbour's radio takes up.
+printf('weight %J %J %J %J\n', rrm.weight(-50), rrm.weight(-75), rrm.weight(-100), rrm.weight(null));
+printf('cost quiet %J\n', rrm.cost(0, null, []));
+printf('cost busy %J\n', rrm.cost(0.3, -92, [-60, -85]));
+printf('cost no noise %J\n', rrm.cost(1.5, null, [-40]));
+printf('blend %J %J %J\n', rrm.blend(null, 40, rrm.LASTING), rrm.blend(40, 0, rrm.LASTING), rrm.blend(40, 0, rrm.NOW));
+printf('covers %J %J %J %J %J\n', rrm.covers('2g', 11, 20), rrm.covers('5g', 149, 40), rrm.covers('5g', 157, 80), rrm.covers('5g', 165, 40), rrm.covers('5g', 100, 160));
