@@ -147,9 +147,14 @@ function look_radios(at) {
 		let pick = filter(ifs, i => index(i.section ?? '', 'aeolus_') == 0)[0] ?? ifs[0];
 		let info = bus.call('iwinfo', 'info', { device: pick.ifname }) ?? {};
 		let r = radios[name] ??= { next: 0, due: at + 2 + 5 * length(keys(radios)), put_off: 0 };
+		let ch = info.channel ?? 0;
+		// The survey's running counts are another network's or another
+		// channel's once any of these change: they start again.
+		if (r.band != band || r.bss != pick.ifname || r.channel != ch)
+			r.survey = null;
 		r.band = band;
 		r.bss = pick.ifname;
-		r.channel = info.channel ?? 0;
+		r.channel = ch;
 		r.width = int(match(info.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
 		r.dfs = !(d.config?.acs_exclude_dfs in [true, '1']);
 		r.list = rrm.visits(band, r.channel, r.dfs);
@@ -224,6 +229,7 @@ function look(at) {
 		chosen = {};
 		picks = {};
 		rates = {};
+		radios = {};   // and their survey counts, which would be stale when it is on again
 		return;
 	}
 	let a = management();
@@ -252,7 +258,8 @@ function survey(r, f) {
 function load(r) {
 	let s = survey(r, rrm.freq(r.band, r.channel));
 	let was = r.survey;
-	r.survey = s?.time ? { time: s.time, busy: s.busy ?? 0, tx: s.time_tx ?? 0 } : null;
+	// A survey without a busy count says nothing of how busy the channel is.
+	r.survey = s?.time && s.busy != null ? { time: s.time, busy: s.busy, tx: s.time_tx ?? 0 } : null;
 	if (!was || !r.survey || r.survey.time <= was.time)
 		return null;
 	// The counts are whole numbers, which ucode divides to a whole number.
@@ -300,8 +307,8 @@ function rate(r, sc, networks, at) {
 		noise = sc.load.noise;
 	} else {
 		let s = survey(r, sc.freq);
-		if (s?.time) {
-			busy = (s.busy ?? 0) / (1.0 * s.time);
+		if (s?.time && s.busy != null) {
+			busy = s.busy / (1.0 * s.time);
 			noise = s.noise;
 		}
 	}
