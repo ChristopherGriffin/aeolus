@@ -45,6 +45,7 @@
   - shaded in the blocks of the band's width, alternately, so each 40, 80 or 160 MHz block reads as one;
   - a block a click: clicking any of its channels picks or drops the whole block;
   - DFS channels hatched, and dimmed while avoided; channels no block of the width includes, such as 165 at 80 MHz, dimmed;
+  - a bracket labelled DFS over 52–144, one where the ranges sit on one line, split where they wrap (Griff, 2026-10-05);
   - the APs on each channel now, marked under it;
   - saved with a preview, as other changes are.
 
