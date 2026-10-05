@@ -21,7 +21,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "country": { "type": "string", "pattern": "^[A-Z]{2}$", "description": "Regulatory country, ISO 3166 alpha-2." },
+        "country": { "type": "string", "pattern": "^[A-Z]{2}$", "x-aeolus-enum": "countries", "description": "Regulatory country, ISO 3166 alpha-2: one of tzdata's list (0074)." },
         "tz": { "type": "string", "minLength": 1, "maxLength": 64, "x-aeolus-enum": "zones", "description": "IANA time zone, such as America/Chicago: one of Aeolus's table, which gives each its rule for the AP's clock (0074)." },
         "ntp": { "type": "array", "items": { "$ref": "#/$defs/host" }, "maxItems": 4 },
         "poll": { "type": "integer", "minimum": 10, "maximum": 3600, "description": "Seconds between config polls (0007)." },

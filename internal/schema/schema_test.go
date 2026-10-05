@@ -284,6 +284,9 @@ func TestFieldValues(t *testing.T) {
 		{"radio.2g.power", 40, false},
 		{"system.country", "US", true},
 		{"system.country", "us", false},
+		// A country from tzdata's list, and no other (0074).
+		{"system.country", "GB", true},
+		{"system.country", "ZZ", false},
 		// A time zone from Aeolus's table, and no other (0074).
 		{"system.tz", "America/Chicago", true},
 		{"system.tz", "UTC", true},
@@ -362,6 +365,23 @@ func TestZonesMatchTheAgents(t *testing.T) {
 	}
 	if got, _ := tz["x-aeolus-zones"].([]ZoneInfo); len(got) != 418 {
 		t.Errorf("system.tz is described with %d places", len(got))
+	}
+	// The countries, by name, every one zone.tab names among them.
+	codes := map[string]string{}
+	for _, c := range Countries() {
+		codes[c.Code] = c.Name
+	}
+	for _, z := range Places() {
+		if codes[z.Country] == "" {
+			t.Errorf("zone.tab's country %s is not in iso3166.tab", z.Country)
+		}
+	}
+	if len(Countries()) != 249 || codes["US"] != "United States" || Countries()[0].Name > Countries()[1].Name {
+		t.Errorf("%d countries, the US %q, the first two %v", len(Countries()), codes["US"], Countries()[:2])
+	}
+	country := v1(t).Describe().Fields["system.country"]
+	if got, _ := country["x-aeolus-countries"].([]Country); len(got) != 249 {
+		t.Errorf("system.country is described with %d countries", len(got))
 	}
 	// A zone set before the list was, such as an alias, isn't refused in a
 	// document, so the AP's config isn't held for it; a new one is.

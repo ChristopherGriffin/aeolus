@@ -29,6 +29,16 @@ export function input(path, f, current) {
 	if (f.type === 'boolean') {
 		el = h('input', { type: 'checkbox', checked: current === true });
 		read = () => el.checked;
+	} else if (f['x-aeolus-enum'] === 'countries' && f['x-aeolus-countries']) {
+		// Countries by name, as tzselect offers them (0074). One set before
+		// the list was shows as it is.
+		const list = f['x-aeolus-countries'];
+		const unlisted = typeof current === 'string' && !list.some((c) => c.code === current);
+		el = h('select', null,
+			current === undefined && h('option', { value: '' }, '—'),
+			unlisted && h('option', { value: current, selected: true }, `${current} (not in the list)`),
+			list.map((c) => h('option', { value: c.code, selected: c.code === current }, `${c.name} (${c.code})`)));
+		read = () => (el.value === '' ? undefined : el.value);
 	} else if (f['x-aeolus-enum'] === 'zones' && f.enum) {
 		el = h('select');
 		const zones = zoneSelect(el, f, current);
