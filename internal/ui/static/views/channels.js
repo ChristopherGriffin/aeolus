@@ -109,8 +109,8 @@ function bandMap(ctx, at, band, rows) {
 		else panel.removeAttribute('data-editing');
 		save.disabled = !dirty;
 		reset.disabled = !dirty;
-		map.replaceChildren(...ranges(band, country).map((list) => {
-			// Group the range's channels by block, so each block reads as one.
+		// Each range's channels, grouped by block, so each block reads as one.
+		const all = ranges(band, country).map((list) => {
 			const groups = [];
 			for (const c of list) {
 				const b = block(band, c, width);
@@ -119,12 +119,32 @@ function bandMap(ctx, at, band, rows) {
 				if (last && last.key === key) last.chans.push(c);
 				else groups.push({ key, chans: [c], whole: b });
 			}
+			return groups;
+		});
+		// The DFS bracket, over 52–144: a piece above each block, joined to
+		// the next across the gap, with a tick and the label where it starts
+		// and a tick where it ends.
+		const isDFS = (g) => g && g.chans.some((c) => radar(band, c));
+		const flat = all.flat();
+		const bracket = (g) => {
+			if (band !== '5g') return null;
+			if (!isDFS(g)) return h('div', { class: 'chbr' });
+			const i = flat.indexOf(g);
+			const start = !isDFS(flat[i - 1]);
+			const end = !isDFS(flat[i + 1]);
+			const r = all.findIndex((groups) => groups.includes(g));
+			const join = !end && all[r][all[r].length - 1] === g; // across the gap between ranges
+			const cont = !start && all[r][0] === g; // the bracket's continuation from the range before
+			return h('div', { class: `chbr dfs${start ? ' start' : ''}${end ? ' end' : ''}${join ? ' join' : ''}${cont ? ' cont' : ''}` },
+				h('span', { class: 'lbl' }, 'DFS'));
+		};
+		map.replaceChildren(...all.map((groups) => {
 			return h('div', { class: 'chrange' }, groups.map((g, i) => {
 				const all = g.whole && g.whole.every((c) => chosen.has(c));
 				const some = g.whole && !all && g.whole.some((c) => chosen.has(c));
 				const off = !g.whole || (avoid && g.chans.some((c) => radar(band, c)));
 				// At 20 MHz each channel is its own block: one shade for all.
-				return h('div', { class: `chblock ${width > 20 && band === '5g' && i % 2 ? 'b' : 'a'}` }, g.chans.map((c) => {
+				return h('div', { class: 'chstack' }, bracket(g), h('div', { class: `chblock ${width > 20 && band === '5g' && i % 2 ? 'b' : 'a'}` }, g.chans.map((c) => {
 					const aps = on.get(c) || [];
 					const why = !g.whole ? `No ${width} MHz block includes ${c}`
 						: avoid && radar(band, c) ? 'DFS is avoided here'
@@ -141,9 +161,10 @@ function bandMap(ctx, at, band, rows) {
 							draw();
 						},
 					}, h('span', null, String(c)), h('span', { class: aps.length ? 'ap' : 'ap none' }));
-				}));
+				})));
 			}));
 		}));
+		requestAnimationFrame(joinBracket);
 		const usable = [...chosen].filter((c) => block(band, c, width)?.every((x) => chosen.has(x)) && !(avoid && radar(band, c)));
 		summary.textContent = usable.length
 			? `${usable.length} channel${usable.length === 1 ? '' : 's'} usable at ${width} MHz`
@@ -151,6 +172,20 @@ function bandMap(ctx, at, band, rows) {
 		summary.className = usable.length ? 'sub' : 'sub warn';
 		save.disabled = save.disabled || !usable.length;
 	};
+	// joinBracket draws the DFS bracket as one where 52–64 and 100–144 sit on
+	// one line, and as two, each with its ticks and label, where they wrap.
+	const joinBracket = () => {
+		const ranges = [...map.querySelectorAll('.chrange')];
+		for (const [i, r] of ranges.entries()) {
+			const first = r.querySelector('.chbr.cont');
+			if (!first) continue;
+			const prev = ranges[i - 1]?.querySelector('.chbr.join');
+			const wrapped = !prev || r.offsetTop !== ranges[i - 1].offsetTop;
+			first.classList.toggle('start', wrapped);
+			prev?.classList.toggle('end', wrapped);
+		}
+	};
+	new ResizeObserver(() => joinBracket()).observe(map);
 	reset.addEventListener('click', () => { chosen = new Set(saved); draw(); });
 	save.addEventListener('click', async () => {
 		const value = [...chosen].sort((a, b) => a - b);
