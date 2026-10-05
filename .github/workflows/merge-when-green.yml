@@ -1,11 +1,16 @@
 name: merge when green
 
 # Griff approves a pull request with "merge when green", and Claude puts the
-# merge-when-green label on it. It is merged, with a merge commit, once the
-# test workflow has passed on the very commit the pull request carries: by
-# that run itself, at its end, or here, when the label goes on after it. A
-# push after the label takes the label off, so a commit nobody approved is
-# never merged. The merging is .github/merge-when-green.sh.
+# merge-when-green label on it. The label's job marks the head it was put on
+# approved, with a commit status, merge-when-green. The pull request is
+# merged, with a merge commit, once the test workflow has passed on that
+# very commit: by that run itself, at its end, or here, when the label goes
+# on after it. Only an approved head is merged, so a push after the label is
+# never merged, however its run and the label's removal fall; the push takes
+# the label off too. The merging is .github/merge-when-green.sh.
+#
+# Pull requests come from this repository's own branches. One from a fork
+# gets a read-only token, so it is merged by hand.
 #
 # CI tests a pull request merged into its base as the base was then. So only
 # a pull request whose head already holds the base's tip is merged, whose
@@ -23,6 +28,7 @@ permissions:
   contents: write
   pull-requests: write
   actions: read
+  statuses: write
 
 jobs:
   # A push after the label voids the approval.
@@ -49,6 +55,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           sparse-checkout: .github
+      # The head the label went on, as the event says, even if another push
+      # came since.
+      - name: approve the head the label went on
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED: ${{ github.event.pull_request.head.sha }}
+        run: gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$APPROVED" -f state=success -f context=merge-when-green -f description="approved for merging"
       - name: merge, if green on its head and holding its base's tip
         env:
           GH_TOKEN: ${{ github.token }}

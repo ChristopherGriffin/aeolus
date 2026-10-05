@@ -28,6 +28,7 @@ concurrency:
 permissions:
   contents: write        # to merge a labeled pull request, at the end
   pull-requests: write
+  statuses: read         # whether its head was approved
 
 jobs:
   test:
@@ -122,9 +123,13 @@ jobs:
           GOARCH=arm GOARM=7 go build ./...
           GOARCH=mipsle GOMIPS=softfloat go build ./...
           GOARCH=mips GOMIPS=softfloat go build ./...
-      # Everything above passed on the head this run was started for.
-      - name: merge, if labeled merge-when-green
+      # Everything above passed on the head this run was started for. Only a
+      # head approved for merging is merged, so a push after the label, which
+      # this run may be for, never is. A merge that fails doesn't fail the
+      # tests: the label's own job tries again.
+      - name: merge, if labeled merge-when-green and its head approved
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}

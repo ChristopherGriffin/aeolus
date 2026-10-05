@@ -45,7 +45,10 @@ Each milestone ends in something checkable before the next starts.
 - **CI (`test`)** is one job, since GitHub bills each job by the whole minute: lint, the tests with ucode, and the builds for AP hardware.
   - It runs once per push to a pull request. One that changes only documentation passes in seconds.
   - It runs on `main` only when the workflow or Go's modules change, or when run by hand (`gh workflow run test.yml`) to make the caches pull requests start from again. It doesn't run on release tags.
-- **The `merge-when-green` label,** put on when Griff approves, merges a pull request once `test` has passed on its head commit, if the head holds the tip of `main`. The green run merges it at its end; if the label goes on later, its own job does. A push after the label takes the label off.
+- **The `merge-when-green` label,** put on when Griff approves, merges a pull request once `test` has passed on its head commit, if the head holds the tip of `main`.
+  - The label's job marks the head it went on approved, with a `merge-when-green` commit status, and only an approved head is merged. A push after the label is never merged, and the push takes the label off.
+  - The green run merges it at its end; if the label goes on later, its own job does.
+  - Pull requests come from this repository's own branches; one from a fork is merged by hand.
 
 ## Decisions
 

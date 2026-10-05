@@ -1,7 +1,8 @@
 #!/bin/bash
 # Merges pull request $PR, with a merge commit, if it is open, labeled
-# merge-when-green, green on its head, and holding its base's tip (see
-# workflows/merge-when-green.yml). Two callers:
+# merge-when-green, its head approved (a merge-when-green commit status, put
+# on the head the label went on), green on its head, and holding its base's
+# tip (see workflows/merge-when-green.yml). Two callers:
 # - the test workflow, at the end of a green run, with TESTED set to the head
 #   it just tested;
 # - the label going on, without TESTED: then the test workflow's latest run on
@@ -16,6 +17,11 @@ base=$(jq -r .baseRefName <<<"$info")
 title=$(jq -r .title <<<"$info")
 if [ "$(jq -r .state <<<"$info")" != OPEN ] || [ "$(jq '[.labels[].name] | index("merge-when-green") != null' <<<"$info")" != true ]; then
 	echo "pull request $PR is not open, or not labeled merge-when-green"
+	exit 0
+fi
+approved=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head/statuses" --jq '[.[] | select(.context == "merge-when-green" and .state == "success")] | length')
+if [ "$approved" = 0 ]; then
+	echo "$head isn't approved: the label went on before it was pushed, or its job hasn't run yet"
 	exit 0
 fi
 
