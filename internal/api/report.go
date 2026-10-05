@@ -200,6 +200,22 @@ type stateReport struct {
 	Clients []wifiClient `json:"clients,omitempty"`
 	// Its clock (0069).
 	Time *timeState `json:"time,omitempty"`
+	// The per-user keys it has (0070): their version, and how many.
+	Keys *keysState `json:"keys,omitempty"`
+}
+
+type keysState struct {
+	Version string `json:"version"`
+	Count   int    `json:"count"`
+}
+
+var keysVersionRE = regexp.MustCompile(`^[0-9a-f]{0,64}$`)
+
+func (k *keysState) check() error {
+	if k != nil && (!keysVersionRE.MatchString(k.Version) || k.Count < 0 || k.Count > 1<<20) {
+		return badRequest("keys: version is hex, count 0 or more")
+	}
+	return nil
 }
 
 // timeState is whether the AP's clock is synchronized, as ntpd last said
@@ -757,6 +773,9 @@ func (st *stateReport) check() error {
 		return badRequest("version and uptime cannot be negative")
 	}
 	if err := st.Time.check(); err != nil {
+		return err
+	}
+	if err := st.Keys.check(); err != nil {
 		return err
 	}
 	if err := plainText("openwrt", st.OpenWrt, maxText); err != nil {

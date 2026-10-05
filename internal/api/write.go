@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
@@ -19,6 +20,8 @@ type changeRequest struct {
 // anywhere near the log (0027).
 func (s *Server) prepare(op change.Op) (change.Op, error) {
 	switch op.Kind {
+	case change.AddKey, change.SetKey, change.RemoveKey:
+		return s.prepareKey(s.log.Snapshot(), op, time.Now())
 	case change.CreateOrg:
 		return op, badRequest("the Org is created on the manager host with aeolus init")
 	case change.IssueToken:

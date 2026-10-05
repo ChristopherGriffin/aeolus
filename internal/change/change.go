@@ -16,6 +16,7 @@ import (
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/keys"
 	"github.com/ChristopherGriffin/aeolus/internal/library"
 )
 
@@ -52,6 +53,11 @@ const (
 	// APs arriving and leaving (0033, 0038).
 	Enroll   Kind = "enroll"
 	RemoveAP Kind = "remove-ap"
+
+	// Per-user keys (0014, 0070).
+	AddKey    Kind = "add-key"
+	SetKey    Kind = "set-key"
+	RemoveKey Kind = "remove-key"
 )
 
 // Built-in folders every Org has (0032), and the manager's own actor name for
@@ -99,6 +105,11 @@ type Op struct {
 
 	Concentrator string `json:"concentrator,omitempty"`
 	VNI          int    `json:"vni,omitempty"`
+
+	// Per-user keys (0070): the network, in the Services folder Node, and
+	// the key's ID. Value is its definition, its passphrase sealed.
+	Network string `json:"network,omitempty"`
+	Key     string `json:"key,omitempty"`
 }
 
 // Field is one field a set changes.
@@ -145,6 +156,8 @@ type State struct {
 	// Facts holds what each AP reported about itself when it enrolled
 	// (0033), for the person deciding whether to adopt it.
 	Facts map[hierarchy.NodeID]json.RawMessage
+	// Keys are the per-user keys (0070).
+	Keys *keys.Store
 }
 
 // Clone returns an independent copy, or nil for nil.
@@ -156,7 +169,7 @@ func (s *State) Clone() *State {
 	for ap, f := range s.Facts {
 		facts[ap] = f // never modified in place
 	}
-	return &State{Org: s.Org.Clone(), Access: s.Access.Clone(), Library: s.Library.Clone(), Facts: facts}
+	return &State{Org: s.Org.Clone(), Access: s.Access.Clone(), Library: s.Library.Clone(), Facts: facts, Keys: s.Keys.Clone()}
 }
 
 var (
@@ -218,8 +231,13 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 		eff, err = applyAccess(s, op)
 	case Enroll, RemoveAP:
 		eff, err = applyAP(s, op)
+	case AddKey, SetKey, RemoveKey:
+		eff, err = applyKey(s, op)
 	default:
 		eff, err = apply(s.Org, op)
+		if err == nil {
+			err = checkKeys(s)
+		}
 	}
 	return s, eff, err
 }
@@ -278,6 +296,8 @@ func validate(op Op) error {
 			return ErrNoTokenID
 		}
 	case RemoveAP:
+	case AddKey, SetKey, RemoveKey:
+		return validateKey(op)
 	case GrantRole, RevokeRole:
 		if op.Account == "" {
 			return ErrNoAccount
@@ -294,7 +314,7 @@ func validate(op Op) error {
 // createOrg starts the state. The Org's first account is its admin at the
 // root of both trees, so there is never a moment without one.
 func createOrg(op Op) (*State, Effect, error) {
-	s := &State{Org: hierarchy.NewOrg(op.Node, op.Name), Access: access.New(), Library: library.New(), Facts: map[hierarchy.NodeID]json.RawMessage{}}
+	s := &State{Org: hierarchy.NewOrg(op.Node, op.Name), Access: access.New(), Library: library.New(), Facts: map[hierarchy.NodeID]json.RawMessage{}, Keys: keys.New()}
 	if err := s.Access.AddAccount(op.Account, string(op.Account)); err != nil {
 		return nil, Effect{}, err
 	}

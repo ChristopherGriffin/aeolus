@@ -221,7 +221,15 @@ func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error 
 	if err != nil {
 		return err
 	}
+	// The per-user keys it should have (0070), to compare with the version
+	// its state report says it has.
+	refs, keyVersion := keyRefs(c.state, id, time.Now())
+	keyCount := 0
+	for _, n := range refs {
+		keyCount += len(n.Keys)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"keys":       map[string]any{"version": keyVersion, "count": keyCount},
 		"ap":         id,
 		"version":    version,
 		"services":   services,
