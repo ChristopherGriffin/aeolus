@@ -417,6 +417,33 @@ func apply(o *hierarchy.Org, op Op) (Effect, error) {
 	return Effect{}, fmt.Errorf("%w: %q", ErrUnknownKind, op.Kind)
 }
 
+// folderIDRE is what a new folder's ID must be: it goes into addresses.
+var folderIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+
+// ErrBadFolderID refuses a new folder's ID that isn't one.
+var ErrBadFolderID = errors.New("a folder's ID is 1 to 32 lowercase letters, digits and hyphens, starting with a letter or digit")
+
+// Guard checks what only a new change must meet, not one replayed from the
+// log, which may predate the rule: a new folder's ID and name (0076).
+func Guard(op Op) error {
+	if op.Kind != AddFolder {
+		return nil
+	}
+	if !folderIDRE.MatchString(string(op.Node)) {
+		return ErrBadFolderID
+	}
+	return folderName(op.Name)
+}
+
+// folderName checks a folder's name: 1 to 64 characters, none of them
+// control characters.
+func folderName(name string) error {
+	if name == "" || utf8.RuneCountInString(name) > 64 || strings.IndexFunc(name, unicode.IsControl) >= 0 {
+		return ErrBadName
+	}
+	return nil
+}
+
 // hostnameRE is a hostname label (RFC 1123): what an AP's name must be (0076).
 var hostnameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 
@@ -436,8 +463,8 @@ func rename(t *hierarchy.Tree, op Op) (Effect, error) {
 				return Effect{}, fmt.Errorf("%w: %s", ErrNameTaken, ap)
 			}
 		}
-	} else if utf8.RuneCountInString(op.Name) > 64 || strings.IndexFunc(op.Name, unicode.IsControl) >= 0 {
-		return Effect{}, ErrBadName
+	} else if err := folderName(op.Name); err != nil {
+		return Effect{}, err
 	}
 	old, err := t.Rename(op.Node, op.Name)
 	return Effect{Before: old, After: op.Name}, err

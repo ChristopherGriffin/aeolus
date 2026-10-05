@@ -25,6 +25,9 @@
 - **The APs tab** offers **Rename…** beside each AP for someone who may change it, previewed and logged as other changes are.
 - **A folder's page** offers **Rename…** beside its name, in both trees (Griff, 2026-10-05). Renaming a folder changes no AP's config.
 - **An AP's own page** offers Rename… and Move… beside its name too (Griff, 2026-10-05).
+- **A folder's page offers New folder…** (Griff, 2026-10-05): a folder inside it, by name, in either tree; not inside an isolated folder.
+  - Its ID, which goes into addresses, is made from the name: lowercase letters, digits and hyphens, such as `north-wing`, with a number added where the tree has the ID already.
+  - A new folder's ID and name are checked when it is made (`change.Guard`, the commit guard, not on replaying the log): an ID of 1 to 32 such characters, starting with a letter or digit, and a name as a folder's rename takes.
 - **A folder's page offers Move… too** (Griff, 2026-10-05): into any other folder of its tree, nesting it there with everything inside it. The Org and isolated folders, such as Landing Zone, stay where they are, and a folder can't go inside itself.
   - What's set on the folder and inside it stays. What it inherited from its old place now comes from its new one, as inheritance always works.
   - A value the new place locks, set on the folder or inside it, gives way to the lock, and the preview lists each, with where it was set.
