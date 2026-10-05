@@ -336,7 +336,10 @@ function hellos(at) {
 	};
 	let pkt = rrm.seal(cfg.key, msg);
 	for (let ap in keys(to)) {
-		let where = heard[ap] ?? nbrs[ap];
+		// Where its signed hellos come from, while they come: an address
+		// heard in the air may be an old one.
+		let n = nbrs[ap];
+		let where = n?.at != null && at - n.at <= rrm.DEAD ? n : heard[ap] ?? n;
 		if (where?.address)
 			sock.send(pkt, 0, { address: where.address, port: where.port ?? rrm.PORT });
 	}
@@ -363,8 +366,16 @@ function receive(at) {
 }
 
 // changes logs neighbours coming up and going down, and forgets those down
-// long enough.
+// long enough, and APs no longer heard in the air.
 function changes(at) {
+	for (let ap in keys(heard)) {
+		let h = heard[ap];
+		for (let b in keys(h.bands))
+			if (at - h.bands[b].at > HEARD_FOR)
+				delete h.bands[b];
+		if (!length(h.bands))
+			delete heard[ap];
+	}
 	for (let ap, n in nbrs) {
 		let s = state(n, at);
 		if (s != n.state) {

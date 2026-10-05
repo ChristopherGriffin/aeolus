@@ -119,7 +119,7 @@ The first part (v0.40.0): neighbours. Ratings and moves come next.
 - **The key:**
   - The manager derives it from its own secret key (`secret.Box.Derive("rrm")`), so it never has to be stored, and it's the same for every AP.
   - It comes with each ready poll while RRM is on, beside the config, so it versions nothing.
-  - The agent keeps it in `/etc/aeolus/rrm.key`, mode 0600, and removes it when the poll no longer has it.
+  - The agent keeps it in `/etc/aeolus/rrm.key`, mode 0600, from before the config that needs it is applied. It removes it only once a config without it runs, so a refused or reverted config still has its key.
 - **The daemon,** `aeolus-rrm`, runs beside the agent under procd. Its pure parts are `aeolus/rrm.uc`. It needs ucode's nl80211, digest and socket modules, which OpenWrt 25.12's image has, and which the installer now adds where missing.
 - **The advert:**
   - It's a vendor element: OUI `02:ae:01`, from the locally assigned range, so no vendor's OUI or CID can be the same; then type 1, version 1, the AP's ID (6 bytes), its IPv4 management address and its port, 16730.

@@ -460,12 +460,16 @@ function recover(token) {
 
 // keep_rrm_key keeps the key radio neighbours sign their hellos with
 // (0073), readable by root alone, while the manager sends it beside the
-// config; without it, radio resource management stays off.
-function keep_rrm_key(key) {
+// config; without it, radio resource management stays off. A new key is
+// kept before its config is applied. It goes only once a config without it
+// runs: one that is refused or reverted leaves the AP on a config that
+// still needs the key.
+function keep_rrm_key(poll) {
+	let key = poll.rrm?.key;
 	if (type(key) == 'string' && match(key, /^[0-9a-f]{64}$/)) {
 		if (read(RRM_KEY) != key)
 			store(RRM_KEY, key + '\n', 384);
-	} else if (fs.access(RRM_KEY))
+	} else if (running_version() == poll.version && fs.access(RRM_KEY))
 		fs.unlink(RRM_KEY);
 }
 
@@ -1008,8 +1012,9 @@ function main() {
 			let state = r.json?.state;
 			assigned = state != 'unassigned';
 			if (state == 'ready') {
-				keep_rrm_key(r.json.rrm?.key);
+				keep_rrm_key(r.json);
 				converge(r.json, token);
+				keep_rrm_key(r.json);
 				let now = running_version();
 				if (now != running) {
 					running = now;
