@@ -4,7 +4,7 @@
 // each channel now are marked under it.
 
 import { h } from '../dom.js';
-import { bandName, origin } from '../format.js';
+import { bandName, origin, value } from '../format.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
 
@@ -212,7 +212,46 @@ function bandMap(ctx, at, band, rows) {
 			h('span', { class: 'controls' },
 				editable && field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
 				editable && reset, editable && save)),
+		band === '5g' && dfsRow({ ctx, node, nodeName, page, isAP: page.node.kind === 'ap', canEdit, parentName },
+			reports.find((x) => x.r.band === '5g')?.r, box),
 		map,
 		box);
 	return panel;
 }
+
+// dfsRow is whether the 5 GHz radio may use the DFS channels, 52–144, which
+// it shares with radar (0071). Avoided, an automatic channel is picked
+// outside them; allowed, the default, it may be any.
+function dfsRow(at, now, box) {
+	const { ctx, node, nodeName, page, isAP, canEdit, parentName } = at;
+	const path = 'radio.5g.dfs';
+	const field = page.fields?.[path];
+	const lockedAbove = field?.origin === 'locked' && field.from !== node;
+	const next = field?.value === 'avoid' ? 'allow' : 'avoid';
+	return h('div', { class: 'row' },
+		h('div', { class: 'label' }, 'DFS channels'),
+		h('div', { class: 'value' }, field ? value(path, field.value) : h('span', { class: 'sealed' }, 'allowed (not set)')),
+		field && origin('locations', node, field, (id) => ctx.name('locations', id)),
+		isAP && field?.origin === 'self' && h('span', { class: 'chip warn' }, 'custom'),
+		canEdit && !lockedAbove && h('span', { class: 'controls' },
+			field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
+			h('button', { type: 'button', class: 'button small', onclick: () => dfsPreview(at, now, path, field, next, box) },
+				next === 'avoid' ? 'Avoid…' : 'Allow…')));
+}
+
+async function dfsPreview(at, now, path, field, choice, box) {
+	const { ctx, node, nodeName, isAP } = at;
+	const op = { kind: 'set', tree: 'locations', node, path, value: choice };
+	const p = await ask(box, op);
+	if (!p) return;
+	const was = field ? `${value(path, field.value)}${field.from !== node ? ` (from ${ctx.name('locations', field.from)})` : ''}` : 'allowed (not set)';
+	const clients = isAP && now ? `its ${now.clients} client${now.clients === 1 ? '' : 's'}` : 'clients on it';
+	confirm(ctx, box, op, p, [
+		h('div', null, h('strong', null, `DFS channels on ${nodeName}: `), was, ' → ', value(path, choice)),
+	], [
+		h('div', { class: 'sub warn' }, choice === 'avoid'
+			? `Applying restarts the 5 GHz radio where its channel is automatic, and it picks one outside 52–144; ${clients} drop for a few seconds and reconnect. A set channel stays as it is.`
+			: `Applying restarts the 5 GHz radio where its channel is automatic, and it may pick a DFS channel: it then listens for radar for about a minute before it transmits, and ${clients} wait that long to reconnect.`),
+	]);
+}
+
