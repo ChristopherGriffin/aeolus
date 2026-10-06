@@ -181,6 +181,34 @@ nav.subtabs.minor a { padding: 2px 10px; font-size: 13px; border-radius: 6px; }
 .panel.band .row .label { width: 90px; }
 .chip.band { background: var(--accent-bg); color: var(--ink); }
 .chip.band.none { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+
+/* A tunnel's path (path.js): hops joined by legs, each coloured by the
+   probes. Down the card like a rail; across where there is room. */
+.pathbox { padding: 8px 20px 10px; border-top: 1px solid var(--line-2); container-type: inline-size; }
+.pathbox > .label { color: var(--muted); font-size: 14px; margin: 2px 0 4px; }
+.pathbox > .label + .path { margin-bottom: 6px; }
+.pathbox .origins { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 6px; }
+.path { display: flex; flex-direction: column; align-items: flex-start; --c: var(--line); }
+.path .hop { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; position: relative; padding-left: 22px; min-height: 22px; }
+.path .hop::before { content: ''; position: absolute; left: 2px; top: 5px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--c); background: var(--panel); }
+.path .hop.start::before { border-color: var(--faint); }
+.path .hop .top { width: 50px; flex-shrink: 0; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.path .hop .main { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.path .hop .sub { font-size: 12px; color: var(--muted); }
+.path .leg { width: 2px; height: 10px; margin: -2px 0 -2px 9px; background: var(--c); }
+.path .ok { --c: var(--ok); }
+.path .warn { --c: var(--warn); }
+.path .bad { --c: var(--bad); }
+.path .hop.ok::before, .path .hop.warn::before, .path .hop.bad::before { background: var(--c); }
+@container (min-width: 520px) {
+	.path { flex-direction: row; flex-wrap: wrap; align-items: center; row-gap: 8px; }
+	.path .hop { flex-direction: column; align-items: flex-start; padding: 3px 10px 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-height: 0; }
+	.path .hop.ok, .path .hop.warn, .path .hop.bad { border-color: var(--c); }
+	.path .hop::before { display: none; }
+	.path .hop .top { width: auto; }
+	.path .leg { position: relative; width: 26px; height: 2px; margin: 0 9px 0 2px; }
+	.path .leg::after { content: ''; position: absolute; right: -7px; top: -4px; border-style: solid; border-width: 5px 0 5px 8px; border-color: transparent transparent transparent var(--c); }
+}
 .lead { margin: 0 0 12px; }
 .fieldform { padding: 4px 20px 16px; }
 .fieldform h3 { margin: 14px 0 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }

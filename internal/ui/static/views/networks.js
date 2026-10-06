@@ -16,6 +16,7 @@ import { only, configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { keysBlock } from './keys.js';
+import { vxlanPath, vlanPath, probed } from './path.js';
 
 const BANDS = ['2g', '5g', '6g'];
 
@@ -48,7 +49,7 @@ export async function networksTab(ctx, id, page) {
 		fieldPanels(ctx, 'locations', id, only(page.fields, (p) => p === 'services'), editing(ctx, 'locations', page)),
 		at.nets.length === 0
 			? h('div', { class: 'banner info' }, 'No network reaches here: no service folder that applies offers one.')
-			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, noUsteer, lib))),
+			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, noUsteer, lib, reports))),
 		writable.length > 0 && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox, lib) }, 'Add a network')),
 		addBox,
@@ -60,11 +61,11 @@ export async function networksTab(ctx, id, page) {
 }
 
 // tunnelsAt lists the tunnels set at a Locations node, from the values in
-// force there (0055): [{id, address, port, mtu}] by name.
+// force there (0055): [{id, address, port, mtu, underlay_vlan}] by name.
 export function tunnelsAt(fields) {
 	const out = new Map();
 	for (const [path, r] of Object.entries(fields || {})) {
-		const m = path.match(/^concentrators\.([^.]+)\.(address|port|mtu)$/);
+		const m = path.match(/^concentrators\.([^.]+)\.(address|port|mtu|underlay_vlan)$/);
 		if (!m) continue;
 		if (!out.has(m[1])) out.set(m[1], { id: m[1] });
 		out.get(m[1])[m[2]] = r.value;
@@ -96,9 +97,9 @@ async function networksAt(page) {
 	return { folders, nets: [...nets.values()] };
 }
 
-function networkCard(ctx, d, n, bandsHere, noUsteer, lib) {
+function networkCard(ctx, d, n, bandsHere, noUsteer, lib, reports) {
 	const box = h('div', { class: 'edit' });
-	const viewNow = () => view(ctx, n, bandsHere, box, noUsteer, lib);
+	const viewNow = () => view(ctx, n, bandsHere, box, noUsteer, lib, reports);
 	const body = h('div', null, viewNow());
 	const close = () => body.replaceChildren(viewNow());
 	return h('section', { class: 'panel' },
@@ -130,17 +131,26 @@ async function deleteNetwork(ctx, n, box) {
 	]);
 }
 
-function view(ctx, n, bandsHere, box, noUsteer, lib) {
+function view(ctx, n, bandsHere, box, noUsteer, lib, reports = []) {
 	const f = (k) => n.fields?.[k]?.value;
 	const asks = f('bands') || BANDS;
 	const row = (label, v) => v != null && v !== '' && h('div', { class: 'row' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, v));
+	// A transport, drawn (path.js): a VXLAN one from where its tunnel starts
+	// to its far end, coloured by the probes of the APs here; a VLAN one on
+	// the uplink.
 	const transport = (slot) => {
 		const type = f(`transport.${slot}.type`);
 		if (!type) return null;
-		return type === 'vxlan'
-			? `VXLAN over ${tunnelName(lib, f(`transport.${slot}.concentrator`))} · VNI ${f(`transport.${slot}.vni`)}${f(`transport.${slot}.probe`) ? ` · asks ${f(`transport.${slot}.probe`)}` : ''}`
-			: `VLAN ${f(`transport.${slot}.vlan`)}`;
+		if (type !== 'vxlan') return vlanPath(f(`transport.${slot}.vlan`));
+		const id = f(`transport.${slot}.concentrator`), vni = f(`transport.${slot}.vni`), ask = f(`transport.${slot}.probe`);
+		const t = lib.find((c) => c.id === id) || {};
+		return vxlanPath({ start: t.underlay_vlan, tunnel: id, port: t.port, mtu: t.mtu, vnis: [{ vni, by: ask ? `asks ${ask}` : null }], address: t.address },
+			probed(reports, [vni]));
 	};
+	const primary = transport('primary'), fallback = transport('fallback');
+	const switching = f('transport.switching') === 'automatic'
+		? `switches automatically${f('transport.failback') === 'equal' ? '' : `, back after ${f('transport.holddown') ?? 300} s`}${f('transport.ha') ? ', HA' : ''}`
+		: 'report only';
 	const roaming = [f('roaming.ft') && '11r', f('roaming.rrm') && '11k', f('roaming.btm') && '11v'].filter(Boolean);
 	const limits = [f('rate_limit.down_kbps') && `down ${f('rate_limit.down_kbps')} kbps`, f('rate_limit.up_kbps') && `up ${f('rate_limit.up_kbps')} kbps`].filter(Boolean);
 	return [
@@ -150,10 +160,9 @@ function view(ctx, n, bandsHere, box, noUsteer, lib) {
 				? h('span', { class: 'chip band' }, bandName(b))
 				: h('span', { class: 'chip band none', title: 'No radio here for this band' }, bandName(b) + ' (no radio here)')))),
 		row('Security', security(f('security'))),
-		row('Travels over', transport('primary') && [transport('primary'), transport('fallback') && `, then ${transport('fallback')}`,
-			transport('fallback') && (f('transport.switching') === 'automatic'
-				? ` · switches automatically${f('transport.failback') === 'equal' ? '' : `, back after ${f('transport.holddown') ?? 300} s`}${f('transport.ha') ? ', HA' : ''}`
-				: ' · report only')]),
+		primary && h('div', { class: 'pathbox' },
+			h('div', { class: 'label' }, fallback ? 'Travels over, first' : 'Travels over'), primary,
+			fallback && [h('div', { class: 'label' }, 'then', h('span', { class: 'sub' }, ` · ${switching}`)), fallback]),
 		row('Roaming', roaming.length ? roaming.join(', ') : 'off'),
 		steeringRow(ctx, n, box, noUsteer),
 		multicastRow(ctx, n, box),
