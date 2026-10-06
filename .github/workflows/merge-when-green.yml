@@ -39,7 +39,9 @@ jobs:
     runs-on: [self-hosted, linux, x64, talos]
     timeout-minutes: 5
     steps:
-      - run: gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label merge-when-green
+      # By REST: the runner's gh pr edit also asks GraphQL for the pull
+      # request's classic project cards, which GitHub now refuses.
+      - run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/merge-when-green" --silent
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
