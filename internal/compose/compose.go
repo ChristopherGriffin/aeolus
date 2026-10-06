@@ -39,7 +39,8 @@ var slots = []string{"primary", "fallback"}
 // AP composes one AP's config:
 //   - A VXLAN transport whose tunnel is not set at the AP's location is left
 //     out there (0055). If that removes the primary, the fallback takes its
-//     place.
+//     place. One with no tunnel picked, or no VNI, is a problem.
+//   - A VXLAN fallback to the primary's far end is a problem.
 //   - A network left with no transport is a problem.
 //   - The config carries only the tunnels its transports use, so an
 //     unfinished tunnel nothing uses holds no AP back. A tunnel without an
@@ -79,6 +80,10 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 				continue
 			}
 			cid, _ := net[prefix+"concentrator"].(string)
+			if _, vni := net[prefix+"vni"]; cid == "" || !vni {
+				problems = append(problems, fmt.Sprintf("network.%s.transport.%s: a VXLAN transport needs a tunnel and a VNI", id, slot))
+				continue
+			}
 			if _, set := fields["concentrators."+cid+".address"]; set {
 				kept[slot] = true
 				used[cid] = true
@@ -168,6 +173,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, snmpProblems(doc)...)
 	problems = append(problems, portProblems(doc)...)
 	problems = append(problems, tunnelProblems(doc)...)
+	problems = append(problems, farEndProblems(doc)...)
 	if problems == nil {
 		problems = []string{}
 	}
@@ -511,6 +517,45 @@ func tunnelProblems(doc map[string]any) []string {
 		byMAC[v&0xffff] = v
 	}
 	return out
+}
+
+// farEndProblems refuses a network whose VXLAN fallback goes to the same far
+// end as its VXLAN primary: by the same tunnel, or another to the same
+// address. It would fail with the primary, so it could never stand in for
+// it (Griff, 2026-10-06).
+func farEndProblems(doc map[string]any) []string {
+	concs, _ := doc["concentrators"].(map[string]any)
+	nets, _ := doc["network"].(map[string]any)
+	var out []string
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		transport, _ := n["transport"].(map[string]any)
+		p, _ := transport["primary"].(map[string]any)
+		f, _ := transport["fallback"].(map[string]any)
+		if p["type"] != "vxlan" || f["type"] != "vxlan" {
+			continue
+		}
+		pc, _ := p["concentrator"].(string)
+		fc, _ := f["concentrator"].(string)
+		if pc == "" || fc == "" {
+			continue
+		}
+		pa, fa := farEnd(concs, pc), farEnd(concs, fc)
+		switch {
+		case pc == fc:
+			out = append(out, fmt.Sprintf("network.%s.transport.fallback: it uses tunnel %s, as the primary does, so it would fail with it: pick a tunnel to another far end, or a VLAN", id, pc))
+		case pa != nil && fa != nil && pa.Equal(fa):
+			out = append(out, fmt.Sprintf("network.%s.transport.fallback: tunnel %s goes to %s, as the primary's tunnel %s does, so it would fail with it: pick a tunnel to another far end, or a VLAN", id, fc, pa, pc))
+		}
+	}
+	return out
+}
+
+// farEnd is a tunnel's far end, as an IP address, or nil.
+func farEnd(concs map[string]any, id string) net.IP {
+	c, _ := concs[id].(map[string]any)
+	addr, _ := c["address"].(string)
+	return net.ParseIP(strings.Trim(addr, "[]"))
 }
 
 // tunnelPortProblems refuses a tunnel port's VNIs the AP could not carry as

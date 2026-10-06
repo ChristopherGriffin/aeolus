@@ -648,6 +648,51 @@ func TestPowerControlNeedsRRM(t *testing.T) {
 	}
 }
 
+// A VXLAN transport needs a tunnel and a VNI; one without is held, not
+// left out quietly. And a VXLAN fallback can't go to the primary's far end,
+// by its tunnel or another to the same address (Griff, 2026-10-06).
+func TestVXLANTransportsNeedATunnelAndAnotherFarEnd(t *testing.T) {
+	s, sch := site(t)
+	set := func(tree change.TreeName, node hierarchy.NodeID, path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: tree, Node: node, Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unset := func(path string) {
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Unset, Tree: change.Services, Node: "household", Path: hierarchy.Path(path)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	unset("network.sweet.transport.fallback.vlan")
+	set(change.Services, "household", "network.sweet.transport.fallback.type", "vxlan")
+	set(change.Services, "household", "network.sweet.transport.fallback.vni", 77)
+	if p := problems(); !strings.Contains(p, "network.sweet.transport.fallback: a VXLAN transport needs a tunnel and a VNI") {
+		t.Fatalf("no tunnel: %s", p)
+	}
+	set(change.Services, "household", "network.sweet.transport.fallback.concentrator", "homelab")
+	if p := problems(); !strings.Contains(p, "network.sweet.transport.fallback: it uses tunnel homelab, as the primary does") {
+		t.Fatalf("the primary's tunnel: %s", p)
+	}
+	// Another tunnel, to the same address.
+	set(change.Locations, "gate", "concentrators.twin.address", "1.1.1.2")
+	set(change.Locations, "gate", "concentrators.twin.port", 4789)
+	set(change.Services, "household", "network.sweet.transport.fallback.concentrator", "twin")
+	if p := problems(); !strings.Contains(p, "tunnel twin goes to 1.1.1.2, as the primary's tunnel homelab does") {
+		t.Fatalf("the primary's address: %s", p)
+	}
+	set(change.Locations, "gate", "concentrators.twin.address", "1.1.1.3")
+	if p := problems(); strings.Contains(p, "far end") || strings.Contains(p, "needs a tunnel") {
+		t.Fatalf("another far end: %s", p)
+	}
+}
+
 func contains(list []string, sub string) bool {
 	return strings.Contains(strings.Join(list, "\n"), sub)
 }
