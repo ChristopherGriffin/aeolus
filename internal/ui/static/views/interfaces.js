@@ -24,6 +24,7 @@ import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
 import { tunnelsAt, tunnelName } from './networks.js';
+import { vxlanPath, probed } from './path.js';
 
 const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
 // Radios' views: the band cards, the channel map (0075), the other Aeolus
@@ -90,7 +91,7 @@ async function tunnels(ctx, here, page, ap, edit) {
 	return [
 		loopBanner(rows),
 		set.length
-			? h('div', { class: 'bands' }, set.map((t) => tunnelCard(ctx, d, here, page.node.name, t.id, fields, edit)))
+			? h('div', { class: 'bands' }, set.map((t) => tunnelCard(ctx, d, here, page.node.name, t.id, fields, edit, rows)))
 			: h('div', { class: 'banner info' }, 'No tunnel is set here. A tunnel set on a folder reaches every AP below it, and a network picks one in its VXLAN transport.'),
 		edit && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: () => addTunnel(ctx, d, here, page.node.name, fields, addBox) }, 'Add a tunnel')),
@@ -105,10 +106,33 @@ async function tunnels(ctx, here, page, ap, edit) {
 	];
 }
 
-// tunnelCard shows one tunnel by name: its far end, port and MTU, and where
-// each comes from. Someone who may change this node can edit it, or have it
-// follow the folder above again; one set only here is deleted that way.
-function tunnelCard(ctx, d, here, nodeName, name, fields, edit) {
+// usesOf is what the APs here (rows) carry over the tunnel name: each VNI,
+// with the network or tunnel port it carries.
+function usesOf(rows, name) {
+	const out = new Map();
+	for (const { cfg } of rows) {
+		const doc = cfg?.document || {};
+		for (const [id, n] of Object.entries(doc.network || {})) {
+			if (n.enabled === false) continue;
+			for (const slot of ['primary', 'fallback']) {
+				const t = n.transport?.[slot];
+				if (t?.type === 'vxlan' && t.concentrator === name) out.set(t.vni, n.ssid || id);
+			}
+		}
+		for (const [p, set] of Object.entries(doc.ports || {}))
+			if (set.mode === 'tunnel')
+				for (const [vlan, m] of Object.entries(set.vxlan || {}))
+					if (m.tunnel === name) out.set(m.vni, `${p} ${onWire(vlan)}`);
+	}
+	return [...out].sort((a, b) => a[0] - b[0]).map(([vni, by]) => ({ vni, by }));
+}
+
+// tunnelCard shows one tunnel by name: drawn as a path, from where it
+// starts, with its port and MTU, through the VNIs the APs here carry over
+// it, to its far end; then its other fields, and where each comes from.
+// Someone who may change this node can edit it, or have it follow the
+// folder above again; one set only here is deleted that way.
+function tunnelCard(ctx, d, here, nodeName, name, fields, edit, rows = []) {
 	const paths = TUNNEL.map((k) => `concentrators.${name}.${k}`).filter((p) => fields[p]);
 	const own = paths.filter((p) => fields[p].origin === 'self');
 	const onlyHere = own.length === paths.length;
@@ -117,8 +141,21 @@ function tunnelCard(ctx, d, here, nodeName, name, fields, edit) {
 	const names = (id) => ctx.name('locations', id);
 	const mtuPath = `concentrators.${name}.mtu`;
 	const ivPath = `concentrators.${name}.probe_interval`;
+	const v = (k) => fields[`concentrators.${name}.${k}`]?.value;
+	const uses = usesOf(rows, name);
+	// Where the fields the path shows come from: one origin for all, or each
+	// field's.
+	const drawn = ['address', 'port', 'underlay_vlan'].map((k) => `concentrators.${name}.${k}`).filter((p) => fields[p]);
+	const whence = new Map(drawn.map((p) => [`${fields[p].origin} ${fields[p].from}`, p]));
 	const close = () => body.replaceChildren(h('div', null,
-		paths.map((path) => {
+		h('div', { class: 'pathbox' },
+			vxlanPath({ start: v('underlay_vlan'), tunnel: name, port: v('port'), mtu: v('mtu') ?? defaultMTU(v('address')), vnis: uses, address: v('address') },
+				probed(rows, uses.map((u) => u.vni))),
+			!uses.length && h('div', { class: 'sub' }, 'No network or port here travels over it yet.'),
+			h('div', { class: 'origins' }, whence.size === 1
+				? origin('locations', here, fields[drawn[0]], names)
+				: drawn.map((p) => [h('span', { class: 'sub' }, group(p).label), origin('locations', here, fields[p], names)]))),
+		paths.filter((p) => !drawn.includes(p)).map((path) => {
 			const r = fields[path];
 			const rowBox = h('div', { class: 'edit' });
 			return [h('div', { class: 'row' },
@@ -136,9 +173,7 @@ function tunnelCard(ctx, d, here, nodeName, name, fields, edit) {
 		!fields[ivPath] && h('div', { class: 'row' },
 			h('div', { class: 'label' }, 'Probe interval'),
 			h('div', { class: 'value' }, 'default, 30 s')),
-		!fields[`concentrators.${name}.underlay_vlan`] && h('div', { class: 'row' },
-			h('div', { class: 'label' }, 'Starts from'),
-			h('div', { class: 'value' }, 'the management VLAN'))));
+	));
 	close();
 	return h('section', { class: 'panel' },
 		h('h2', null, name,
