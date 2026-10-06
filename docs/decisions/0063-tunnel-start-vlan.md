@@ -87,7 +87,7 @@ Run on OpenWrtnight on 2026-10-04 with temporary interfaces only (`ubus call net
 - **When:** the network reloads of 0078's key load check restarted both interfaces at 10:32 and about 10:36 CDT. VNI 50 went down at 10:37:44, and aeolus-50 moved to its VLAN 50 fallback. The unexplained office outage of 2026-10-05 (02:27–05:37 UTC) fits the same cause.
 - **The fix:**
   - **The prober keeps the start's routes.** Every 10 seconds, for each `aeolus_vlan<N>_tunnels` that is up, it compares the routes netifd holds (its addresses' prefixes, and the routes DHCP gave) with the kernel's table. A route missing at two looks in a row is put back with `ip route replace`. Where one can't be, as when the address itself is gone, it has netifd start the interface again (down, then up), at most every 5 minutes.
-  - **The AP reports the sharing:** `from_shared` names the AP's other interfaces with an address on the start's device, and `from_put_back_ago` says when routes were last put back.
+  - **The AP reports the sharing:** `from_shared` names the AP's other interfaces holding the start's own address on its device (one with an address of its own there shares nothing), and `from_put_back_ago` says when routes were last put back.
   - **The UI flags it:** the path's From hop turns amber, says what shares the address, and when routes were put back. So does the tunnel's line on the AP's Interfaces tab.
 - **Not done:** Aeolus doesn't remove or change an interface it didn't make. A macvlan device for the start would give it a MAC and lease of its own, but it needs `kmod-macvlan`, which the office AP doesn't have.
 - **Live, 2026-10-06 (v0.49.1):**
