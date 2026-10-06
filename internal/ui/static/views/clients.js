@@ -40,14 +40,15 @@ export async function clientsTab(ctx, page, ap) {
 
 function controls(all, folder, draw) {
 	const pick = (key, label, values) => {
-		const sel = h('select', { onchange: () => { view[key] = sel.value; draw(); } },
+		// data-kept: the page keeps a filter across redraws (refresh.js).
+		const sel = h('select', { 'data-kept': true, onchange: () => { view[key] = sel.value; draw(); } },
 			h('option', { value: '' }, label),
 			values.map(([v, name]) => h('option', { value: v, selected: view[key] === v }, name)));
 		return sel;
 	};
 	const ssids = [...new Set(all.map((c) => c.ssid).filter(Boolean))].sort();
 	const aps = [...new Map(all.map((c) => [c.ap.id, c.ap.name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-	const q = h('input', { type: 'search', placeholder: 'Name, MAC or address', value: view.q, oninput: () => { view.q = q.value; draw(); } });
+	const q = h('input', { type: 'search', placeholder: 'Name, MAC or address', value: view.q, 'data-kept': true, oninput: () => { view.q = q.value; draw(); } });
 	return h('div', { class: 'filters' },
 		pick('network', 'Every network', ssids.map((s) => [s, s])),
 		folder && pick('ap', 'Every AP', aps),
