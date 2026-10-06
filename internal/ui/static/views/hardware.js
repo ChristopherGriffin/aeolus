@@ -71,13 +71,18 @@ function card(at, band, b, now) {
 
 // reported says what the APs run for power or whether the radio is on (k),
 // on a band, as they last reported it: one value where all agree, else each
-// AP's. Null where none reported it.
+// AP's. Null where none reported it. A radio's power is what power control
+// holds it at (0077), or else at most what it reports: a radio may not
+// send all it says.
 function reported(rows, band, k) {
 	if (k !== 'power' && k !== 'enabled') return null;
 	const seen = rows.map(({ ap, cfg }) => {
-		const r = (cfg?.condition?.state?.report?.radios || []).find((x) => x.band === band);
+		const rep = cfg?.condition?.state?.report;
+		const r = (rep?.radios || []).find((x) => x.band === band);
+		const held = (rep?.rrm?.apc || []).find((x) => x.band === band && x.power != null);
+		if (k === 'power' && held) return { name: ap.name, text: `${held.power} dBm (power control)` };
 		const v = k === 'power' ? r?.txpower : r?.up;
-		return v == null ? null : { name: ap.name, text: k === 'power' ? `${v} dBm` : v ? 'on' : 'off' };
+		return v == null ? null : { name: ap.name, text: k === 'power' ? `up to ${v} dBm` : v ? 'on' : 'off' };
 	}).filter(Boolean);
 	if (!seen.length) return null;
 	const texts = [...new Set(seen.map((s) => s.text))];

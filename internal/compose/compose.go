@@ -164,6 +164,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, bondingProblems(doc)...)
 	problems = append(problems, dfsProblems(doc)...)
 	problems = append(problems, channelsProblems(doc)...)
+	problems = append(problems, apcProblems(doc)...)
 	problems = append(problems, snmpProblems(doc)...)
 	problems = append(problems, portProblems(doc)...)
 	problems = append(problems, tunnelProblems(doc)...)
@@ -308,6 +309,17 @@ func channelsProblems(doc map[string]any) []string {
 		}
 	}
 	return out
+}
+
+// apcProblems refuses power control without RRM (0077): it works from RRM's
+// neighbours, and would have none.
+func apcProblems(doc map[string]any) []string {
+	apc, _ := doc["apc"].(map[string]any)
+	rrm, _ := doc["rrm"].(map[string]any)
+	if apc["enabled"] == true && rrm["enabled"] != true {
+		return []string{"apc.enabled: power control needs rrm.enabled: it works from RRM's neighbours"}
+	}
+	return nil
 }
 
 // snmpProblems refuses SNMP turned on with no way to query it: no community

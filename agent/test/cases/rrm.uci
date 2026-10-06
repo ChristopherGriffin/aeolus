@@ -289,6 +289,9 @@ config rrm 'aeolus_rrm'
 	option moves '1'
 	option window '02:00-05:00'
 	option margin '20'
+	option apc '1'
+	option apc_neighbours '3'
+	option apc_target '-67'
 
 package usteer
 

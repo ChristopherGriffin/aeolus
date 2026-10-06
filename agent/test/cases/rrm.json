@@ -1,5 +1,5 @@
 {
-	"about": "The vxlan case with radio resource management on (0073): the agent's package gets the daemon's section, naming the AP its beacons advertise.",
+	"about": "The vxlan case with radio resource management on (0073), and power control (0077) with its own target: the agent's package gets the daemon's section, naming the AP its beacons advertise, with power control's count, unset, written out.",
 	"current": "pumphouse-current.json",
 	"facts": {
 		"prober": true,
@@ -16,6 +16,7 @@
 	},
 	"intent": {
 		"rrm": { "enabled": true },
+		"apc": { "enabled": true, "target": -67 },
 		"system": { "country": "US", "poll": 60 },
 		"network": {
 			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1",

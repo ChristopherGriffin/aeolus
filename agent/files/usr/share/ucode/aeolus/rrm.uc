@@ -25,6 +25,9 @@ const SUDDEN = 0.5;           // a radio's own channel kept busier than this by 
 const NEAR = 6;               // dB further away a shared channel's nearest user must be, to move to it
 const WINDOW = '02:00-05:00'; // when planned moves may happen, unless the policy says
 const MARGIN = 20;            // rating points a channel must beat the radio's own by, unless the policy says
+const APC_STEP = 3;           // dB a radio's power moves at a time (0077)
+const APC_FLOOR = 8;          // dBm a radio's power goes no lower than
+const APC_ABOVE = 6;          // dB above the target all must hear it before its power goes down
 
 // The 5 GHz channels taken up together at each width, by the lowest and
 // highest 20 MHz channel, as internal/radio has them.
@@ -374,10 +377,28 @@ function switch_args(band, channel, width, mode, count) {
 	return null;
 }
 
+// power_step says how a radio's power should move (0077). signals are how
+// strongly each neighbour on its band hears it, in dBm; it looks for the
+// wanted strongest of them. Fewer than that hear it (why: looking), or the
+// weakest of them hears it below the target (below): up a step, unless it
+// is at its ceiling (ceiling). All of them at least APC_ABOVE dB above the
+// target (above): down a step, unless it is at APC_FLOOR (floor). Otherwise
+// it holds (target). It returns { step, why, count, weakest }.
+function power_step(signals, wanted, target, power, ceiling) {
+	let top = slice(sort(filter(signals ?? [], s => type(s) in ['int', 'double']), (a, b) => b - a), 0, wanted);
+	let count = length(top), weakest = count ? top[count - 1] : null;
+	let out = (step, why) => ({ step: step, why: why, count: count, weakest: weakest });
+	if (count < wanted || weakest < target)
+		return power >= ceiling ? out(0, 'ceiling') : out(min(APC_STEP, ceiling - power), count < wanted ? 'looking' : 'below');
+	if (weakest >= target + APC_ABOVE)
+		return power <= APC_FLOOR ? out(0, 'floor') : out(-min(APC_STEP, power - APC_FLOOR), 'above');
+	return out(0, 'target');
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW, SUDDEN, NEAR, WINDOW, MARGIN,
+	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW, SUDDEN, NEAR, WINDOW, MARGIN, APC_STEP, APC_FLOOR, APC_ABOVE,
 	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits,
-	weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args
+	weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args, power_step
 };

@@ -788,9 +788,12 @@ function rrm(a, intent, facts, keep) {
 	let r = intent.rrm;
 	if (r?.enabled != true)
 		return;
+	// Power control (0077) runs in the same daemon, with RRM's neighbours.
+	let p = intent.apc?.enabled == true ? intent.apc : null;
 	put(a, 'aeolus_rrm', 'rrm', {
 		enabled: 1, ap: facts.ap || null, moves: r.moves == false ? 0 : 1,
 		window: r.window ?? '02:00-05:00', margin: r.margin ?? 20,
+		apc: p ? 1 : null, apc_neighbours: p ? p.neighbours ?? 3 : null, apc_target: p ? p.target ?? -70 : null,
 	});
 	keep['aeolus_rrm'] = true;
 }
