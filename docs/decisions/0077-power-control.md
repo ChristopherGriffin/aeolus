@@ -1,8 +1,8 @@
 # 0077. Automatic power control (APC)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-05
-- Proposed by: Griff: each AP looks for its three nearest neighbours (a number that can be set) and raises its power until they all hear each other at −70 dBm or better. It's APC, beside RRM's channels. Written up by Claude
+- Proposed by: Griff: each AP looks for its three nearest neighbours (a number that can be set) and raises its power until they all hear each other at −70 dBm or better. It's APC, beside RRM's channels. Written up by Claude, and accepted with the merge
 - Refines: 0073
 
 ## Context

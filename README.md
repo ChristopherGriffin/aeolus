@@ -130,6 +130,7 @@ Each milestone ends in something checkable before the next starts.
 | [0074](docs/decisions/0074-time-zones.md) | Time zones from a list |
 | [0075](docs/decisions/0075-channel-sets.md) | Channel sets, and an APs tab |
 | [0076](docs/decisions/0076-ap-names.md) | An AP's name is its hostname |
+| [0077](docs/decisions/0077-power-control.md) | Automatic power control |
 
 ## Open questions
 
