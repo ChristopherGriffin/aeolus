@@ -86,7 +86,7 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 	// Moving to another folder or AP in the tree keeps the tab, so folders
 	// can be compared side by side.
 	const keep = tree === 'locations' && !n.isolated ? keepPath(tab, sub, view) : '';
-	return { aside: treeAside(ctx, tree, id, status, keep), main, refresh };
+	return { aside: treeAside(ctx, tree, id, keep), main, refresh };
 }
 
 // overrides is the mockup's Overrides menu (0012): what differs from above,

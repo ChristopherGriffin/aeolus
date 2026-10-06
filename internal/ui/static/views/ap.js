@@ -4,7 +4,7 @@
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
 import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort, dhcpWarnings } from '../format.js';
-import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, keepPath, moved } from '../layout.js';
+import { treeAside, crumbs, apStatus, tabBar, pick, keepPath, moved } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
 import { systemSection } from './sections.js';
@@ -69,7 +69,7 @@ export async function apPage(ctx, id, tab, sub, view) {
 	else if (tab === 'clients') main.push(await clientsTab(ctx, page, thisAP));
 	else main.push(await systemSection(ctx, id, page, edit));
 	const keep = tab === 'overview' ? '' : keepPath(tab, sub, view);
-	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps), keep), main, refresh: 30 };
+	return { aside: treeAside(ctx, 'locations', id, keep), main, refresh: 30 };
 }
 
 // tunnelTrouble warns of a tunnel the AP's prober finds down, and of a port
