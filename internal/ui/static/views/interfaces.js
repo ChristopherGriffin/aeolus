@@ -426,9 +426,12 @@ function tunnelState(report, t) {
 	if (report.vxlan.loaded === false) return h('span', { class: 'chip warn' }, 'vxlan is installed, but netifd has not loaded it: restart the network');
 	if (!t) return h('span', { class: 'sub' }, 'not on the AP yet');
 	// Where it starts, when that is a VLAN (0063): the AP's address there,
-	// or that DHCP has not given one, which keeps the tunnel down.
+	// or that DHCP has not given one, which keeps the tunnel down; and
+	// another interface sharing that address, whose restarts drop the
+	// tunnel's routes until the prober puts them back.
 	const from = t.from_vlan
-		? h('div', { class: 'sub' }, t.from_address ? `from VLAN ${t.from_vlan}, ${t.from_address}` : `no address on VLAN ${t.from_vlan}: does DHCP answer there?`)
+		? h('div', { class: 'sub' }, t.from_address ? `from VLAN ${t.from_vlan}, ${t.from_address}` : `no address on VLAN ${t.from_vlan}: does DHCP answer there?`,
+			t.from_shared?.length ? [' ', h('span', { class: 'chip warn', title: `${t.from_shared.join(', ')} also lease${t.from_shared.length > 1 ? '' : 's'} on VLAN ${t.from_vlan}, sharing the address: a restart of either drops the tunnel's routes until the prober puts them back. Remove ${t.from_shared.length > 1 ? 'them' : 'it'} from the AP.` }, `shared with ${t.from_shared.join(', ')}`)] : null)
 		: null;
 	if (t.up) return [h('span', { class: 'chip ok' }, 'up'), from];
 	if (t.standby) return [h('span', { class: 'chip idle' }, 'standing by'), from];
