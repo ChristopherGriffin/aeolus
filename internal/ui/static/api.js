@@ -94,7 +94,13 @@ let described = null;
 // schema reads which fields can be set and what each takes (0048), once a
 // page load: it is the same for everyone and changes only with a release.
 export function schema() {
-	described ??= get('/v1/schema').catch((e) => {
+	described ??= Promise.all([get('/v1/schema'), get('/v1/agent/versions').catch(() => null)]).then(([d, agents]) => {
+		// The agent releases the manager keeps, for the Agent version setting
+		// (0079): current, its own, and the ones before it.
+		const f = d.fields?.['system.agent'];
+		if (f && agents) f.enum = ['current', ...agents.versions.map((v) => v.version)];
+		return d;
+	}).catch((e) => {
 		described = null;
 		throw e;
 	});

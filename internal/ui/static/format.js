@@ -10,7 +10,7 @@ const SECURITY = {
 };
 
 const SYSTEM = {
-	'country': 'Country', 'tz': 'Time zone', 'ntp': 'NTP servers', 'poll': 'Poll interval',
+	'country': 'Country', 'tz': 'Time zone', 'ntp': 'NTP servers', 'poll': 'Poll interval', 'agent': 'Agent version',
 	'syslog': 'Syslog', 'ssh_keys': 'SSH keys',
 	'management.vlan': 'VLAN', 'management.addressing': 'Addressing', 'management.address': 'Address',
 	'management.gateway': 'Gateway', 'management.dns': 'DNS',
@@ -85,6 +85,7 @@ export function value(path, v, names) {
 	if (last === 'channel' && v === 'auto') return 'automatic'; // within the band's channel set (0075)
 	if (last === 'power' && typeof v === 'number') return v + ' dBm';
 	if (last === 'dfs') return v === 'avoid' ? 'avoided' : 'allowed';
+	if (path === 'system.agent') return v === 'current' ? "current: the manager's own" : String(v);
 	if (path === 'rrm.window') return `${String(v).replace('-', '–')}, the AP's local time`;
 	if (path === 'rrm.margin') return `${v} rating points`;
 	if (path === 'apc.target') return `${v} dBm`;

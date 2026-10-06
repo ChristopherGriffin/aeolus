@@ -136,7 +136,19 @@ export function apStatus(a) {
 	if (!seen) return { cls: 'idle', chip: 'idle', label: 'Never seen', detail: 'It has not called the manager.' };
 	if (quiet) return { cls: 'bad', chip: 'bad', label: 'Not heard from', detail: 'Last seen ' + ago(seen) + '.' };
 	if (a.config === 'held') return { cls: 'bad', chip: 'bad', label: 'Held', detail: `Its config breaks ${a.problems} rule${a.problems === 1 ? '' : 's'}; it keeps running what it has.` };
-	if (a.in_sync === true) return { cls: 'ok', chip: 'ok', label: 'In sync', detail: 'Running version ' + a.version + '.' };
+	if (a.in_sync === true) {
+		// Its agent (0079), once it says which it runs: amber while that
+		// isn't the one it should run.
+		const g = a.agent, runs = g?.runs?.hash;
+		if (runs !== undefined && g?.wants && runs !== g.wants.hash) {
+			const u = g.runs.update;
+			const short = (v) => (v || '').replace(/-[0-9a-f]{7,}$/, '') || 'unknown';
+			if (u && u.hash === g.wants.hash && (u.state === 'rolled-back' || u.state === 'failed'))
+				return { cls: 'warn', chip: 'warn', label: u.state === 'failed' ? 'Agent update failed' : 'Agent rolled back', detail: u.why || '' };
+			return { cls: 'warn', chip: 'warn', label: 'Agent updating', detail: `Its agent is ${short(g.runs.version)}; it should run ${short(g.wants.version)}.` };
+		}
+		return { cls: 'ok', chip: 'ok', label: 'In sync', detail: 'Running version ' + a.version + '.' };
+	}
 	if (a.in_sync === false) return { cls: 'warn', chip: 'warn', label: 'Out of sync', detail: `Running version ${a.seen.running}; its version is ${a.version}.` };
 	return { cls: 'warn', chip: 'warn', label: 'No config yet', detail: 'It has not reported running a version.' };
 }

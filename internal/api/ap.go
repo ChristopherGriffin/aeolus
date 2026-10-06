@@ -189,6 +189,9 @@ func (s *Server) apAuth(h apHandler) http.Handler {
 //     version of a config it was sent.
 func (s *Server) apPoll(w http.ResponseWriter, r *http.Request, c apCall) error {
 	w.Header().Set("Cache-Control", "no-store")
+	// The agent it should run (0079), on every answer: an unchanged, held
+	// or unassigned config still carries it.
+	s.setAgentHeader(w, c.ap)
 	// The version is read before the state, so the state is never older than
 	// the version it is labeled with. If a change lands in between, the AP
 	// gets the newer config under the older version and fetches it once more.

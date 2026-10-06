@@ -25,6 +25,7 @@
         "tz": { "type": "string", "minLength": 1, "maxLength": 64, "x-aeolus-enum": "zones", "description": "IANA time zone, such as America/Chicago: one of Aeolus's table, which gives each its rule for the AP's clock (0074)." },
         "ntp": { "type": "array", "items": { "$ref": "#/$defs/host" }, "maxItems": 4 },
         "poll": { "type": "integer", "minimum": 10, "maximum": 3600, "description": "Seconds between config polls (0007)." },
+        "agent": { "type": "string", "pattern": "^(current|[A-Za-z0-9._-]{1,64})$", "default": "current", "description": "The agent release the APs run (0079): current, the manager's own, unless set, or a release the manager keeps, such as v0.49.0. Each AP updates itself, and rolls itself back if the new agent doesn't confirm itself." },
         "syslog": { "$ref": "#/$defs/host", "description": "Remote syslog host, optionally host:port." },
         "ssh_keys": { "type": "array", "items": { "type": "string", "pattern": "^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]+( .*)?$" } },
         "snmp": {

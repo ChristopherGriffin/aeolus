@@ -204,6 +204,8 @@ type stateReport struct {
 	Keys *keysState `json:"keys,omitempty"`
 	// What its radio resource management found (0073).
 	RRM *rrmState `json:"rrm,omitempty"`
+	// The agent it runs, and its last update (0079).
+	Agent *agentState `json:"agent,omitempty"`
 }
 
 // rrmState is what the AP's radio resource management found (0073): its
@@ -969,6 +971,9 @@ func (st *stateReport) check() error {
 	if err := st.RRM.check(); err != nil {
 		return err
 	}
+	if err := st.Agent.check(); err != nil {
+		return err
+	}
 	if err := plainText("openwrt", st.OpenWrt, maxText); err != nil {
 		return err
 	}
@@ -1224,9 +1229,14 @@ func (s *Server) aps(w http.ResponseWriter, _ *http.Request, c call) error {
 		if l.Seen != nil && l.Seen.Running != nil {
 			inSync = *l.Seen.Running == version
 		}
+		var report json.RawMessage
+		if l.State != nil {
+			report = l.State.Report
+		}
 		out = append(out, map[string]any{
 			"id": id, "name": n.Name, "ancestry": t.Ancestry(id), "version": version,
 			"config": config, "problems": len(res.Problems), "seen": l.Seen, "in_sync": inSync,
+			"agent": s.agentView(c.state, id, report),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"aps": out})
