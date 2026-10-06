@@ -2,7 +2,8 @@
 // and exchanges hellos with over the wire, as each AP last reported, with
 // how strongly each hears the other and the neighbour's channel; the
 // channels as it rates them; and its moves. Radio resource management, and
-// its policy for moves, are set here too.
+// its policy for moves, are set here too, and power control (0077), with
+// the radios it holds.
 
 import { h, link } from '../dom.js';
 import { bandName, origin, group, value, ago } from '../format.js';
@@ -19,15 +20,27 @@ const STATE = {
 	down: ['bad', 'its hellos stopped'],
 };
 
-// The policy for moves (0073), and what each means unset.
+// The policy for moves (0073), power control's (0077), and what each means
+// unset.
 const POLICY = ['rrm.moves', 'rrm.window', 'rrm.margin'];
-const DEFAULT = { 'rrm.moves': true, 'rrm.window': '02:00-05:00', 'rrm.margin': 20 };
+const APC = ['apc.neighbours', 'apc.target'];
+const DEFAULT = { 'rrm.moves': true, 'rrm.window': '02:00-05:00', 'rrm.margin': 20, 'apc.neighbours': 3, 'apc.target': -70 };
 
-// neighboursSection draws the switch, the policy for moves, and the table.
-// at is the node's page ({ node, nodeName, page, canEdit, parentName });
-// rows are its APs, each with its config and condition.
+// What turning each on or off does.
+const TURNS = {
+	'rrm.enabled': ['Neighbours',
+		'Nothing restarts. Each AP\'s beacons say it is an Aeolus AP, it listens briefly on its other channels, one at a time, while its radio isn\'t busy, and it exchanges hellos with the APs it hears best. Unless moves are off, it moves a radio whose channel is automatic to its best channel, as the policy says, with an announcement clients can follow.',
+		'Nothing restarts. Each AP takes the mark off its beacons, stops its hellos, and moves no radio.'],
+	'apc.enabled': ['Power control',
+		'Nothing restarts. A minute after it applies the config, each AP holds each radio\'s power, unless one is set for it, and steps it 3 dB at a time, at most every ten minutes: up while fewer of its neighbours on the band hear it than it looks for, or the weakest of them hears it below the target; down while all of them hear it 6 dB or more above. Clients don\'t notice a step.',
+		'Nothing restarts. Each AP lets its radios go back to their configured power.'],
+};
+
+// neighboursSection draws the switch, the policy for moves, power control,
+// and the table. at is the node's page ({ node, nodeName, page, canEdit,
+// parentName }); rows are its APs, each with its config and condition.
 export function neighboursSection(ctx, at, rows) {
-	return [switchRow(ctx, at), table(ctx, rows)];
+	return [switchRow(ctx, at), powerPanel(ctx, at, rows), table(ctx, rows)];
 }
 
 function switchRow(ctx, at) {
@@ -44,7 +57,7 @@ function switchRow(ctx, at) {
 			field && origin('locations', node, field, (id) => ctx.name('locations', id)),
 			canEdit && !lockedAbove && h('span', { class: 'controls' },
 				field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
-				on && h('button', { type: 'button', class: 'button small', onclick: async () => movesEditor(ctx, await schema(), at, box) }, 'Edit moves…'),
+				on && h('button', { type: 'button', class: 'button small', onclick: async () => policyEditor(ctx, await schema(), at, box, POLICY, 'Moves') }, 'Edit moves…'),
 				h('button', { type: 'button', class: 'button small', onclick: () => turn(ctx, at, path, field, !on, box) },
 					on ? 'Turn off…' : 'Turn on…'))),
 		on && POLICY.map((p) => policyRow(ctx, at, p)),
@@ -66,11 +79,11 @@ function policyRow(ctx, at, path) {
 	box];
 }
 
-// movesEditor opens, in box, the policy's fields as the schema describes
-// them (d), set on this node in one change.
-function movesEditor(ctx, d, at, box) {
+// policyEditor opens, in box, a policy's fields (paths) as the schema
+// describes them (d), set on this node in one change.
+function policyEditor(ctx, d, at, box, paths, title) {
 	const { node, nodeName, page } = at;
-	const { body, inputs, rows } = fieldsForm(d, [[null, POLICY]], page.fields || {}, node);
+	const { body, inputs, rows } = fieldsForm(d, [[null, paths]], page.fields || {}, node);
 	const out = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
 	const review = async () => {
@@ -82,22 +95,22 @@ function movesEditor(ctx, d, at, box) {
 			msg.replaceChildren(e.message);
 			return;
 		}
-		const paths = Object.keys(values);
-		if (!paths.length) {
+		const changed = Object.keys(values);
+		if (!changed.length) {
 			msg.replaceChildren('Nothing has changed.');
 			return;
 		}
-		const op = paths.length === 1
-			? { kind: 'set', tree: 'locations', node, path: paths[0], value: values[paths[0]] }
+		const op = changed.length === 1
+			? { kind: 'set', tree: 'locations', node, path: changed[0], value: values[changed[0]] }
 			: { kind: 'set', tree: 'locations', node, values };
 		const p = await ask(out, op);
 		if (!p) return;
 		confirm(ctx, out, op, p, [
-			h('div', null, h('strong', null, `Moves on ${nodeName}`)),
-			h('ul', { class: 'becomes' }, paths.map((path) => h('li', null, `${group(path).label}: `,
+			h('div', null, h('strong', null, `${title} on ${nodeName}`)),
+			h('ul', { class: 'becomes' }, changed.map((path) => h('li', null, `${group(path).label}: `,
 				page.fields?.[path] ? value(path, page.fields[path].value) : [value(path, DEFAULT[path]), ' (not set)'], ' → ', value(path, values[path])))),
 		], [
-			h('div', { class: 'sub' }, 'Nothing restarts: each AP\'s RRM takes it up once it applies the config.'),
+			h('div', { class: 'sub' }, 'Nothing restarts: each AP takes it up once it applies the config.'),
 		]);
 	};
 	box.replaceChildren(h('div', { class: 'fieldform', 'data-editing': true },
@@ -111,16 +124,62 @@ function movesEditor(ctx, d, at, box) {
 
 async function turn(ctx, at, path, field, on, box) {
 	const { node, nodeName } = at;
+	const [what, onText, offText] = TURNS[path];
 	const op = { kind: 'set', tree: 'locations', node, path, value: on };
 	const p = await ask(box, op);
 	if (!p) return;
 	confirm(ctx, box, op, p, [
-		h('div', null, h('strong', null, `Neighbours on ${nodeName}: `), field?.value === true ? 'on' : 'off', ' → ', on ? 'on' : 'off'),
+		h('div', null, h('strong', null, `${what} on ${nodeName}: `), field?.value === true ? 'on' : 'off', ' → ', on ? 'on' : 'off'),
 	], [
-		h('div', { class: 'sub' }, on
-			? 'Nothing restarts. Each AP\'s beacons say it is an Aeolus AP, it listens briefly on its other channels, one at a time, while its radio isn\'t busy, and it exchanges hellos with the APs it hears best. Unless moves are off, it moves a radio whose channel is automatic to its best channel, as the policy says, with an announcement clients can follow.'
-			: 'Nothing restarts. Each AP takes the mark off its beacons, stops its hellos, and moves no radio.'),
+		h('div', { class: 'sub' }, on ? onText : offText),
 	]);
+}
+
+// Why power control holds a radio where it does (0077), with its chip.
+const POWER = {
+	new: ['idle', 'just taken over'], looking: ['warn', 'looking for neighbours'], below: ['warn', 'below the target'],
+	ceiling: ['warn', 'at its ceiling'], target: ['ok', 'at the target'], above: ['ok', 'above the target'],
+	floor: ['ok', 'at its floor'], failed: ['bad', 'cannot set its power'],
+};
+
+// powerPanel is power control (0077): its switch and policy, which need
+// neighbours, and the radios each AP holds, as each last reported.
+function powerPanel(ctx, at, rows) {
+	const { node, nodeName, page, canEdit, parentName } = at;
+	const path = 'apc.enabled';
+	const field = page.fields?.[path];
+	const on = field?.value === true;
+	const rrm = page.fields?.['rrm.enabled']?.value === true;
+	const box = h('div', { class: 'edit' });
+	const lockedAbove = field?.origin === 'locked' && field.from !== node;
+	const lines = rows.flatMap(({ ap, cfg }) => (cfg?.condition?.state?.report?.rrm?.apc || []).map((x, i) => {
+		const [chip, says] = POWER[x.why] || ['idle', x.why];
+		return h('tr', null,
+			h('td', null, i === 0 && link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/neighbours`, ap.name)),
+			h('td', null, bandName(x.band)),
+			h('td', { class: 'mono' }, x.power != null ? `${x.power} dBm` : '—', x.ceiling != null && h('span', { class: 'sub' }, ` of ${x.ceiling}`)),
+			h('td', { class: 'mono' }, x.count != null ? `${x.count} of ${x.wanted}` : '—', x.weakest != null && h('span', { class: 'sub' }, `, weakest ${x.weakest} dBm`)),
+			h('td', null, h('span', { class: `chip ${chip}` }, says),
+				x.step ? h('span', { class: 'sub' }, ` ${x.step > 0 ? '+' : ''}${x.step} dB${x.ago != null ? `, ${x.ago < 120 ? `${x.ago} s` : `${Math.round(x.ago / 60)} min`} ago` : ''}`) : null));
+	}));
+	return h('section', { class: 'panel' },
+		h('div', { class: 'row' },
+			h('div', { class: 'label' }, 'Power control'),
+			h('div', { class: 'value' }, field ? (on ? 'on' : 'off') : h('span', { class: 'sealed' }, 'off (not set)'),
+				!rrm && on && h('span', { class: 'sub' }, ' (needs neighbours on)')),
+			field && origin('locations', node, field, (id) => ctx.name('locations', id)),
+			canEdit && !lockedAbove && h('span', { class: 'controls' },
+				field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
+				on && h('button', { type: 'button', class: 'button small', onclick: async () => policyEditor(ctx, await schema(), at, box, APC, 'Power control') }, 'Edit…'),
+				(on || rrm) && h('button', { type: 'button', class: 'button small', onclick: () => turn(ctx, at, path, field, !on, box) },
+					on ? 'Turn off…' : 'Turn on…'))),
+		on && APC.map((p) => policyRow(ctx, at, p)),
+		box,
+		on && (lines.length
+			? h('table', { class: 'list' },
+				h('tr', null, ['AP', 'Band', 'Power', 'Heard by', 'Now'].map((c) => h('th', null, c))),
+				lines)
+			: h('div', { class: 'sub' }, 'No AP holds a radio yet: each takes its radios over a minute after it applies the config.')));
 }
 
 function table(ctx, rows) {

@@ -231,7 +231,11 @@ func TestStateReports(t *testing.T) {
 			// Its moves: one made, and one that yielded to a neighbour's claim.
 			"moves": []any{
 				map[string]any{"band": "2g", "from": 11, "to": 6, "why": "shared", "state": "moved", "at": 1791223832},
-				map[string]any{"band": "5g", "from": 157, "to": 44, "why": "better", "state": "yielded", "at": 1791224000, "ap": "ap-2005b6018be0"}}},
+				map[string]any{"band": "5g", "from": 157, "to": 44, "why": "better", "state": "yielded", "at": 1791224000, "ap": "ap-2005b6018be0"}},
+			// Its power control (0077): 2.4 GHz stepped down, 5 GHz at its ceiling.
+			"apc": []any{
+				map[string]any{"radio": "radio0", "band": "2g", "power": 19, "ceiling": 25, "wanted": 3, "target": -70, "count": 3, "weakest": -61, "step": -3, "why": "above", "ago": 120},
+				map[string]any{"radio": "radio1", "band": "5g", "power": 25, "ceiling": 25, "wanted": 3, "target": -70, "count": 1, "weakest": -88, "step": 0, "why": "ceiling", "ago": nil}}},
 		// Every Wi-Fi client (0066): one on an Aeolus network, one on the AP's own.
 		"clients": []any{
 			map[string]any{"mac": "7e:2a:ea:9b:2b:8f", "network": "lab", "ssid": "Aeolus Lab", "band": "5g", "signal": -49, "signal_avg": -50,
@@ -315,6 +319,10 @@ func TestStateReports(t *testing.T) {
 		"rrm move why":  {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 6, "why": "bored", "state": "moved"}}}},
 		"rrm move to":   {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 0, "why": "shared", "state": "moved"}}}},
 		"rrm move ap":   {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 6, "why": "shared", "state": "yielded", "ap": "office"}}}},
+		"apc why":       {"version": 1, "rrm": map[string]any{"apc": []any{map[string]any{"radio": "radio0", "band": "2g", "power": 20, "wanted": 3, "target": -70, "why": "louder"}}}},
+		"apc power":     {"version": 1, "rrm": map[string]any{"apc": []any{map[string]any{"radio": "radio0", "band": "2g", "power": 50, "wanted": 3, "target": -70, "why": "target"}}}},
+		"apc step":      {"version": 1, "rrm": map[string]any{"apc": []any{map[string]any{"radio": "radio0", "band": "2g", "power": 20, "wanted": 3, "target": -70, "step": 10, "why": "below"}}}},
+		"apc radio":     {"version": 1, "rrm": map[string]any{"apc": []any{map[string]any{"radio": "radio 0; rm", "band": "2g", "power": 20, "wanted": 3, "target": -70, "why": "target"}}}},
 		"time servers":  {"version": 1, "time": map[string]any{"servers": []string{"a\tb"}}},
 		"active":        {"version": 1, "transports": map[string]any{"sweet": map[string]any{"active": "both"}}},
 		"network":       {"version": 1, "transports": map[string]any{"Sweet Spot": map[string]any{"active": "none"}}},

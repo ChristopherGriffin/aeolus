@@ -622,6 +622,32 @@ func TestChannelSetsNeedAWholeBlock(t *testing.T) {
 	}
 }
 
+// Power control (0077) works from RRM's neighbours: on without RRM, the
+// config is held.
+func TestPowerControlNeedsRRM(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("apc.enabled", true)
+	if p := problems(); !strings.Contains(p, "apc.enabled: power control needs rrm.enabled") {
+		t.Fatalf("without RRM: %s", p)
+	}
+	set("rrm.enabled", true)
+	if p := problems(); strings.Contains(p, "apc") {
+		t.Fatalf("with RRM: %s", p)
+	}
+}
+
 func contains(list []string, sub string) bool {
 	return strings.Contains(strings.Join(list, "\n"), sub)
 }

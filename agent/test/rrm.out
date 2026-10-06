@@ -65,3 +65,13 @@ switch 5g 157 vht80 { "freq": 5785, "center_freq1": 5775, "bandwidth": 80, "sec_
 switch 5g 161 vht80 { "freq": 5805, "center_freq1": 5775, "bandwidth": 80, "sec_channel_offset": -1, "ht": true, "vht": true, "he": false, "bcn_count": 10 }
 switch 5g 165 40 null
 switch 5g 36 legacy { "freq": 5180, "center_freq1": 5180, "bandwidth": 20, "sec_channel_offset": 0, "ht": false, "vht": false, "he": false, "bcn_count": 10 }
+power none heard { "step": 3, "why": "looking", "count": 0, "weakest": null }
+power two of three { "step": 3, "why": "looking", "count": 2, "weakest": -65 }
+power weakest low { "step": 3, "why": "below", "count": 3, "weakest": -74 }
+power at target { "step": 0, "why": "target", "count": 3, "weakest": -68 }
+power well above { "step": -3, "why": "above", "count": 3, "weakest": -62 }
+power near the ceiling { "step": 1, "why": "below", "count": 1, "weakest": -80 }
+power at the ceiling { "step": 0, "why": "ceiling", "count": 1, "weakest": -80 }
+power at the floor { "step": 0, "why": "floor", "count": 1, "weakest": -40 }
+power near the floor { "step": -2, "why": "above", "count": 1, "weakest": -40 }
+power ignores junk { "step": 0, "why": "target", "count": 2, "weakest": -66 }

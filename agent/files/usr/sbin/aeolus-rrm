@@ -29,6 +29,11 @@
 // moves first. The move is hostapd's channel switch announcement, which
 // clients that support it follow without reconnecting.
 //
+// Where power control is on (0077), it holds each radio's power where the
+// neighbours it looks for hear it at the target, by their hellos: a step up
+// or down at most every ten minutes, between a floor and the power the radio
+// is configured to.
+//
 // Its settings are the agent's own UCI package, as the renderer made it,
 // and the key the agent keeps. What it finds goes to
 // /var/run/aeolus/rrm.json, which the agent reports. procd runs it beside
@@ -83,6 +88,7 @@ const ANNOUNCE = 10;        // beacons a channel switch is announced for
 const KEPT = 16;            // moves reported at most
 const WHYS = ['start', 'shared', 'better', 'interference'];
 const STATES = ['announced', 'moved', 'yielded', 'withdrawn', 'failed'];
+const APC_EVERY = 600;      // seconds between a radio's power steps (0077)
 
 let bus = connect();
 openlog('aeolus-rrm', LOG_PID, LOG_DAEMON);
@@ -129,22 +135,28 @@ let picks = {};       // band -> the APs heard most strongly there
 let rates = {};       // '<band> <channel>' -> { band, channel, cost, now, busy, noise, networks, visits, at }
 let moves = [];       // this AP's last moves: { band, from, to, why, state, at, ap }
 let claimed = {};     // band -> when a neighbour's claim there was last seen
+let held = {};        // radio -> the power control holds it at (0077): { band, phy, index, power, ceiling, at, step, why, count, weakest, stepped }
+let kept = {};        // radio -> { band, power }: what the daemon's last run held it at
 let began = 0;        // when the daemon started
 let looked = false;   // whether it has looked at the radios since it started, or was turned on
 let seq = 0;
 
-// settings reads whether RRM is on, the AP it advertises, the key, and the
+// settings reads whether RRM is on, the AP it advertises, the key, the
 // policy for moves: whether to move, the window for planned moves, and the
-// margin a better channel must beat the radio's own by.
+// margin a better channel must beat the radio's own by; and whether power
+// control is on, how many neighbours it looks for, and its target (0077).
 function settings() {
 	let s = cursor(confdir).get_all('aeolus', 'aeolus_rrm');
 	let key = rrm.unhex(read(keyfile) ?? '');
 	let on = s?.['.type'] == 'rrm' && s.enabled == '1' && match(s.ap ?? '', /^ap-[0-9a-f]{12}$/) != null && key != null && length(key) >= 16;
 	let margin = int(s?.margin ?? rrm.MARGIN);
+	let wanted = int(s?.apc_neighbours ?? 3), target = int(s?.apc_target ?? -70);
 	return {
 		on: on, ap: s?.ap, key: key, moves: s?.moves != '0',
 		window: rrm.window(s?.window ?? rrm.WINDOW) ?? rrm.window(rrm.WINDOW),
 		margin: margin >= 5 && margin <= 100 ? margin : rrm.MARGIN,
+		apc: s?.apc == '1', wanted: wanted >= 1 && wanted <= 6 ? wanted : 3,
+		target: target >= -85 && target <= -50 ? target : -70,
 	};
 }
 
@@ -197,6 +209,33 @@ function end_claim(r, how, ap) {
 	log('%s: the move from channel %d to %d: %s%s', r.band, m.from, m.to, how, ap ? ' to ' + ap : '');
 }
 
+// phy_of is the wiphy a network is on. Power is set for the wiphy.
+function phy_of(ifn) {
+	let p = read(`/sys/class/net/${ifn}/phy80211/name`);
+	return p != null && match(p, /^phy[0-9]+$/) ? p : null;
+}
+
+// set_power holds a wiphy's power at p dBm, or with null lets it go back to
+// what it is configured to, as netifd does when the radio starts (0077).
+function set_power(phy, p) {
+	return system(p == null ? `iw phy ${phy} set txpower auto` : sprintf('iw phy %s set txpower fixed %d', phy, p * 100)) == 0;
+}
+
+// let_go puts the radios power control holds back to their configured power.
+// One whose power is set, or whose network was made anew, netifd already
+// put back. What the last run held them at is forgotten too.
+function let_go() {
+	for (let name, h in held) {
+		let r = radios[name];
+		if (r && h.power != null && !r.power_set && r.phy == h.phy && r.index == h.index) {
+			set_power(h.phy, null);
+			log('%s: power control let go of its power', r.band);
+		}
+	}
+	held = {};
+	kept = {};
+}
+
 // look_radios finds the radios that are up, and on each, the network whose
 // beacons carry the element: Aeolus's own where it has one. A radio counts
 // as started when that network's interface is made anew, or when it comes
@@ -232,9 +271,11 @@ function look_radios(at) {
 		r.width = int(match(info.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
 		r.mode = info.htmode;
 		r.dfs = !(d.config?.acs_exclude_dfs in [true, '1']);
-		// A channel set for the radio is left alone.
+		// A channel set for the radio is left alone, and so is a power.
 		let set = d.config?.channel;
 		r.pinned = !(set == null || set == 'auto' || set == '0' || set == 0);
+		r.power_set = !(d.config?.txpower in [null, '']);
+		r.phy = phy_of(pick.ifname);
 		// The channels an automatic channel may be (0075), as the renderer
 		// wrote them: whole blocks at the radio's width.
 		let chans = d.config?.channels;
@@ -305,6 +346,7 @@ function look(at) {
 		for (let name, r in radios)
 			if (r.claim)
 				end_claim(r, 'withdrawn');
+		let_go();
 		advertise();
 		if (sock) {
 			sock.close();
@@ -816,6 +858,121 @@ function decide(at, list) {
 	}
 }
 
+// heard_by is how strongly the neighbours whose hellos come hear this AP on
+// band, in dBm, as their hellos say.
+function heard_by(band, at) {
+	let out = [];
+	for (let ap, n in nbrs)
+		if (state(n, at) in ['up', 'one-way'])
+			for (let x in (type(n.msg.heard) == 'array' ? n.msg.heard : []))
+				if (x?.ap == cfg.ap && x.band == band && dbm(x.signal) != null) {
+					push(out, dbm(x.signal));
+					break;
+				}
+	return out;
+}
+
+// ceiling lets a radio's power go back to what it is configured to, and
+// reads it: the most power control holds it at. It is what the radio says,
+// which may be more than it can send (0077).
+function ceiling(r) {
+	if (!set_power(r.phy, null))
+		return null;
+	let p = bus.call('iwinfo', 'info', { device: r.bss })?.txpower;
+	return type(p) == 'int' && p > 0 && p <= 40 ? p : null;
+}
+
+// apc holds each radio's power where the neighbours it looks for hear it at
+// the target (0077). It takes a radio over after the warm-up, at the power
+// the last run held it at, or its ceiling; holds it again whenever its
+// network is made anew, as netifd puts its power back then; and steps it at
+// most every APC_EVERY. A radio whose power is set, or that shares its
+// wiphy with another, it leaves alone; off, it lets them all go.
+function apc(at) {
+	if (!cfg.apc)
+		let_go();
+	if (!cfg.apc || at - began < WARM_UP)
+		return;
+	let phys = {};
+	for (let name, r in radios)
+		if (r.phy)
+			phys[r.phy] = (phys[r.phy] ?? 0) + 1;
+	for (let name, r in radios) {
+		let h = held[name];
+		if (h && h.band != r.band)
+			h = held[name] = null;
+		if (!r.phy || phys[r.phy] != 1 || r.power_set) {
+			if (h?.power != null && !r.power_set && r.phy == h.phy && r.index == h.index)
+				set_power(h.phy, null);
+			delete held[name];
+			continue;
+		}
+		if (!h || h.index != r.index || (h.power == null && at - h.at >= APC_EVERY)) {
+			let top = ceiling(r);
+			let was = h?.power ?? (kept[name]?.band == r.band ? kept[name].power : null);
+			delete kept[name];
+			// Held again after its network was made anew, it keeps its last step.
+			let again = h?.power != null;
+			h = held[name] = {
+				band: r.band, phy: r.phy, index: r.index, power: null, ceiling: top, at: again ? h.at : at,
+				step: again ? h.step : 0, why: again ? h.why : 'new', count: h?.count, weakest: h?.weakest, stepped: h?.stepped,
+			};
+			if (top == null) {
+				h.why = 'failed';
+				note('%s: power control cannot read the radio\'s power', r.band);
+				continue;
+			}
+			let p = max(min(type(was) == 'int' ? was : top, top), min(rrm.APC_FLOOR, top));
+			if (!set_power(r.phy, p)) {
+				h.why = 'failed';
+				note('%s: power control cannot set the radio\'s power', r.band);
+				continue;
+			}
+			h.power = p;
+			log('%s: power control holds it at %d dBm, of %d', r.band, p, top);
+			continue;
+		}
+		if (h.power == null || at - h.at < APC_EVERY)
+			continue;
+		let s = rrm.power_step(heard_by(r.band, at), cfg.wanted, cfg.target, h.power, h.ceiling);
+		h.at = at;
+		h.count = s.count;
+		h.weakest = s.weakest;
+		h.why = s.why;
+		h.step = 0;
+		if (!s.step)
+			continue;
+		if (!set_power(r.phy, h.power + s.step)) {
+			note('%s: power control cannot set the radio\'s power', r.band);
+			continue;
+		}
+		h.power += s.step;
+		h.step = s.step;
+		h.stepped = time();
+		log('%s: power %s%d dB to %d dBm: %d of %d neighbours hear it, the weakest at %s', r.band, s.step > 0 ? '+' : '', s.step, h.power,
+			s.count, cfg.wanted, s.weakest ?? 'none');
+	}
+	// A radio that went down keeps what it was held at for when it is back.
+}
+
+// powers is what the agent reports of power control (0077): each radio it
+// holds, its power and ceiling, how many of the neighbours it looks for
+// hear it and the weakest of them, and its last step and why.
+function powers() {
+	let out = [];
+	for (let name in sort(keys(held))) {
+		let h = held[name];
+		if (!radios[name])
+			continue;
+		push(out, {
+			radio: name, band: h.band, power: h.power, ceiling: h.ceiling, wanted: cfg.wanted, target: cfg.target,
+			count: h.count, weakest: h.weakest, step: h.step, why: h.why,
+			ago: h.stepped != null ? max(0, time() - h.stepped) : null,
+		});
+	}
+	return slice(out, 0, 4);
+}
+
 function write(at) {
 	if (!cfg.on) {
 		store(out, sprintf('%J', { at: time(), on: false }));
@@ -837,13 +994,14 @@ function write(at) {
 	let rated = sort(table(at), (a, b) => a.band < b.band ? -1 : a.band > b.band ? 1 : a.channel - b.channel);
 	store(out, sprintf('%J', {
 		at: time(), on: true, address: address ?? '', advertised: slice(uniq(sort(advertised)), 0, 3),
-		neighbours: slice(list, 0, LISTED), ratings: slice(rated, 0, RATED), moves: moves,
+		neighbours: slice(list, 0, LISTED), ratings: slice(rated, 0, RATED), moves: moves, apc: powers(),
 	}));
 }
 
 // restore reads back what the daemon's last run found, as when the agent
-// was updated: the ratings the channels earned, and the moves made, so a
-// radio that just moved stays put. A move it had claimed is withdrawn.
+// was updated: the ratings the channels earned, the moves made, so a radio
+// that just moved stays put, and the power each radio was held at (0077).
+// A move it had claimed is withdrawn.
 function restore(at) {
 	let r = null;
 	try {
@@ -874,10 +1032,14 @@ function restore(at) {
 			}
 			record(m);
 		}
+	for (let x in (type(r.apc) == 'array' ? r.apc : []))
+		if (type(x?.radio) == 'string' && x.band in ['2g', '5g', '6g'] && type(x.power) == 'int' && x.power > 0 && x.power <= 40)
+			kept[x.radio] = { band: x.band, power: x.power };
 }
 
 // stop takes the element off the beacons, so no AP keeps taking this one
-// for a neighbour after it stops.
+// for a neighbour after it stops. The power control holds, it keeps, for the
+// next run: netifd puts it back when a radio starts again.
 function stop() {
 	cfg = { on: false };
 	advertise();
@@ -912,6 +1074,7 @@ function main() {
 			if (at >= next_hello) {
 				changes(at);
 				decide(at, table(at));
+				apc(at);
 				hellos(at);
 				next_hello = at + rrm.HELLO_EVERY;
 			}

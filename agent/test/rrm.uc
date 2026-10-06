@@ -124,3 +124,15 @@ printf('switch 5g 157 vht80 %J\n', rrm.switch_args('5g', 157, 80, 'VHT80', 10));
 printf('switch 5g 161 vht80 %J\n', rrm.switch_args('5g', 161, 80, 'VHT80', 10));
 printf('switch 5g 165 40 %J\n', rrm.switch_args('5g', 165, 40, 'HE40', 10));
 printf('switch 5g 36 legacy %J\n', rrm.switch_args('5g', 36, 40, 'NOHT', 10));
+
+// Power control (0077): looking for three neighbours, the weakest at -70 dBm.
+printf('power none heard %J\n', rrm.power_step([], 3, -70, 20, 26));
+printf('power two of three %J\n', rrm.power_step([-60, -65], 3, -70, 20, 26));
+printf('power weakest low %J\n', rrm.power_step([-60, -65, -74, -90], 3, -70, 20, 26));
+printf('power at target %J\n', rrm.power_step([-60, -65, -68], 3, -70, 20, 26));
+printf('power well above %J\n', rrm.power_step([-50, -55, -62], 3, -70, 20, 26));
+printf('power near the ceiling %J\n', rrm.power_step([-80], 1, -70, 25, 26));
+printf('power at the ceiling %J\n', rrm.power_step([-80], 1, -70, 26, 26));
+printf('power at the floor %J\n', rrm.power_step([-40], 1, -70, 8, 26));
+printf('power near the floor %J\n', rrm.power_step([-40], 1, -70, 10, 26));
+printf('power ignores junk %J\n', rrm.power_step([-60, null, 'x', -66], 2, -70, 20, 26));

@@ -102,6 +102,17 @@
         "window": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$", "default": "02:00-05:00", "description": "When planned moves may happen, in the AP's local time, such as 02:00-05:00 (the default). It may run past midnight; one that starts where it ends is the whole day." },
         "margin": { "type": "integer", "minimum": 5, "maximum": 100, "default": 20, "description": "How much better, in rating points, a channel must rate than the radio's own for a move to it. 20 unless set." }
       }
+    },
+    "apc": {
+      "x-aeolus-tree": "locations",
+      "description": "Automatic power control (0077): each AP sets its radios' power so that its nearest neighbours hear it at the target. It needs RRM's neighbours.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false, "description": "On, each AP raises a radio's power, a step at a time, until the neighbours it looks for hear it at the target, and lowers it where they all hear it well above. A power set for the radio is left alone. Off unless set." },
+        "neighbours": { "type": "integer", "minimum": 1, "maximum": 6, "default": 3, "description": "How many neighbours each AP looks for on each band. 3 unless set." },
+        "target": { "type": "integer", "minimum": -85, "maximum": -50, "default": -70, "description": "How strongly, in dBm, the weakest of those neighbours must hear the AP. -70 unless set." }
+      }
     }
   },
   "$defs": {

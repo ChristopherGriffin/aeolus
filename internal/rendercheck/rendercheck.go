@@ -99,6 +99,10 @@ var Coverage = map[string]string{
 	"rrm.moves":   "",
 	"rrm.window":  "",
 	"rrm.margin":  "",
+
+	"apc.enabled":    "",
+	"apc.neighbours": "",
+	"apc.target":     "",
 }
 
 const layout = "depends on the device's port layout; checked with the agent in M5"
@@ -197,7 +201,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.snmp(obj(obj(doc, "system"), "snmp"))
 	k.ports(obj(doc, "ports"), obj(doc, "concentrators"))
 	k.probes(doc)
-	k.rrm(obj(doc, "rrm"))
+	k.rrm(obj(doc, "rrm"), obj(doc, "apc"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -346,7 +350,7 @@ func (k *checker) dfs(where string, r device, v string) {
 // the daemon's section, which names the AP it advertises and holds the
 // policy for moves, defaults written out; otherwise there is none, and the
 // daemon stays idle.
-func (k *checker) rrm(set map[string]any) {
+func (k *checker) rrm(set, apc map[string]any) {
 	const where = "aeolus.aeolus_rrm"
 	s := k.c.Package("aeolus").Named("aeolus_rrm")
 	if set["enabled"] != true {
@@ -370,6 +374,19 @@ func (k *checker) rrm(set map[string]any) {
 	k.option(where, s, "moves", moves)
 	k.option(where, s, "window", cmp.Or(text(set["window"]), "02:00-05:00"))
 	k.option(where, s, "margin", cmp.Or(text(set["margin"]), "20"))
+	// Power control (0077): on, its count and target, defaults written out;
+	// off, none of them.
+	if apc["enabled"] == true {
+		k.option(where, s, "apc", "1")
+		k.option(where, s, "apc_neighbours", cmp.Or(text(apc["neighbours"]), "3"))
+		k.option(where, s, "apc_target", cmp.Or(text(apc["target"]), "-70"))
+	} else {
+		for _, o := range []string{"apc", "apc_neighbours", "apc_target"} {
+			if v, ok := s.Option(o); ok {
+				k.add("%s: power control is not on, but %s is %q", where, o, v)
+			}
+		}
+	}
 }
 
 // bonding checks that a 5 GHz radio's channel can carry its width, whoever

@@ -209,14 +209,39 @@ type stateReport struct {
 // rrmState is what the AP's radio resource management found (0073): its
 // management address, where its neighbours reach it; the bands its beacons
 // say it is an Aeolus AP on; the other Aeolus APs it hears in the air or
-// keeps neighbours with over the wire; how it rates each channel; and its
-// last moves.
+// keeps neighbours with over the wire; how it rates each channel; its last
+// moves; and the radios its power control holds (0077).
 type rrmState struct {
 	Address    string         `json:"address"`
 	Advertised []string       `json:"advertised"`
 	Neighbours []rrmNeighbour `json:"neighbours"`
 	Ratings    []rrmRating    `json:"ratings"`
 	Moves      []rrmMove      `json:"moves"`
+	APC        []rrmPower     `json:"apc,omitempty"`
+}
+
+// rrmPower is a radio whose power the AP's power control holds (0077): the
+// power it holds it at and the most it may, in dBm, none where it couldn't;
+// how many neighbours it looks for, and its target; how many of them hear
+// it, and the weakest of them, as of its last look; its last step, in dB;
+// why: new (just taken over), looking (fewer neighbours hear it than it
+// looks for), below (the weakest hears it below the target), ceiling (it
+// would go up, but is at its most), target (they hear it at the target),
+// above (all hear it well above), floor (it would go down, but is at its
+// least) or failed (its power couldn't be read or set); and seconds since
+// its power last moved.
+type rrmPower struct {
+	Radio   string `json:"radio"`
+	Band    string `json:"band"`
+	Power   *int   `json:"power"`
+	Ceiling *int   `json:"ceiling"`
+	Wanted  int    `json:"wanted"`
+	Target  int    `json:"target"`
+	Count   *int   `json:"count"`
+	Weakest *int   `json:"weakest"`
+	Step    int    `json:"step"`
+	Why     string `json:"why"`
+	Ago     *int64 `json:"ago"`
 }
 
 // rrmMove is one of the AP's moves (0073): a radio's band, the channel it
@@ -286,6 +311,8 @@ var (
 	rrmWhys   = map[string]bool{"start": true, "shared": true, "better": true, "interference": true}
 	rrmEnds   = map[string]bool{"announced": true, "moved": true, "yielded": true, "withdrawn": true, "failed": true}
 	rrmWidths = map[int]bool{0: true, 20: true, 40: true, 80: true, 160: true, 320: true}
+	apcWhys   = map[string]bool{"new": true, "looking": true, "below": true, "ceiling": true, "target": true, "above": true, "floor": true, "failed": true}
+	radioRE   = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,32}$`)
 )
 
 func (r *rrmState) check() error {
@@ -322,6 +349,16 @@ func (r *rrmState) check() error {
 			return bad
 		}
 	}
+	if len(r.APC) > 4 {
+		return bad
+	}
+	for _, p := range r.APC {
+		if !radioRE.MatchString(p.Radio) || !bands[p.Band] || !power(p.Power) || !power(p.Ceiling) || p.Wanted < 1 || p.Wanted > 6 ||
+			p.Target < -85 || p.Target > -50 || (p.Count != nil && (*p.Count < 0 || *p.Count > 6)) || !dbm(p.Weakest) ||
+			p.Step < -3 || p.Step > 3 || !apcWhys[p.Why] || (p.Ago != nil && *p.Ago < 0) {
+			return badRequest("rrm: at most 4 radios under power control, each a radio and band, its power and ceiling from 0 to 40 dBm, 1 to 6 neighbours looked for, a target from -85 to -50 dBm, how many hear it, the weakest in dBm, a step from -3 to 3 dB, and why")
+		}
+	}
 	for _, n := range r.Neighbours {
 		if !apIDRE.MatchString(n.AP) || (n.Address != "" && net.ParseIP(n.Address) == nil) || !rrmStates[n.State] ||
 			(n.HelloAgo != nil && *n.HelloAgo < 0) || len(n.Bands) > 3 {
@@ -339,6 +376,10 @@ func (r *rrmState) check() error {
 
 func dbm(v *int) bool {
 	return v == nil || (*v >= -127 && *v <= 0)
+}
+
+func power(v *int) bool {
+	return v == nil || (*v >= 0 && *v <= 40)
 }
 
 type keysState struct {

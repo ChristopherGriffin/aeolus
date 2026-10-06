@@ -785,7 +785,7 @@ function rrm_state() {
 		return null;
 	return {
 		address: r.address ?? '', advertised: r.advertised ?? [], neighbours: r.neighbours ?? [], ratings: r.ratings ?? [],
-		moves: r.moves ?? [],
+		moves: r.moves ?? [], apc: r.apc ?? [],
 	};
 }
 
