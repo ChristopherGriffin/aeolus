@@ -192,6 +192,7 @@ function table(ctx, rows) {
 		const apLink = link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/neighbours`, ap.name);
 		const none = (why) => [h('tr', null, h('td', null, apLink), h('td', { colspan: 7, class: 'sub' }, why))];
 		if (!cfg) return none('You cannot see this AP.');
+		if (rep?.report?.wireless_missing) return none(`Can't see its own radios: netifd lost its network.wireless object. Restarting the network on the AP brings it back; its Wi-Fi drops for about 30 seconds.`);
 		if (!r) return none(rep ? 'Off, or not reported yet.' : 'No report yet.');
 		if (!r.neighbours.length) return none(`Hears no other Aeolus AP yet. Its address for hellos is ${r.address || 'unknown'}.`);
 		return r.neighbours.flatMap((n, i) => (n.bands.length ? n.bands : [{ band: null }]).map((b, j) => {

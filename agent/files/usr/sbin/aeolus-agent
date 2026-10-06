@@ -373,11 +373,27 @@ function report_applied(version, hash, ok, error, token) {
 		fail('reporting the apply: %s', describe(r));
 }
 
+// wireless_status is netifd's account of the radios, or null where netifd's
+// network.wireless object is gone. OpenWrt 25.12's netifd publishes it from
+// ucode once, at start, and doesn't publish it again; on the office AP it
+// went while netifd ran on (2026-10-06), and Aeolus there saw no radios,
+// clients or neighbours until the network was restarted. A call that fails
+// otherwise is taken for no radios, as before.
+function wireless_status() {
+	let st = bus.call('network.wireless', 'status');
+	if (st == null && match(bus.error() ?? '', /not found/i))
+		return null;
+	return st ?? {};
+}
+
 // wifi_down lists the Wi-Fi networks that are not up: each interface netifd
-// lists for a radio that is on, by its SSID and radio (0057).
+// lists for a radio that is on, by its SSID and radio (0057); null where
+// netifd can't say (wireless_status).
 function wifi_down() {
 	let out = [];
-	let st = bus.call('network.wireless', 'status') ?? {};
+	let st = wireless_status();
+	if (st == null)
+		return null;
 	for (let r in sort(keys(st))) {
 		if (st[r].disabled)
 			continue;
@@ -395,7 +411,10 @@ function wifi_back(before) {
 	let deadline = time() + WIFI_WAIT;
 	let down;
 	while (true) {
-		down = filter(wifi_down(), n => index(before, n) < 0);
+		down = wifi_down();
+		if (down == null)
+			return null;
+		down = filter(down, n => index(before ?? [], n) < 0);
 		if (!length(down) || time() >= deadline)
 			return down;
 		sleep(5000);
@@ -445,6 +464,8 @@ function apply(out, version, hash) {
 		return { ok: false, error: sprintf('lost the manager within %d seconds of applying; reverted', CONFIRM) };
 	}
 	let down = wifi ? wifi_back(before) : [];
+	if (down == null)
+		note('the Wi-Fi was not checked after applying version %d: netifd lost its network.wireless object; restarting the network brings it back', version);
 	if (length(down)) {
 		let why = hostapd_error();
 		revert(pending);
@@ -1028,7 +1049,8 @@ function agent_report() {
 function state_report(running) {
 	let b = bus.call('system', 'board') ?? {};
 	let radios = [];
-	let status = bus.call('network.wireless', 'status') ?? {};
+	let ws = wireless_status();
+	let status = ws ?? {};
 	for (let name in sort(keys(status))) {
 		let band = status[name].config?.band;
 		if (!(band in { '2g': 1, '5g': 1, '6g': 1 }))
@@ -1095,6 +1117,10 @@ function state_report(running) {
 	if (rr)
 		report.rrm = rr;
 	report.agent = agent_report();
+	// netifd's network.wireless object is gone: the radios run, but nothing
+	// here can see them until the network restarts.
+	if (ws == null)
+		report.wireless_missing = true;
 	return report;
 }
 

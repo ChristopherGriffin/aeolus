@@ -517,8 +517,19 @@ func TestFleetView(t *testing.T) {
 		byID[m["id"].(string)] = m
 	}
 	got := byID[ap]
-	if got == nil || got["config"] != "ready" || got["in_sync"] != true || got["name"] != "PumphouseAP" || got["seen"] == nil {
+	if got == nil || got["config"] != "ready" || got["in_sync"] != true || got["name"] != "PumphouseAP" || got["seen"] == nil || got["wireless_missing"] != nil {
 		t.Fatalf("adopted AP = %v", got)
+	}
+	// An AP whose netifd lost its network.wireless object says so, and the
+	// fleet view flags it.
+	if code, _, body := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 90, "wireless_missing": true}, nil); code != 200 {
+		t.Fatalf("state, wireless missing: %d %v", code, body)
+	}
+	_, body = f.do("GET", "/v1/aps", "griff", nil)
+	for _, a := range body["aps"].([]any) {
+		if m := a.(map[string]any); m["id"] == ap && m["wireless_missing"] != true {
+			t.Fatalf("the fleet view doesn't flag the lost object: %v", m)
+		}
 	}
 	if office := byID["office-ap"]; office == nil || office["seen"] != nil || office["in_sync"] != nil {
 		t.Fatalf("office-ap = %v", office)

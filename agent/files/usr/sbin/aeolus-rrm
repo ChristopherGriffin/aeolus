@@ -135,6 +135,7 @@ let picks = {};       // band -> the APs heard most strongly there
 let rates = {};       // '<band> <channel>' -> { band, channel, cost, now, busy, noise, networks, visits, at }
 let moves = [];       // this AP's last moves: { band, from, to, why, state, at, ap }
 let claimed = {};     // band -> when a neighbour's claim there was last seen
+let gone = false;     // whether netifd's network.wireless object is gone, so no radio can be seen
 let held = {};        // radio -> the power control holds it at (0077): { band, phy, index, power, ceiling, at, step, why, count, weakest, stepped }
 let kept = {};        // radio -> { band, power }: what the daemon's last run held it at
 let began = 0;        // when the daemon started
@@ -251,7 +252,19 @@ function let_go() {
 // the AP booted within START.
 function look_radios(at) {
 	let seen = {};
-	for (let name, d in bus.call('network.wireless', 'status') ?? {}) {
+	// netifd's network.wireless object can go while netifd runs on (OpenWrt
+	// 25.12 publishes it once, from ucode): the radios run, unseen, until the
+	// network restarts (2026-10-06, the office AP).
+	let status = bus.call('network.wireless', 'status');
+	let lost = status == null && !!match(bus.error() ?? '', /not found/i);
+	if (lost != gone) {
+		if (lost)
+			note('netifd has no network.wireless object: no radio can be seen until the network restarts');
+		else
+			log('netifd has its network.wireless object again');
+		gone = lost;
+	}
+	for (let name, d in status ?? {}) {
 		let band = d.config?.band;
 		if (!(band in ['2g', '5g', '6g']) || !d.up)
 			continue;

@@ -208,6 +208,10 @@ type stateReport struct {
 	RRM *rrmState `json:"rrm,omitempty"`
 	// The agent it runs, and its last update (0079).
 	Agent *agentState `json:"agent,omitempty"`
+	// netifd's network.wireless object is gone: the radios run, but the
+	// agent, its prober and RRM see none of them, nor their clients, until
+	// the network restarts on the AP (2026-10-06).
+	WirelessMissing bool `json:"wireless_missing,omitempty"`
 }
 
 // rrmState is what the AP's radio resource management found (0073): its
@@ -1248,14 +1252,27 @@ func (s *Server) aps(w http.ResponseWriter, _ *http.Request, c call) error {
 		if l.State != nil {
 			report = l.State.Report
 		}
-		out = append(out, map[string]any{
+		ap := map[string]any{
 			"id": id, "name": n.Name, "ancestry": t.Ancestry(id), "version": version,
 			"config": config, "problems": len(res.Problems), "seen": l.Seen, "in_sync": inSync,
 			"agent": s.agentView(c.state, id, report),
-		})
+		}
+		if wirelessMissing(report) {
+			ap["wireless_missing"] = true
+		}
+		out = append(out, ap)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"aps": out})
 	return nil
+}
+
+// wirelessMissing says whether an AP's last report says netifd lost its
+// network.wireless object.
+func wirelessMissing(report json.RawMessage) bool {
+	var r struct {
+		WirelessMissing bool `json:"wireless_missing"`
+	}
+	return len(report) > 0 && json.Unmarshal(report, &r) == nil && r.WirelessMissing
 }
 
 // condition is what the manager knows of an AP's own account of itself, for
