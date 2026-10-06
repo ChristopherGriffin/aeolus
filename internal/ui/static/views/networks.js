@@ -424,11 +424,40 @@ const FOR_TYPE = { vlan: ['vlan'], vxlan: ['concentrator', 'vni', 'probe'] };
 const WITH_FALLBACK = ['transport.switching'];
 const WITH_AUTOMATIC = ['transport.ha', 'transport.failback', 'transport.holddown'];
 
+// canonIP writes an IP address one way, so two spellings of one compare
+// equal, as the manager's net.IP.Equal does (Codex's review of #93): IPv6
+// in full, lower case, without leading zeros, and an IPv4-mapped one as
+// IPv4. Anything it can't read stays as it was.
+function canonIP(s) {
+	let a = String(s).trim().replace(/^\[|\]$/g, '').toLowerCase();
+	if (!a.includes(':')) return a;
+	let tail = [];
+	const v4 = a.match(/^(.*:)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+	if (v4) {
+		const b = v4.slice(2).map(Number);
+		if (b.some((x) => x > 255)) return a;
+		tail = [((b[0] << 8) | b[1]).toString(16), ((b[2] << 8) | b[3]).toString(16)];
+		a = v4[1].endsWith('::') ? v4[1] : v4[1].slice(0, -1);
+	}
+	const halves = a.split('::');
+	if (halves.length > 2) return a;
+	const head = halves[0] ? halves[0].split(':') : [];
+	const rest = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+	const fill = 8 - head.length - rest.length - tail.length;
+	if (halves.length === 2 ? fill < 1 : fill !== 0) return a;
+	const groups = [...head, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...rest, ...tail];
+	if (groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return a;
+	const full = groups.map((g) => parseInt(g, 16));
+	if (full.slice(0, 5).every((g) => g === 0) && full[5] === 0xffff)
+		return [full[6] >> 8, full[6] & 255, full[7] >> 8, full[7] & 255].join('.');
+	return full.map((g) => g.toString(16)).join(':');
+}
+
 // farEnd is where a tunnel goes, to compare two: its address where it is
 // set here, else its name.
 function farEnd(lib, id) {
 	const a = lib.find((t) => t.id === id)?.address;
-	return a ? `address ${String(a).replace(/^\[|\]$/g, '').toLowerCase()}` : `tunnel ${id}`;
+	return a ? `address ${canonIP(a)}` : `tunnel ${id}`;
 }
 
 // pickers swaps a transport's tunnel field for a list of the tunnels set
