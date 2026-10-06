@@ -223,16 +223,24 @@ function set_power(phy, p) {
 
 // let_go puts the radios power control holds back to their configured power.
 // One whose power is set, or whose network was made anew, netifd already
-// put back. What the last run held them at is forgotten too.
+// put back. One that can't be put back yet stays held, failed, to be tried
+// again next time. What the last run held them at is forgotten too.
 function let_go() {
+	let still = {};
 	for (let name, h in held) {
 		let r = radios[name];
-		if (r && h.power != null && !r.power_set && r.phy == h.phy && r.index == h.index) {
-			set_power(h.phy, null);
+		if (!r || h.power == null || r.power_set || r.phy != h.phy || r.index != h.index)
+			continue;
+		if (set_power(h.phy, null)) {
 			log('%s: power control let go of its power', r.band);
+			continue;
 		}
+		if (h.why != 'failed')
+			note('%s: power control cannot let go of its power; it tries again', r.band);
+		h.why = 'failed';
+		still[name] = h;
 	}
-	held = {};
+	held = still;
 	kept = {};
 }
 
@@ -346,6 +354,10 @@ function look(at) {
 		for (let name, r in radios)
 			if (r.claim)
 				end_claim(r, 'withdrawn');
+		// A power it couldn't let go of is tried again, on the radios as
+		// they are now.
+		if (length(keys(held)))
+			look_radios(at);
 		let_go();
 		advertise();
 		if (sock) {
@@ -534,7 +546,8 @@ function state(n, at) {
 }
 
 // hellos sends this round's hello to each neighbour: the three heard most
-// strongly on each band, and those whose hellos come.
+// strongly on each band, or as many as power control looks for where that
+// is more (0077), and those whose hellos come.
 function hellos(at) {
 	let sig = signals(at);
 	chosen = {};
@@ -545,6 +558,12 @@ function hellos(at) {
 	let to = {};
 	for (let ap in keys(chosen))
 		to[ap] = true;
+	// Power control needs how each neighbour it looks for hears this AP,
+	// which comes in their hellos; those come back once this AP sends.
+	if (cfg.apc && cfg.wanted > rrm.NEIGHBOURS)
+		for (let band, list in rrm.choose(sig, cfg.wanted))
+			for (let ap in list)
+				to[ap] = true;
 	for (let ap, n in nbrs)
 		if (n.at != null && at - n.at <= rrm.DEAD)
 			to[ap] = true;
