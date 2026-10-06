@@ -26,6 +26,7 @@
 - **APs shows each AP below,** with its radios as each last reported: band, channel, width, clients, and what Aeolus sets. That's what Interfaces › Radios › Channels showed.
   - Each AP's state, such as In sync, Out of sync or Held, is a column there. The Inside list at the foot of a Locations folder's page is gone: its APs are on the APs tab, and its folders in the tree beside it (Griff, 2026-10-05).
 - An AP's own page keeps its Overview.
+- **The tree on the left holds folders only** (Griff, 2026-10-05): a folder's APs are on its APs tab, and on an AP's page its folder is the one marked.
 
 ### Channel sets
 
