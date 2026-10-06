@@ -91,7 +91,7 @@ async function tunnels(ctx, here, page, ap, edit) {
 	return [
 		loopBanner(rows),
 		set.length
-			? h('div', { class: 'bands' }, set.map((t) => tunnelCard(ctx, d, here, page.node.name, t.id, fields, edit, rows)))
+			? h('div', { class: 'bands' }, set.map((t) => tunnelCard(ctx, d, here, page.node.name, t.id, fields, edit, rows, !!ap)))
 			: h('div', { class: 'banner info' }, 'No tunnel is set here. A tunnel set on a folder reaches every AP below it, and a network picks one in its VXLAN transport.'),
 		edit && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: () => addTunnel(ctx, d, here, page.node.name, fields, addBox) }, 'Add a tunnel')),
@@ -134,7 +134,7 @@ function usesOf(rows, name) {
 // it, to its far end; then its other fields, and where each comes from.
 // Someone who may change this node can edit it, or have it follow the
 // folder above again; one set only here is deleted that way.
-function tunnelCard(ctx, d, here, nodeName, name, fields, edit, rows = []) {
+function tunnelCard(ctx, d, here, nodeName, name, fields, edit, rows = [], isAP = false) {
 	const paths = TUNNEL.map((k) => `concentrators.${name}.${k}`).filter((p) => fields[p]);
 	const own = paths.filter((p) => fields[p].origin === 'self');
 	const onlyHere = own.length === paths.length;
@@ -155,7 +155,7 @@ function tunnelCard(ctx, d, here, nodeName, name, fields, edit, rows = []) {
 	const close = () => body.replaceChildren(h('div', null,
 		h('div', { class: 'pathbox' },
 			vxlanPath({ start: v('underlay_vlan'), tunnel: name, port: v('port'), mtu: v('mtu') ?? defaultMTU(v('address')), vnis: uses, address: v('address') },
-				probed(rows, uses.map((u) => u.vni))),
+				probed(rows, uses.map((u) => u.vni), isAP)),
 			!uses.length && h('div', { class: 'sub' }, 'No network or port here travels over it yet.'),
 			drawn.length > 0 && h('div', { class: 'origins' }, whence.size === 1 && !drawn.some(alone)
 				? origin('locations', here, fields[drawn[0]], names)

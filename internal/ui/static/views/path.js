@@ -22,9 +22,10 @@ function worst(states) {
 // gateway there answers, or the far end does, which it reaches through it;
 // on the management VLAN, fine, as the report came that way; whether the
 // tunnel is up (start); whether traffic gets across it (vni); and whether
-// the far end answers pings (far). addresses are the APs' addresses where
-// the tunnels start, each with its gateway.
-export function probed(rows, vnis) {
+// the far end answers pings (far). addresses are the AP's addresses where
+// the tunnels start, each with its gateway, on an AP's own page (one); a
+// folder's shows the VLAN only (Griff, 2026-10-06).
+export function probed(rows, vnis, one = false) {
 	const from = [], start = [], mid = [], far = [], addresses = [];
 	for (const { cfg } of rows)
 		for (const t of cfg?.condition?.state?.report?.vxlan?.tunnels || []) {
@@ -32,7 +33,7 @@ export function probed(rows, vnis) {
 			if (!t.from_vlan) from.push('ok');
 			else if (!t.from_address) from.push('bad');
 			else from.push(t.from_gateway_answers === true || t.probe?.underlay === true ? 'ok' : t.from_gateway_answers === false ? 'warn' : null);
-			if (t.from_address && !addresses.some((a) => a.address === t.from_address)) addresses.push({ address: t.from_address, gateway: t.from_gateway });
+			if (one && t.from_address && !addresses.some((a) => a.address === t.from_address)) addresses.push({ address: t.from_address, gateway: t.from_gateway });
 			start.push(t.up ? 'ok' : t.standby ? null : 'bad');
 			if (!t.standby) mid.push(VERDICT[t.probe?.verdict] || null);
 			far.push(t.probe?.underlay === true ? 'ok' : t.probe?.underlay === false ? 'bad' : null);
@@ -72,7 +73,7 @@ export function vxlanPath({ start, tunnel, port, mtu, vnis, address }, state = {
 	const say = (s) => says[s || 'idle'];
 	// Where it starts: the VLAN, and the APs' addresses there (Griff,
 	// 2026-10-06), with the gateway each reaches the far end through.
-	const addrs = state.addresses || [];
+	const addrs = start ? state.addresses || [] : [];
 	const gws = [...new Set(addrs.map((a) => a.gateway).filter(Boolean))];
 	return pathOf([
 		{ top: 'From', main: from(start), sub: addrs.length ? addrs.slice(0, 3).map((a) => a.address).join(', ') + (addrs.length > 3 ? ` +${addrs.length - 3}` : '') : null,
