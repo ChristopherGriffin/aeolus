@@ -243,3 +243,25 @@ for (let name, prog in { overlay: probe.OVERLAY_FILTER, guard: probe.GUARD_FILTE
 			ok = false;
 	print('filter ', name, ': ', length(prog), ' instructions, jumps ', ok ? 'land inside' : 'LEAVE IT', ', ends ', prog[length(prog) - 1][0] == 0x06 ? 'returning' : 'NOT RETURNING', '\n');
 }
+
+// The routes a tunnel's start on a VLAN needs (0063), and those the kernel
+// dropped: the office AP on 2026-10-06, its table 1020 empty while netifd
+// still held them, after another interface leasing the same address there
+// restarted.
+let office = {
+	up: true, ip4table: 1020, l3_device: 'br-lan.20',
+	'ipv4-address': [{ address: '192.168.20.88', mask: 24 }],
+	route: [{ target: '0.0.0.0', mask: 0, nexthop: '192.168.20.1', source: '192.168.20.88/32' }],
+};
+let want = probe.start_routes(office);
+print('start routes: ', want, '\n');
+print('missing from an empty table: ', probe.missing_routes(want, []), '\n');
+print('missing from a whole table: ', probe.missing_routes(want, [{ dst: '0.0.0.0/0', via: '192.168.20.1' }, { dst: '192.168.20.0/24', via: null }]), '\n');
+print('missing beside another gateway: ', probe.missing_routes(want, [{ dst: '0.0.0.0/0', via: '192.168.20.254' }, { dst: '192.168.20.0/24' }]), '\n');
+for (let r in want)
+	print('ip route replace ', probe.route_args(r, 'br-lan.20', 1020), '\n');
+print('a device that is no device: ', probe.route_args(want[0], 'br-lan.20; reboot', 1020), '\n');
+print('a gateway that is no address: ', probe.route_args({ dst: '0.0.0.0/0', via: '$(reboot)' }, 'br-lan.20', 1020), '\n');
+print('no status: ', probe.start_routes(null), '\n');
+for (let c in [['192.168.20.88', 24], ['10.1.2.3', 8], ['10.1.2.3', 32], ['10.1.2.3', 0], ['172.16.200.9', 13], ['300.1.1.1', 24], ['10.1.1.1', 33]])
+	print('prefix ', c[0], '/', c[1], ': ', probe.prefix4(c[0], c[1]), '\n');

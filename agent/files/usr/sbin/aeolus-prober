@@ -56,6 +56,15 @@ try {
 } catch (e) {
 }
 
+// rtnl lists the routes in a table tunnels start from (0063), so routes
+// the kernel dropped are put back. OpenWrt installs it with its Wi-Fi
+// scripts; an AP without it doesn't look.
+let rtnl = null;
+try {
+	rtnl = require('rtnl');
+} catch (e) {
+}
+
 let confdir = null, out = '/var/run/aeolus/probes.json', act = true;
 for (let i = 0; i < length(ARGV); i++) {
 	if (ARGV[i] == '-c')
@@ -74,6 +83,7 @@ const STAY_GAP = 15;                         // seconds from last seen on a netw
 const ATTACH_EVERY = 2;                      // seconds between looks at the networks' bridges (0061)
 const SPELL_EVERY = 60;                      // seconds between spells of listening on the uplink (0064)
 const SPELL_MAX = 10;                        // seconds a spell lasts at most
+const BOUNCE_EVERY = 300;                    // seconds between starting an interface tunnels start from again (0063)
 
 // A socket can wake the poll with an error and nothing to read. A read
 // reports the error and clears it; unread, the poll would return at once,
@@ -223,13 +233,24 @@ function plan() {
 		if (s.vlan && s.device)
 			watches['' + s.vlan] = { vlan: +s.vlan, device: s.device, tagged: s.tagged == '1', mac: s.mac };
 	});
-	return { tunnels: tunnels, guards: guards, switches: switches, watches: watches, uplink: c.get('aeolus', 'agent', 'uplink') };
+	// The interfaces tunnels start from on a VLAN (0063), whose routes it
+	// keeps.
+	let starts = [];
+	c.foreach('network', 'interface', s => {
+		if (match(s['.name'], /^aeolus_vlan[0-9]+_tunnels$/))
+			push(starts, s['.name']);
+	});
+	return {
+		tunnels: tunnels, guards: guards, switches: switches, watches: watches, starts: sort(starts),
+		uplink: c.get('aeolus', 'agent', 'uplink'),
+	};
 }
 
 let tun = {};      // VNI, or vlan and the VLAN -> { plan, sock, index, src, running, started, answered, from, rtt, sent, seq, next, said, dhcp }
 let sw = {};       // network -> { plan, active, said, want, up_since, last, cannot, asked }
 let peers = {};    // concentrator address, and where it is pinged from -> { addr, start, six, interval, sent, seq, ok, rtt, since, next }
 let guards = {};   // port -> { plan, devices: [{ name, sock, index, mac }], next }
+let starts = {};   // interface tunnels start from on a VLAN -> { put_back, failing, bounced }
 let loops = {};    // port -> { port, device, vni, came_in, at }
 let raws = {};     // "4" or "6", and the device it is bound to -> { sock, six, start }
 let guard_rx = null;
@@ -743,6 +764,75 @@ function attach() {
 	}
 }
 
+// table_routes is the IPv4 routes in a routing table, each { dst, via }.
+function table_routes(table) {
+	let out = [];
+	for (let r in rtnl.request(rtnl.const.RTM_GETROUTE, rtnl.const.NLM_F_DUMP, { family: socket.AF_INET, table: table }) ?? [])
+		if (r.table == table)
+			push(out, { dst: r.dst ?? '0.0.0.0/0', via: r.gateway ?? null });
+	return out;
+}
+
+// keep_routes puts back the routes netifd holds for each interface tunnels
+// start from on a VLAN (0063) that are gone from the interface's table. The
+// kernel drops every route from an address when the address is removed, as
+// when another interface leasing the same address on the VLAN restarts, and
+// netifd doesn't notice: the tunnels are down until the routes are back
+// (2026-10-06, on the office AP). Where one can't be put back, as when the
+// address itself is gone, netifd starts the interface again, at most every
+// BOUNCE_EVERY seconds. With -n it only looks.
+function keep_routes(names, at) {
+	if (!rtnl)
+		return;
+	for (let k in keys(starts))
+		if (!(k in names))
+			delete starts[k];
+	for (let name in names) {
+		let st = bus.call('network.interface.' + name, 'status');
+		let table = st?.ip4table;
+		if (!st?.up || type(table) != 'int' || !st.l3_device)
+			continue;
+		let gone = probe.missing_routes(probe.start_routes(st), table_routes(table));
+		let s = starts[name] ??= { put_back: null, failing: false, bounced: null, gone: false };
+		// Gone at two looks in a row, so not while netifd is still making them.
+		let before = s.gone;
+		s.gone = length(gone) > 0;
+		if (!s.gone)
+			s.failing = false;
+		if (!s.gone || !before)
+			continue;
+		let said = join(', ', map(gone, r => r.dst + (r.via ? ' via ' + r.via : '')));
+		if (!act) {
+			if (!s.failing)
+				note('%s: table %d lacks routes netifd holds: %s (not put back: -n)', name, table, said);
+			s.failing = true;
+			continue;
+		}
+		let back = 0;
+		for (let r in gone) {
+			let args = probe.route_args(r, st.l3_device, table);
+			if (args && system(`ip route replace ${args} 2>/dev/null`) == 0)
+				back++;
+		}
+		if (back)
+			s.put_back = time();
+		if (back == length(gone)) {
+			note('%s: put back routes gone from table %d, though netifd holds them: %s', name, table, said);
+			s.failing = false;
+			continue;
+		}
+		if (!s.failing)
+			note('%s: cannot put back routes gone from table %d: %s', name, table, said);
+		s.failing = true;
+		if (s.bounced == null || at - s.bounced >= BOUNCE_EVERY) {
+			note('%s: starting it again, so netifd makes its address and routes again', name);
+			bus.call('network.interface.' + name, 'down', {});
+			bus.call('network.interface.' + name, 'up', {});
+			s.bounced = at;
+		}
+	}
+}
+
 // spell_begin opens the uplink for a spell of listening (0064), and nudges
 // each VLAN that wasn't heard in the last one, from its own MAC: a DHCP
 // discover, an ARP to the gateway its last DHCP answer named, and an echo to
@@ -1199,9 +1289,15 @@ function results(at) {
 		nb.ago = int(at - watch.neighbor.at);
 	}
 	let uplink = { vlans: uv, neighbor: nb };
+	// The interfaces tunnels start from on a VLAN whose routes it put back
+	// (0063): when it last did, and whether some can't be.
+	let st = {};
+	for (let name, s in starts)
+		if (s.put_back != null || s.failing)
+			st[name] = { put_back: s.put_back, failing: s.failing };
 	store(out, sprintf('%J\n', {
 		at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp, uplink: uplink,
-		dhcp: dhcp_results(at), clients: clients_report(at),
+		dhcp: dhcp_results(at), clients: clients_report(at), starts: st,
 	}));
 }
 
@@ -1241,6 +1337,7 @@ function main() {
 			}
 			open_lldp();
 			dhcp_scan(at);
+			keep_routes(p.starts, at);
 			next_plan = at + PLAN_EVERY;
 		}
 		for (let vni, t in tun)

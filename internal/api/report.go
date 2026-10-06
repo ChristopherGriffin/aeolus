@@ -36,6 +36,8 @@ var (
 	speedRE     = regexp.MustCompile(`^([0-9]{1,6}[FH])?$`)
 	// deviceRE is a Linux device's name, as the loop guard reports one (0059).
 	deviceRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$`)
+	// ifaceNameRE is a netifd interface's name, a UCI section's.
+	ifaceNameRE = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
 	// macRE is a MAC as Linux writes one; hexRE, bytes as the prober writes
 	// what it doesn't know of the switch's LLDP, at most 64 of them (0064).
 	macRE = regexp.MustCompile(`^[0-9a-f]{2}(:[0-9a-f]{2}){5}$`)
@@ -829,8 +831,11 @@ type vxlanState struct {
 
 // tunnelState is one tunnel: its VNI, the concentrator's address and port,
 // its MTU, the VLAN it starts from and the AP's address there (0063), the
-// gateway there and whether it answers, by the AP's neighbour table;
-// whether it is up, or standing by as a fallback, and what the prober found.
+// gateway there and whether it answers, by the AP's neighbour table; the
+// AP's other interfaces with an address on that VLAN, which share the
+// start's, and seconds since the prober last put back routes the start lost
+// (2026-10-06); whether it is up, or standing by as a fallback, and what
+// the prober found.
 type tunnelState struct {
 	VNI                int         `json:"vni"`
 	Peer               string      `json:"peer"`
@@ -840,6 +845,8 @@ type tunnelState struct {
 	FromAddress        string      `json:"from_address,omitempty"`
 	FromGateway        string      `json:"from_gateway,omitempty"`
 	FromGatewayAnswers *bool       `json:"from_gateway_answers,omitempty"`
+	FromShared         []string    `json:"from_shared,omitempty"`
+	FromPutBackAgo     *int64      `json:"from_put_back_ago,omitempty"`
 	Up                 bool        `json:"up"`
 	Standby            bool        `json:"standby,omitempty"`
 	Probe              *probeState `json:"probe,omitempty"`
@@ -1033,6 +1040,14 @@ func (st *stateReport) check() error {
 			if t.FromVLAN < 0 || t.FromVLAN > 4094 || (t.FromAddress != "" && (t.FromVLAN == 0 || net.ParseIP(t.FromAddress).To4() == nil)) ||
 				(t.FromGateway != "" && (t.FromAddress == "" || net.ParseIP(t.FromGateway).To4() == nil)) || (t.FromGatewayAnswers != nil && t.FromGateway == "") {
 				return badRequest("vxlan: a tunnel starts from a VLAN from 1 to 4094, and the AP's address and gateway there are IPv4 addresses")
+			}
+			if len(t.FromShared) > 8 || ((len(t.FromShared) > 0 || t.FromPutBackAgo != nil) && t.FromVLAN == 0) || (t.FromPutBackAgo != nil && *t.FromPutBackAgo < 0) {
+				return badRequest("vxlan: a tunnel that starts from a VLAN names at most 8 other interfaces with an address there, and seconds since its routes were put back")
+			}
+			for _, name := range t.FromShared {
+				if !ifaceNameRE.MatchString(name) {
+					return badRequest("vxlan: %q is not an interface name", name)
+				}
 			}
 			if err := t.Probe.check(); err != nil {
 				return err

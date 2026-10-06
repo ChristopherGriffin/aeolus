@@ -79,3 +79,14 @@ Run on OpenWrtnight on 2026-10-04 with temporary interfaces only (`ubus call net
   - each one's pings left on its own VLAN (from 192.168.20.76 and from 192.168.1.38), and each got its own answers;
   - with the VLAN 20 interface gone, the first lost the concentrator and the second kept it.
 - **A new agent test case,** `underlay`, renders two networks over two concentrators that both start from VLAN 30, and removes an earlier VLAN 40 interface. It was rendered on the AP, and the render check passes it.
+
+## Another interface on the start VLAN (2026-10-06)
+
+- **What broke:** the office AP (OfficeOpenWrt) already had its own interface on VLAN 20 when it was adopted, `wifi_trusted`, also proto `dhcp` on `br-lan.20`. Both clients lease from the same MAC, so both got 192.168.20.88, and the kernel holds that address once.
+- **How:** when either interface restarts, the address is removed and added again. Removing an address makes the kernel drop every route from it, in every table, `aeolus_vlan20_tunnels`' table 1020 included. Adding it back only restores the restarting interface's own routes. netifd isn't told, so its status still listed table 1020's routes while the table was empty. The tunnel's packets then fell through to the main table, left on the wrong uplink VLAN, and the tunnel was down until something restarted `aeolus_vlan20_tunnels`.
+- **When:** the network reloads of 0078's key load check restarted both interfaces at 10:32 and about 10:36 CDT. VNI 50 went down at 10:37:44, and aeolus-50 moved to its VLAN 50 fallback. The unexplained office outage of 2026-10-05 (02:27–05:37 UTC) fits the same cause.
+- **The fix:**
+  - **The prober keeps the start's routes.** Every 10 seconds, for each `aeolus_vlan<N>_tunnels` that is up, it compares the routes netifd holds (its addresses' prefixes, and the routes DHCP gave) with the kernel's table. A route missing at two looks in a row is put back with `ip route replace`. Where one can't be, as when the address itself is gone, it has netifd start the interface again (down, then up), at most every 5 minutes.
+  - **The AP reports the sharing:** `from_shared` names the AP's other interfaces with an address on the start's device, and `from_put_back_ago` says when routes were last put back.
+  - **The UI flags it:** the path's From hop turns amber, says what shares the address, and when routes were put back. So does the tunnel's line on the AP's Interfaces tab.
+- **Not done:** Aeolus doesn't remove or change an interface it didn't make. Griff had `wifi_trusted` removed from the office AP. A macvlan device for the start would give it a MAC and lease of its own, but it needs `kmod-macvlan`, which the office AP doesn't have.

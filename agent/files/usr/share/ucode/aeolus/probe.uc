@@ -699,6 +699,76 @@ function client_dhcp(c, now) {
 	return c.address ? 'static' : 'none';
 }
 
+// prefix4 is the IPv4 prefix an address is in, as a.b.c.d/len, or null.
+function prefix4(address, len) {
+	let q = match(address ?? '', /^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/);
+	len = +len;
+	if (!q || len < 0 || len > 32 || len != int(len))
+		return null;
+	let n = 0;
+	for (let i = 1; i <= 4; i++) {
+		if (+q[i] > 255)
+			return null;
+		n = (n << 8) | +q[i];
+	}
+	n = n & ~((1 << (32 - len)) - 1);
+	return sprintf('%d.%d.%d.%d/%d', (n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255, len);
+}
+
+// start_routes says which routes netifd holds for an interface tunnels
+// start from on a VLAN (0063), from its status (ubus network.interface
+// status): its addresses' prefixes, on the link, and the routes DHCP gave
+// it, from its address. All go in the interface's own table. Each is { dst,
+// via, src }, dst a prefix, via and src null where there is none.
+function start_routes(st) {
+	let out = [];
+	for (let a in st?.['ipv4-address'] ?? []) {
+		let p = prefix4(a.address, a.mask);
+		if (p)
+			push(out, { dst: p, via: null, src: null });
+	}
+	for (let r in st?.route ?? []) {
+		let p = prefix4(r.target, r.mask);
+		if (!p)
+			continue;
+		let via = r.nexthop && r.nexthop != '0.0.0.0' ? r.nexthop : null;
+		let src = match(r.source ?? '', /^([0-9.]+)(\/32)?$/)?.[1];
+		push(out, { dst: p, via: via, src: src && src != '0.0.0.0' ? src : null });
+	}
+	return out;
+}
+
+// missing_routes says which of the routes netifd holds (want, as
+// start_routes says) are gone from the kernel's table (have: { dst, via },
+// dst a prefix, via null without a gateway). netifd doesn't see them go: the
+// kernel drops every route from an address when the address is removed,
+// as when another interface on the VLAN that leased the same address
+// restarts, and puts back only its own prefix route, in the main table
+// (2026-10-06, on the office AP).
+function missing_routes(want, have) {
+	return filter(want, w => !length(filter(have, h => h.dst == w.dst && (h.via ?? null) == w.via)));
+}
+
+// route_args is what follows `ip route replace` to put a route back in a
+// table, on a device; null where any part isn't what a route has.
+function route_args(r, dev, table) {
+	let ip = /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/;
+	if (!match(r.dst ?? '', /^[0-9]{1,3}(\.[0-9]{1,3}){3}\/[0-9]{1,2}$/) || (r.via != null && !match(r.via, ip)) ||
+		(r.src != null && !match(r.src, ip)) || !match(dev ?? '', /^[A-Za-z0-9][A-Za-z0-9._@-]{0,14}$/) ||
+		type(table) != 'int' || table < 1 || table > 0x7fffffff)
+		return null;
+	let a = [r.dst == '0.0.0.0/0' ? 'default' : r.dst];
+	if (r.via != null)
+		push(a, 'via', r.via);
+	push(a, 'dev', dev);
+	if (r.src != null)
+		push(a, 'src', r.src);
+	if (r.via == null)
+		push(a, 'scope', 'link');
+	push(a, 'table', '' + table);
+	return join(' ', a);
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
@@ -707,5 +777,5 @@ export {
 	mac_text, ip6, ip6_text, checksum, segment_mac, arp_probe, dhcp, dhcp_reply, echo6, answer,
 	echo4, echo4_answer, echo6_plain, echo6_plain_answer,
 	guard_frame, guard_seen, verdict, switch_step, link_local, lldp, watch_verdict,
-	dhcp_seen, arp_seen, request_state, client_dhcp
+	dhcp_seen, arp_seen, request_state, client_dhcp, prefix4, start_routes, missing_routes, route_args
 };

@@ -24,9 +24,13 @@ function worst(states) {
 // tunnel is up (start); whether traffic gets across it (vni); and whether
 // the far end answers pings (far). addresses are the AP's addresses where
 // the tunnels start, each with its gateway, on an AP's own page (one); a
-// folder's shows the VLAN only (Griff, 2026-10-06).
+// folder's shows the VLAN only (Griff, 2026-10-06). shared names the APs'
+// other interfaces with an address there, which share the start's: a
+// restart of either drops the tunnels' routes, until the prober puts them
+// back (putBack, seconds since it last did, the latest of the APs').
 export function probed(rows, vnis, one = false) {
-	const from = [], start = [], mid = [], far = [], addresses = [];
+	const from = [], start = [], mid = [], far = [], addresses = [], shared = new Set();
+	let putBack = null;
 	for (const { cfg } of rows)
 		for (const t of cfg?.condition?.state?.report?.vxlan?.tunnels || []) {
 			if (!vnis.includes(t.vni)) continue;
@@ -34,11 +38,14 @@ export function probed(rows, vnis, one = false) {
 			else if (!t.from_address) from.push('bad');
 			else from.push(t.from_gateway_answers === true || t.probe?.underlay === true ? 'ok' : t.from_gateway_answers === false ? 'warn' : null);
 			if (one && t.from_address && !addresses.some((a) => a.address === t.from_address)) addresses.push({ address: t.from_address, gateway: t.from_gateway });
+			for (const s of t.from_shared || []) shared.add(s);
+			if (t.from_shared?.length) from.push('warn');
+			if (t.from_put_back_ago != null && (putBack == null || t.from_put_back_ago < putBack)) putBack = t.from_put_back_ago;
 			start.push(t.up ? 'ok' : t.standby ? null : 'bad');
 			if (!t.standby) mid.push(VERDICT[t.probe?.verdict] || null);
 			far.push(t.probe?.underlay === true ? 'ok' : t.probe?.underlay === false ? 'bad' : null);
 		}
-	return { from: worst(from), start: worst(start), vni: worst(mid), far: worst(far), addresses };
+	return { from: worst(from), start: worst(start), vni: worst(mid), far: worst(far), addresses, shared: [...shared].sort(), putBack };
 }
 
 // from says where a tunnel starts on the AP (0063): its management VLAN,
@@ -75,11 +82,20 @@ export function vxlanPath({ start, tunnel, port, mtu, vnis, address }, state = {
 	// 2026-10-06), with the gateway each reaches the far end through.
 	const addrs = start ? state.addresses || [] : [];
 	const gws = [...new Set(addrs.map((a) => a.gateway).filter(Boolean))];
+	const shared = start ? state.shared || [] : [];
+	const ago = state.putBack == null ? '' : state.putBack < 120 ? `${state.putBack} s` : state.putBack < 7200 ? `${Math.round(state.putBack / 60)} min` : `${Math.round(state.putBack / 3600)} h`;
+	const caveat = (shared.length
+		? ` Its address there is shared with ${shared.join(', ')}, which lease${shared.length > 1 ? '' : 's'} on the same VLAN: a restart of either drops the tunnels' routes, until the prober puts them back. Remove ${shared.length > 1 ? 'them' : 'it'} from the AP, or move ${shared.length > 1 ? 'them' : 'it'} off that VLAN.`
+		: '') + (ago ? ` The prober last put back lost routes ${ago} ago.` : '');
+	// A shared start that works is at risk, not unproven.
+	const fromSays = shared.length && state.from === 'warn' ? 'works, at risk' : say(state.from);
+	const sub = [addrs.length ? addrs.slice(0, 3).map((a) => a.address).join(', ') + (addrs.length > 3 ? ` +${addrs.length - 3}` : '') : null,
+		shared.length ? `shared with ${shared.join(', ')}` : null].filter(Boolean).join(' · ') || null;
 	return pathOf([
-		{ top: 'From', main: from(start), sub: addrs.length ? addrs.slice(0, 3).map((a) => a.address).join(', ') + (addrs.length > 3 ? ` +${addrs.length - 3}` : '') : null,
+		{ top: 'From', main: from(start), sub,
 			state: start ? state.from : null,
 			title: start
-				? `Starts from VLAN ${start} on the uplink${gws.length ? `, through gateway ${gws.join(', ')}` : ''}: ${start && state.from === 'bad' ? 'no address there: does DHCP answer?' : say(state.from)}`
+				? `Starts from VLAN ${start} on the uplink${gws.length ? `, through gateway ${gws.join(', ')}` : ''}: ${start && state.from === 'bad' ? 'no address there: does DHCP answer?' : fromSays}.${caveat}`
 				: 'Starts from the AP\'s management VLAN' },
 		{ top: 'VXLAN', main: tunnel, sub: [port && `:${port}`, mtu && `MTU ${mtu}`].filter(Boolean).join(' · ') || null, state: state.start,
 			title: `Tunnel ${tunnel}: ${say(state.start)}` },
@@ -87,7 +103,7 @@ export function vxlanPath({ start, tunnel, port, mtu, vnis, address }, state = {
 			title: `Traffic across: ${say(state.vni)}` },
 		{ top: 'To', main: address || '?', state: state.far, title: `The far end, by ping: ${say(state.far)}` },
 	], `From the ${start ? `VLAN ${start}${addrs.length ? `, ${addrs.map((a) => a.address).join(', ')}` : ''}` : 'management VLAN'} over VXLAN tunnel ${tunnel}, VNI ${list || 'none yet'}, to ${address || 'an unknown far end'}. `
-		+ `${start ? `The start, by its gateway: ${say(state.from)}; ` : ''}the tunnel: ${say(state.start)}; traffic across: ${say(state.vni)}; the far end, by ping: ${say(state.far)}.`);
+		+ `${start ? `The start, by its gateway: ${fromSays}; ` : ''}the tunnel: ${say(state.start)}; traffic across: ${say(state.vni)}; the far end, by ping: ${say(state.far)}.`);
 }
 
 // vlanPath draws a VLAN transport: the VLAN, tagged on the uplink.
