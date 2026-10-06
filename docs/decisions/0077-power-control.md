@@ -47,6 +47,8 @@
   - **The daemon holds the power again whenever the radio's network is made anew,** as netifd has put it back. It keeps the power across its own restarts, as it does its moves.
   - **Off, the radio goes back to `auto`, its configured power.** With a power set by Aeolus, it is left to netifd, which already applied it.
   - **A radio that shares its wiphy with another is left alone:** the power is set per wiphy.
+  - **A power it cannot let go of stays held, and is tried again** (Codex's review of #85).
+- **Hellos go to as many neighbours as APC looks for,** where that is more than RRM's three, so their readings of this AP come back (Codex's review of #85). Those that answer count for channels too, as any neighbour whose hellos come does.
 - **What the AP reports:** for each radio APC holds, its power and ceiling, how many of the neighbours it looks for hear it, the weakest of them, the last step, and why. The reasons are `new`, `looking`, `below`, `ceiling`, `target`, `above`, `floor` and `failed`.
 - **Where it shows:**
   - The Neighbours view has APC's switch, its count and target, and each AP's radios under it.
