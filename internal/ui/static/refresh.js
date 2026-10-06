@@ -8,9 +8,13 @@
 let redraw = null;
 let fastUntil = 0;
 
-// setRedraw is called once by the app with its render function.
+// setRedraw is called once by the app with its render function. It starts
+// watching for fields people fill in, too.
 export function setRedraw(fn) {
 	redraw = fn;
+	document.addEventListener('input', (e) => {
+		if (e.target?.matches?.('input, textarea, select')) touched.add(e.target);
+	}, true);
 }
 
 // redrawNow redraws the current page, keeping its scroll position.
@@ -30,12 +34,10 @@ export function currentFlash() {
 }
 
 // The fields someone has typed in or picked from, since only a person's
-// input fires an input event. A field counts while it still holds what they
-// gave it: once cleared, as after a key is added, the page may redraw again.
+// input fires an input event (setRedraw watches for them). A field counts
+// while it still holds what they gave it: once cleared, as after a key is
+// added, the page may redraw again.
 const touched = new Set();
-document.addEventListener('input', (e) => {
-	if (e.target?.matches?.('input, textarea, select')) touched.add(e.target);
-}, true);
 
 // FIELDS are the kinds of input a person types or picks in.
 const FIELDS = 'textarea, select, input:not([type=button]):not([type=submit]):not([type=reset]):not([type=checkbox]):not([type=radio]):not([type=hidden])';
