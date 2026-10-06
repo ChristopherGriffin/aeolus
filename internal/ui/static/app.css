@@ -67,6 +67,13 @@ main.wide { max-width: none; }
 .tree a.branch.on { background: #F6E3BF; }
 .tree a .name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree svg { flex-shrink: 0; }
+/* A folder's switch for its APs in the tree, at the row's right end. */
+.tree .treerow { position: relative; }
+.tree .treerow > a { padding-right: 64px; }
+.tree .aptoggle { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 12px; cursor: pointer; }
+.tree .aptoggle[aria-pressed="true"] { background: var(--accent-bg); border-color: transparent; color: var(--accent); }
+.tree .aptoggle:hover { border-color: var(--accent); }
+.tree .aptoggle svg { width: 14px; height: 14px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .dot.ok { background: var(--ok); }
 .dot.warn { background: #D29A1E; }
