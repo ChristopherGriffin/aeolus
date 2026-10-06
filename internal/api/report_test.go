@@ -271,9 +271,10 @@ func TestStateReports(t *testing.T) {
 				"from": "192.168.50.1", "rtt_ms": 0.8, "answered_ago": 12,
 				"lease": map[string]any{"address": "192.168.50.6", "server": "192.168.50.254", "router": "192.168.50.1", "expires_in": 86000}}},
 			// One that starts from VLAN 20, where the AP has an address (0063).
-			map[string]any{"vni": 60, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "from_vlan": 20, "from_address": "192.168.20.74", "up": true, "probe": map[string]any{
-				"verdict": "unknown", "interval": 30, "asks": []string{"ff02::1"}, "underlay": nil, "underlay_ms": nil,
-				"from": nil, "rtt_ms": nil, "answered_ago": nil}},
+			map[string]any{"vni": 60, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "from_vlan": 20, "from_address": "192.168.20.74",
+				"from_gateway": "192.168.20.1", "from_gateway_answers": true, "up": true, "probe": map[string]any{
+					"verdict": "unknown", "interval": 30, "asks": []string{"ff02::1"}, "underlay": nil, "underlay_ms": nil,
+					"from": nil, "rtt_ms": nil, "answered_ago": nil}},
 			map[string]any{"vni": 10, "peer": "2001:db8::2", "port": 4789, "mtu": 1450, "up": false, "standby": true}},
 			"loops": []any{map[string]any{"port": "lan3", "device": "lan3.30", "vni": 30, "came_in": "aeolus_30", "ago": 4}}},
 	}
@@ -357,6 +358,10 @@ func TestStateReports(t *testing.T) {
 			"from_vlan": 20, "from_address": "fe80::1"}}}},
 		"address, no vlan": {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789,
 			"from_address": "192.168.20.74"}}}},
+		"gateway, no address": {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789,
+			"from_vlan": 20, "from_gateway": "192.168.20.1"}}}},
+		"gateway answers, none": {"version": 1, "vxlan": map[string]any{"tunnels": []any{map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789,
+			"from_vlan": 20, "from_address": "192.168.20.74", "from_gateway_answers": true}}}},
 	} {
 		if code, _, body := f.apDo("POST", "/v1/ap/state", token, bad, nil); code != 400 {
 			t.Errorf("%s: %d %v", name, code, body)
@@ -386,7 +391,7 @@ func TestStateReports(t *testing.T) {
 		p["lease"].(map[string]any)["address"] != "192.168.50.6" {
 		t.Fatalf("probe = %v", p)
 	}
-	if s := tunnels[1].(map[string]any); s["from_vlan"] != 20.0 || s["from_address"] != "192.168.20.74" {
+	if s := tunnels[1].(map[string]any); s["from_vlan"] != 20.0 || s["from_address"] != "192.168.20.74" || s["from_gateway"] != "192.168.20.1" || s["from_gateway_answers"] != true {
 		t.Fatalf("where the tunnel starts = %v", s)
 	}
 }
