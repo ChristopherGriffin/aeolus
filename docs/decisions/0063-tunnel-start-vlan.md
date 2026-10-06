@@ -89,4 +89,11 @@ Run on OpenWrtnight on 2026-10-04 with temporary interfaces only (`ubus call net
   - **The prober keeps the start's routes.** Every 10 seconds, for each `aeolus_vlan<N>_tunnels` that is up, it compares the routes netifd holds (its addresses' prefixes, and the routes DHCP gave) with the kernel's table. A route missing at two looks in a row is put back with `ip route replace`. Where one can't be, as when the address itself is gone, it has netifd start the interface again (down, then up), at most every 5 minutes.
   - **The AP reports the sharing:** `from_shared` names the AP's other interfaces with an address on the start's device, and `from_put_back_ago` says when routes were last put back.
   - **The UI flags it:** the path's From hop turns amber, says what shares the address, and when routes were put back. So does the tunnel's line on the AP's Interfaces tab.
-- **Not done:** Aeolus doesn't remove or change an interface it didn't make. Griff had `wifi_trusted` removed from the office AP. A macvlan device for the start would give it a MAC and lease of its own, but it needs `kmod-macvlan`, which the office AP doesn't have.
+- **Not done:** Aeolus doesn't remove or change an interface it didn't make. A macvlan device for the start would give it a MAC and lease of its own, but it needs `kmod-macvlan`, which the office AP doesn't have.
+- **Live, 2026-10-06 (v0.49.1):**
+  - Both APs took the release by fleet update (0079) on their own. Each fetched the 3 changed files and confirmed itself 35–37 s later.
+  - At Griff's word, `wifi_trusted` stopped taking an address: proto `none`, kept as the Sweet Spot SSIDs' attachment to VLAN 20. Deleting it would have left Sweet Spot with no network.
+  - Its network reload at 11:49:34 CDT removed .88, the address both interfaces shared, and table 1020 went empty.
+  - At 11:49:53 the prober found the routes gone at two looks in a row and couldn't put them back without the address, so it started `aeolus_vlan20_tunnels` again. That was up at 11:49:55 with a new lease, .90, and both routes.
+  - VNI 50 never went down, and aeolus-50 stayed on its primary.
+  - The change to `wifi_trusted` also restarted both radios, because Sweet Spot shares them with Sweet_Spot_IoT, so the office's IoT clients dropped. Five of six were back 18 s later.
