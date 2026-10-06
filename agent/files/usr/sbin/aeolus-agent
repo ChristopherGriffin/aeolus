@@ -866,10 +866,14 @@ function rrm_state() {
 	}
 	if (r?.on != true || type(r.at) != 'int' || time() - r.at > PROBES_STALE)
 		return null;
-	return {
+	let out = {
 		address: r.address ?? '', advertised: r.advertised ?? [], neighbours: r.neighbours ?? [], ratings: r.ratings ?? [],
 		moves: r.moves ?? [], apc: r.apc ?? [],
 	};
+	// The radios that can't scan, as on a DFS channel.
+	if (type(r.cannot_scan) == 'array' && length(r.cannot_scan))
+		out.cannot_scan = slice(r.cannot_scan, 0, 4);
+	return out;
 }
 
 // header is a response's header, by its name in any case.

@@ -247,6 +247,15 @@ The third part (v0.43.0).
   - The fleet view flags the AP ("Radios unseen"), and the neighbours table says why the AP hears no one.
   - Nothing restarts the network by itself, as that drops the AP's Wi-Fi.
 
+## A radio on a DFS channel can't scan (2026-10-06)
+
+- **What happened:** with DFS allowed, ACS put the office's 5 GHz on channel 108. Every scan there was refused: `iw dev phy1-ap0 scan trigger freq 5240 ap-force` gave "Resource busy (-16)", while 2.4 GHz scanned as usual. Linux keeps an AP on a DFS channel listening for radar.
+- **The effect:** RRM's 5 GHz visits failed silently. Its 5 GHz ratings stopped at the move, and lapse after `RATED_FOR` (30 minutes). It couldn't hear the pumphouse on 5 GHz, though it still had the pumphouse's channel from its hellos.
+- **Now:** after three refused visits in a row, RRM says so.
+  - It logs that the radio can't scan, and why: on a DFS channel, or refused otherwise. It logs again once a scan works.
+  - It reports `cannot_scan`, and the ratings and neighbours tables say which radio can't scan and why.
+- **Griff put My House back on `radio.5g.dfs avoid`** (change 79), so RRM keeps sight of 5 GHz. A site that allows DFS gets this blind spot on any radio that lands on a DFS channel.
+
 ## Open
 
 - **The hello and dead intervals.**

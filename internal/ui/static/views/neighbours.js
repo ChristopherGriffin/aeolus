@@ -184,6 +184,20 @@ function powerPanel(ctx, at, rows) {
 			: h('div', { class: 'sub' }, 'No AP holds a radio yet: each takes its radios over a minute after it applies the config.')));
 }
 
+// deaf lists an AP's radios that can't scan (2026-10-06), as rows across
+// span columns: on a DFS channel, Linux keeps an AP there listening for
+// radar and refuses every scan, so what the radio rates and hears on that
+// band ages until it leaves; a radio may refuse every scan otherwise too.
+function deaf(r, span, first) {
+	const dur = (s) => (s < 120 ? `${s} s` : s < 7200 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`);
+	return (r?.cannot_scan || []).map((d, i) => h('tr', null,
+		h('td', null, i === 0 && first),
+		h('td', { colspan: span, class: 'sub' }, h('span', { class: 'chip warn' }, `${bandName(d.band)} can't scan`), ' ',
+			d.why === 'dfs'
+				? `For ${dur(d.ago)}: on DFS channel ${d.channel} the radio must keep listening for radar, so it can't visit other channels or hear its neighbours there. Its ${bandName(d.band)} ratings age until it leaves the channel, and lapse after 30 minutes.`
+				: `For ${dur(d.ago)}: its radio refuses every scan on channel ${d.channel}, so its ${bandName(d.band)} ratings age.`)));
+}
+
 function table(ctx, rows) {
 	const name = (id) => ctx.name('locations', id);
 	const lines = rows.flatMap(({ ap, cfg }) => {
@@ -194,8 +208,8 @@ function table(ctx, rows) {
 		if (!cfg) return none('You cannot see this AP.');
 		if (rep?.report?.wireless_missing) return none(`Can't see its own radios: netifd lost its network.wireless object. Restarting the network on the AP brings it back; its Wi-Fi drops for about 30 seconds.`);
 		if (!r) return none(rep ? 'Off, or not reported yet.' : 'No report yet.');
-		if (!r.neighbours.length) return none(`Hears no other Aeolus AP yet. Its address for hellos is ${r.address || 'unknown'}.`);
-		return r.neighbours.flatMap((n, i) => (n.bands.length ? n.bands : [{ band: null }]).map((b, j) => {
+		if (!r.neighbours.length) return [...none(`Hears no other Aeolus AP yet. Its address for hellos is ${r.address || 'unknown'}.`), ...deaf(r, 7, null)];
+		return [...r.neighbours.flatMap((n, i) => (n.bands.length ? n.bands : [{ band: null }]).map((b, j) => {
 			const [chip, means] = STATE[n.state] || ['idle', ''];
 			return h('tr', null,
 				h('td', null, i === 0 && j === 0 && apLink),
@@ -207,7 +221,7 @@ function table(ctx, rows) {
 				h('td', { class: 'mono' }, b.channel ? `${b.channel}${b.width ? ` · ${b.width} MHz` : ''}` : '—'),
 				h('td', null, j === 0 && h('span', { class: `chip ${chip}`, title: means }, n.state)),
 				h('td', null, j === 0 && (n.hello_ago != null ? `${n.hello_ago} s ago` : '—')));
-		}));
+		})), ...deaf(r, 7, null)];
 	});
 	return h('section', { class: 'panel' },
 		h('h2', null, 'Radio neighbours', h('span', { class: 'note' }, rows.length === 1 ? 'as it last reported' : 'as each AP last reported')),
@@ -236,8 +250,8 @@ function ratingsPanel(ctx, rows) {
 		const none = (why) => [h('tr', null, h('td', null, apLink), h('td', { colspan: 9, class: 'sub' }, why))];
 		if (!cfg) return none('You cannot see this AP.');
 		if (!r) return none('Off, or not reported yet.');
-		if (!r.ratings?.length) return none('No channel rated yet.');
-		return r.ratings.map((x, i) => h('tr', null,
+		if (!r.ratings?.length) return [...none('No channel rated yet.'), ...deaf(r, 9, null)];
+		return [...r.ratings.map((x, i) => h('tr', null,
 			h('td', null, i === 0 && apLink),
 			h('td', null, bandName(x.band)),
 			h('td', { class: 'mono' }, String(x.channel)),
@@ -250,7 +264,7 @@ function ratingsPanel(ctx, rows) {
 			h('td', null,
 				x.own && h('span', { class: 'chip here' }, 'in use'), ' ',
 				x.best && h('span', { class: 'chip ok' }, x.blotted_by.length ? 'best (all used)' : 'best'),
-				x.blotted_by.length > 0 && h('div', { class: 'sub' }, `used by ${x.blotted_by.map(name).join(', ')}`))));
+				x.blotted_by.length > 0 && h('div', { class: 'sub' }, `used by ${x.blotted_by.map(name).join(', ')}`)))), ...deaf(r, 9, null)];
 	});
 	return h('section', { class: 'panel' },
 		h('h2', null, 'Channel ratings', h('span', { class: 'note' }, 'lower is better; the rating is earned over many visits, now is the last few')),

@@ -89,6 +89,7 @@ const KEPT = 16;            // moves reported at most
 const WHYS = ['start', 'shared', 'better', 'interference'];
 const STATES = ['announced', 'moved', 'yielded', 'withdrawn', 'failed'];
 const APC_EVERY = 600;      // seconds between a radio's power steps (0077)
+const DEAF_AFTER = 3;       // visits refused in a row before a radio is said not to scan
 
 let bus = connect();
 openlog('aeolus-rrm', LOG_PID, LOG_DAEMON);
@@ -445,8 +446,27 @@ function visit(r, at) {
 		r.put_off = 0;
 	}
 	nl.request(nl.const.NL80211_CMD_TRIGGER_SCAN, 0, { dev: r.bss, scan_frequencies: [ f ], scan_flags: SCAN_FLAG_AP });
-	if (nl.error())
-		return;   // a scan already running, or the radio restarting: the next visit tries again
+	let err = nl.error();
+	if (err) {
+		// Once, a scan already running or the radio restarting: the next visit
+		// tries again. Visit after visit, the radio doesn't scan at all. On a
+		// channel shared with radar (DFS), Linux keeps an AP there listening
+		// for radar and refuses every scan (2026-10-06, the office AP on 108):
+		// its ratings on that band age until it leaves.
+		r.refused = (r.refused ?? 0) + 1;
+		if (r.refused >= DEAF_AFTER && !r.deaf) {
+			r.deaf = { why: rrm.radar(r.band, r.channel) ? 'dfs' : 'refused', since: at };
+			if (r.deaf.why == 'dfs')
+				note('%s: on DFS channel %d the radio cannot scan, as it must keep listening for radar; its %s ratings age until it leaves', r.bss, r.channel, r.band);
+			else
+				note('%s: the radio refuses every scan (%s); its %s ratings age until it scans again', r.bss, err, r.band);
+		}
+		return;
+	}
+	if (r.deaf)
+		log('%s: the radio scans again, on channel %d', r.bss, r.channel);
+	r.refused = 0;
+	r.deaf = null;
 	r.scan = { freq: f, started: at, load: f == own ? l : null };
 }
 
@@ -1024,9 +1044,16 @@ function write(at) {
 		if (adverts[r.bss])
 			push(advertised, r.band);
 	let rated = sort(table(at), (a, b) => a.band < b.band ? -1 : a.band > b.band ? 1 : a.channel - b.channel);
+	// The radios that can't scan: their band, channel, why (dfs or
+	// refused) and for how long.
+	let deaf = [];
+	for (let name, r in radios)
+		if (r.deaf)
+			push(deaf, { band: r.band, channel: r.channel, why: r.deaf.why, ago: max(0, int(at - r.deaf.since)) });
 	store(out, sprintf('%J', {
 		at: time(), on: true, address: address ?? '', advertised: slice(uniq(sort(advertised)), 0, 3),
 		neighbours: slice(list, 0, LISTED), ratings: slice(rated, 0, RATED), moves: moves, apc: powers(),
+		cannot_scan: deaf,
 	}));
 }
 
