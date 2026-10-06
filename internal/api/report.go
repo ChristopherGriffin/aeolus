@@ -875,6 +875,10 @@ type radioState struct {
 	Channel int    `json:"channel,omitempty"`
 	Width   int    `json:"width,omitempty"`
 	Clients int    `json:"clients"`
+	// Whether it is up, and the power it sends at in dBm, as it runs them,
+	// set by Aeolus or not. An older agent leaves them out.
+	Up      *bool `json:"up,omitempty"`
+	TxPower *int  `json:"txpower,omitempty"`
 }
 
 // transportState is one network's transports: which is carrying traffic, and
@@ -936,6 +940,9 @@ func (st *stateReport) check() error {
 		}
 		if rd.Channel < 0 || rd.Width < 0 || rd.Clients < 0 {
 			return badRequest("radio numbers cannot be negative")
+		}
+		if rd.TxPower != nil && (*rd.TxPower < 0 || *rd.TxPower > 40) {
+			return badRequest("a radio's power is 0 to 40 dBm")
 		}
 	}
 	if len(st.Transports) > 64 {

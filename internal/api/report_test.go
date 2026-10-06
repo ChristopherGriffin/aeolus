@@ -189,7 +189,7 @@ func TestStateReports(t *testing.T) {
 	ap, token, version := f.adopted()
 	report := map[string]any{
 		"version": version, "uptime": 3600, "openwrt": "25.12.5",
-		"radios": []any{map[string]any{"radio": "radio1", "band": "5g", "channel": 36, "width": 40, "clients": 3}},
+		"radios": []any{map[string]any{"radio": "radio1", "band": "5g", "channel": 36, "width": 40, "clients": 3, "up": true, "txpower": 23}},
 		// The VLANs watched on the uplink, and the switch it is on (0064).
 		"uplink_vlans": []any{
 			map[string]any{"vlan": 20, "tagged": true, "verdict": "present", "heard_ago": 12},
@@ -278,6 +278,7 @@ func TestStateReports(t *testing.T) {
 	}
 	for name, bad := range map[string]map[string]any{
 		"band":          {"version": 1, "radios": []any{map[string]any{"radio": "r", "band": "60g"}}},
+		"txpower":       {"version": 1, "radios": []any{map[string]any{"radio": "r", "band": "5g", "txpower": 99}}},
 		"vlan":          {"version": 1, "uplink_vlans": []any{map[string]any{"vlan": 5000, "verdict": "present"}}},
 		"repeat":        {"version": 1, "uplink_vlans": []any{map[string]any{"vlan": 20, "verdict": "present"}, map[string]any{"vlan": 20, "verdict": "silent"}}},
 		"watch":         {"version": 1, "uplink_vlans": []any{map[string]any{"vlan": 20, "verdict": "missing"}}},

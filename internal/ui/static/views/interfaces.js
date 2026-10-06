@@ -65,7 +65,7 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 		if (view === 'channels') body = channelMap(ctx, at, await rows());
 		else if (view === 'ratings') body = ratingsSection(ctx, await rows());
 		else if (view === 'neighbours') body = neighboursSection(ctx, at, await rows());
-		else body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state);
+		else body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state, await rows());
 		return [bar, tabBar(`${base}/interfaces/radios`, RADIOS, view, 'minor'), body];
 	}
 	const body = sub === 'tunnels' ? await tunnels(ctx, id, page, ap, edit) : await ethernet(ctx, id, page, ap, edit);
