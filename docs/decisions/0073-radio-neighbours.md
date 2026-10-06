@@ -233,6 +233,20 @@ The third part (v0.43.0).
   - The pumphouse saw the claim, 6 blotted out by the office, and claimed nothing. Once the office had moved, 11 was free there and its best, so it stayed: one move settled it for both.
   - **5 GHz:** the pumphouse's block, 157 and 161, rated 35, against 0 for 44 and 48. It claimed 44 (better) at 18:47:15 and moved at 18:47:45, to VHT40 there.
 
+## When netifd loses `network.wireless` (2026-10-06)
+
+- **What happened:** the office AP's netifd lost its `network.wireless` ubus object while it ran on. netifd, ubusd and hostapd never restarted.
+  - In OpenWrt 25.12, `/lib/netifd/wireless.uc` publishes that object from ucode once, at start. If netifd's ubus connection is lost and made again, its C objects come back, and this one doesn't.
+  - The likely cause was 0078's 4,096-key load check, which made the object's status huge while RRM asked for it every 10 s. The log didn't reach back far enough to show it.
+- **The effect:** the radios ran and clients joined, but RRM saw no radios. It had no advert, scans or ratings, made no moves and didn't control power.
+  - The two APs stayed neighbours by hellos alone, until both daemons restarted together with v0.49.1's fleet update. The office's report had no radios or clients, and the Wi-Fi check after an apply passed without looking.
+  - A network restart brought it back. The office then advertised, rated and found the pumphouse within seconds. ACS had put its 5 GHz on the pumphouse's 44, and RRM moved it to 36 at once, as a radio that had just started.
+- **Now:**
+  - The agent reports `wireless_missing`, and doesn't take the missing object for no Wi-Fi: an apply logs that it couldn't check the Wi-Fi.
+  - RRM logs when the object goes and when it comes back.
+  - The fleet view flags the AP ("Radios unseen"), and the neighbours table says why the AP hears no one.
+  - Nothing restarts the network by itself, as that drops the AP's Wi-Fi.
+
 ## Open
 
 - **The hello and dead intervals.**

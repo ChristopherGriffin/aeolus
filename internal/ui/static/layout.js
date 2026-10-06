@@ -136,6 +136,10 @@ export function apStatus(a) {
 	if (!seen) return { cls: 'idle', chip: 'idle', label: 'Never seen', detail: 'It has not called the manager.' };
 	if (quiet) return { cls: 'bad', chip: 'bad', label: 'Not heard from', detail: 'Last seen ' + ago(seen) + '.' };
 	if (a.config === 'held') return { cls: 'bad', chip: 'bad', label: 'Held', detail: `Its config breaks ${a.problems} rule${a.problems === 1 ? '' : 's'}; it keeps running what it has.` };
+	// netifd lost its network.wireless object (2026-10-06): the radios run,
+	// but Aeolus there can't see them.
+	if (a.wireless_missing) return { cls: 'warn', chip: 'warn', label: 'Radios unseen',
+		detail: `netifd lost its network.wireless object, so Aeolus on this AP can't see its radios, clients or neighbours, nor check the Wi-Fi after a change. Restarting the network on the AP brings it back; its Wi-Fi drops for about 30 seconds.` };
 	if (a.in_sync === true) {
 		// Its agent (0079), once it says which it runs: amber while that
 		// isn't the one it should run.
