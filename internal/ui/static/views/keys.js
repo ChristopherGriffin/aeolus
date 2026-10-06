@@ -124,7 +124,8 @@ function addForm(vlans, run) {
 		if (expires.value) value.expires = new Date(expires.value + 'T23:59:59').toISOString();
 		run({ kind: 'add-key', value }, () => { name.value = ''; pass.value = ''; expires.value = ''; });
 	} }, name, ' ', pass, ' ',
-	h('button', { type: 'button', class: 'button small', onclick: () => { pass.value = generate(); } }, 'Generate'), ' ',
+	// An input event, as typing makes, so a redraw waits for it (refresh.js).
+	h('button', { type: 'button', class: 'button small', onclick: () => { pass.value = generate(); pass.dispatchEvent(new Event('input', { bubbles: true })); } }, 'Generate'), ' ',
 	vlan, ' ', h('span', { class: 'sub' }, 'expires'), ' ', expires, ' ',
 	h('button', { type: 'submit', class: 'button' }, 'Add key'));
 }

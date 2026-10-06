@@ -13,7 +13,9 @@ let fastUntil = 0;
 export function setRedraw(fn) {
 	redraw = fn;
 	document.addEventListener('input', (e) => {
-		if (e.target?.matches?.('input, textarea, select')) touched.add(e.target);
+		if (!e.target?.matches?.('input, textarea, select')) return;
+		lastInput = Date.now();
+		if (!e.target.matches('[data-kept]')) touched.add(e.target);
 	}, true);
 }
 
@@ -34,10 +36,13 @@ export function currentFlash() {
 }
 
 // The fields someone has typed in or picked from, since only a person's
-// input fires an input event (setRedraw watches for them). A field counts
-// while it still holds what they gave it: once cleared, as after a key is
-// added, the page may redraw again.
+// input fires an input event (setRedraw watches for them), or a button that
+// fills one in, which fires one too. A field counts while it still holds
+// what they gave it: once cleared, as after a key is added, the page may
+// redraw again. A field marked data-kept, such as a filter, the page keeps
+// across a redraw itself, so it counts only while someone types in it.
 const touched = new Set();
+let lastInput = 0;
 
 // FIELDS are the kinds of input a person types or picks in.
 const FIELDS = 'textarea, select, input:not([type=button]):not([type=submit]):not([type=reset]):not([type=checkbox]):not([type=radio]):not([type=hidden])';
@@ -46,7 +51,8 @@ const FIELDS = 'textarea, select, input:not([type=button]):not([type=submit]):no
 // has the focus, or holds what they typed or picked (Griff, 2026-10-06: a
 // key half typed was lost to a redraw every few seconds).
 function typing() {
-	if (document.activeElement?.matches?.(FIELDS)) return true;
+	const a = document.activeElement;
+	if (a?.matches?.(FIELDS) && (!a.matches('[data-kept]') || Date.now() - lastInput < 5000)) return true;
 	for (const el of touched) {
 		if (!el.isConnected) {
 			touched.delete(el);
