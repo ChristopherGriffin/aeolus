@@ -1,7 +1,7 @@
 // When the page redraws itself. Pages that show live AP state redraw every
 // 30 s; while a person is editing, they do not, so nothing they typed is
-// lost; and just after a change, they redraw every few seconds to show the
-// AP picking it up. Anything open for editing (a form, a preview) carries a
+// lost; and just after a change, every page redraws every few seconds, so
+// the tree's dots show the APs picking it up. Anything open for editing (a form, a preview) carries a
 // data-editing attribute: while one is on the page, it is not redrawn.
 
 let redraw = null;
@@ -37,9 +37,9 @@ export function hurry(seconds) {
 	fastUntil = Date.now() + seconds * 1000;
 }
 
-// interval is how long to wait before the next redraw, given the page's own.
+// interval is how long to wait before the next redraw, given the page's own:
+// a few seconds just after a change, whatever the page.
 export function interval(page) {
-	if (!page) return 0;
 	if (Date.now() < fastUntil) return 5;
-	return page;
+	return page || 0;
 }

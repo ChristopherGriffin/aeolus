@@ -4,14 +4,13 @@
 import { h, link, icon } from './dom.js';
 import { ago } from './format.js';
 
-// treeAside draws a tree of folders on the left, as in the mockup. keep is
-// the tab to open on the folder clicked (0047); it is not kept in an
-// isolated folder, whose page has no tabs.
-export function treeAside(ctx, tree, selected, keep = '') {
+// treeAside draws a tree on the left, as in the mockup: the folders, and
+// under each its APs, each with a dot for how it is doing (status maps an
+// AP to apStatus), so a change can be watched landing. keep is the tab to
+// open on the folder or AP clicked (0047); it is not kept in an isolated
+// folder, whose page has no tabs.
+export function treeAside(ctx, tree, selected, status, keep = '') {
 	const t = ctx.trees[tree];
-	// The tree holds folders only: a folder's APs are on its APs tab (0075),
-	// so on an AP's page its folder is the one marked.
-	if (t.nodes.get(selected)?.kind === 'ap') selected = t.nodes.get(selected).parent;
 	const depth = (id) => {
 		let d = 0;
 		for (let n = t.nodes.get(id); n && n.parent && t.nodes.has(n.parent); n = t.nodes.get(n.parent)) d++;
@@ -23,13 +22,16 @@ export function treeAside(ctx, tree, selected, keep = '') {
 	};
 	return h('aside', { class: 'tree' },
 		h('div', { class: 'tree-title' }, tree === 'locations' ? 'Locations' : 'Services'),
-		t.list.filter((n) => n.kind !== 'ap').map((n) => {
-			const href = `/${tree}/${encodeURIComponent(n.id)}` + (n.isolated ? '' : keep);
+		t.list.map((n) => {
+			const ap = n.kind === 'ap';
+			const href = (ap ? `/aps/${encodeURIComponent(n.id)}` : `/${tree}/${encodeURIComponent(n.id)}`) + (n.isolated ? '' : keep);
 			const cls = [n.id === selected ? 'on' : '', inBranch(n.id) ? 'branch' : ''].join(' ').trim();
+			const st = ap && status ? status.get(n.id) : null;
 			return h('a', { href: '#' + href, class: cls || null, style: { '--depth': depth(n.id) } },
-				icon('folder'),
+				icon(ap ? 'ap' : 'folder'),
 				h('span', { class: 'name' }, n.name),
-				n.broken && h('span', { class: 'chip break' }, 'BREAK'));
+				n.broken && h('span', { class: 'chip break' }, 'BREAK'),
+				st && h('span', { class: 'dot ' + st.cls, title: st.label }));
 		}));
 }
 
