@@ -32,6 +32,67 @@ function ordered(t) {
 // is not kept in an isolated folder, whose page has no tabs.
 export function treeAside(ctx, tree, selected, status, keep = '') {
 	const t = ctx.trees[tree];
+	const aside = h('aside', { class: 'tree' });
+	const draw = () => aside.replaceChildren(h('div', { class: 'tree-title' }, tree === 'locations' ? 'Locations' : 'Services'),
+		...rows(ctx, t, tree, selected, status, keep, draw));
+	draw();
+	return aside;
+}
+
+// The folders whose APs this viewer has hidden in the tree, kept in the
+// browser: a convenience of theirs, not a setting. Where the browser keeps
+// nothing, they stay hidden until the page is loaded again.
+const HIDDEN = 'aeolus.tree.hiddenAPs';
+let hidden = null;
+
+function hiddenFolders() {
+	if (!hidden)
+		try {
+			hidden = new Set(JSON.parse(localStorage.getItem(HIDDEN) || '[]'));
+		} catch {
+			hidden = new Set();
+		}
+	return hidden;
+}
+
+function keepHidden() {
+	try {
+		localStorage.setItem(HIDDEN, JSON.stringify([...hiddenFolders()]));
+	} catch { /* storage blocked */ }
+}
+
+// The worst of some APs' states, for a folder whose APs are hidden.
+const WORST = ['bad', 'warn', 'idle', 'ok'];
+
+// apToggle is a folder's switch for its APs in the tree (Griff, 2026-10-06):
+// their count, and while they are hidden, one dot for the worst of them.
+function apToggle(folder, aps, status, draw) {
+	const shown = !hiddenFolders().has(folder.id);
+	const sts = aps.map((a) => status?.get(a.id)).filter(Boolean);
+	const worst = WORST.find((c) => sts.some((s) => s.cls === c));
+	const counts = [...new Set(sts.map((s) => s.label))].map((l) => `${sts.filter((s) => s.label === l).length} ${l.toLowerCase()}`).join(', ');
+	return h('button', {
+		type: 'button', class: 'aptoggle', 'aria-pressed': shown ? 'true' : 'false',
+		title: `${shown ? 'Hide' : 'Show'} the ${aps.length === 1 ? 'AP' : `${aps.length} APs`} in ${folder.name}${counts ? ` (${counts})` : ''}`,
+		onclick: () => {
+			if (shown) hiddenFolders().add(folder.id); else hiddenFolders().delete(folder.id);
+			keepHidden();
+			draw();
+		},
+	}, icon('ap'), String(aps.length), !shown && worst && h('span', { class: 'dot ' + worst }));
+}
+
+// rows are the tree's rows: each folder, with a switch for its APs where it
+// has any, and each AP not hidden with its folder's, the selected one
+// always.
+function rows(ctx, t, tree, selected, status, keep, draw) {
+	const off = hiddenFolders();
+	const apsOf = new Map();
+	for (const n of t.list)
+		if (n.kind === 'ap' && n.parent) {
+			if (!apsOf.has(n.parent)) apsOf.set(n.parent, []);
+			apsOf.get(n.parent).push(n);
+		}
 	const depth = (id) => {
 		let d = 0;
 		for (let n = t.nodes.get(id); n && n.parent && t.nodes.has(n.parent); n = t.nodes.get(n.parent)) d++;
@@ -41,19 +102,19 @@ export function treeAside(ctx, tree, selected, status, keep = '') {
 		for (let n = t.nodes.get(id); n; n = t.nodes.get(n.parent)) if (n.broken) return true;
 		return false;
 	};
-	return h('aside', { class: 'tree' },
-		h('div', { class: 'tree-title' }, tree === 'locations' ? 'Locations' : 'Services'),
-		ordered(t).map((n) => {
-			const ap = n.kind === 'ap';
-			const href = (ap ? `/aps/${encodeURIComponent(n.id)}` : `/${tree}/${encodeURIComponent(n.id)}`) + (n.isolated ? '' : keep);
-			const cls = [n.id === selected ? 'on' : '', inBranch(n.id) ? 'branch' : ''].join(' ').trim();
-			const st = ap && status ? status.get(n.id) : null;
-			return h('a', { href: '#' + href, class: cls || null, style: { '--depth': depth(n.id) } },
-				icon(ap ? 'ap' : 'folder'),
-				h('span', { class: 'name' }, n.name),
-				n.broken && h('span', { class: 'chip break' }, 'BREAK'),
-				st && h('span', { class: 'dot ' + st.cls, title: st.label }));
-		}));
+	return ordered(t).filter((n) => n.kind !== 'ap' || !off.has(n.parent) || n.id === selected).map((n) => {
+		const ap = n.kind === 'ap';
+		const href = (ap ? `/aps/${encodeURIComponent(n.id)}` : `/${tree}/${encodeURIComponent(n.id)}`) + (n.isolated ? '' : keep);
+		const cls = [n.id === selected ? 'on' : '', inBranch(n.id) ? 'branch' : ''].join(' ').trim();
+		const st = ap && status ? status.get(n.id) : null;
+		const row = h('a', { href: '#' + href, class: cls || null, style: { '--depth': depth(n.id) } },
+			icon(ap ? 'ap' : 'folder'),
+			h('span', { class: 'name' }, n.name),
+			n.broken && h('span', { class: 'chip break' }, 'BREAK'),
+			st && h('span', { class: 'dot ' + st.cls, title: st.label }));
+		const aps = !ap && apsOf.get(n.id);
+		return aps ? h('div', { class: 'treerow' }, row, apToggle(n, aps, status, draw)) : row;
+	});
 }
 
 // crumbs draws the path above a node.
