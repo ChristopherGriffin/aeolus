@@ -60,14 +60,16 @@ export function vxlanPath({ start, tunnel, port, mtu, vnis, address }, state = {
 	const list = vnis.map((v) => v.vni).join(' · ');
 	const by = vnis.map((v) => v.by).filter(Boolean).join(', ');
 	const says = { ok: 'works', warn: 'unproven', bad: 'broken', idle: 'not reported' };
+	const say = (s) => says[s || 'idle'];
 	return pathOf([
 		{ top: 'From', main: from(start), title: start ? `Starts from VLAN ${start} on the uplink` : 'Starts from the AP\'s management VLAN' },
 		{ top: 'VXLAN', main: tunnel, sub: [port && `:${port}`, mtu && `MTU ${mtu}`].filter(Boolean).join(' · ') || null, state: state.start,
-			title: `Tunnel ${tunnel}: ${says[state.start || 'idle']}` },
+			title: `Tunnel ${tunnel}: ${say(state.start)}` },
 		{ top: vnis.length > 1 ? 'VNIs' : 'VNI', main: list || '—', sub: by || null, state: state.vni,
-			title: `Traffic across: ${says[state.vni || 'idle']}` },
-		{ top: 'To', main: address || '?', state: state.far, title: `The far end, by ping: ${says[state.far || 'idle']}` },
-	], `From the ${start ? `VLAN ${start}` : 'management VLAN'} over VXLAN tunnel ${tunnel}, VNI ${list || 'none yet'}, to ${address || 'an unknown far end'}`);
+			title: `Traffic across: ${say(state.vni)}` },
+		{ top: 'To', main: address || '?', state: state.far, title: `The far end, by ping: ${say(state.far)}` },
+	], `From the ${start ? `VLAN ${start}` : 'management VLAN'} over VXLAN tunnel ${tunnel}, VNI ${list || 'none yet'}, to ${address || 'an unknown far end'}. `
+		+ `The tunnel: ${say(state.start)}; traffic across: ${say(state.vni)}; the far end, by ping: ${say(state.far)}.`);
 }
 
 // vlanPath draws a VLAN transport: the VLAN, tagged on the uplink.
