@@ -15,8 +15,9 @@ const BANDS = ['2g', '5g', '6g'];
 const OTHER = [['channel', 'Channel'], ['power', 'Power'], ['enabled', 'Radio on']];
 
 // radiosSection draws the cards. report is the AP's latest state report, for
-// an AP's page.
-export function radiosSection(ctx, node, nodeName, page, report) {
+// an AP's page; rows are the APs the node reaches, each with its config and
+// condition, for what each runs where Aeolus doesn't set it.
+export function radiosSection(ctx, node, nodeName, page, report, rows = []) {
 	const hw = page.hardware;
 	if (!hw) return null;
 	const isAP = page.node.kind === 'ap';
@@ -25,7 +26,7 @@ export function radiosSection(ctx, node, nodeName, page, report) {
 	const reported = new Map((report?.report?.radios || []).map((r) => [r.band, r]));
 	const offered = new Map(hw.bands.map((b) => [b.band, b]));
 	const reach = hw.aps.length === 1 ? hw.aps[0].name : `${hw.aps.length} APs`;
-	const at = { ctx, node, nodeName, page, isAP, canEdit, parentName };
+	const at = { ctx, node, nodeName, page, isAP, canEdit, parentName, rows };
 	return [
 		h('div', { class: 'sub lead' }, isAP
 			? (report ? `Reported ${ago(report.at)}.` : 'No report yet.')
@@ -53,9 +54,12 @@ function card(at, band, b, now) {
 		OTHER.map(([k, label]) => {
 			const path = `radio.${band}.${k}`;
 			const field = page.fields?.[path];
+			const runs = !field && reported(at.rows, band, k);
 			return [h('div', { class: 'row' },
 				h('div', { class: 'label' }, label),
-				h('div', { class: 'value' }, field ? value(path, field.value) : h('span', { class: 'sealed' }, unset)),
+				h('div', { class: 'value' }, field ? value(path, field.value)
+					: runs ? [runs, h('span', { class: 'sealed' }, isAP ? ' (its own)' : ' (each AP\'s own)')]
+						: h('span', { class: 'sealed' }, unset)),
 				field && origin('locations', node, field, (id) => ctx.name('locations', id)),
 				isAP && field?.origin === 'self' && h('span', { class: 'chip warn' }, 'custom'),
 				at.canEdit && field?.origin === 'self' && h('span', { class: 'controls' },
@@ -63,6 +67,21 @@ function card(at, band, b, now) {
 		];
 		}),
 		box);
+}
+
+// reported says what the APs run for power or whether the radio is on (k),
+// on a band, as they last reported it: one value where all agree, else each
+// AP's. Null where none reported it.
+function reported(rows, band, k) {
+	if (k !== 'power' && k !== 'enabled') return null;
+	const seen = rows.map(({ ap, cfg }) => {
+		const r = (cfg?.condition?.state?.report?.radios || []).find((x) => x.band === band);
+		const v = k === 'power' ? r?.txpower : r?.up;
+		return v == null ? null : { name: ap.name, text: k === 'power' ? `${v} dBm` : v ? 'on' : 'off' };
+	}).filter(Boolean);
+	if (!seen.length) return null;
+	const texts = [...new Set(seen.map((s) => s.text))];
+	return texts.length === 1 ? texts[0] : seen.map((s) => `${s.name} ${s.text}`).join(' · ');
 }
 
 function widthRow(at, b, now, box, unset) {

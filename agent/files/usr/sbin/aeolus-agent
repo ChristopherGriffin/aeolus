@@ -798,13 +798,17 @@ function state_report(running) {
 		let band = status[name].config?.band;
 		if (!(band in { '2g': 1, '5g': 1, '6g': 1 }))
 			continue;
-		let r = { radio: name, band: band, channel: 0, width: 0, clients: 0 };
+		// Whether the radio is up, and the power it sends at, in dBm, are
+		// what it runs, whether or not Aeolus sets them.
+		let r = { radio: name, band: band, channel: 0, width: 0, clients: 0, up: status[name].up == true };
 		for (let i in status[name].interfaces ?? []) {
 			if (!i.ifname)
 				continue;
 			let info = bus.call('iwinfo', 'info', { device: i.ifname });
 			if (info?.channel)
 				r.channel = info.channel;
+			if (type(info?.txpower) == 'int' && info.txpower >= 0 && info.txpower <= 40)
+				r.txpower = info.txpower;
 			let w = match(info?.htmode ?? '', /([0-9]+)/);
 			if (w)
 				r.width = int(w[1]);
