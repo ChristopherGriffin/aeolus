@@ -424,6 +424,13 @@ const FOR_TYPE = { vlan: ['vlan'], vxlan: ['concentrator', 'vni', 'probe'] };
 const WITH_FALLBACK = ['transport.switching'];
 const WITH_AUTOMATIC = ['transport.ha', 'transport.failback', 'transport.holddown'];
 
+// farEnd is where a tunnel goes, to compare two: its address where it is
+// set here, else its name.
+function farEnd(lib, id) {
+	const a = lib.find((t) => t.id === id)?.address;
+	return a ? `address ${String(a).replace(/^\[|\]$/g, '').toLowerCase()}` : `tunnel ${id}`;
+}
+
 // pickers swaps a transport's tunnel field for a list of the tunnels set
 // here (0055). A tunnel the list lacks, set where it was, stays on offer,
 // marked.
@@ -435,8 +442,8 @@ function pickers(prefix, rows, inputs, lib) {
 		const cur = row.it.read();
 		const sel = h('select', null,
 			h('option', { value: '' }, lib.length ? '—' : 'no tunnel is set here yet (Interfaces › Tunnels)'),
-			lib.map((t) => h('option', { value: t.id, selected: t.id === cur }, tunnelName(lib, t.id))),
-			cur && !lib.some((t) => t.id === cur) && h('option', { value: cur, selected: true }, `${cur} (not set here)`));
+			lib.map((t) => h('option', { value: t.id, selected: t.id === cur, 'data-name': tunnelName(lib, t.id) }, tunnelName(lib, t.id))),
+			cur && !lib.some((t) => t.id === cur) && h('option', { value: cur, selected: true, 'data-name': `${cur} (not set here)` }, `${cur} (not set here)`));
 		const read = () => sel.value || undefined;
 		const initial = JSON.stringify(read());
 		const it = { el: sel, read, changed: () => JSON.stringify(read()) !== initial };
@@ -463,6 +470,43 @@ function form(d, net, fields, folder, lib) {
 	const { body, inputs, rows } = fieldsForm(d, sections, byPath, folder, MORE);
 	pickers(prefix, rows, inputs, lib);
 	const typeOf = (slot) => rows.get(`${prefix}transport.${slot}.type`)?.it.el.value;
+	// A VXLAN fallback can't go to the primary's far end, nor the primary to
+	// the fallback's: each list greys out the other's (Griff, 2026-10-06).
+	const tunnelOf = (slot) => (typeOf(slot) === 'vxlan' ? rows.get(`${prefix}transport.${slot}.concentrator`)?.it.read() : undefined);
+	const guard = () => {
+		for (const [slot, other] of [['primary', 'fallback'], ['fallback', 'primary']]) {
+			const sel = rows.get(`${prefix}transport.${slot}.concentrator`)?.it.el;
+			const theirs = tunnelOf(other);
+			for (const o of sel?.options || []) {
+				const same = Boolean(o.value && theirs && farEnd(lib, o.value) === farEnd(lib, theirs));
+				o.disabled = same && !o.selected;
+				o.textContent = same ? `${o.dataset.name} — the ${other}'s far end` : o.dataset.name || o.textContent;
+			}
+		}
+	};
+	// A VXLAN transport needs its tunnel (Griff, 2026-10-06): picking VXLAN
+	// picks the first tunnel set here that isn't the other's far end.
+	const fill = (slot) => {
+		const sel = rows.get(`${prefix}transport.${slot}.concentrator`)?.it.el;
+		if (typeOf(slot) !== 'vxlan' || !sel || sel.value) return;
+		const first = [...sel.options].find((o) => o.value && !o.disabled);
+		if (first) sel.value = first.value;
+	};
+	// clash says why the transports can't be sent as they are, if they
+	// can't: a VXLAN one without its tunnel or VNI, or the two to one far
+	// end.
+	const clash = () => {
+		for (const slot of ['primary', 'fallback'])
+			if (typeOf(slot) === 'vxlan') {
+				if (!tunnelOf(slot))
+					return lib.length ? `Pick the ${slot}'s tunnel: a VXLAN transport needs one.` : 'No tunnel is set here: set one in Interfaces › Tunnels first.';
+				if (rows.get(`${prefix}transport.${slot}.vni`)?.it.read() == null) return `Give the ${slot} a VNI: a VXLAN transport needs one.`;
+			}
+		const p = tunnelOf('primary'), f = tunnelOf('fallback');
+		return p && f && farEnd(lib, p) === farEnd(lib, f)
+			? `The fallback goes to the same far end as the primary (${farEnd(lib, f)}), so it would fail with it. Pick a tunnel to another far end, or a VLAN fallback.`
+			: null;
+	};
 	const show = (k, on) => {
 		const r = rows.get(prefix + k)?.row;
 		if (r) r.hidden = !on;
@@ -478,8 +522,13 @@ function form(d, net, fields, folder, lib) {
 	};
 	for (const k of ['transport.primary.type', 'transport.fallback.type', 'transport.switching'])
 		rows.get(prefix + k)?.it.el.addEventListener('change', sync);
+	for (const k of ['transport.primary.type', 'transport.fallback.type', 'transport.primary.concentrator', 'transport.fallback.concentrator'])
+		rows.get(prefix + k)?.it.el.addEventListener('change', guard);
+	for (const slot of ['primary', 'fallback'])
+		rows.get(`${prefix}transport.${slot}.type`)?.it.el.addEventListener('change', () => { guard(); fill(slot); guard(); });
 	sync();
-	return { body, inputs, rows, sync };
+	guard();
+	return { body, inputs, rows, sync, clash };
 }
 
 function setOp(folder, values) {
@@ -496,11 +545,15 @@ function shown(path, v) {
 
 function editForm(ctx, d, n, close, lib) {
 	const folderName = ctx.name('services', n.from);
-	const { body, inputs, rows } = form(d, n.id, n.fields, n.from, lib);
+	const { body, inputs, rows, clash } = form(d, n.id, n.fields, n.from, lib);
 	const box = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
 	const review = async () => {
 		msg.replaceChildren();
+		if (clash()) {
+			msg.replaceChildren(clash());
+			return;
+		}
 		let values;
 		try {
 			values = changedValues(inputs, rows);
@@ -539,7 +592,7 @@ function editForm(ctx, d, n, close, lib) {
 // its SSID.
 function addForm(ctx, d, folders, nets, box, lib) {
 	const pickFolder = h('select', null, folders.map((f) => h('option', { value: f.id }, `Services › ${ctx.name('services', f.id)}`)));
-	const { body, inputs, rows, sync } = form(d, 'new', {}, null, lib);
+	const { body, inputs, rows, sync, clash } = form(d, 'new', {}, null, lib);
 	// A new network travels over a VLAN unless the person picks otherwise.
 	const primary = inputs.get('network.new.transport.primary.type');
 	if (primary) {
@@ -550,6 +603,10 @@ function addForm(ctx, d, folders, nets, box, lib) {
 	const out = h('div', { class: 'edit flush' });
 	const review = async () => {
 		msg.replaceChildren();
+		if (clash()) {
+			msg.replaceChildren(clash());
+			return;
+		}
 		let values;
 		try {
 			values = changedValues(inputs, rows);
