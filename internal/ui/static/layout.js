@@ -4,11 +4,32 @@
 import { h, link, icon } from './dom.js';
 import { ago } from './format.js';
 
+// ordered is a tree in the order the left side shows it: depth first, and
+// under each folder its APs, then its folders, each as the manager lists
+// them.
+function ordered(t) {
+	const kids = new Map();
+	for (const n of t.list)
+		if (n.parent && t.nodes.has(n.parent)) {
+			if (!kids.has(n.parent)) kids.set(n.parent, []);
+			kids.get(n.parent).push(n);
+		}
+	const out = [];
+	const walk = (n) => {
+		out.push(n);
+		const k = kids.get(n.id) || [];
+		k.filter((c) => c.kind === 'ap').forEach(walk);
+		k.filter((c) => c.kind !== 'ap').forEach(walk);
+	};
+	t.list.filter((n) => !n.parent || !t.nodes.has(n.parent)).forEach(walk);
+	return out;
+}
+
 // treeAside draws a tree on the left, as in the mockup: the folders, and
-// under each its APs, each with a dot for how it is doing (status maps an
-// AP to apStatus), so a change can be watched landing. keep is the tab to
-// open on the folder or AP clicked (0047); it is not kept in an isolated
-// folder, whose page has no tabs.
+// under each its APs, then its folders, each AP with a dot for how it is
+// doing (status maps an AP to apStatus), so a change can be watched
+// landing. keep is the tab to open on the folder or AP clicked (0047); it
+// is not kept in an isolated folder, whose page has no tabs.
 export function treeAside(ctx, tree, selected, status, keep = '') {
 	const t = ctx.trees[tree];
 	const depth = (id) => {
@@ -22,7 +43,7 @@ export function treeAside(ctx, tree, selected, status, keep = '') {
 	};
 	return h('aside', { class: 'tree' },
 		h('div', { class: 'tree-title' }, tree === 'locations' ? 'Locations' : 'Services'),
-		t.list.map((n) => {
+		ordered(t).map((n) => {
 			const ap = n.kind === 'ap';
 			const href = (ap ? `/aps/${encodeURIComponent(n.id)}` : `/${tree}/${encodeURIComponent(n.id)}`) + (n.isolated ? '' : keep);
 			const cls = [n.id === selected ? 'on' : '', inBranch(n.id) ? 'branch' : ''].join(' ').trim();
