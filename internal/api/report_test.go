@@ -235,7 +235,9 @@ func TestStateReports(t *testing.T) {
 			// Its power control (0077): 2.4 GHz stepped down, 5 GHz at its ceiling.
 			"apc": []any{
 				map[string]any{"radio": "radio0", "band": "2g", "power": 19, "ceiling": 25, "wanted": 3, "target": -70, "count": 3, "weakest": -61, "step": -3, "why": "above", "ago": 120},
-				map[string]any{"radio": "radio1", "band": "5g", "power": 25, "ceiling": 25, "wanted": 3, "target": -70, "count": 1, "weakest": -88, "step": 0, "why": "ceiling", "ago": nil}}},
+				map[string]any{"radio": "radio1", "band": "5g", "power": 25, "ceiling": 25, "wanted": 3, "target": -70, "count": 1, "weakest": -88, "step": 0, "why": "ceiling", "ago": nil}},
+			// A radio on a DFS channel, which can't scan.
+			"cannot_scan": []any{map[string]any{"band": "5g", "channel": 108, "why": "dfs", "ago": 600}}},
 		// Every Wi-Fi client (0066): one on an Aeolus network, one on the AP's own.
 		"clients": []any{
 			map[string]any{"mac": "7e:2a:ea:9b:2b:8f", "network": "lab", "ssid": "Aeolus Lab", "band": "5g", "signal": -49, "signal_avg": -50,
@@ -321,6 +323,8 @@ func TestStateReports(t *testing.T) {
 		"rrm move why":  {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 6, "why": "bored", "state": "moved"}}}},
 		"rrm move to":   {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 0, "why": "shared", "state": "moved"}}}},
 		"rrm move ap":   {"version": 1, "rrm": map[string]any{"moves": []any{map[string]any{"band": "2g", "from": 11, "to": 6, "why": "shared", "state": "yielded", "ap": "office"}}}},
+		"deaf why":      {"version": 1, "rrm": map[string]any{"cannot_scan": []any{map[string]any{"band": "5g", "channel": 108, "why": "tired", "ago": 1}}}},
+		"deaf channel":  {"version": 1, "rrm": map[string]any{"cannot_scan": []any{map[string]any{"band": "5g", "channel": 0, "why": "dfs", "ago": 1}}}},
 		"apc why":       {"version": 1, "rrm": map[string]any{"apc": []any{map[string]any{"radio": "radio0", "band": "2g", "power": 20, "wanted": 3, "target": -70, "why": "louder"}}}},
 		"apc power":     {"version": 1, "rrm": map[string]any{"apc": []any{map[string]any{"radio": "radio0", "band": "2g", "power": 50, "wanted": 3, "target": -70, "why": "target"}}}},
 		"apc step":      {"version": 1, "rrm": map[string]any{"apc": []any{map[string]any{"radio": "radio0", "band": "2g", "power": 20, "wanted": 3, "target": -70, "step": 10, "why": "below"}}}},

@@ -218,7 +218,8 @@ type stateReport struct {
 // management address, where its neighbours reach it; the bands its beacons
 // say it is an Aeolus AP on; the other Aeolus APs it hears in the air or
 // keeps neighbours with over the wire; how it rates each channel; its last
-// moves; and the radios its power control holds (0077).
+// moves; the radios its power control holds (0077); and the radios that
+// can't scan, whose ratings age.
 type rrmState struct {
 	Address    string         `json:"address"`
 	Advertised []string       `json:"advertised"`
@@ -226,6 +227,18 @@ type rrmState struct {
 	Ratings    []rrmRating    `json:"ratings"`
 	Moves      []rrmMove      `json:"moves"`
 	APC        []rrmPower     `json:"apc,omitempty"`
+	CannotScan []rrmDeaf      `json:"cannot_scan,omitempty"`
+}
+
+// rrmDeaf is a radio that can't scan (2026-10-06): its band and channel;
+// why, dfs (on a channel shared with radar, Linux keeps an AP there
+// listening and refuses every scan) or refused (every scan refused
+// otherwise); and for how many seconds.
+type rrmDeaf struct {
+	Band    string `json:"band"`
+	Channel int    `json:"channel"`
+	Why     string `json:"why"`
+	Ago     int64  `json:"ago"`
 }
 
 // rrmPower is a radio whose power the AP's power control holds (0077): the
@@ -357,8 +370,13 @@ func (r *rrmState) check() error {
 			return bad
 		}
 	}
-	if len(r.APC) > 4 {
+	if len(r.APC) > 4 || len(r.CannotScan) > 4 {
 		return bad
+	}
+	for _, d := range r.CannotScan {
+		if !bands[d.Band] || d.Channel < 1 || d.Channel > 233 || (d.Why != "dfs" && d.Why != "refused") || d.Ago < 0 {
+			return badRequest("rrm: a radio that can't scan is a band, a channel from 1 to 233, why (dfs or refused), and seconds since")
+		}
 	}
 	for _, p := range r.APC {
 		if !radioRE.MatchString(p.Radio) || !bands[p.Band] || !power(p.Power) || !power(p.Ceiling) || p.Wanted < 1 || p.Wanted > 6 ||
