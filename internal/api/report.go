@@ -832,8 +832,8 @@ type vxlanState struct {
 // tunnelState is one tunnel: its VNI, the concentrator's address and port,
 // its MTU, the VLAN it starts from and the AP's address there (0063), the
 // gateway there and whether it answers, by the AP's neighbour table; the
-// AP's other interfaces with an address on that VLAN, which share the
-// start's, and seconds since the prober last put back routes the start lost
+// AP's other interfaces holding that address on that VLAN, and seconds
+// since the prober last put back routes the start lost
 // (2026-10-06); whether it is up, or standing by as a fallback, and what
 // the prober found.
 type tunnelState struct {

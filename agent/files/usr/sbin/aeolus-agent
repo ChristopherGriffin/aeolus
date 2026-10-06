@@ -630,26 +630,28 @@ function neighbour(addr, dev) {
 // packages they need are there, the MTU its uplink carries now, which the
 // tunnels run over (0056), and for each tunnel Aeolus made, its VNI, peer,
 // port and MTU, the VLAN it starts from, the AP's address there (0063) and
-// its gateway there, and whether that answers, the other interfaces with an
-// address there, and when the prober last put back routes the start lost;
+// its gateway there, and whether that answers, the other interfaces holding
+// that address there, and when the prober last put back routes the start
+// lost;
 // whether it is up, or
 // standing by as a fallback, and what the prober found (0059); and the
 // ports the loop guard took off.
 function vxlan_state() {
 	let found = probes();
 	let tunnels = [];
-	// The interfaces not Aeolus's that hold an IPv4 address, by device: one on
-	// the device a tunnel starts from shares the start's address there, as
-	// both lease from the same MAC (2026-10-06, the office AP).
-	let holders = null;
-	let held_on = dev => {
-		if (holders == null) {
-			holders = {};
-			for (let i in bus.call('network.interface', 'dump')?.interface ?? [])
-				if (i.up && i.l3_device && length(i['ipv4-address'] ?? []) && !match(i.interface, /^aeolus_/))
-					push(holders[i.l3_device] ??= [], i.interface);
-		}
-		return sort(holders[dev] ?? []);
+	// The interfaces not Aeolus's that are up, with their IPv4 addresses: one
+	// holding the address a tunnel starts from, on the same device, shares it,
+	// as two DHCP clients leasing from the same MAC do (2026-10-06, the office
+	// AP). One with an address of its own there shares nothing.
+	let others = null;
+	let sharing = (dev, addr) => {
+		others ??= filter(bus.call('network.interface', 'dump')?.interface ?? [],
+			i => i.up && i.l3_device && !match(i.interface ?? '', /^aeolus_/));
+		let names = [];
+		for (let i in others)
+			if (i.l3_device == dev && length(filter(i['ipv4-address'] ?? [], x => x.address == addr)))
+				push(names, i.interface);
+		return sort(names);
 	};
 	cursor().foreach('network', 'interface', s => {
 		let vni = match(s['.name'], /^aeolus_([0-9]+)$/)?.[1];
@@ -677,9 +679,9 @@ function vxlan_state() {
 				if (seen != null)
 					t.from_gateway_answers = seen;
 			}
-			// Other interfaces with an address on the VLAN, and when the prober
-			// last put back routes the start lost.
-			let shared = st?.l3_device ? held_on(st.l3_device) : [];
+			// Other interfaces holding the start's address there, and when the
+			// prober last put back routes the start lost.
+			let shared = a && st.l3_device ? sharing(st.l3_device, a) : [];
 			if (length(shared))
 				t.from_shared = slice(shared, 0, 8);
 			let kept = found?.starts?.[s.tunlink];
