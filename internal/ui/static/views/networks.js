@@ -49,7 +49,7 @@ export async function networksTab(ctx, id, page) {
 		fieldPanels(ctx, 'locations', id, only(page.fields, (p) => p === 'services'), editing(ctx, 'locations', page)),
 		at.nets.length === 0
 			? h('div', { class: 'banner info' }, 'No network reaches here: no service folder that applies offers one.')
-			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, noUsteer, lib, reports))),
+			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, noUsteer, lib, reports, page.node?.kind === 'ap'))),
 		writable.length > 0 && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox, lib) }, 'Add a network')),
 		addBox,
@@ -97,9 +97,9 @@ async function networksAt(page) {
 	return { folders, nets: [...nets.values()] };
 }
 
-function networkCard(ctx, d, n, bandsHere, noUsteer, lib, reports) {
+function networkCard(ctx, d, n, bandsHere, noUsteer, lib, reports, isAP) {
 	const box = h('div', { class: 'edit' });
-	const viewNow = () => view(ctx, n, bandsHere, box, noUsteer, lib, reports);
+	const viewNow = () => view(ctx, n, bandsHere, box, noUsteer, lib, reports, isAP);
 	const body = h('div', null, viewNow());
 	const close = () => body.replaceChildren(viewNow());
 	return h('section', { class: 'panel' },
@@ -131,7 +131,7 @@ async function deleteNetwork(ctx, n, box) {
 	]);
 }
 
-function view(ctx, n, bandsHere, box, noUsteer, lib, reports = []) {
+function view(ctx, n, bandsHere, box, noUsteer, lib, reports = [], isAP = false) {
 	const f = (k) => n.fields?.[k]?.value;
 	const asks = f('bands') || BANDS;
 	const row = (label, v) => v != null && v !== '' && h('div', { class: 'row' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, v));
@@ -145,7 +145,7 @@ function view(ctx, n, bandsHere, box, noUsteer, lib, reports = []) {
 		const id = f(`transport.${slot}.concentrator`), vni = f(`transport.${slot}.vni`), ask = f(`transport.${slot}.probe`);
 		const t = lib.find((c) => c.id === id) || {};
 		return vxlanPath({ start: t.underlay_vlan, tunnel: id, port: t.port, mtu: t.mtu, vnis: [{ vni, by: ask ? `asks ${ask}` : null }], address: t.address },
-			probed(reports, [vni]));
+			probed(reports, [vni], isAP));
 	};
 	const primary = transport('primary'), fallback = transport('fallback');
 	const switching = f('transport.switching') === 'automatic'
