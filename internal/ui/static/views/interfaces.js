@@ -107,24 +107,26 @@ async function tunnels(ctx, here, page, ap, edit) {
 }
 
 // usesOf is what the APs here (rows) carry over the tunnel name: each VNI,
-// with the network or tunnel port it carries.
+// with every network and tunnel port that carries it: a network and a port
+// may share one.
 function usesOf(rows, name) {
 	const out = new Map();
+	const add = (vni, by) => out.set(vni, (out.get(vni) || new Set()).add(by));
 	for (const { cfg } of rows) {
 		const doc = cfg?.document || {};
 		for (const [id, n] of Object.entries(doc.network || {})) {
 			if (n.enabled === false) continue;
 			for (const slot of ['primary', 'fallback']) {
 				const t = n.transport?.[slot];
-				if (t?.type === 'vxlan' && t.concentrator === name) out.set(t.vni, n.ssid || id);
+				if (t?.type === 'vxlan' && t.concentrator === name) add(t.vni, n.ssid || id);
 			}
 		}
 		for (const [p, set] of Object.entries(doc.ports || {}))
 			if (set.mode === 'tunnel')
 				for (const [vlan, m] of Object.entries(set.vxlan || {}))
-					if (m.tunnel === name) out.set(m.vni, `${p} ${onWire(vlan)}`);
+					if (m.tunnel === name) add(m.vni, `${p} ${onWire(vlan)}`);
 	}
-	return [...out].sort((a, b) => a[0] - b[0]).map(([vni, by]) => ({ vni, by }));
+	return [...out].sort((a, b) => a[0] - b[0]).map(([vni, by]) => ({ vni, by: [...by].join(' + ') }));
 }
 
 // tunnelCard shows one tunnel by name: drawn as a path, from where it
@@ -144,17 +146,23 @@ function tunnelCard(ctx, d, here, nodeName, name, fields, edit, rows = []) {
 	const v = (k) => fields[`concentrators.${name}.${k}`]?.value;
 	const uses = usesOf(rows, name);
 	// Where the fields the path shows come from: one origin for all, or each
-	// field's.
+	// field's, where they differ or one set here may follow the folder above
+	// again by itself, as the other fields' rows may.
 	const drawn = ['address', 'port', 'underlay_vlan'].map((k) => `concentrators.${name}.${k}`).filter((p) => fields[p]);
 	const whence = new Map(drawn.map((p) => [`${fields[p].origin} ${fields[p].from}`, p]));
+	const alone = (p) => edit && fields[p].origin === 'self' && !onlyHere;
+	const pathBox = h('div', { class: 'edit' });
 	const close = () => body.replaceChildren(h('div', null,
 		h('div', { class: 'pathbox' },
 			vxlanPath({ start: v('underlay_vlan'), tunnel: name, port: v('port'), mtu: v('mtu') ?? defaultMTU(v('address')), vnis: uses, address: v('address') },
 				probed(rows, uses.map((u) => u.vni))),
 			!uses.length && h('div', { class: 'sub' }, 'No network or port here travels over it yet.'),
-			h('div', { class: 'origins' }, whence.size === 1
+			drawn.length > 0 && h('div', { class: 'origins' }, whence.size === 1 && !drawn.some(alone)
 				? origin('locations', here, fields[drawn[0]], names)
-				: drawn.map((p) => [h('span', { class: 'sub' }, group(p).label), origin('locations', here, fields[p], names)]))),
+				: drawn.map((p) => h('span', { class: 'origin' },
+					h('span', { class: 'sub' }, group(p).label), origin('locations', here, fields[p], names),
+					alone(p) && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, [p], pathBox)))),
+			pathBox),
 		paths.filter((p) => !drawn.includes(p)).map((path) => {
 			const r = fields[path];
 			const rowBox = h('div', { class: 'edit' });
