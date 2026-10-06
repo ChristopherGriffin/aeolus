@@ -309,3 +309,31 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .button.rename { margin-left: 8px; height: 24px; padding: 0 8px; font-size: 12px; }
 .button.rename.head { margin-left: 12px; vertical-align: middle; }
 .button.rename.head + .button.rename.head { margin-left: 6px; }
+
+/* The neighbour map (map.js): APs as nodes, each pair of neighbours a line
+   coloured by how strongly they hear each other. */
+.seg { display: inline-flex; gap: 4px; }
+.seg .button.on { background: var(--accent); border-color: var(--accent); color: #FFFFFF; }
+.nmapbox { padding: 4px 12px 0; border-top: 1px solid var(--line-2); }
+.nmap { display: block; width: 100%; max-width: 760px; height: auto; margin: 0 auto; font-family: var(--sans); }
+.nmap .edge line { stroke-width: 4; stroke-linecap: round; stroke: var(--c); }
+.nmap .edge.heard line { stroke-dasharray: 2 8; }
+.nmap .edge text { font-size: 12px; font-family: var(--mono); fill: var(--c); paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.nmap .edge, .nmaplegend .key { --c: var(--faint); }
+.nmap .strong, .nmaplegend .strong { --c: #1E7A46; }
+.nmap .good, .nmaplegend .good { --c: #5E9E2F; }
+.nmap .fair, .nmaplegend .fair { --c: #B7791F; }
+.nmap .weak, .nmaplegend .weak { --c: var(--bad); }
+.nmap .node circle { fill: var(--panel); stroke: var(--accent); stroke-width: 2.5; }
+.nmap .node .waves { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
+.nmap .node circle.dot { fill: var(--accent); stroke: none; }
+.nmap .node text { paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.nmap .node .name { font-size: 13px; font-weight: 600; fill: var(--ink); }
+.nmap .node .facts { font-size: 11px; fill: var(--muted); font-family: var(--mono); }
+.nmap .node.away circle { stroke: var(--faint); stroke-dasharray: 3 3; }
+.nmap .node.away .waves { stroke: var(--faint); }
+.nmap .node.away circle.dot { fill: var(--faint); }
+.nmap .node.away .name { fill: var(--muted); font-weight: 500; }
+.nmaplegend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 6px 20px 14px; font-size: 12px; color: var(--muted); }
+.nmaplegend .key::before { content: ''; display: inline-block; width: 18px; height: 4px; border-radius: 2px; background: var(--c); margin-right: 6px; vertical-align: middle; }
+.nmaplegend .key.heard::before { background: repeating-linear-gradient(90deg, var(--faint) 0 2px, transparent 2px 6px); }

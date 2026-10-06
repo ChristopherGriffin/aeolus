@@ -11,6 +11,7 @@ import { schema } from '../api.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
 import { fieldsForm, changedValues } from './edit.js';
+import { neighbourMap } from './map.js';
 
 // A neighbour's state: its chip, and what it means.
 const STATE = {
@@ -37,10 +38,11 @@ const TURNS = {
 };
 
 // neighboursSection draws the switch, the policy for moves, power control,
-// and the table. at is the node's page ({ node, nodeName, page, canEdit,
-// parentName }); rows are its APs, each with its config and condition.
+// the map, and the table. at is the node's page ({ node, nodeName, page,
+// canEdit, parentName }); rows are its APs, each with its config and
+// condition.
 export function neighboursSection(ctx, at, rows) {
-	return [switchRow(ctx, at), powerPanel(ctx, at, rows), table(ctx, rows)];
+	return [switchRow(ctx, at), powerPanel(ctx, at, rows), neighbourMap(ctx, rows), table(ctx, rows)];
 }
 
 function switchRow(ctx, at) {
