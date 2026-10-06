@@ -19,7 +19,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ChristopherGriffin/aeolus/agent"
 	"github.com/ChristopherGriffin/aeolus/internal/api"
+	"github.com/ChristopherGriffin/aeolus/internal/bundle"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
@@ -74,6 +76,7 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 	knockListen := fs.String("knock-listen", envOr("AEOLUS_KNOCK_LISTEN", ":15002"), "TCP address for the option 224 listener, or off (0068)")
 	feedDir := fs.String("feed-cache", envOr("AEOLUS_FEED_CACHE", ""), "directory for the cache of OpenWrt's feeds, or off (0069; default: feeds beside the change log)")
 	feedMB := fs.Int("feed-cache-mb", envInt("AEOLUS_FEED_CACHE_MB", 2048), "the feed cache's size in MB (0069)")
+	agentDir := fs.String("agent-bundles", envOr("AEOLUS_AGENT_BUNDLES", ""), "directory for the agent bundles APs update from, or off (0079; default: agent beside the change log)")
 	if err := fs.Parse(args); err != nil {
 		return nil, nil, nil, err
 	}
@@ -141,7 +144,23 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 		return errors.Join(watch.Flush(), conds.Close(), log.Close())
 	}
 	slog.Info("aeolus loaded", "seq", log.Seq(), "keep_state_days", *keepDays)
-	apiHandler := api.New(log, sch, box, conds).WithWatch(watch).Handler()
+	apiServer := api.New(log, sch, box, conds).WithWatch(watch)
+	// The agent this build carries, kept with the releases before it, for
+	// the APs to update themselves from (0079).
+	if *agentDir != "off" {
+		dir := *agentDir
+		if dir == "" {
+			dir = filepath.Join(filepath.Dir(*db), "agent")
+		}
+		store, own, err := keepAgent(dir, version, time.Now())
+		if err != nil {
+			slog.Error("agent bundles: APs won't update themselves", "err", err)
+		} else {
+			slog.Info("agent bundle", "release", own.Version, "hash", own.Hash, "dir", dir)
+			apiServer = apiServer.WithAgents(store, own)
+		}
+	}
+	apiHandler := apiServer.Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpadapter.New(apiHandler, version))
 	// APs fetch OpenWrt's packages through the manager (0069).
@@ -265,4 +284,23 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// keepAgentReleases is how many releases' agents the manager keeps, for
+// folders pinned to one (0079).
+const keepAgentReleases = 10
+
+// keepAgent makes the bundle of the agent this build carries, for its
+// release, and keeps it in dir with the releases before it.
+func keepAgent(dir, release string, now time.Time) (*bundle.Store, bundle.Bundle, error) {
+	b, contents, err := bundle.FromFS(agent.Files, "files", release)
+	if err != nil {
+		return nil, bundle.Bundle{}, err
+	}
+	store, err := bundle.Open(dir, keepAgentReleases)
+	if err != nil {
+		return nil, bundle.Bundle{}, err
+	}
+	b, err = store.Put(b, contents, now)
+	return store, b, err
 }

@@ -30,6 +30,7 @@ type fixture struct {
 	log    *changelog.Log
 	conds  *conditions.Store
 	watch  *dhcpwatch.Book
+	api    *Server
 	tokens map[string]string // account -> plain token
 }
 
@@ -103,9 +104,10 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { conds.Close() })
 	watch, err := dhcpwatch.Open(conds, nil)
 	must(t, err)
-	srv := httptest.NewServer(New(log, sch, box, conds).WithWatch(watch).Handler())
+	api := New(log, sch, box, conds).WithWatch(watch)
+	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
-	return &fixture{t: t, url: srv.URL, dir: dir, log: log, conds: conds, watch: watch, tokens: tokens}
+	return &fixture{t: t, url: srv.URL, dir: dir, log: log, conds: conds, watch: watch, api: api, tokens: tokens}
 }
 
 // do sends a request as an account ("" for none) and returns the status and

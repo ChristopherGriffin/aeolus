@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as uloop from 'uloop';
 import * as uclient from 'uclient';
 import * as math from 'math';
-import { sha256 } from 'digest';
+import { sha256, sha256_file } from 'digest';
 import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING, LOG_ERR } from 'log';
 import { cursor } from 'uci';
 import { connect } from 'ubus';
@@ -42,6 +42,17 @@ const KEYS_VERSION = DIR + '/keys.version';  // the per-user keys the AP has (00
 const RRM_KEY = DIR + '/rrm.key';   // the key radio neighbours sign their hellos with (0073)
 const RRM = '/var/run/aeolus/rrm.json';   // what radio resource management found (0073)
 const KEYS_WAIT = 40;      // seconds the manager may hold a request for keys
+// Fleet updates (0079): the agent updates itself from the manager.
+const AGENT_JSON = DIR + '/agent.json';       // the bundle this AP last confirmed it runs
+const AGENT_TRIAL = DIR + '/agent.trial';     // an update on trial: hash= and version= lines
+const AGENT_PREV = DIR + '/agent.prev';       // the files the last update replaced
+const AGENT_RESULT = DIR + '/agent.result';   // the last update that failed or was rolled back
+const AGENT_STAGE = '/tmp/aeolus-agent.new';  // where an update is fetched and checked
+const ROLLBACK = '/usr/libexec/aeolus-rollback';
+const ROLLBACK_COPY = '/tmp/aeolus-rollback.sh';
+const TRIAL_FOR = 300;     // seconds a new agent has to confirm itself, an apply's Wi-Fi wait included
+const CONFIRM_AFTER = 30;  // seconds a new agent runs before it confirms itself
+const RETRY_AFTER = 3600;  // seconds before a bundle that failed is tried again
 
 let bus = connect();
 
@@ -102,6 +113,7 @@ function http(method, path, body, token, extra, timeout) {
 	uc = uclient.new(base + path, null, {
 		header_done: function() {
 			res.status = uc.status().status;
+			res.headers = uc.get_headers() ?? {};
 		},
 		data_read: function() {
 			let chunk;
@@ -814,6 +826,179 @@ function rrm_state() {
 	};
 }
 
+// header is a response's header, by its name in any case.
+function header(r, name) {
+	for (let k, v in r.headers ?? {})
+		if (lc(k) == lc(name))
+			return v;
+	return null;
+}
+
+// Fleet updates (0079). Each poll's answer names, in its Aeolus-Agent
+// header, the bundle the AP should run. Where that isn't the one it last
+// confirmed, it fetches the manifest, fetches the files it lacks, checks
+// them, backs up what they replace, and installs them on trial, under the
+// old agent's rollback script; the new agent confirms itself once it has run
+// a while, reached the manager, and procd runs every instance.
+
+function agent_json(path) {
+	try {
+		return json(read(path) ?? 'null');
+	}
+	catch (e) {
+		return null;
+	}
+}
+
+// agent_trial is the update on trial, if any: { hash, version }.
+function agent_trial() {
+	let t = read(AGENT_TRIAL) ?? '';
+	let h = match(t, /hash=([0-9a-f]{64})/)?.[1];
+	return h ? { hash: h, version: match(t, /version=([A-Za-z0-9._-]{1,64})/)?.[1] ?? '' } : null;
+}
+
+// agent_failed records an update that couldn't go ahead, and why. That
+// bundle isn't tried again for RETRY_AFTER.
+function agent_failed(hash, version, why) {
+	note('agent update to %s: %s', version || hash, why);
+	store(AGENT_RESULT, sprintf('%J', { hash: hash, version: version ?? '', state: 'failed', why: substr(why, 0, 200), at: time() }));
+	return false;
+}
+
+// agent_confirmed records the bundle the AP runs: its trial is over, and an
+// update that failed before is no longer news.
+function agent_confirmed(version, hash) {
+	store(AGENT_JSON, sprintf('%J', { version: version, hash: hash }));
+	fs.unlink(AGENT_TRIAL);
+	fs.unlink(AGENT_RESULT);
+}
+
+// agent_backoff says whether a bundle failed or was rolled back lately.
+function agent_backoff(hash) {
+	let r = agent_json(AGENT_RESULT);
+	return r?.hash == hash && time() - (r.at ?? 0) < RETRY_AFTER;
+}
+
+// instances_running says whether procd runs every Aeolus instance.
+function instances_running() {
+	let all = bus.call('service', 'list', { name: 'aeolus' })?.aeolus?.instances ?? {};
+	if (!length(keys(all)))
+		return false;
+	for (let name, i in all)
+		if (!i.running)
+			return false;
+	return true;
+}
+
+// The places an agent file may have, as the manager's bundles name them.
+function agent_path_ok(p) {
+	return type(p) == 'string' && index(p, '..') < 0 &&
+		match(p, /^\/(usr\/sbin|usr\/libexec|usr\/share\/ucode\/aeolus|etc\/init\.d|etc\/hotplug\.d\/[a-z0-9-]+|lib\/upgrade\/keep\.d)\/[A-Za-z0-9._-]+$/) != null;
+}
+
+function parent(p) {
+	return substr(p, 0, rindex(p, '/'));
+}
+
+// agent_check checks a staged file as what it is: a ucode program compiles
+// against the staged modules, a staged module imports, a shell script
+// parses.
+function agent_check(f) {
+	let staged = AGENT_STAGE + f.path, mods = AGENT_STAGE + '/usr/share/ucode/*.uc';
+	let first = match(fs.readfile(staged) ?? '', /^[^\n]*/)?.[0] ?? '';
+	let mod = match(f.path, /^\/usr\/share\/ucode\/aeolus\/([a-z0-9_]+)\.uc$/)?.[1];
+	let cmd = null;
+	if (index(first, '#!/usr/bin/ucode') == 0)
+		cmd = `ucode -L '${mods}' -c -o /dev/null '${staged}'`;
+	else if (index(first, '#!/bin/sh') == 0 || index(f.path, '/etc/hotplug.d/') == 0)
+		cmd = `sh -n '${staged}'`;
+	else if (mod)
+		cmd = `ucode -L '${mods}' -e 'import * as m from "aeolus.${mod}";'`;
+	return cmd == null || system(cmd + ' </dev/null >/dev/null 2>&1') == 0;
+}
+
+// agent_update brings the AP's agent to the bundle the manager names. It
+// returns true when the new agent is installed and the service is about to
+// restart into it.
+function agent_update(wanted, token) {
+	let r = http('GET', '/v1/ap/agent', null, token);
+	let m = r.json;
+	if (r.status != 200 || m?.hash != wanted || type(m?.files) != 'array' || !length(m.files))
+		return agent_failed(wanted, null, 'cannot read its manifest: ' + describe(r));
+	let version = match(m.version ?? '', /^[A-Za-z0-9._-]{1,64}$/) ? m.version : '';
+	let need = {};
+	for (let f in m.files) {
+		if (!agent_path_ok(f?.path) || !(f.mode in ['0755', '0644']) || !match(f.sha256 ?? '', /^[0-9a-f]{64}$/))
+			return agent_failed(wanted, version, 'its manifest names a file it may not: ' + (f?.path ?? '?'));
+		if (sha256_file(f.path) != f.sha256)
+			need[f.path] = true;
+	}
+	// Its files are those already, as after an install by hand.
+	if (!length(keys(need))) {
+		agent_confirmed(version, wanted);
+		log('agent: runs %s', version);
+		return false;
+	}
+	log('agent: updating to %s, %d files', version, length(keys(need)));
+	system(`rm -rf '${AGENT_STAGE}'`);
+	for (let f in m.files) {
+		let staged = AGENT_STAGE + f.path, data;
+		system(`mkdir -p '${parent(staged)}'`);
+		if (need[f.path]) {
+			let d = http('GET', '/v1/ap/agent/files/' + f.sha256, null, token);
+			if (d.status != 200)
+				return agent_failed(wanted, version, `cannot fetch ${f.path}: ` + describe(d));
+			data = d.body;
+		}
+		else
+			data = fs.readfile(f.path);
+		if (data == null || sha256(data) != f.sha256)
+			return agent_failed(wanted, version, `${f.path} is not what its manifest says`);
+		if (fs.writefile(staged, data) == null)
+			return agent_failed(wanted, version, `cannot stage ${f.path}`);
+	}
+	for (let f in m.files)
+		if (!agent_check(f))
+			return agent_failed(wanted, version, `${f.path} doesn't check out`);
+	if (!fs.access(ROLLBACK) || system(`cp '${ROLLBACK}' '${ROLLBACK_COPY}'`) != 0)
+		return agent_failed(wanted, version, 'no rollback script to try it under');
+	// What the update replaces, to go back to.
+	system(`rm -rf '${AGENT_PREV}'`);
+	for (let f in m.files)
+		if (need[f.path] && fs.access(f.path) &&
+		    system(`mkdir -p '${parent(AGENT_PREV + f.path)}' && cp -p '${f.path}' '${AGENT_PREV + f.path}'`) != 0)
+			return agent_failed(wanted, version, `cannot back up ${f.path}`);
+	store(AGENT_TRIAL, sprintf('hash=%s\nversion=%s\n', wanted, version));
+	system(`setsid sh '${ROLLBACK_COPY}' ${wanted} ${TRIAL_FOR} </dev/null >/dev/null 2>&1 &`);
+	for (let f in m.files)
+		if (need[f.path] && !store(f.path, fs.readfile(AGENT_STAGE + f.path), f.mode == '0755' ? 0755 : 0644)) {
+			// Half installed: put the old files back now, not in five minutes.
+			note('agent: cannot install %s; putting the old agent back', f.path);
+			system(`setsid sh '${ROLLBACK_COPY}' ${wanted} 0 </dev/null >/dev/null 2>&1 &`);
+			return true;
+		}
+	system(`rm -rf '${AGENT_STAGE}'`);
+	log('agent: installed %s; restarting into it, which must confirm itself within %d s', version, TRIAL_FOR);
+	system(`setsid sh -c 'sleep 2; /etc/init.d/aeolus restart' </dev/null >/dev/null 2>&1 &`);
+	return true;
+}
+
+// agent_report is the agent the AP runs, for its state report: the bundle it
+// last confirmed, and an update under way, or the last that failed or was
+// rolled back.
+function agent_report() {
+	let have = agent_json(AGENT_JSON), t = agent_trial(), res = agent_json(AGENT_RESULT);
+	let out = { version: have?.version ?? '', hash: have?.hash ?? '' };
+	if (t)
+		out.update = { version: t.version, hash: t.hash, state: 'updating', ago: 0 };
+	else if (res?.state in ['failed', 'rolled-back'] && match(res.hash ?? '', /^[0-9a-f]{64}$/))
+		out.update = {
+			version: match(res.version ?? '', /^[A-Za-z0-9._-]{0,64}$/) ? res.version ?? '' : '', hash: res.hash,
+			state: res.state, why: substr(res.why ?? '', 0, 200), ago: max(0, time() - (res.at ?? time())),
+		};
+	return out;
+}
+
 // state_report is what the AP tells the manager about itself (0039).
 function state_report(running) {
 	let b = bus.call('system', 'board') ?? {};
@@ -884,6 +1069,7 @@ function state_report(running) {
 	let rr = rrm_state();
 	if (rr)
 		report.rrm = rr;
+	report.agent = agent_report();
 	return report;
 }
 
@@ -1012,6 +1198,10 @@ function main() {
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
 	let next_packages = packages(time());
 	let running = running_version();
+	// An update on trial (0079): this agent is the new one, until it
+	// confirms itself.
+	let trial = agent_trial();
+	let started = time();
 	let assigned = false;
 	let held = null;
 	let last_state = 0;
@@ -1065,6 +1255,26 @@ function main() {
 		else {
 			fail('poll: %s', describe(r));
 		}
+		let reached = r.status == 200 || r.status == 304;
+		// A new agent on trial confirms itself once it has run a while,
+		// reached the manager, and procd runs every instance (0079).
+		if (trial && reached && time() - started >= CONFIRM_AFTER && instances_running()) {
+			agent_confirmed(trial.version, trial.hash);
+			log('agent: confirmed %s', trial.version);
+			trial = null;
+			last_state = 0;
+		}
+		// The bundle the manager names, where it isn't the one this AP runs.
+		let wanted = header(r, 'Aeolus-Agent');
+		if (reached && !trial && match(wanted ?? '', /^[0-9a-f]{64}$/) &&
+		    wanted != agent_json(AGENT_JSON)?.hash && !agent_backoff(wanted)) {
+			if (agent_update(wanted, token)) {
+				// The restart stops this process.
+				while (true)
+					sleep(1000);
+			}
+			last_state = 0;
+		}
 		// A tunnel that went down or came back, or a loop, is reported at
 		// once rather than with the next state report (0059).
 		let now_news = probe_news();
@@ -1078,7 +1288,8 @@ function main() {
 		}
 		if (time() >= next_packages && !fs.access(PACKAGES_DONE))
 			next_packages = packages(time());
-		let poll = settings().poll;
+		// On trial, often, to confirm in good time.
+		let poll = trial ? 10 : settings().poll;
 		sleep(poll * 1000 * (90 + math.rand() % 21) / 100);
 	}
 }

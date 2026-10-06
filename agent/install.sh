@@ -25,7 +25,7 @@ here=$(dirname "$0")
 [ -d "/sys/class/net/$uplink" ] || { echo "no port named $uplink" >&2; exit 1; }
 
 cp -R "$here/files/." /
-chmod 0755 /usr/sbin/aeolus-agent /usr/sbin/aeolus-prober /usr/sbin/aeolus-rrm /usr/libexec/aeolus-packages /etc/init.d/aeolus
+chmod 0755 /usr/sbin/aeolus-agent /usr/sbin/aeolus-prober /usr/sbin/aeolus-rrm /usr/libexec/aeolus-packages /usr/libexec/aeolus-rollback /etc/init.d/aeolus
 mkdir -p /etc/aeolus
 chmod 0700 /etc/aeolus
 cp "$cert" /etc/aeolus/manager.crt

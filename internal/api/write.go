@@ -49,6 +49,13 @@ func (s *Server) prepareValue(tree change.TreeName, p hierarchy.Path, raw json.R
 	if tree == change.Locations && p == hierarchy.ServicesPath {
 		return raw, nil // refused by Apply: use assign-services
 	}
+	// A pin to an agent release the manager keeps (0079), checked here, when
+	// it is set, rather than in the log's own check, which replays.
+	if tree == change.Locations && p == AgentPath {
+		if err := s.checkAgentPin(raw); err != nil {
+			return raw, err
+		}
+	}
 	return s.schema.Prepare(p, raw, s.box)
 }
 

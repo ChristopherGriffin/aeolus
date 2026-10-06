@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
+	"github.com/ChristopherGriffin/aeolus/internal/bundle"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
@@ -41,6 +42,8 @@ type Server struct {
 	conds  *conditions.Store
 	watch  *dhcpwatch.Book // what the manager's DHCP listeners hear (0068); nil if none
 	psks   pskCache        // per-user keys' PSKs, worked out (0070)
+	agents *bundle.Store   // the agent bundles it offers its APs (0079); nil if none
+	agent  bundle.Bundle   // its own release's bundle
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
@@ -88,6 +91,9 @@ func (s *Server) Handler() http.Handler {
 	// The routes APs use (0033, 0038).
 	mux.HandleFunc("POST /v1/enroll", s.enroll)
 	mux.Handle("GET /v1/ap/config", s.apAuth(s.apPoll))
+	mux.Handle("GET /v1/ap/agent", s.apAuth(s.agentManifest))
+	mux.Handle("GET /v1/ap/agent/files/{sha256}", s.apAuth(s.agentFile))
+	mux.Handle("GET /v1/agent/versions", s.auth(s.agentVersions))
 	mux.Handle("POST /v1/ap/render", s.apAuth(s.render))
 	mux.Handle("POST /v1/ap/applied", s.apAuth(s.applied))
 	mux.Handle("POST /v1/ap/state", s.apAuth(s.state))

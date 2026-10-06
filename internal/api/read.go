@@ -228,7 +228,12 @@ func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error 
 	for _, n := range refs {
 		keyCount += len(n.Keys)
 	}
+	var report json.RawMessage
+	if l, err := s.conds.Latest(id); err == nil && l.State != nil {
+		report = l.State.Report
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"agent":      s.agentView(c.state, id, report),
 		"keys":       map[string]any{"version": keyVersion, "count": keyCount},
 		"ap":         id,
 		"version":    version,

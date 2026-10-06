@@ -27,6 +27,26 @@ export async function configs(aps) {
 // beside what Aeolus sets. With automatic channels each AP picks its own
 // (0045), within the band's channel set. With canEdit, each AP can be
 // renamed, its hostname with it, and moved to another folder (0076).
+// agentCell is an AP's agent (0079): the release it runs, and whether that
+// is the one it should run: current, updating, behind, rolled back or
+// failed, or held where its folder pins a release the manager no longer
+// keeps.
+function agentCell(a) {
+	if (!a) return '—';
+	const { runs, wants } = a;
+	const short = (v) => (v || '').replace(/-[0-9a-f]{7,}$/, '') || 'unknown';
+	const u = runs?.update;
+	const chip = (cls, label, title) => h('span', { class: 'chip ' + cls, title: title || null }, label);
+	let state;
+	if (a.missing_pin) state = chip('warn', 'pin missing', `Its folder pins ${a.missing_pin}, which the manager no longer keeps, so it stays as it is.`);
+	else if (u?.state === 'updating') state = chip('warn', 'updating', `Trying ${short(u.version)}`);
+	else if (runs?.hash && runs.hash === wants?.hash) state = chip('ok', 'current');
+	else if (u && u.hash === wants?.hash && u.state === 'rolled-back') state = chip('warn', 'rolled back', u.why);
+	else if (u && u.hash === wants?.hash && u.state === 'failed') state = chip('warn', 'failed', u.why);
+	else state = chip('warn', 'behind', wants && `It should run ${short(wants.version)}`);
+	return [h('span', { class: 'mono' }, short(runs?.version)), ' ', state];
+}
+
 export function channelsSection(ctx, rows, status, canEdit) {
 	if (!rows.length) return h('div', { class: 'banner info' }, 'No APs here yet.');
 	const box = h('div', { class: 'edit' });
@@ -38,13 +58,15 @@ export function channelsSection(ctx, rows, status, canEdit) {
 			canEdit && moveButton(ctx, 'locations', { id: ap.id, name: ap.name, kind: 'ap' }, box)];
 		const st = status?.get(ap.id);
 		const state = st && h('span', { class: 'chip ' + st.chip, title: st.detail }, st.label);
-		if (!radios.length) return [h('tr', null, h('td', null, apLink), h('td', null, state), h('td', { colspan: 6, class: 'sub' }, cfg ? 'No report yet.' : 'You cannot see this AP.'))];
+		const agent = cfg && agentCell(cfg.agent);
+		if (!radios.length) return [h('tr', null, h('td', null, apLink), h('td', null, state), h('td', null, agent), h('td', { colspan: 6, class: 'sub' }, cfg ? 'No report yet.' : 'You cannot see this AP.'))];
 		return radios.map((r, i) => {
 			const path = `radio.${r.band}.channel`;
 			const set = cfg.location?.[path];
 			return h('tr', null,
 				h('td', null, i === 0 && apLink),
 				h('td', null, i === 0 && state),
+				h('td', null, i === 0 && agent),
 				h('td', null, bandName(r.band)),
 				h('td', { class: 'mono' }, r.channel || 'starting'),
 				h('td', { class: 'mono' }, r.width ? r.width + ' MHz' : '—'),
@@ -56,7 +78,7 @@ export function channelsSection(ctx, rows, status, canEdit) {
 	return h('section', { class: 'panel' },
 		h('h2', null, 'APs', h('span', { class: 'note' }, 'radios as each last reported')),
 		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'State', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
+			h('tr', null, ['AP', 'State', 'Agent', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
 			lines),
 		box);
 }

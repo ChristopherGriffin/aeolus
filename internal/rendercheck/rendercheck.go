@@ -39,6 +39,7 @@ var Coverage = map[string]string{
 	"system.ntp":                   "",
 	"system.syslog":                "",
 	"system.poll":                  "",
+	"system.agent":                 "not in UCI: each poll's Aeolus-Agent header names the bundle the AP runs (0079)",
 	"system.ssh_keys":              "kept in dropbear's authorized_keys, not UCI; checked with the agent in M5",
 	"system.management.vlan":       layout,
 	"system.management.addressing": layout,
