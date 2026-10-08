@@ -27,6 +27,7 @@
 - **`aeolus-setup <manager URL> <uplink port> <manager certificate>`** joins the AP to a manager: what `install.sh` did after copying. It writes the agent's settings, installs the manager's certificate and the optional packages (0069), checks the agent reaches the manager, and starts it. The AP enrolls into Landing Zone, as before.
 - **`install.sh` stays, for an AP without the package.** It copies the files and hands over to `aeolus-setup`.
 - **`apk del aeolus-agent` stops the service and removes the files.** The certificate, token and settings in `/etc/aeolus` and `/etc/config/aeolus` stay, and so does the AP's network: taking Aeolus away leaves the AP running as it was (0040).
+- **Removal takes the manager's URL out, so a package added again is inert too.** OpenWrt starts a package's init script when it is installed, and the URL is what the init script starts the agent on: with the old one kept, `apk add` after `apk del` would have the agent poll and apply from that manager before anyone ran `aeolus-setup`. The package's removal script deletes `aeolus.agent.url` after the service has stopped, and only on removal: apk does not run it on an upgrade, and under opkg it does nothing when `PKG_UPGRADE` is 1. `aeolus-setup` takes the URL again.
 
 ### Updates
 

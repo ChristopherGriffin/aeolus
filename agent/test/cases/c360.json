@@ -1,5 +1,5 @@
 {
-	"about": "An Arista C-360 adopted into a folder: one network on VLAN 20 and settings for all three bands. radio2 is the dedicated scan radio airscan owns (airscan '1'), the same band as radio3: Aeolus leaves it alone, with no radio settings and no wifi-iface (0081). The wireless, system, firewall and dhcp packages are the AP's own; its management is shown as a VLAN-filtering bridge on the uplink eth0.",
+	"about": "An Arista C-360 adopted into a folder: one network on VLAN 20 and settings for all three bands. radio2 is the dedicated scan radio airscan owns (airscan '1'), the same band as radio3: Aeolus leaves it alone, with no radio settings and no wifi-iface (0081). Radio resource management is on in the folder, and stays off on this AP: its scans are the serving radios' own, which never scan where there is a scan radio (0081). The wireless, system, firewall and dhcp packages are the AP's own; its management is shown as a VLAN-filtering bridge on the uplink eth0.",
 	"current": "c360-current.json",
 	"facts": {
 		"uplink": "eth0",
@@ -32,6 +32,9 @@
 		"system": {
 			"country": "US",
 			"poll": 60
+		},
+		"rrm": {
+			"enabled": true
 		},
 		"radio": {
 			"2g": {
@@ -69,6 +72,7 @@
 		"wireless.default_radio2"
 	],
 	"gone": [
-		"wireless.aeolus_lab_radio2"
+		"wireless.aeolus_lab_radio2",
+		"aeolus.aeolus_rrm"
 	]
 }

@@ -223,6 +223,19 @@ func Reserved(d *uci.Section) bool {
 	return v == "1"
 }
 
+// scanRadio says the AP has a radio another service owns, a scan radio that
+// serves no clients (0081).
+func (k *checker) scanRadio() bool {
+	if w := k.c.Package("wireless"); w != nil {
+		for _, d := range w.OfType("wifi-device") {
+			if Reserved(d) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // radios lists the AP's radios in name order, but those another service
 // owns (0081), and checks that the wireless package is there if anything
 // needs it.
@@ -362,10 +375,18 @@ func (k *checker) dfs(where string, r device, v string) {
 // rrm checks radio resource management (0073): on, the agent's package has
 // the daemon's section, which names the AP it advertises and holds the
 // policy for moves, defaults written out; otherwise there is none, and the
-// daemon stays idle.
+// daemon stays idle. On an AP with a scan radio, it stays off whatever the
+// config says (0081): its scans are the serving radios' own, and there the
+// serving radios never scan.
 func (k *checker) rrm(set, apc map[string]any) {
 	const where = "aeolus.aeolus_rrm"
 	s := k.c.Package("aeolus").Named("aeolus_rrm")
+	if set["enabled"] == true && k.scanRadio() {
+		if s != nil {
+			k.add("%s: the AP has a scan radio, where the serving radios never scan (0081), but radio resource management's section is there", where)
+		}
+		return
+	}
 	if set["enabled"] != true {
 		if s != nil {
 			k.add("%s: radio resource management is not on, but its section is there", where)

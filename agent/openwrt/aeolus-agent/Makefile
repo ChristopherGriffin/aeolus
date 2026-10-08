@@ -56,4 +56,21 @@ define Package/aeolus-agent/install
 		$(1)/etc/init.d/aeolus
 endef
 
+# Removal takes the manager's URL out, once the service has stopped, and
+# keeps the rest. A package added again starts nothing until aeolus-setup,
+# like a first install: OpenWrt starts a package's init script when it is
+# installed, and the URL is what the init script starts the agent on. apk
+# runs this on removal only, not on an upgrade; opkg says an upgrade with
+# PKG_UPGRADE.
+define Package/aeolus-agent/prerm
+#!/bin/sh
+[ -z "$${IPKG_INSTROOT}" ] && [ "$${PKG_UPGRADE}" != 1 ] || exit 0
+if [ -n "$$(uci -q get aeolus.agent.url)" ]; then
+	uci -q delete aeolus.agent.url
+	uci commit aeolus
+	echo "aeolus-agent: the manager's URL is cleared; aeolus-setup joins the AP to a manager again"
+fi
+exit 0
+endef
+
 $(eval $(call BuildPackage,aeolus-agent))

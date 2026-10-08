@@ -1267,6 +1267,15 @@ func TestRRM(t *testing.T) {
 	if got := check(policy, set); strings.Contains(got, "aeolus_rrm") {
 		t.Errorf("the policy set, and written: %s", got)
 	}
+	// On an AP with a scan radio, it stays off whatever the config says: its
+	// scans are the serving radios' own, which never scan there (0081).
+	scan := "package wireless\nconfig wifi-device 'radio2'\n\toption band '6g'\n\toption disabled '1'\n\toption airscan '1'\n"
+	if got := check(on, scan+section); !strings.Contains(got, "aeolus.aeolus_rrm: the AP has a scan radio, where the serving radios never scan (0081), but radio resource management's section is there") {
+		t.Errorf("on, with a scan radio and the section: %s", got)
+	}
+	if got := check(on, scan+"package aeolus\n"); strings.Contains(got, "aeolus_rrm") {
+		t.Errorf("on, with a scan radio and no section: %s", got)
+	}
 }
 
 // Every schema field is either checked or deferred with a reason, and every

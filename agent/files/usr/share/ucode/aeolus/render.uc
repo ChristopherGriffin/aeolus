@@ -140,6 +140,12 @@ function reserved(s) {
 	return s.airscan == '1';
 }
 
+// scan_radio says the AP has a radio another service owns, a scan radio
+// that serves no clients: there its serving radios never scan (0081).
+function scan_radio(w) {
+	return length(filter(of_type(w, 'wifi-device'), reserved)) > 0;
+}
+
 function radios(w, intent, facts) {
 	let country = intent.system?.country;
 	for (let s in of_type(w, 'wifi-device')) {
@@ -794,10 +800,11 @@ function watches(cfg, intent, facts, keep) {
 // rrm turns radio resource management on (0073): the agent's daemon then
 // advertises this AP in its beacons, keeps neighbours with the others, and
 // moves its radios as the policy says, defaults written out. Off, there is
-// no section, and the daemon stays idle.
-function rrm(a, intent, facts, keep) {
+// no section, and the daemon stays idle. It stays off on an AP with a scan
+// radio (0081): its scans are the serving radios' own, which there never scan.
+function rrm(a, w, intent, facts, keep) {
 	let r = intent.rrm;
-	if (r?.enabled != true)
+	if (r?.enabled != true || scan_radio(w))
 		return;
 	// Power control (0077) runs in the same daemon, with RRM's neighbours.
 	let p = intent.apc?.enabled == true ? intent.apc : null;
@@ -1044,7 +1051,7 @@ function render(intent, current, facts) {
 				delete pkg[k];
 	probes(cfg, intent, facts ?? {}, keep);
 	watches(cfg, intent, facts ?? {}, keep);
-	rrm(cfg.aeolus, intent, facts ?? {}, keep);
+	rrm(cfg.aeolus, cfg.wireless, intent, facts ?? {}, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
 			delete cfg.aeolus[k];

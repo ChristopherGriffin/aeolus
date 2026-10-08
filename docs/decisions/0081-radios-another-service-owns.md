@@ -15,7 +15,8 @@
 ## Decision
 
 - **A wifi-device marked `airscan '1'` is reserved: Aeolus leaves it alone altogether.** The agent's renderer gives it no radio settings and no wifi-iface. The render check leaves it out of the radios it checks (`rendercheck.Reserved`), so both halves of the contract agree.
-- **A test case pins it.** `agent/test/cases/c360` is a C-360's own wireless, system, firewall and dhcp config, with its network shown as a VLAN-filtering bridge on the uplink `eth0`. The scan radio must come out exactly as it went in, with no network on it (`TestAgentLeavesReservedRadiosAlone`).
+- **Radio resource management stays off on an AP with a reserved radio, whatever the config says.** RRM (0073) scans from the serving radios' own BSSes (`NL80211_CMD_TRIGGER_SCAN` on each), which the rule forbids there. The renderer gives such an AP no `aeolus_rrm` section, so the daemon stays idle, and the render check requires none; power control (0077), which runs in the same daemon on RRM's neighbours, stays off with it. On an AP without a scan radio, nothing changes.
+- **A test case pins it.** `agent/test/cases/c360` is a C-360's own wireless, system, firewall and dhcp config, with its network shown as a VLAN-filtering bridge on the uplink `eth0`, in a folder with RRM on. The scan radio must come out exactly as it went in, with no network on it (`TestAgentLeavesReservedRadiosAlone`), and with no RRM section (`gone`).
 - **An empty `snmpd` package means snmpd isn't installed.** The agent exports `package snmpd` with no sections on an AP without snmpd, as on the C-360's image, and the check had refused that ("there is no general section"), which would have held every config there.
 
 ## Consequences
@@ -25,6 +26,6 @@
 
 ## Open
 
-- **Radio resource management (0073) scans from the serving radios' own BSSes** (`NL80211_CMD_TRIGGER_SCAN` on each BSS). That stays right on an AP without a scan radio. On one with a reserved scan radio, the rule forbids it: there RRM should take its neighbours from airscan's BSS survey (`ubus call airscan bss`) instead. Until it does, RRM should stay off on such an AP; nothing enforces that yet.
+- **RRM on an AP with a scan radio.** There RRM could take its neighbours from airscan's BSS survey (`ubus call airscan bss`) instead of scanning, and come back on. Until then it stays off there (Decision).
 - **The agent reports the reserved radio among the AP's radios** at enrollment. The manager could show it as the scan radio, and airscan's surveys beside it.
 - **The C-360's management network is an 802.1Q device in a plain bridge** (`br-vlan20` on `eth0.20`), which the renderer does not render VLANs on yet (0040). A C-360 that Aeolus is to put networks on needs its uplink in a VLAN-filtering bridge, as in the test case, or the renderer to learn 802.1Q devices.
