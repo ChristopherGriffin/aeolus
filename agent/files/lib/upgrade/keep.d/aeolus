@@ -7,6 +7,7 @@
 /usr/sbin/aeolus-agent
 /usr/sbin/aeolus-prober
 /usr/sbin/aeolus-rrm
+/usr/sbin/aeolus-setup
 /usr/libexec/aeolus-packages
 /usr/libexec/aeolus-rollback
 /usr/share/ucode/aeolus/

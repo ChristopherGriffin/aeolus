@@ -1,0 +1,74 @@
+{
+	"about": "An Arista C-360 adopted into a folder: one network on VLAN 20 and settings for all three bands. radio2 is the dedicated scan radio airscan owns (airscan '1'), the same band as radio3: Aeolus leaves it alone, with no radio settings and no wifi-iface (0081). The wireless, system, firewall and dhcp packages are the AP's own; its management is shown as a VLAN-filtering bridge on the uplink eth0.",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"radio": {
+			"2g": {
+				"enabled": true,
+				"channel": 6,
+				"width": 20
+			},
+			"5g": {
+				"enabled": true,
+				"channel": 36,
+				"width": 80
+			},
+			"6g": {
+				"enabled": true,
+				"channel": 37,
+				"width": 80
+			}
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa3-sae",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"kept": [
+		"wireless.radio2",
+		"wireless.default_radio2"
+	],
+	"gone": [
+		"wireless.aeolus_lab_radio2"
+	]
+}

@@ -18,8 +18,14 @@
 # install exits 3 when it installed vxlan: netifd loads its protocols only
 # when it starts, so the network must be restarted (0057). restore restarts
 # it itself, and the agent when it installed the prober's module.
+#
+# restore also puts back the ucode modules the agent cannot start without,
+# the package's dependencies (0080): after a sysupgrade onto an image that
+# lacks one (uclient, on some), the agent cannot run to ask for it, so the
+# init script starts restore itself.
 
 PACKAGES="usteer snmpd-ssl vxlan kmod-nft-bridge ucode-mod-socket kmod-veth ucode-mod-nl80211 ucode-mod-digest"
+REQUIRED="ucode-mod-fs ucode-mod-uci ucode-mod-ubus ucode-mod-uloop ucode-mod-uclient ucode-mod-math ucode-mod-log ucode-mod-digest"
 LIST=/etc/aeolus/packages      # what was installed; kept over a sysupgrade
 DONE=/usr/lib/aeolus/packages  # not kept: present until the next sysupgrade
 UPSTREAM=https://downloads.openwrt.org/releases/
@@ -112,14 +118,16 @@ install_all() {
 }
 
 restore() {
-	[ -f $DONE ] && return 0
+	# What the agent cannot start without comes first (0080).
+	required=
+	for p in $REQUIRED; do has $p || required="$required $p"; done
+	[ -f $DONE ] && [ -z "$required" ] && return 0
 	# An AP installed before 0069: what it has is what it was given.
 	if [ ! -f $LIST ]; then
 		for p in $PACKAGES; do has $p && echo $p; done >$LIST
-		mkdir -p ${DONE%/*} && touch $DONE
-		return 0
+		[ -z "$required" ] && { mkdir -p ${DONE%/*} && touch $DONE; return 0; }
 	fi
-	missing=
+	missing=$required
 	for p in $(cat $LIST); do has $p || missing="$missing $p"; done
 	if [ -z "$missing" ]; then
 		mkdir -p ${DONE%/*} && touch $DONE
@@ -137,7 +145,11 @@ restore() {
 		/etc/init.d/network restart
 		;;
 	esac
-	case " $missing " in *" ucode-mod-socket "* | *" ucode-mod-nl80211 "* | *" ucode-mod-digest "*) /etc/init.d/aeolus restart ;; esac
+	if [ -n "$required" ]; then
+		/etc/init.d/aeolus restart
+	else
+		case " $missing " in *" ucode-mod-socket "* | *" ucode-mod-nl80211 "* | *" ucode-mod-digest "*) /etc/init.d/aeolus restart ;; esac
+	fi
 	return 0
 }
 

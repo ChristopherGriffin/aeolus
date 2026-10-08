@@ -75,7 +75,7 @@ jobs:
               node --input-type=module -e "await import('./$f')"
             done
             npx --yes eslint@8.57.1 --no-eslintrc --env browser,es2022 --parser-options=sourceType:module --parser-options=ecmaVersion:2022 --rule 'no-undef: error' .)
-          for f in agent/install.sh agent/files/etc/init.d/aeolus agent/files/usr/libexec/aeolus-packages agent/files/usr/libexec/aeolus-rollback agent/files/etc/hotplug.d/ntp/50-aeolus; do sh -n "$f"; done
+          for f in agent/install.sh agent/files/etc/init.d/aeolus agent/files/usr/libexec/aeolus-packages agent/files/usr/libexec/aeolus-rollback agent/files/usr/sbin/aeolus-setup agent/files/etc/hotplug.d/ntp/50-aeolus; do sh -n "$f"; done
           bash -n .github/merge-when-green.sh
       # The agent's renderer is tested against the manager's check (0040):
       # build ucode as OpenWrt 25.12 ships it (the version on PumphouseAP),

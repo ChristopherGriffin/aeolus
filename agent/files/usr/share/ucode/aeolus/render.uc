@@ -13,7 +13,9 @@
 // settings. It takes OpenWrt's internet pool out of the time servers, and
 // adds to dnsmasq's rebind_domain the names it uses on the AP (0069). A
 // section it did not create is never otherwise edited, or removed; nor are
-// the key agent's wifi-station sections, which hold per-user keys (0070).
+// the key agent's wifi-station sections, which hold per-user keys (0070). A
+// radio another service owns, such as airscan's scan radio, is left alone
+// altogether (0081).
 
 'use strict';
 
@@ -131,9 +133,18 @@ function whole(band, set, width) {
 	return map(sort(out, (a, b) => a - b), c => '' + c);
 }
 
+// reserved says another service on the AP owns a radio, and Aeolus leaves it
+// alone (0081): no radio settings, no networks. airscan marks the dedicated
+// scan radio it takes out of netifd's hands (option airscan '1').
+function reserved(s) {
+	return s.airscan == '1';
+}
+
 function radios(w, intent, facts) {
 	let country = intent.system?.country;
 	for (let s in of_type(w, 'wifi-device')) {
+		if (reserved(s))
+			continue;
 		let set = intent.radio?.[s.band] ?? {};
 		if (country != null)
 			s.country = country;
@@ -460,7 +471,7 @@ function networks(cfg, intent, facts, errors, keep) {
 		}
 		let names = [];
 		for (let d in of_type(w, 'wifi-device')) {
-			if (net.bands && index(net.bands, d.band) < 0)
+			if (reserved(d) || (net.bands && index(net.bands, d.band) < 0))
 				continue;
 			let name = iface_name(id, d['.name']);
 			put(w, name, 'wifi-iface', iface_options(net, d['.name'], iface, btm));

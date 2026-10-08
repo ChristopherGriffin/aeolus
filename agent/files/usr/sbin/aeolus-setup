@@ -1,0 +1,58 @@
+#!/bin/sh
+# Points this AP's Aeolus agent at a manager and starts it (0080). The agent
+# is installed inert, by its package or by install.sh; this joins the AP to
+# a manager:
+#
+#	aeolus-setup <manager URL> <uplink port> <manager certificate>
+#
+# for example
+#
+#	aeolus-setup https://192.168.20.60:8443 wan /tmp/manager.crt
+#
+# The arguments are the manager's URL, the uplink port (the one carrying the
+# VLANs), and the certificate the agent will trust. Use the manager's IP
+# address, not its name: OpenWrt's dnsmasq drops DNS answers that point to
+# private addresses (0040).
+#
+# It also installs the packages Aeolus needs (aeolus-packages says which),
+# through the manager's cache of OpenWrt's feeds (0069). Without them,
+# everything else works, and a setting that needs a missing package is
+# refused until it is installed. Then it checks the agent can reach the
+# manager, and starts it. The AP enrolls into Landing Zone and waits for a
+# person to adopt it. Its log: logread -e aeolus
+set -eu
+
+[ $# -eq 3 ] || { sed -n '6,10p' "$0" >&2; exit 2; }
+url=$1 uplink=$2 cert=$3
+
+[ -f "$cert" ] || { echo "no certificate at $cert" >&2; exit 1; }
+[ -d "/sys/class/net/$uplink" ] || { echo "no port named $uplink" >&2; exit 1; }
+
+mkdir -p /etc/aeolus
+chmod 0700 /etc/aeolus
+cmp -s "$cert" /etc/aeolus/manager.crt 2>/dev/null || cp "$cert" /etc/aeolus/manager.crt
+
+[ -f /etc/config/aeolus ] || touch /etc/config/aeolus
+uci -q get aeolus.agent >/dev/null || uci set aeolus.agent=agent
+uci set aeolus.agent.url="$url"
+uci set aeolus.agent.uplink="$uplink"
+uci commit aeolus
+
+# The packages, through the manager (0069). Installing vxlan means
+# restarting the network, at the end, so netifd loads it (0057).
+restart_network=0
+rc=0
+/usr/libexec/aeolus-packages install || rc=$?
+[ $rc = 3 ] && restart_network=1
+
+/usr/sbin/aeolus-agent ping
+/etc/init.d/aeolus enable
+# Stopping a service that is not running yet only complains; say nothing.
+/etc/init.d/aeolus stop 2>/dev/null || true
+/etc/init.d/aeolus start
+echo "The agent is running. Its log: logread -e aeolus"
+
+if [ $restart_network = 1 ]; then
+	echo "Restarting the network so netifd loads vxlan; this SSH session may drop for a few seconds."
+	( trap '' HUP; sleep 2; /etc/init.d/network restart ) </dev/null >/dev/null 2>&1 &
+fi

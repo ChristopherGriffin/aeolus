@@ -90,6 +90,59 @@ func TestAgentOutputPassesTheCheck(t *testing.T) {
 	}
 }
 
+// A radio another service owns, airscan's scan radio, comes out exactly as
+// it went in: no radio settings and no network on it (0081).
+func TestAgentLeavesReservedRadiosAlone(t *testing.T) {
+	seen := 0
+	for _, c := range agentCases(t) {
+		raw, err := os.ReadFile(filepath.Join(agentDir, "test", c.Current))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var current map[string]map[string]map[string]any
+		if err := json.Unmarshal(raw, &current); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := uci.Parse(c.golden)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		w := cfg.Package("wireless")
+		for name, s := range current["wireless"] {
+			if s[".type"] != "wifi-device" || s["airscan"] != "1" {
+				continue
+			}
+			seen++
+			got := w.Named(name)
+			if got == nil {
+				t.Errorf("%s: reserved radio %s was removed", c.name, name)
+				continue
+			}
+			for k, v := range s {
+				if strings.HasPrefix(k, ".") {
+					continue
+				}
+				if have, _ := got.Option(k); have != v {
+					t.Errorf("%s: reserved radio %s: %s is %q, want %v", c.name, name, k, have, v)
+				}
+			}
+			for _, k := range got.Names() {
+				if _, ok := s[k]; !ok {
+					t.Errorf("%s: reserved radio %s gained %s", c.name, name, k)
+				}
+			}
+			for _, iface := range w.OfType("wifi-iface") {
+				if dev, _ := iface.Option("device"); dev == name && strings.HasPrefix(iface.Name, "aeolus_") {
+					t.Errorf("%s: %s puts a network on reserved radio %s", c.name, iface.Name, name)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no test case has a reserved radio")
+	}
+}
+
 // untouched checks that every named wifi-iface, interface and bridge-vlan
 // Aeolus does not own comes out exactly as it went in (0040), but for the
 // bridge-vlan entries of the ports the intent sets the VLANs of (0053).

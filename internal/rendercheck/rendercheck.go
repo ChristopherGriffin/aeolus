@@ -215,8 +215,17 @@ type device struct {
 	s    *uci.Section
 }
 
-// radios lists the AP's radios in name order, and checks that the wireless
-// package is there if anything needs it.
+// Reserved says another service on the AP owns a radio, which Aeolus leaves
+// alone (0081), as the agent does: airscan marks the dedicated scan radio it
+// takes out of netifd's hands with option airscan '1'.
+func Reserved(d *uci.Section) bool {
+	v, _ := d.Option("airscan")
+	return v == "1"
+}
+
+// radios lists the AP's radios in name order, but those another service
+// owns (0081), and checks that the wireless package is there if anything
+// needs it.
 func (k *checker) radios(doc map[string]any) []device {
 	w := k.c.Package("wireless")
 	if w == nil {
@@ -230,6 +239,9 @@ func (k *checker) radios(doc map[string]any) []device {
 		band, _ := d.Option("band")
 		if d.Name == "" {
 			k.add("wireless: the wifi-device at line %d has no name", d.Line)
+			continue
+		}
+		if Reserved(d) {
 			continue
 		}
 		out = append(out, device{band: band, s: d})
@@ -613,7 +625,9 @@ func (k *checker) steering(nets map[string]any) {
 func (k *checker) snmp(want map[string]any) {
 	on, _ := want["enabled"].(bool)
 	p := k.c.Package("snmpd")
-	if p == nil {
+	// No package, or an empty one, as the agent exports on an AP without
+	// snmpd (a C-360's image, say, 0081): snmpd isn't installed.
+	if p == nil || len(p.Sections) == 0 {
 		if on {
 			k.add("snmpd: SNMP needs snmpd, which this AP does not have; install it (apk add snmpd-ssl)")
 		}

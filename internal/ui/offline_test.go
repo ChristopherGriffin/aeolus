@@ -14,6 +14,7 @@ var named = map[string]string{
 	"http://www.w3.org/2000/svg":              "the SVG namespace, a name and not a place",
 	"https://downloads.openwrt.org/releases/": "OpenWrt's feeds, named only to point them at the manager",
 	"https://aeolus.symtus.com:8443":          "a manager, in install.sh's example",
+	"https://192.168.20.60:8443":              "a manager by its private address, as 0040 advises, in aeolus-setup's and install.sh's examples (0080)",
 }
 
 var address = regexp.MustCompile(`https?://[A-Za-z0-9.\-]+(:[0-9]+)?(/[A-Za-z0-9._~/\-]*)?`)
