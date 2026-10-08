@@ -46,6 +46,7 @@
 - **An AP's image never carries Aeolus.** A plain OpenWrt AP is one `apk add` and one `aeolus-setup` from being managed, and one `apk del` from being plain again.
 - **On the C-360, apk resolves the dependencies from OpenWrt's own 25.12 feed,** directly or through the manager. Checked on a C-360 (2026-10-07): only `ucode-mod-uclient` was missing, and apk would install exactly it, built from the same uclient as the image's `libuclient`.
 - **After 0079 updates the files, `apk audit` reports them as changed.** That is expected: the agent, not apk, owns its files from then on.
+- **On its first poll, the agent takes the release the manager names, whatever the package was.** Seen on the C-360 (2026-10-07): a package built from this branch enrolled, and the manager, then at v0.49.2, had it replace six files with its own bundle at once. A package newer than the manager is in effect downgraded to it, so the package to install is the one the manager serves. Until a manager runs a release with 0081, a C-360 it manages must not leave Landing Zone: that release's renderer still puts settings and networks on the scan radio.
 
 ## Open
 

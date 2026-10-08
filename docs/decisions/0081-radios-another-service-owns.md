@@ -2,11 +2,12 @@
 
 - Status: Proposed
 - Date: 2026-10-07
-- Proposed by: Claude, for the Arista C-360, where Griff's rule is that the dedicated scan radio does all scanning and the serving radios are never paused or used to scan
+- Proposed by: Claude, for the Arista C-360, under Griff's rule (2026-10-07): an AP with a third radio that serves no clients does all its scanning on that radio, and its serving radios never scan; an AP without one may scan from its serving radios
 - Refines: 0040
 
 ## Context
 
+- **Griff's rule on scanning is conditional.** Where an AP has a radio that serves no clients, the serving radios never scan or go off channel. Where it has none, they may, as RRM does today (0073).
 - **The C-360 has four radios, two of them on 6 GHz.** radio3, a QCN9074, serves clients. radio2, a second QCN9074 that covers 2.4, 5 and 6 GHz, is a dedicated scan radio: `airscan` runs the AP's spectrum, BSS and client surveys on it, and it never serves.
 - **airscan takes its radio out of netifd's hands.** It sets `disabled '1'` on that wifi-device and marks it with `option airscan '1'`.
 - **The agent renders per band.** `radio.6g` would apply to both 6 GHz radios, turning the scan radio on, and each network would get a wifi-iface on it. That breaks airscan and serves clients from the scan radio. The manager's render check would demand the same: settings and a wifi-iface on every radio of a band.
@@ -24,6 +25,6 @@
 
 ## Open
 
-- **Radio resource management (0073) scans from the serving radios' own BSSes** (`NL80211_CMD_TRIGGER_SCAN` on each BSS), which the C-360's rule forbids. On an AP with a reserved scan radio, it should take its neighbours from airscan's BSS survey (`ubus call airscan bss`) instead. Until it does, RRM should stay off on such an AP; nothing enforces that yet.
+- **Radio resource management (0073) scans from the serving radios' own BSSes** (`NL80211_CMD_TRIGGER_SCAN` on each BSS). That stays right on an AP without a scan radio. On one with a reserved scan radio, the rule forbids it: there RRM should take its neighbours from airscan's BSS survey (`ubus call airscan bss`) instead. Until it does, RRM should stay off on such an AP; nothing enforces that yet.
 - **The agent reports the reserved radio among the AP's radios** at enrollment. The manager could show it as the scan radio, and airscan's surveys beside it.
 - **The C-360's management network is an 802.1Q device in a plain bridge** (`br-vlan20` on `eth0.20`), which the renderer does not render VLANs on yet (0040). A C-360 that Aeolus is to put networks on needs its uplink in a VLAN-filtering bridge, as in the test case, or the renderer to learn 802.1Q devices.
