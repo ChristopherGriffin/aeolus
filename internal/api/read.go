@@ -355,7 +355,8 @@ func (s *Server) changes(w http.ResponseWriter, r *http.Request, c call) error {
 // library lists the AP templates (0085). With ?at=, those offered at that
 // Locations node, made there or above it, nearest first; without, those made
 // where the caller may view. Each has the APs the caller may view that take
-// it, and whether each follows it, or has fields of it replaced.
+// it, and whether each follows it, or has fields of it replaced; and
+// whether the caller may change it.
 func (s *Server) library(w http.ResponseWriter, r *http.Request, c call) error {
 	st, t := c.state, c.state.Org.Locations
 	var list []library.Template
@@ -402,7 +403,8 @@ func (s *Server) library(w http.ResponseWriter, r *http.Request, c call) error {
 		if aps == nil {
 			aps = []map[string]any{}
 		}
-		out = append(out, map[string]any{"id": tm.ID, "name": tm.Name, "at": tm.At, "boards": tm.Boards, "values": values, "aps": aps})
+		out = append(out, map[string]any{"id": tm.ID, "name": tm.Name, "at": tm.At, "boards": tm.Boards, "values": values, "aps": aps,
+			"can_edit": roleOn(c, change.Locations, t, tm.At) >= access.Operator})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"templates": out})
 	return nil

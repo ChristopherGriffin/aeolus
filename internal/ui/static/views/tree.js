@@ -1,7 +1,7 @@
 // A folder in Locations or Services: its values and where they come from, its
 // overrides, and what it holds (0012, 0013). A Locations folder's settings
-// are in tabs: Interfaces, APs, Networks, Clients and System (0047, 0053,
-// 0066, 0072, 0075). Landing Zone lists the APs waiting in it (0032).
+// are in tabs: Interfaces, APs, Networks, Clients, Templates and System
+// (0047, 0053, 0066, 0072, 0075, 0085). Landing Zone lists the APs waiting in it (0032).
 
 import { h, link, icon } from '../dom.js';
 import { get } from '../api.js';
@@ -17,8 +17,9 @@ import { networksTab } from './networks.js';
 import { keysSection } from './keys.js';
 import { interfacesTab, interfacesLive } from './interfaces.js';
 import { clientsTab } from './clients.js';
+import { templatesTab } from './templates.js';
 
-const TABS = [['interfaces', 'Interfaces'], ['aps', 'APs'], ['networks', 'Networks'], ['clients', 'Clients'], ['system', 'System']];
+const TABS = [['interfaces', 'Interfaces'], ['aps', 'APs'], ['networks', 'Networks'], ['clients', 'Clients'], ['templates', 'Templates'], ['system', 'System']];
 
 export async function treePage(ctx, tree, id, tab, sub, view) {
 	const t = ctx.trees[tree];
@@ -73,6 +74,7 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		else if (tab === 'aps') main.push(channelsSection(ctx, await configs([...(page.hardware?.aps || []), ...(page.hardware?.unknown || [])]), status, !!editing(ctx, tree, page)));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 		else if (tab === 'clients') main.push(await clientsTab(ctx, page, null));
+		else if (tab === 'templates') main.push(await templatesTab(ctx, id, page, editing(ctx, tree, page)));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
 		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients' || tab === 'aps') refresh = 30; // live
 	} else {

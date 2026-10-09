@@ -26,7 +26,7 @@ export async function libraryPage(ctx) {
 							const custom = t.aps.filter((a) => !a.follows);
 							const paths = Object.keys(t.values).sort();
 							return h('tr', null,
-								h('td', null, h('div', null, t.name), h('div', { class: 'mono sub' }, t.id)),
+								h('td', null, h('div', null, link(`/library/${encodeURIComponent(t.id)}`, t.name)), h('div', { class: 'mono sub' }, t.id)),
 								h('td', { class: 'mono' }, t.boards.map((b) => h('div', null, b))),
 								h('td', null, link(`/locations/${encodeURIComponent(t.at)}`, ctx.name('locations', t.at))),
 								h('td', null, paths.length === 0

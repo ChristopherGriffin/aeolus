@@ -8,6 +8,7 @@ import { treePage } from './views/tree.js';
 import { apPage } from './views/ap.js';
 import { apsPage } from './views/aps.js';
 import { libraryPage } from './views/library.js';
+import { templatePage } from './views/templates.js';
 import { changesPage } from './views/changes.js';
 
 const routes = [
@@ -15,6 +16,7 @@ const routes = [
 	[/^\/aps$/, (ctx) => apsPage(ctx)],
 	[/^\/aps\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?(?:\/([^/]+))?$/, (ctx, m) => apPage(ctx, decodeURIComponent(m[1]), m[2], m[3], m[4])],
 	[/^\/library$/, (ctx) => libraryPage(ctx)],
+	[/^\/library\/([^/]+)$/, (ctx, m) => templatePage(ctx, decodeURIComponent(m[1]))],
 	[/^\/changes$/, (ctx) => changesPage(ctx)],
 ];
 

@@ -221,8 +221,8 @@ function templateNote(ctx, id, cfg) {
 	if (!t || cfg.unassigned) return null;
 	if (!t.id) return h('div', { class: 'banner info' }, templateSays(t));
 	const at = (node) => (node === id ? 'on this AP' : ['at ', link(`/locations/${encodeURIComponent(node)}`, ctx.name('locations', node))]);
-	return h('div', { class: 'banner ' + (t.follows ? 'info' : 'branch'), style: 'flex-direction: column; gap: 6px' },
-		h('div', null, h('strong', null, templateSays(t)), ' · picked ', at(t.at), ' · ', link('/library', 'Library')),
-		t.replaced.length > 0 && h('ul', { style: 'margin: 0; padding-left: 18px' }, t.replaced.map((r) => h('li', null,
+	return h('div', { class: 'banner ' + (t.follows ? 'info' : 'branch'), style: { 'flex-direction': 'column', gap: '6px' } },
+		h('div', null, h('strong', null, templateSays(t)), ' · picked ', at(t.at), ' · ', link(`/library/${encodeURIComponent(t.id)}`, 'the template')),
+		t.replaced.length > 0 && h('ul', { style: { margin: '0', 'padding-left': '18px' } }, t.replaced.map((r) => h('li', null,
 			h('span', { class: 'mono' }, r.path), ' is ', h('span', { class: 'mono' }, JSON.stringify(r.value)), ', set ', at(r.node)))));
 }
