@@ -30,7 +30,7 @@ const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 
 // APs each hears, and how it rates each channel (0073).
 // Bands and their channel maps are one view (Griff, 2026-10-09); an old
 // link to Channels lands there.
-const RADIOS = [['bands', 'Bands and channels'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings']];
+const RADIOS = [['bands', 'Bands and Channels'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings']];
 
 // The port fields offered, in order. LACP and its bond are not applied yet,
 // and the uplink is the agent's own setting.
