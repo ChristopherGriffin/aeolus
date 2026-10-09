@@ -17,7 +17,10 @@ export async function apsPage(ctx) {
 			h('td', null, h('span', { class: 'chip ' + st.chip }, st.label)),
 			h('td', null, link(`/aps/${encodeURIComponent(a.id)}`, a.name)),
 			h('td', null, where(a)),
-			h('td', null, a.template ? (a.template.id && !a.template.follows ? h('span', { class: 'chip warn' }, templateSays(a.template)) : h('span', { class: 'sub' }, templateSays(a.template))) : '—'),
+			// The template an AP follows is just its name (Griff, 2026-10-09);
+			// one with settings of its own says how many it replaces.
+			h('td', null, a.template ? (a.template.id && !a.template.follows ? h('span', { class: 'chip warn' }, templateSays(a.template))
+				: h('span', { class: 'sub' }, a.template.follows ? a.template.name : templateSays(a.template))) : '—'),
 			h('td', { class: 'mono' }, a.seen?.running != null ? `${a.seen.running} / ${a.version}` : `— / ${a.version}`),
 			h('td', null, ago(a.seen?.at)),
 			h('td', { class: 'mono' }, a.seen?.source || '—'));
