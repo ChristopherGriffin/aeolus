@@ -170,6 +170,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, sch.Problems(doc)...)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
 	problems = append(problems, keyVLANProblems(doc, s.Facts[ap])...)
+	problems = append(problems, sixGHzProblems(doc)...)
 	problems = append(problems, bondingProblems(doc)...)
 	problems = append(problems, dfsProblems(doc)...)
 	problems = append(problems, channelsProblems(doc)...)
@@ -244,6 +245,26 @@ func radioProblems(doc map[string]any, facts json.RawMessage) []string {
 	return out
 }
 
+// sixGHzProblems refuses a network offered on 6 GHz by name whose security
+// is not allowed there: WPA2 alone, or open (0086). A network whose bands
+// are left unset is simply not offered on 6 GHz.
+func sixGHzProblems(doc map[string]any) []string {
+	var out []string
+	nets, _ := doc["network"].(map[string]any)
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		bands, _ := n["bands"].([]any)
+		security, _ := n["security"].(string)
+		if !slices.Contains(bands, any("6g")) {
+			continue
+		}
+		if _, ok := radio.SixGHzEncryption(security); !ok {
+			out = append(out, fmt.Sprintf("network.%s: 6 GHz takes WPA3 or OWE only, not %s; take 6g out of its bands, or make it wpa3-sae, wpa2-wpa3 or owe", id, security))
+		}
+	}
+	return out
+}
+
 // keyVLANProblems refuses the VLANs a network offers its per-user keys
 // (0070) on a radio whose driver makes no AP/VLAN interfaces, by what the AP
 // reported when it enrolled (0082): hostapd would fail every network on that
@@ -280,9 +301,11 @@ func keyVLANProblems(doc map[string]any, facts json.RawMessage) []string {
 				}
 			}
 		}
+		security, _ := n["security"].(string)
+		_, onSix := radio.SixGHzEncryption(security)
 		var cannot []string
 		for _, r := range f.Radios {
-			if r.Reserved || r.APVLAN == nil || *r.APVLAN || (len(bands) > 0 && !bands[r.Band]) {
+			if r.Reserved || r.APVLAN == nil || *r.APVLAN || (len(bands) > 0 && !bands[r.Band]) || (r.Band == "6g" && !onSix) {
 				continue
 			}
 			cannot = append(cannot, r.Radio)

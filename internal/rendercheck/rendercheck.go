@@ -459,9 +459,14 @@ func (k *checker) networks(doc map[string]any, radios []device) {
 		for _, b := range list(n["bands"]) {
 			bands[b] = true
 		}
+		security, _ := n["security"].(string)
 		var ifaces []string
 		for _, r := range radios {
 			if len(bands) > 0 && !bands[r.band] {
+				continue
+			}
+			// WPA2 and open networks are not on 6 GHz (0086).
+			if _, ok := radio.SixGHzEncryption(security); r.band == "6g" && !ok {
 				continue
 			}
 			name := IfaceName(id, r.s.Name)
@@ -555,7 +560,11 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 		k.option(where, s, "ssid", ssid)
 	}
 	security, _ := n["security"].(string)
-	if want, ok := encryption[security]; ok {
+	want, ok := encryption[security]
+	if six, allowed := radio.SixGHzEncryption(security); r.band == "6g" && allowed {
+		want, ok = six, true // WPA3 alone on 6 GHz (0086)
+	}
+	if ok {
 		got, _ := s.Option("encryption")
 		if base, _, _ := strings.Cut(got, "+"); base != want {
 			k.add("%s: encryption is %q, want %q for %s", where, got, want, security)

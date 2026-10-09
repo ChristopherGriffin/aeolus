@@ -220,7 +220,7 @@
         "enabled": { "type": "boolean", "default": true, "description": "false turns off an inherited network in one place (0012); unset, it is on." },
         "ssid": { "type": "string", "minLength": 1, "maxLength": 32 },
         "hidden": { "type": "boolean" },
-        "bands": { "type": "array", "items": { "enum": ["2g", "5g", "6g"] }, "minItems": 1, "uniqueItems": true },
+        "bands": { "description": "The bands the network is offered on; unset, every band the AP serves. 6 GHz takes WPA3 or OWE only: a WPA2 or open network is never offered there, and naming 6g for one is refused (0086).", "type": "array", "items": { "enum": ["2g", "5g", "6g"] }, "minItems": 1, "uniqueItems": true },
         "security": { "enum": ["open", "owe", "wpa2-psk", "wpa3-sae", "wpa2-wpa3"] },
         "passphrase": { "type": "string", "minLength": 8, "maxLength": 63, "writeOnly": true },
         "isolation": { "type": "boolean", "description": "Client isolation." },

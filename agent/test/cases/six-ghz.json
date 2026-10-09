@@ -1,0 +1,87 @@
+{
+	"about": "An Arista C-360 offering four networks on every band it serves (0086). 6 GHz takes WPA3 and OWE only: the WPA2 network and the open one are on 2.4 and 5 GHz alone; the WPA2/WPA3 one is WPA3 alone (sae) on 6 GHz and in transition (sae-mixed) elsewhere; the OWE one is on all three. The scan radio, radio2, is left alone (0081).",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"home": {
+				"ssid": "Home",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			},
+			"mixed": {
+				"ssid": "Mixed",
+				"security": "wpa2-wpa3",
+				"passphrase": "fixture-passphrase-2",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			},
+			"guest": {
+				"ssid": "Guest",
+				"security": "owe",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			},
+			"cafe": {
+				"ssid": "Cafe",
+				"security": "open",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": [],
+	"kept": [
+		"wireless.radio2",
+		"wireless.default_radio2"
+	],
+	"gone": []
+}

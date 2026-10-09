@@ -146,3 +146,17 @@ func Whole(band string, set []int, width int, avoidRadar bool) []int {
 	}
 	return out
 }
+
+// SixGHzEncryption is the UCI encryption a network's security takes on
+// 6 GHz, and whether it may be there at all (0086). 6 GHz takes WPA3 and
+// OWE only: a network in WPA2/WPA3 transition is WPA3 alone there, and one
+// that is WPA2 or open is not offered there.
+func SixGHzEncryption(security string) (string, bool) {
+	switch security {
+	case "wpa3-sae", "wpa2-wpa3":
+		return "sae", true
+	case "owe":
+		return "owe", true
+	}
+	return "", false
+}

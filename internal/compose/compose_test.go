@@ -776,3 +776,47 @@ func TestTheAPsNameIsItsHostname(t *testing.T) {
 		}
 	}
 }
+
+// 6 GHz takes WPA3 and OWE only (0086): a network named on 6 GHz that is
+// WPA2 or open is a problem; one whose bands are unset is simply not
+// offered there, and nothing is said.
+func TestSixGHzTakesWPA3OrOWE(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sixProblems := func() []string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		var out []string
+		for _, p := range res.Problems {
+			if strings.Contains(p, "6 GHz") {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	set("network.sweet.security", "wpa2-psk")
+	if got := sixProblems(); len(got) != 0 {
+		t.Fatalf("bands unset: %v", got)
+	}
+	set("network.sweet.bands", []string{"5g", "6g"})
+	want := "network.sweet: 6 GHz takes WPA3 or OWE only, not wpa2-psk; take 6g out of its bands, or make it wpa3-sae, wpa2-wpa3 or owe"
+	if got := sixProblems(); len(got) != 1 || got[0] != want {
+		t.Fatalf("WPA2 named on 6 GHz: %v", got)
+	}
+	for _, ok := range []string{"wpa2-wpa3", "wpa3-sae", "owe"} {
+		set("network.sweet.security", ok)
+		if got := sixProblems(); len(got) != 0 {
+			t.Fatalf("%s on 6 GHz: %v", ok, got)
+		}
+	}
+	set("network.sweet.security", "open")
+	if got := sixProblems(); len(got) != 1 {
+		t.Fatalf("open named on 6 GHz: %v", got)
+	}
+}

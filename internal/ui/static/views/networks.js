@@ -156,9 +156,14 @@ function view(ctx, n, bandsHere, box, noUsteer, lib, reports = [], isAP = false)
 	return [
 		h('div', { class: 'row' },
 			h('div', { class: 'label' }, 'On radios'),
-			h('div', { class: 'value' }, BANDS.filter((b) => asks.includes(b)).map((b) => bandsHere.has(b)
-				? h('span', { class: 'chip band' }, bandName(b))
-				: h('span', { class: 'chip band none', title: 'No radio here for this band' }, bandName(b) + ' (no radio here)')))),
+			h('div', { class: 'value' }, BANDS.filter((b) => asks.includes(b)).map((b) => {
+				// 6 GHz takes WPA3 and OWE only (0086).
+				if (b === '6g' && !SIX_GHZ.has(f('security')))
+					return h('span', { class: 'chip band none', title: '6 GHz takes WPA3 or OWE only' }, bandName(b) + (f('bands') ? ' (not allowed: WPA3 or OWE only)' : ' (not offered: WPA3 or OWE only)'));
+				return bandsHere.has(b)
+					? h('span', { class: 'chip band' }, bandName(b))
+					: h('span', { class: 'chip band none', title: 'No radio here for this band' }, bandName(b) + ' (no radio here)');
+			}))),
 		row('Security', security(f('security'))),
 		primary && h('div', { class: 'pathbox' },
 			h('div', { class: 'label' }, fallback ? 'Travels over, first' : 'Travels over'), primary,
@@ -173,6 +178,10 @@ function view(ctx, n, bandsHere, box, noUsteer, lib, reports = [], isAP = false)
 }
 
 const ssidOf = (n) => n.fields.ssid?.value || n.id;
+
+// The security modes 6 GHz takes (0086): WPA3, alone or in transition, and
+// OWE. A WPA2 or open network is not offered there.
+const SIX_GHZ = new Set(['wpa3-sae', 'wpa2-wpa3', 'owe']);
 
 // tunnelName names a tunnel with its far end, where it is set here.
 export function tunnelName(lib, id) {

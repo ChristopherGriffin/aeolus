@@ -34,6 +34,9 @@ const ENCRYPTION = {
 	'open': 'none', 'owe': 'owe', 'wpa2-psk': 'psk2', 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae-mixed',
 };
 const NEEDS_KEY = { 'wpa2-psk': true, 'wpa3-sae': true, 'wpa2-wpa3': true };
+// 6 GHz takes WPA3 and OWE only (0086): a network in WPA2/WPA3 transition is
+// WPA3 alone there, and one that is WPA2 or open is not offered there.
+const SIX_GHZ = { 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae', 'owe': 'owe' };
 
 // The htmode families each band can use, best first.
 const FAMILIES = { '2g': ['EHT', 'HE', 'HT'], '5g': ['EHT', 'HE', 'VHT', 'HT'], '6g': ['EHT', 'HE'] };
@@ -220,10 +223,10 @@ function ensure_vlan(n, bridge, uplink, vlan, keep) {
 	return n[name];
 }
 
-function iface_options(net, radio, network, btm) {
+function iface_options(net, radio, band, network, btm) {
 	let o = {
 		device: radio, mode: 'ap', network: network, ssid: net.ssid,
-		encryption: ENCRYPTION[net.security] ?? 'none',
+		encryption: (band == '6g' ? SIX_GHZ[net.security] : null) ?? ENCRYPTION[net.security] ?? 'none',
 	};
 	if (NEEDS_KEY[net.security])
 		o.key = net.passphrase;
@@ -480,12 +483,18 @@ function networks(cfg, intent, facts, errors, keep) {
 			push(errors, `network.${id}: band steering and BSS transition need 802.11v, which this AP's hostapd lacks (install wpad-mbedtls)`);
 			btm = false;
 		}
+		// Named on 6 GHz, a network 6 GHz does not take is refused; left to
+		// every band, it is not offered there (0086).
+		if (!SIX_GHZ[net.security] && index(net.bands ?? [], '6g') >= 0)
+			push(errors, `network.${id}: 6 GHz takes WPA3 or OWE only, not ${net.security}; take 6g out of its bands, or make it wpa3-sae, wpa2-wpa3 or owe`);
 		let names = [], no_ap_vlan = [];
 		for (let d in of_type(w, 'wifi-device')) {
 			if (reserved(d) || (net.bands && index(net.bands, d.band) < 0))
 				continue;
+			if (d.band == '6g' && !SIX_GHZ[net.security])
+				continue;
 			let name = iface_name(id, d['.name']);
-			put(w, name, 'wifi-iface', iface_options(net, d['.name'], iface, btm));
+			put(w, name, 'wifi-iface', iface_options(net, d['.name'], d.band, iface, btm));
 			keep[name] = true;
 			push(names, name);
 			if (facts.radios?.[d['.name']]?.ap_vlan === false)
