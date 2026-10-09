@@ -149,6 +149,15 @@
       "description": "Transmit power in dBm, or auto.",
       "oneOf": [{ "const": "auto" }, { "type": "integer", "minimum": 1, "maximum": 30 }]
     },
+    "shortGI": {
+      "type": "boolean",
+      "default": true,
+      "description": "The short guard interval, 400 ns, for 802.11n and 802.11ac (0089): false holds them to the long one, 800 ns, which copes better with echoes indoors and out. Unset, OpenWrt's default, short where the radio can (short_gi_20, _40, _80 and _160)."
+    },
+    "heGI": {
+      "description": "The guard interval the AP sends 802.11ax with, in ns (0089): 800, 1600 or 3200, longer coping better with echoes; auto (the default) leaves it to the radio, which picks per frame. OpenWrt has no option for it: the agent sets it with iw on each network, and again whenever hostapd makes one anew.",
+      "oneOf": [{ "const": "auto" }, { "enum": [800, 1600, 3200] }]
+    },
     "radio2g": {
       "type": "object",
       "additionalProperties": false,
@@ -157,7 +166,10 @@
         "channel": { "oneOf": [{ "const": "auto" }, { "type": "integer", "minimum": 1, "maximum": 14 }] },
         "channels": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 13 }, "uniqueItems": true, "minItems": 1, "maxItems": 13, "description": "The channels an automatic channel may be (0075). Unset, 1, 6 and 11." },
         "width": { "enum": [20, 40], "description": "MHz." },
-        "power": { "$ref": "#/$defs/power" }
+        "power": { "$ref": "#/$defs/power" },
+        "modes": { "type": "array", "items": { "enum": ["b", "g", "n", "ax", "be"] }, "uniqueItems": true, "minItems": 1, "description": "The 802.11 generations clients may use, one unbroken run (0089): the oldest is the least a client must support (OpenWrt's require_mode), the newest caps the mode the radio runs. 802.11b is its 1–11 Mbit/s rates (legacy_rates). Unset, every one the radio can do but 802.11b, which OpenWrt leaves off." },
+        "short_gi": { "$ref": "#/$defs/shortGI" },
+        "he_gi": { "$ref": "#/$defs/heGI" }
       }
     },
     "radio5g": {
@@ -169,7 +181,10 @@
         "channels": { "type": "array", "items": { "enum": [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165] }, "uniqueItems": true, "minItems": 1, "maxItems": 25, "description": "The channels an automatic channel may be, chosen in whole blocks of the width (0075). Unset, any; DFS avoided still keeps it off 52–144." },
         "width": { "enum": [20, 40, 80, 160], "description": "MHz." },
         "power": { "$ref": "#/$defs/power" },
-        "dfs": { "enum": ["allow", "avoid"], "default": "allow", "description": "avoid keeps an automatic channel off the DFS channels, 52–144, which are shared with radar; a channel or width that needs them is refused (0071). allow (the default) lets the AP pick any." }
+        "dfs": { "enum": ["allow", "avoid"], "default": "allow", "description": "avoid keeps an automatic channel off the DFS channels, 52–144, which are shared with radar; a channel or width that needs them is refused (0071). allow (the default) lets the AP pick any." },
+        "modes": { "type": "array", "items": { "enum": ["a", "n", "ac", "ax", "be"] }, "uniqueItems": true, "minItems": 1, "description": "The 802.11 generations clients may use, one unbroken run (0089): the oldest is the least a client must support (OpenWrt's require_mode), the newest caps the mode the radio runs. Unset, every one the radio can do." },
+        "short_gi": { "$ref": "#/$defs/shortGI" },
+        "he_gi": { "$ref": "#/$defs/heGI" }
       }
     },
     "radio6g": {
@@ -179,7 +194,9 @@
         "enabled": { "type": "boolean" },
         "channel": { "oneOf": [{ "const": "auto" }, { "enum": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221, 225, 229, 233] }] },
         "channels": { "type": "array", "items": { "enum": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221, 225, 229, 233] }, "uniqueItems": true, "minItems": 1, "maxItems": 59, "description": "The channels an automatic channel may be, chosen in whole blocks of the width (0075, 0087). Unset, any." }, "non_overlapping": { "type": "boolean", "default": false, "description": "One channel to a block: an automatic channel is the first usable channel of each whole block of the width, the blocks apart (one 320 MHz family), so radios that pick different channels never share a block (0087). With psc, each block's first preferred scanning channel." }, "psc": { "type": "boolean", "default": false, "description": "Preferred scanning channels only: an automatic channel is one of 5, 21, 37 and every 16th to 229, which clients look for 6 GHz networks on by themselves (0087). Off (the default), any channel of the set." }, "width": { "enum": [20, 40, 80, 160, 320], "description": "MHz." },
-        "power": { "$ref": "#/$defs/power" }
+        "power": { "$ref": "#/$defs/power" },
+        "modes": { "type": "array", "items": { "enum": ["ax", "be"] }, "uniqueItems": true, "minItems": 1, "description": "The 802.11 generations clients may use, one unbroken run (0089): the oldest is the least a client must support (OpenWrt's require_mode), the newest caps the mode the radio runs. 6 GHz is 802.11ax and newer. Unset, every one the radio can do." },
+        "he_gi": { "$ref": "#/$defs/heGI" }
       }
     },
     "port": {

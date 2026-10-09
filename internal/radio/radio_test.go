@@ -153,3 +153,44 @@ func TestUsable(t *testing.T) {
 		t.Errorf("5 GHz: %v", got)
 	}
 }
+
+// A band's generations are one unbroken run of its own (0089); what a radio
+// serves runs up to its newest family.
+func TestGenerations(t *testing.T) {
+	for _, c := range []struct {
+		band           string
+		modes          []string
+		oldest, newest string
+		err            string
+	}{
+		{"2g", []string{"g", "n", "ax"}, "g", "ax", ""},
+		{"2g", []string{"ax", "b", "n", "g"}, "b", "ax", ""},
+		{"5g", []string{"ac"}, "ac", "ac", ""},
+		{"5g", []string{"a", "ac"}, "", "", "802.11a and 802.11ac are allowed, but not 802.11n between them"},
+		{"5g", []string{"g"}, "", "", "5 GHz has no 802.11g"},
+		{"6g", []string{"n", "ax"}, "", "", "6 GHz has no 802.11n"},
+		{"6g", nil, "", "", "no 802.11 generation is allowed"},
+	} {
+		oldest, newest, err := Span(c.band, c.modes)
+		if oldest != c.oldest || newest != c.newest || (err == nil) != (c.err == "") || err != nil && err.Error() != c.err {
+			t.Errorf("Span(%s, %v) = %q, %q, %v; want %q, %q, %q", c.band, c.modes, oldest, newest, err, c.oldest, c.newest, c.err)
+		}
+	}
+	if got := Serves("5g", []string{"HT20", "HT40", "VHT20", "VHT80"}); !slices.Equal(got, []string{"a", "n", "ac"}) {
+		t.Errorf("an 802.11ac radio serves %v", got)
+	}
+	if got := Serves("2g", []string{"HE20", "HE40"}); !slices.Equal(got, []string{"b", "g", "n", "ax"}) {
+		t.Errorf("an 802.11ax radio on 2.4 GHz serves %v", got)
+	}
+	if got := Serves("6g", nil); got != nil {
+		t.Errorf("a radio that reported nothing serves %v", got)
+	}
+	for band, want := range map[string]string{"2g": "ax", "5g": "ax", "6g": ""} {
+		if got := Required(band, "ax"); got != want {
+			t.Errorf("Required(%s, ax) = %q, want %q", band, got, want)
+		}
+	}
+	if Required("5g", "a") != "" || Required("2g", "n") != "n" || Required("5g", "be") != "" {
+		t.Error("require_mode is OpenWrt's n, ac or ax, for the oldest after the band's first")
+	}
+}

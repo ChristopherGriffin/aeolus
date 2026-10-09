@@ -169,6 +169,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	sort.Strings(problems)
 	problems = append(problems, sch.Problems(doc)...)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
+	problems = append(problems, modesProblems(doc, s.Facts[ap])...)
 	problems = append(problems, keyVLANProblems(doc, s.Facts[ap])...)
 	problems = append(problems, sixGHzProblems(doc)...)
 	problems = append(problems, bondingProblems(doc)...)
@@ -243,6 +244,81 @@ func radioProblems(doc map[string]any, facts json.RawMessage) []string {
 		out = append(out, fmt.Sprintf("radio.%s.width: this AP's radio cannot use %d MHz; it can use %s MHz", band, int(w), strings.Join(list, ", ")))
 	}
 	return out
+}
+
+// modesProblems checks the 802.11 generations a band allows (0089): one
+// unbroken run, not 802.11be alone, which OpenWrt cannot require, and a
+// width the newest carries. By what the AP reported when it enrolled, the
+// oldest must be one its radio serves, else no client could join; and
+// OpenWrt before 25.12 can require 802.11n or 802.11ac, not 802.11ax.
+func modesProblems(doc map[string]any, facts json.RawMessage) []string {
+	var f struct {
+		OpenWrt string `json:"openwrt"`
+		Radios  []struct {
+			Band     string   `json:"band"`
+			HTModes  []string `json:"htmodes"`
+			Reserved bool     `json:"reserved"`
+		} `json:"radios"`
+	}
+	if len(facts) > 0 && json.Unmarshal(facts, &f) != nil {
+		f.Radios = nil // facts we cannot read are facts we do not have
+	}
+	radios, _ := doc["radio"].(map[string]any)
+	var out []string
+	for _, band := range sortedKeys(radios) {
+		set, _ := radios[band].(map[string]any)
+		list, ok := set["modes"].([]any)
+		if !ok {
+			continue
+		}
+		var modes []string
+		for _, m := range list {
+			if s, ok := m.(string); ok {
+				modes = append(modes, s)
+			}
+		}
+		where := "radio." + band + ".modes"
+		oldest, newest, err := radio.Span(band, modes)
+		if err != nil {
+			out = append(out, where+": "+err.Error())
+			continue
+		}
+		if oldest == "be" {
+			out = append(out, where+": OpenWrt cannot require 802.11be; allow 802.11ax too")
+		}
+		fam := radio.Family[newest]
+		if w, ok := set["width"].(float64); ok && int(w) > radio.FamilyWidth[fam] {
+			out = append(out, fmt.Sprintf("radio.%s.width: %d MHz is wider than 802.11%s goes (%d MHz), the newest radio.%s.modes allows", band, int(w), newest, radio.FamilyWidth[fam], band))
+		}
+		for _, r := range f.Radios {
+			if r.Band != band || r.Reserved {
+				continue
+			}
+			if serves := radio.Serves(band, r.HTModes); serves != nil && !slices.Contains(serves, oldest) {
+				out = append(out, fmt.Sprintf("%s: this AP's %s radio serves up to 802.11%s, so no client could join with 802.11%s the least it allows", where, radio.BandName(band), serves[len(serves)-1], oldest))
+				break
+			}
+		}
+		if radio.Required(band, oldest) == "ax" && before2512(f.OpenWrt) {
+			out = append(out, fmt.Sprintf("%s: OpenWrt %s cannot require 802.11ax (25.12 can); allow an older generation too", where, f.OpenWrt))
+		}
+	}
+	return out
+}
+
+// before2512 says an OpenWrt release is older than 25.12. A snapshot, or a
+// version it cannot read, is taken for a new one.
+func before2512(version string) bool {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, err1 := strconv.Atoi(parts[0])
+	minor, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return major < 25 || major == 25 && minor < 12
 }
 
 // sixGHzProblems refuses a network offered on 6 GHz by name whose security

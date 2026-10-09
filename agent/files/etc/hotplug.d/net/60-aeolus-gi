@@ -1,0 +1,9 @@
+# The 802.11ax guard interval Aeolus holds an AP's networks to is set with
+# iw on each network's interface, which keeps it only until the interface
+# goes (0089): when hostapd makes one anew, aeolus-gi sets it again, once
+# the network is up.
+
+[ "$ACTION" = add ] || exit 0
+case "$INTERFACE" in phy*-ap* | wlan*) ;; *) exit 0 ;; esac
+[ -x /usr/libexec/aeolus-gi ] && uci -q get aeolus.aeolus_gi >/dev/null || exit 0
+setsid /usr/libexec/aeolus-gi "$INTERFACE" </dev/null >/dev/null 2>&1 &

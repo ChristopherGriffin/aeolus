@@ -37,6 +37,7 @@ const PROBES_STALE = 60;   // seconds after which the prober's results are too o
 const PACKAGES_TOOL = '/usr/libexec/aeolus-packages';   // its packages, through the manager (0069)
 const PACKAGES_DONE = '/usr/lib/aeolus/packages';      // gone after a sysupgrade, until they are back
 const RESTORE_EVERY = 3600;   // seconds between tries to install them again
+const GI_TOOL = '/usr/libexec/aeolus-gi';   // the 802.11ax guard interval, which OpenWrt has no option for (0089)
 const TIME = '/var/run/aeolus/time.json';   // ntpd's word on the clock, from its hotplug (0069)
 const KEYS_VERSION = DIR + '/keys.version';  // the per-user keys the AP has (0070)
 const RRM_KEY = DIR + '/rrm.key';   // the key radio neighbours sign their hellos with (0073)
@@ -256,6 +257,14 @@ function wake_prober() {
 		bus.call('service', 'signal', { name: 'aeolus', instance: i, signal: 1 });
 }
 
+// hold_gi sets the 802.11ax guard interval of each network that is up, in
+// the background (0089). An interface hostapd makes anew gets it from the
+// net hotplug, once its network is up.
+function hold_gi() {
+	if (fs.access(GI_TOOL))
+		system(`setsid ${GI_TOOL} </dev/null >/dev/null 2>&1 &`);
+}
+
 function macs() {
 	let out = [];
 	for (let n in sort(fs.lsdir('/sys/class/net') ?? [])) {
@@ -395,6 +404,7 @@ function revert(pending) {
 	if (write_clamp(cursor().get_all('network'), cursor().get_all('aeolus')))
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
 	wake_prober();
+	hold_gi();
 	fs.unlink(PENDING);
 	fail('reverted to the config before version %s', pending.version);
 }
@@ -491,6 +501,7 @@ function apply(out, version, hash) {
 	if (clamped && index(out.changed, 'firewall') < 0)
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
 	wake_prober();
+	hold_gi();
 	if (!confirm()) {
 		revert(pending);
 		return { ok: false, error: sprintf('lost the manager within %d seconds of applying; reverted', CONFIRM) };
@@ -1283,6 +1294,7 @@ function main() {
 	// The clamp's file is not kept over a sysupgrade, so make it again.
 	if (write_clamp(cursor().get_all('network'), cursor().get_all('aeolus')))
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
+	hold_gi();
 	let next_packages = packages(time());
 	let running = running_version();
 	// An update on trial (0079): this agent is the new one, until it
@@ -1372,6 +1384,7 @@ function main() {
 		if (assigned && time() - last_state >= STATE_EVERY) {
 			report_state(running, token);
 			last_state = time();
+			hold_gi();
 		}
 		if (time() >= next_packages && !fs.access(PACKAGES_DONE))
 			next_packages = packages(time());

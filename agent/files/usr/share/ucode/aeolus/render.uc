@@ -41,6 +41,18 @@ const SIX_GHZ = { 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae', 'owe': 'owe' };
 // The htmode families each band can use, best first.
 const FAMILIES = { '2g': ['EHT', 'HE', 'HT'], '5g': ['EHT', 'HE', 'VHT', 'HT'], '6g': ['EHT', 'HE'] };
 
+// The 802.11 generations a band's clients may use (0089), oldest first; the
+// htmode family each takes, NOHT before 802.11n, and the widest it goes;
+// and OpenWrt's require_mode for the oldest allowed, as internal/radio has
+// them.
+const GENERATIONS = { '2g': ['b', 'g', 'n', 'ax', 'be'], '5g': ['a', 'n', 'ac', 'ax', 'be'], '6g': ['ax', 'be'] };
+const FAMILY = { b: 'NOHT', g: 'NOHT', a: 'NOHT', n: 'HT', ac: 'VHT', ax: 'HE', be: 'EHT' };
+const FAMILY_WIDTH = { NOHT: 20, HT: 40, VHT: 160, HE: 160, EHT: 320 };
+const REQUIRE = { n: 'n', ac: 'ac', ax: 'ax' };
+
+// The 802.11ax guard intervals iw takes, by nanoseconds (0089).
+const HE_GI = { '800': '0.8', '1600': '1.6', '3200': '3.2' };
+
 function clone(v) {
 	return json(sprintf('%J', v));
 }
@@ -96,13 +108,44 @@ function put(pkg, name, typ, opts) {
 	pkg[name] = s;
 }
 
-function htmode(band, width, current, modes) {
-	for (let fam in FAMILIES[band] ?? ['HT'])
-		if (index(modes ?? [], fam + width) >= 0)
-			return fam + width;
-	// Capabilities unknown: keep the family the radio runs now.
+// htmode is the mode a radio runs at a width: the best family it can, up to
+// cap, the newest the band's generations allow (0089); NOHT for one before
+// 802.11n. Under a cap, a width wider than a family goes is narrowed to its
+// widest: the radio's own width, which no one set, may be.
+function htmode(band, width, current, modes, cap) {
+	if (cap == 'NOHT')
+		return 'NOHT';
+	let fams = FAMILIES[band] ?? ['HT'];
+	if (cap && index(fams, cap) >= 0)
+		fams = slice(fams, index(fams, cap));
+	let at = fam => cap ? min(width, FAMILY_WIDTH[fam]) : width;
+	for (let fam in fams)
+		if (index(modes ?? [], fam + at(fam)) >= 0)
+			return fam + at(fam);
+	// Capabilities unknown: keep the family the radio runs now, within cap.
 	let m = match(current ?? '', /^(HT|VHT|HE|EHT)[0-9]/);
-	return (m ? m[1] : 'HT') + width;
+	let fam = !m ? 'HT' : !cap || index(fams, m[1]) >= 0 ? m[1] : fams[0];
+	return fam + at(fam);
+}
+
+// span reads a band's generations (0089): the oldest and the newest, or
+// null where the list is not one unbroken run of the band's.
+function span(band, modes) {
+	let order = GENERATIONS[band] ?? [], at = [];
+	for (let m in modes ?? []) {
+		let i = index(order, m);
+		if (i < 0)
+			return null;
+		if (index(at, i) < 0)
+			push(at, i);
+	}
+	if (!length(at))
+		return null;
+	sort(at);
+	for (let i = 1; i < length(at); i++)
+		if (at[i] != at[i - 1] + 1)
+			return null;
+	return { oldest: order[at[0]], newest: order[at[length(at) - 1]] };
 }
 
 // BLOCKS5 are the 5 GHz channels joined at each width, by their lowest and
@@ -217,8 +260,34 @@ function radios(w, intent, facts) {
 			s.country = country;
 		if (set.enabled != null)
 			s.disabled = set.enabled ? '0' : '1';
-		if (set.width != null)
-			s.htmode = htmode(s.band, set.width, s.htmode, facts.radios?.[s['.name']]?.htmodes);
+		// The generations clients may use (0089): the oldest is the least a
+		// client must support, through require_mode; 802.11b is the
+		// legacy_rates OpenWrt leaves off; the newest caps the mode.
+		let gens = set.modes != null ? span(s.band, set.modes) : null;
+		if (set.width != null || gens) {
+			let now = match(s.htmode ?? '', /([0-9]+)$/)?.[1];
+			s.htmode = htmode(s.band, set.width ?? int(now ?? 20), s.htmode, facts.radios?.[s['.name']]?.htmodes,
+				gens ? FAMILY[gens.newest] : null);
+		}
+		if (gens) {
+			if (s.band == '2g' && gens.oldest == 'b')
+				s.legacy_rates = '1';
+			else if (s.band == '2g')
+				delete s.legacy_rates;
+			if (s.band != '6g' && REQUIRE[gens.oldest])
+				s.require_mode = REQUIRE[gens.oldest];
+			else
+				delete s.require_mode;
+		}
+		// The short guard interval for 802.11n and 802.11ac (0089), on
+		// unless set off.
+		if (set.short_gi != null)
+			for (let w in ['20', '40', '80', '160']) {
+				if (set.short_gi)
+					delete s['short_gi_' + w];
+				else
+					s['short_gi_' + w] = '0';
+			}
 		if (set.channel != null) {
 			s.channel = '' + set.channel;
 			// An automatic channel is one of the set's (0075), at the radio's
@@ -905,6 +974,24 @@ function rrm(a, w, intent, facts, keep) {
 	keep['aeolus_rrm'] = true;
 }
 
+// guard_interval holds, for each band an AP serves, the 802.11ax guard
+// interval set for it (0089), which aeolus-gi sets with iw: OpenWrt has no
+// option for it. Automatic, the radio's own, is none.
+function guard_interval(a, w, intent, keep) {
+	let opts = {}, any = false;
+	for (let s in of_type(w, 'wifi-device')) {
+		let gi = HE_GI['' + intent.radio?.[s.band]?.he_gi];
+		if (!reserved(s) && gi) {
+			opts['he_gi_' + s.band] = gi;
+			any = true;
+		}
+	}
+	if (!any)
+		return;
+	put(a, 'aeolus_gi', 'gi', opts);
+	keep['aeolus_gi'] = true;
+}
+
 // host_port splits "host", "host:port", "[v6]" or "[v6]:port".
 function host_port(s) {
 	let m = match(s, /^\[([^\]]+)\](:([0-9]+))?$/);
@@ -1141,6 +1228,7 @@ function render(intent, current, facts) {
 	probes(cfg, intent, facts ?? {}, keep);
 	watches(cfg, intent, facts ?? {}, keep);
 	rrm(cfg.aeolus, cfg.wireless, intent, facts ?? {}, keep);
+	guard_interval(cfg.aeolus, cfg.wireless, intent, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
 			delete cfg.aeolus[k];

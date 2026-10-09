@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -865,5 +866,62 @@ func TestSixGHzChannels(t *testing.T) {
 	set("radio.6g.width", 80)
 	if got := problems(); len(got) != 0 {
 		t.Fatalf("1-13 at 80 MHz: %v", got)
+	}
+}
+
+// The 802.11 generations a band allows (0089): one unbroken run, not
+// 802.11be alone, a width the newest carries, an oldest the radio serves,
+// and 802.11ax required only on OpenWrt 25.12 and later.
+func TestModes(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() []string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		var out []string
+		for _, p := range res.Problems {
+			if strings.HasPrefix(p, "radio.") {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	s.Facts["gate-ap"] = json.RawMessage(`{"openwrt":"25.12.2","radios":[
+		{"radio":"radio0","band":"5g","htmodes":["HT20","HT40","VHT20","VHT40","VHT80"]},
+		{"radio":"radio1","band":"2g","htmodes":["HE20","HE40"]},
+		{"radio":"radio2","band":"6g","htmodes":["HE80"],"reserved":true}]}`)
+	set("radio.2g.modes", []string{"g", "n", "ax"})
+	set("radio.5g.modes", []string{"n", "ac"})
+	set("radio.5g.width", 80)
+	if got := problems(); len(got) != 0 {
+		t.Fatalf("modes the radios serve: %v", got)
+	}
+	set("radio.2g.modes", []string{"b", "n"})
+	set("radio.5g.modes", []string{"ax"})
+	set("radio.6g.modes", []string{"be"})
+	want := []string{
+		"radio.2g.modes: 802.11b and 802.11n are allowed, but not 802.11g between them",
+		"radio.5g.modes: this AP's 5 GHz radio serves up to 802.11ac, so no client could join with 802.11ax the least it allows",
+		"radio.6g.modes: OpenWrt cannot require 802.11be; allow 802.11ax too",
+	}
+	if got := problems(); !slices.Equal(got, want) {
+		t.Errorf("problems = %q\nwant %q", got, want)
+	}
+	set("radio.2g.modes", []string{"ax"})
+	set("radio.5g.modes", []string{"a", "n"})
+	set("radio.6g.modes", []string{"ax"})
+	if got := problems(); !slices.Equal(got, []string{"radio.5g.width: 80 MHz is wider than 802.11n goes (40 MHz), the newest radio.5g.modes allows"}) {
+		t.Errorf("80 MHz with 802.11n at most: %q", got)
+	}
+	set("radio.5g.width", 40)
+	s.Facts["gate-ap"] = json.RawMessage(`{"openwrt":"24.10.5","radios":[{"radio":"radio1","band":"2g","htmodes":["HE20","HE40"]}]}`)
+	if got := problems(); !slices.Equal(got, []string{"radio.2g.modes: OpenWrt 24.10.5 cannot require 802.11ax (25.12 can); allow an older generation too"}) {
+		t.Errorf("802.11ax required on 24.10: %q", got)
 	}
 }
