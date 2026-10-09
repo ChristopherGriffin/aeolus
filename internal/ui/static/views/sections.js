@@ -71,7 +71,7 @@ export function channelsSection(ctx, rows, status, canEdit) {
 				h('td', { class: 'mono' }, r.channel || 'starting'),
 				h('td', { class: 'mono' }, r.width ? r.width + ' MHz' : '—'),
 				h('td', null, String(r.clients ?? '—')),
-				h('td', null, set ? value(path, set.value) : h('span', { class: 'sealed' }, 'not set; the AP keeps its own')),
+				h('td', null, set ? value(path, set.value) : h('span', { class: 'sealed' }, 'not set')),
 				h('td', null, ago(rep.at)));
 		});
 	});
@@ -89,7 +89,7 @@ export async function systemSection(ctx, here, page, edit) {
 	const sys = only(page.fields, (p) => p.startsWith('system.'));
 	const panels = Object.keys(sys).length
 		? fieldPanels(ctx, 'locations', here, sys, edit)
-		: h('div', { class: 'banner info' }, 'No system settings here: each AP keeps its own.');
+		: h('div', { class: 'banner info' }, 'No system settings here.');
 	if (!edit) return panels;
 	const d = await schema();
 	const box = h('div', { class: 'edit flush' });

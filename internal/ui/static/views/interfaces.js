@@ -494,7 +494,7 @@ function portCard(ctx, d, here, nodeName, name, fields, seen, edit, folder) {
 function view(ctx, here, nodeName, name, fields, edit) {
 	const set = FIELDS.map((k) => `ports.${name}.${k}`).filter((p) => fields[p]);
 	const vnis = vnisOf(fields, name);
-	if (!set.length && !vnis.length) return h('div', { class: 'sub' }, 'Not set: each AP leaves this port as it is.');
+	if (!set.length && !vnis.length) return h('div', { class: 'sub' }, 'Not set.');
 	const names = (id) => ctx.name('locations', id);
 	// What the mode leaves out stays set, but does nothing (0058).
 	const tunnel = fields[`ports.${name}.mode`]?.value === 'tunnel';
@@ -934,5 +934,5 @@ function settings(location, name) {
 		const vnis = vnisOf(location, name);
 		parts.push(vnis.length ? `tunnel: ${vnis.map((m) => `${onWire(m.vlan)} → ${carried(m)}`).join(', ')}` : 'tunnel, with no VNIs yet');
 	} else if (v('mode') === 'lacp') parts.push('LACP (not applied yet)');
-	return parts.length ? parts.join(', ') : h('span', { class: 'sealed' }, 'not set; the AP keeps its own');
+	return parts.length ? parts.join(', ') : h('span', { class: 'sealed' }, 'not set');
 }

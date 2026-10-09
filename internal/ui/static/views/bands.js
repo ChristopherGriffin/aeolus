@@ -9,8 +9,9 @@
 // Automatic, the map picks the channels an automatic channel may be, a block
 // at a time. Manual, it picks the one channel, its block shown at the width.
 // A width some AP's channel can't carry makes the channel automatic in the
-// same change (0045). Where a value comes from is said beside it: set here,
-// from a folder above, or each AP's own.
+// same change (0045). Where a value comes from is said beside it: from a
+// folder above, or on an AP's page its own where nothing sets it. Set here,
+// or unset on a folder, it says nothing (Griff, 2026-10-09).
 
 import { h } from '../dom.js';
 import { bandName, ago } from '../format.js';
@@ -133,7 +134,7 @@ export function bandsSection(ctx, node, page, report, rows = []) {
 	return [
 		h('div', { class: 'sub lead' }, isAP
 			? (report ? `Reported ${ago(report.at)}.` : 'No report yet.')
-			: hw.aps.length ? `Applies to ${reach} below, unless an AP sets its own.` : 'No APs here yet.'),
+			: hw.aps.length ? `Applies to ${reach} below.` : 'No APs here yet.'),
 		hw.unknown.length > 0 && h('div', { class: 'banner info' },
 			`${hw.unknown.map((a) => a.name).join(', ')} never said what its radios can do, so ${hw.unknown.length === 1 ? 'it is' : 'they are'} not counted.`),
 		BANDS.map((band) => (offered.get(band)
@@ -146,12 +147,16 @@ export function bandsSection(ctx, node, page, report, rows = []) {
 // bandPanel is one band: its draft, drawn, and saved as one change.
 function bandPanel(at, band, b) {
 	const { ctx, node, page, isAP, rows, nodeName, canEdit, parentName } = at;
+	// What a pulldown shows where nothing sets the value: the AP's own, on
+	// its page; on a folder, a dash.
+	const unset = isAP ? 'Its own' : '—';
 	const f = (k) => page.fields?.[`radio.${band}.${k}`];
 	const editable = (k) => canEdit && !(f(k)?.origin === 'locked' && f(k).from !== node);
-	// whence says where a value comes from: nothing where it is set here.
+	// whence says where a value comes from: nothing where it is set here,
+	// or on a folder where nothing sets it.
 	const whence = (k) => {
 		const r = f(k);
-		if (!r) return isAP ? 'its own' : 'each AP\'s own';
+		if (!r) return isAP ? 'its own' : '';
 		if (r.from === node) return r.origin === 'locked' ? 'locked here' : '';
 		return `${r.origin === 'locked' ? 'locked by' : 'from'} ${ctx.name('locations', r.from)}`;
 	};
@@ -202,14 +207,14 @@ function bandPanel(at, band, b) {
 
 	// The radio's on/off, top left.
 	const radioOn = h('input', { type: 'checkbox', class: 'switch', disabled: !editable('enabled'),
-		title: `Radio on · ${whence('enabled') || 'set here'}` });
+		title: `Radio on${f('enabled') ? ` · ${whence('enabled') || 'set here'}` : ''}` });
 	radioOn.checked = d.enabled ?? (reported(rows, band, 'enabled') !== 'off');
 	radioOn.addEventListener('change', () => { d.enabled = radioOn.checked; draw(); });
 
 	// The width, top right.
 	const widthSel = h('select', { 'aria-label': `${bandName(band)} width`, disabled: !editable('width'),
-		title: `Width${whence('width') ? ' · ' + whence('width') : ' · set here'}` },
-		saved.width === undefined && h('option', { value: '' }, `${apsWidth} MHz, ${isAP ? 'its own' : 'each AP\'s own'}`),
+		title: `Width${f('width') ? ` · ${whence('width') || 'set here'}` : ''}` },
+		saved.width === undefined && h('option', { value: '' }, isAP ? `${apsWidth} MHz, its own` : '—'),
 		b.widths.map((w) => h('option', { value: String(w.width), disabled: !w.ok, selected: w.width === saved.width },
 			`${w.width} MHz`, !w.ok ? ` (${w.why})` : '')));
 	const widthOpts = [...widthSel.options].filter((o) => o.value !== '');
@@ -242,7 +247,7 @@ function bandPanel(at, band, b) {
 
 	// The channel: automatic or manual, below the map.
 	const modeSel = h('select', { 'aria-label': `${bandName(band)} channel`, disabled: !editable('channel') },
-		saved.mode === 'unset' && h('option', { value: 'unset' }, isAP ? 'Its own' : 'Each AP\'s own'),
+		saved.mode === 'unset' && h('option', { value: 'unset' }, unset),
 		h('option', { value: 'auto' }, 'Automatic'),
 		h('option', { value: 'manual' }, 'Manual'));
 	modeSel.value = d.mode;
@@ -251,7 +256,7 @@ function bandPanel(at, band, b) {
 
 	// The power: automatic or a figure, below the map too.
 	const powerSel = h('select', { 'aria-label': `${bandName(band)} power`, disabled: !editable('power') },
-		saved.power === undefined && h('option', { value: '' }, isAP ? 'Its own' : 'Each AP\'s own'),
+		saved.power === undefined && h('option', { value: '' }, unset),
 		h('option', { value: 'auto' }, 'Automatic'),
 		h('option', { value: 'manual' }, 'Manual'));
 	const dbm = h('select', { 'aria-label': `${bandName(band)} power in dBm`, disabled: !editable('power') },
@@ -303,8 +308,8 @@ function bandPanel(at, band, b) {
 	// short or long; 802.11ax automatic or held to one.
 	const htKind = band === '2g' ? '802.11n' : '802.11n/ac';
 	const sgiSel = band !== '6g' && h('select', { 'aria-label': `${bandName(band)} ${htKind} guard interval`, disabled: !editable('short_gi') },
-		saved.short_gi === undefined && h('option', { value: '' }, isAP ? 'Its own' : 'Each AP\'s own'),
-		h('option', { value: 'short' }, 'Short, 400 ns'),
+		saved.short_gi === undefined && h('option', { value: '' }, unset),
+		h('option', { value: 'short' }, 'Short, 400 ns (default)'),
 		h('option', { value: 'long' }, 'Long, 800 ns'));
 	const setSGI = () => { sgiSel.value = d.short_gi === undefined ? '' : d.short_gi ? 'short' : 'long'; };
 	if (sgiSel) {
@@ -312,9 +317,9 @@ function bandPanel(at, band, b) {
 		sgiSel.addEventListener('change', () => { d.short_gi = sgiSel.value === '' ? undefined : sgiSel.value === 'short'; draw(); });
 	}
 	const heSel = h('select', { 'aria-label': `${bandName(band)} 802.11ax guard interval`, disabled: !editable('he_gi') },
-		saved.he_gi === undefined && h('option', { value: '' }, isAP ? 'Its own' : 'Each AP\'s own'),
+		saved.he_gi === undefined && h('option', { value: '' }, unset),
 		h('option', { value: 'auto' }, 'Automatic'),
-		HE_GI.map((ns) => h('option', { value: String(ns) }, `${ns / 1000} µs`)));
+		HE_GI.map((ns) => h('option', { value: String(ns) }, `${ns / 1000} µs${ns === 800 ? ' (default)' : ''}`)));
 	const setHE = () => { heSel.value = d.he_gi === undefined ? '' : String(d.he_gi); };
 	setHE();
 	heSel.addEventListener('change', () => { d.he_gi = heSel.value === '' ? undefined : heSel.value === 'auto' ? 'auto' : Number(heSel.value); draw(); });
