@@ -156,9 +156,14 @@ function view(ctx, n, bandsHere, box, noUsteer, lib, reports = [], isAP = false)
 	return [
 		h('div', { class: 'row' },
 			h('div', { class: 'label' }, 'On radios'),
-			h('div', { class: 'value' }, BANDS.filter((b) => asks.includes(b)).map((b) => bandsHere.has(b)
-				? h('span', { class: 'chip band' }, bandName(b))
-				: h('span', { class: 'chip band none', title: 'No radio here for this band' }, bandName(b) + ' (no radio here)')))),
+			h('div', { class: 'value' }, BANDS.filter((b) => asks.includes(b)).map((b) => {
+				// 6 GHz takes WPA3 and OWE only (0086).
+				if (b === '6g' && !SIX_GHZ.has(f('security')))
+					return h('span', { class: 'chip band none', title: '6 GHz takes WPA3 or OWE only' }, bandName(b) + (f('bands') ? ' (not allowed: WPA3 or OWE only)' : ' (not offered: WPA3 or OWE only)'));
+				return bandsHere.has(b)
+					? h('span', { class: 'chip band' }, bandName(b))
+					: h('span', { class: 'chip band none', title: 'No radio here for this band' }, bandName(b) + ' (no radio here)');
+			}))),
 		row('Security', security(f('security'))),
 		primary && h('div', { class: 'pathbox' },
 			h('div', { class: 'label' }, fallback ? 'Travels over, first' : 'Travels over'), primary,
@@ -173,6 +178,10 @@ function view(ctx, n, bandsHere, box, noUsteer, lib, reports = [], isAP = false)
 }
 
 const ssidOf = (n) => n.fields.ssid?.value || n.id;
+
+// The security modes 6 GHz takes (0086): WPA3, alone or in transition, and
+// OWE. A WPA2 or open network is not offered there.
+const SIX_GHZ = new Set(['wpa3-sae', 'wpa2-wpa3', 'owe']);
 
 // tunnelName names a tunnel with its far end, where it is set here.
 export function tunnelName(lib, id) {
@@ -555,6 +564,32 @@ function form(d, net, fields, folder, lib) {
 		rows.get(prefix + k)?.it.el.addEventListener('change', guard);
 	for (const slot of ['primary', 'fallback'])
 		rows.get(`${prefix}transport.${slot}.type`)?.it.el.addEventListener('change', () => { guard(); fill(slot); guard(); });
+	// 6 GHz takes WPA3 or OWE only (0086): picking WPA2 or open unticks 6 GHz
+	// and holds it off, saying why; picking WPA3 or OWE gives it back as it
+	// was (Griff, 2026-10-09).
+	const security = rows.get(`${prefix}security`)?.it.el;
+	const bands = rows.get(`${prefix}bands`);
+	const six = bands?.it.el.querySelector('input[value="6g"]');
+	if (security && six) {
+		const why = h('span', { class: 'sub warn', hidden: true }, '6 GHz takes WPA3 or OWE only');
+		bands.row.append(why);
+		let had = six.checked;
+		six.addEventListener('change', () => { had = six.checked; });
+		const legal = () => {
+			const ok = !security.value || SIX_GHZ.has(security.value);
+			if (!ok && !six.disabled) {
+				had = six.checked;
+				six.checked = false;
+				six.disabled = true;
+			} else if (ok && six.disabled) {
+				six.disabled = false;
+				six.checked = had;
+			}
+			why.hidden = ok;
+		};
+		security.addEventListener('change', legal);
+		legal();
+	}
 	sync();
 	guard();
 	return { body, inputs, rows, sync, clash };

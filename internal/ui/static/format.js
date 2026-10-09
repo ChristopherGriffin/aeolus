@@ -119,8 +119,21 @@ export function origin(tree, here, r, names) {
 			: to('Locked by ' + names(from), 'locked');
 	case 'baseline':
 		return to('Branch baseline · ' + names(from), 'baseline');
+	case 'template':
+		// The AP's template (0085), picked at that folder.
+		return to('Template · picked at ' + names(from), 'template');
 	}
 	return null;
+}
+
+// templateSays says whether an AP follows its AP template (0085), or has
+// some of the template's settings replaced closer to it, or takes none.
+export function templateSays(t) {
+	if (!t) return '';
+	if (!t.id) return t.board ? `No template for ${t.board}` : 'No template: it reported no board';
+	if (t.follows) return `Follows ${t.name}`;
+	const n = t.replaced.length;
+	return `${t.name}, ${n} setting${n === 1 ? '' : 's'} replaced`;
 }
 
 export function when(t) {

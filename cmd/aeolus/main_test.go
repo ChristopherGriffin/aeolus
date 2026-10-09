@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -129,6 +131,27 @@ func TestEnsureCert(t *testing.T) {
 	must(t, os.Remove(p.tlsKey))
 	if err := ensureCert(p.cert, p.tlsKey, nil, now); err == nil {
 		t.Fatal("ensureCert accepted a certificate without its key")
+	}
+}
+
+// aeolus fingerprint prints what LuCI's Aeolus page and aeolus-enroll show
+// on an AP (0083): the SHA-256 of the certificate's DER, as browsers write it.
+func TestFingerprint(t *testing.T) {
+	p := newPaths(t)
+	must(t, ensureCert(p.cert, p.tlsKey, []string{"192.168.20.60"}, time.Now()))
+	pemBytes, err := os.ReadFile(p.cert)
+	must(t, err)
+	block, _ := pem.Decode(pemBytes)
+	sum := sha256.Sum256(block.Bytes)
+	var out, errOut bytes.Buffer
+	must(t, run([]string{"fingerprint", "-cert", p.cert}, &out, &errOut))
+	got := strings.TrimSpace(out.String())
+	if strings.ToLower(strings.ReplaceAll(got, ":", "")) != hex.EncodeToString(sum[:]) || len(got) != 95 || got != strings.ToUpper(got) {
+		t.Fatalf("fingerprint %q", got)
+	}
+	must(t, os.WriteFile(p.cert, []byte("no certificate"), 0o644))
+	if err := run([]string{"fingerprint", "-cert", p.cert}, &out, &errOut); err == nil {
+		t.Fatal("a fingerprint of no certificate")
 	}
 }
 

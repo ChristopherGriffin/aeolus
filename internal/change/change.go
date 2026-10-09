@@ -49,11 +49,19 @@ const (
 	GrantRole   Kind = "grant"
 	RevokeRole  Kind = "revoke"
 
-	// The library (0023).
+	// The library's concentrators (0023), retired (0085): they replay from
+	// an old log, and the API takes no new ones.
 	SetConcentrator    Kind = "set-concentrator"
 	RemoveConcentrator Kind = "remove-concentrator"
 	SetVNI             Kind = "set-vni"
 	RemoveVNI          Kind = "remove-vni"
+
+	// The library's AP templates (0085).
+	AddTemplate    Kind = "add-template"
+	EditTemplate   Kind = "edit-template"
+	SetTemplate    Kind = "set-template"
+	UnsetTemplate  Kind = "unset-template"
+	RemoveTemplate Kind = "remove-template"
 
 	// APs arriving and leaving (0033, 0038).
 	Enroll   Kind = "enroll"
@@ -115,6 +123,14 @@ type Op struct {
 	// the key's ID. Value is its definition, its passphrase sealed.
 	Network string `json:"network,omitempty"`
 	Key     string `json:"key,omitempty"`
+
+	// AP templates (0085): the template's ID; for add-template its level
+	// (Parent), name and boards, and Default to pick it there for them; for
+	// edit-template its name and boards; for set-template and
+	// unset-template its fields, as for set and unset.
+	Template string   `json:"template,omitempty"`
+	Boards   []string `json:"boards,omitempty"`
+	Default  bool     `json:"default,omitempty"`
 }
 
 // Field is one field a set changes.
@@ -235,6 +251,11 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 		eff, err = addBuiltins(s.Org)
 	case SetConcentrator, RemoveConcentrator, SetVNI, RemoveVNI:
 		eff, err = applyLibrary(s, op)
+	case AddTemplate, EditTemplate, SetTemplate, UnsetTemplate, RemoveTemplate:
+		eff, err = applyTemplate(s, op)
+		if err == nil {
+			err = checkTemplates(s)
+		}
 	case AddAccount, IssueToken, RevokeToken, GrantRole, RevokeRole:
 		eff, err = applyAccess(s, op)
 	case Enroll, RemoveAP:
@@ -245,6 +266,9 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 		eff, err = apply(s.Org, op)
 		if err == nil {
 			err = checkKeys(s)
+		}
+		if err == nil {
+			err = checkTemplates(s)
 		}
 	}
 	return s, eff, err
@@ -259,6 +283,8 @@ func validate(op Op) error {
 			return ErrNoConcID
 		}
 		return nil
+	case AddTemplate, EditTemplate, SetTemplate, UnsetTemplate, RemoveTemplate:
+		return validateTemplate(op)
 	case CreateOrg:
 		if op.Account == "" {
 			return ErrNoAccount

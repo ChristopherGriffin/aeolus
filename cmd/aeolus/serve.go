@@ -108,6 +108,8 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	// What a person checks when joining an AP by hand (0083).
+	slog.Info("TLS certificate", "path", *certPath, "sha256", fingerprint(cert.Certificate[0]))
 	log, err := changelog.Open(*db, changelog.Options{Check: api.Check(sch)})
 	if err != nil {
 		return nil, nil, nil, err
@@ -122,6 +124,8 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 		log.Close()
 		return nil, nil, nil, fmt.Errorf("adding built-in folders: %w", err)
 	}
+	// Each kind of AP adopted has a template (0085).
+	api.NewKinds(log)
 	conds, err := conditions.Open(*condsPath, nil)
 	if err != nil {
 		log.Close()
@@ -158,6 +162,12 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 		} else {
 			slog.Info("agent bundle", "release", own.Version, "hash", own.Hash, "dir", dir)
 			apiServer = apiServer.WithAgents(store, own)
+			// The same agent, for an AP installing from the manager (0083).
+			if in, err := installKit(*certPath, version); err != nil {
+				slog.Error("the installer: /install hands out nothing", "err", err)
+			} else {
+				apiServer = apiServer.WithInstall(in)
+			}
 		}
 	}
 	apiHandler := apiServer.Handler()
@@ -284,6 +294,20 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// installKit is what the manager hands out at /install (0083): the
+// installer, its own certificate, and LuCI's enrollment page.
+func installKit(certPath, release string) (api.Install, error) {
+	pem, err := os.ReadFile(certPath)
+	if err != nil {
+		return api.Install{}, err
+	}
+	luci, files, err := bundle.FromFSChecked(agent.LuCI, "luci", release, bundle.LuCIPathOK)
+	if err != nil {
+		return api.Install{}, err
+	}
+	return api.Install{Script: agent.WebInstall, CertPEM: pem, LuCI: luci, Files: files}, nil
 }
 
 // keepAgentReleases is how many releases' agents the manager keeps, for

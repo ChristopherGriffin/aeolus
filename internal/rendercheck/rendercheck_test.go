@@ -51,6 +51,7 @@ config wifi-device 'radio1'
 config wifi-iface 'aeolus_sweet_radio0'
 	option device 'radio0'
 	option mode 'ap'
+	option rnr '1'
 	option ssid 'Sweet Spot'
 	option encryption 'psk2+ccmp'
 	option key '` + pass + `'
@@ -61,6 +62,7 @@ config wifi-iface 'aeolus_sweet_radio0'
 config wifi-iface 'aeolus_sweet_radio1'
 	option device 'radio1'
 	option mode 'ap'
+	option rnr '1'
 	option ssid 'Sweet Spot'
 	option encryption 'psk2'
 	option key '` + pass + `'
@@ -71,6 +73,7 @@ config wifi-iface 'aeolus_sweet_radio1'
 config wifi-iface 'aeolus_sweet_iot_radio0'
 	option device 'radio0'
 	option mode 'ap'
+	option rnr '1'
 	option ssid 'Sweet_Spot_IoT'
 	option encryption 'psk2'
 	option key '` + pass + `'
@@ -730,6 +733,21 @@ config probe 'aeolus_50'
 	if got := check(strings.Replace(good, "option tunlink 'aeolus_vlan20_tunnels'", "option tunlink 'lan'", 1)); strings.Contains(got, "tunlink") || strings.Contains(got, "starts from") {
 		t.Fatalf("from management, as it should: %s", got)
 	}
+	// The VLAN the AP is managed on is its management interface's (0084):
+	// here lan, on VLAN 1 of the uplink's bridge.
+	parse(1)
+	managed := strings.Replace(good, "option tunlink 'aeolus_vlan20_tunnels'", "option tunlink 'lan'", 1)
+	managed = strings.Replace(managed, "option src 'aeolus_ul'", "option src 'lan'", 1)
+	managed = strings.Replace(managed, "\toption mtu '9000'\n", "\toption mtu '9000'\n\tlist ports 'wan'\n", 1)
+	managed += "config agent 'agent'\n\toption uplink 'wan'\n"
+	if got := check(managed); strings.Contains(got, "aeolus_50:") || strings.Contains(got, "aeolus_vxlan_50") {
+		t.Fatalf("from the VLAN it is managed on: %s", got)
+	}
+	// Off the uplink's bridge, lan is on no VLAN of the uplink: VLAN 1 is
+	// any other, and wants Aeolus's own interface.
+	if got := check(strings.Replace(managed, "\tlist ports 'wan'\n", "", 1)); !strings.Contains(got, `tunlink is "lan", want aeolus_vlan1_tunnels`) {
+		t.Fatalf("lan off the uplink's bridge: %s", got)
+	}
 }
 
 // A network with a fallback has a bridge of its own, br-n and its hash,
@@ -1266,6 +1284,15 @@ func TestRRM(t *testing.T) {
 	set := strings.NewReplacer("moves '1'", "moves '0'", "02:00-05:00", "22:30-04:00", "margin '20'", "margin '35'").Replace(section)
 	if got := check(policy, set); strings.Contains(got, "aeolus_rrm") {
 		t.Errorf("the policy set, and written: %s", got)
+	}
+	// On an AP with a scan radio, it stays off whatever the config says: its
+	// scans are the serving radios' own, which never scan there (0081).
+	scan := "package wireless\nconfig wifi-device 'radio2'\n\toption band '6g'\n\toption disabled '1'\n\toption airscan '1'\n"
+	if got := check(on, scan+section); !strings.Contains(got, "aeolus.aeolus_rrm: the AP has a scan radio, where the serving radios never scan (0081), but radio resource management's section is there") {
+		t.Errorf("on, with a scan radio and the section: %s", got)
+	}
+	if got := check(on, scan+"package aeolus\n"); strings.Contains(got, "aeolus_rrm") {
+		t.Errorf("on, with a scan radio and no section: %s", got)
 	}
 }
 

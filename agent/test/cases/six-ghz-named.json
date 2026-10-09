@@ -1,0 +1,62 @@
+{
+	"about": "A WPA2 network named on 6 GHz by its bands (0086): the renderer refuses it, so the agent applies nothing, and the manager holds the config before that. What it would render keeps it off 6 GHz all the same.",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"home": {
+				"ssid": "Home",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"bands": [
+					"5g",
+					"6g"
+				],
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": [
+		"network.home: 6 GHz takes WPA3 or OWE only, not wpa2-psk; take 6g out of its bands, or make it wpa3-sae, wpa2-wpa3 or owe"
+	],
+	"kept": [
+		"wireless.radio2",
+		"wireless.default_radio2"
+	],
+	"gone": []
+}

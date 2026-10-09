@@ -1,0 +1,75 @@
+{
+	"about": "An Arista C-360 managed on VLAN 20 (vlan20, on br-lan.20), in a folder whose concentrator starts tunnels from VLAN 20 for APs managed elsewhere (0063). Here VLAN 20 is the management VLAN, so the tunnel starts from the management interface, as with no underlay VLAN (0084): tunlink vlan20, the rule's source the management zone, and no interface of Aeolus's own on VLAN 20. The scan radio, radio2, is left alone (0081).",
+	"current": "c360-current.json",
+	"facts": {
+		"ap": "ap-30862d000001",
+		"uplink": "eth0",
+		"management": "vlan20",
+		"vxlan": true,
+		"nft_bridge": true,
+		"prober": true,
+		"veth": true,
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"bands": [
+					"2g",
+					"5g"
+				],
+				"transport": {
+					"primary": {
+						"type": "vxlan",
+						"concentrator": "arista",
+						"vni": 50
+					}
+				}
+			}
+		},
+		"concentrators": {
+			"arista": {
+				"address": "1.1.1.2",
+				"port": 4789,
+				"mtu": 1450,
+				"underlay_vlan": 20
+			}
+		}
+	},
+	"errors": [],
+	"kept": [
+		"wireless.radio2",
+		"wireless.default_radio2"
+	],
+	"gone": []
+}

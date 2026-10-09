@@ -1,6 +1,7 @@
 // A Locations node's radios, one card per band (0047): its width, offered
 // only within what every AP the node reaches can do (0044), and its channel,
-// power and on/off, each with where it comes from. A width some AP's channel
+// power and on/off, each with where it comes from, and beside each, its
+// channel map (0075, 0087). A width some AP's channel
 // cannot carry sets the channel to automatic in the same change, so each AP
 // picks one that fits (0045). A value set here can follow the folder above
 // again (0046). Whether 5 GHz avoids DFS channels is set on the channel map
@@ -16,8 +17,9 @@ const OTHER = [['channel', 'Channel'], ['power', 'Power'], ['enabled', 'Radio on
 
 // radiosSection draws the cards. report is the AP's latest state report, for
 // an AP's page; rows are the APs the node reaches, each with its config and
-// condition, for what each runs where Aeolus doesn't set it.
-export function radiosSection(ctx, node, nodeName, page, report, rows = []) {
+// condition, for what each runs where Aeolus doesn't set it. With mapFor,
+// each band's card has its channel map beside it (0087).
+export function radiosSection(ctx, node, nodeName, page, report, rows = [], mapFor = null) {
 	const hw = page.hardware;
 	if (!hw) return null;
 	const isAP = page.node.kind === 'ap';
@@ -33,7 +35,11 @@ export function radiosSection(ctx, node, nodeName, page, report, rows = []) {
 			: hw.aps.length ? `Applies to ${reach} below, unless an AP sets its own.` : 'No APs here yet.'),
 		hw.unknown.length > 0 && h('div', { class: 'banner info' },
 			`${hw.unknown.map((a) => a.name).join(', ')} never said what its radios can do, so ${hw.unknown.length === 1 ? 'it is' : 'they are'} not counted.`),
-		h('div', { class: 'bands' }, BANDS.map((band) => card(at, band, offered.get(band), reported.get(band)))),
+		mapFor
+			? BANDS.map((band) => h('div', { class: 'bandrow' },
+				card(at, band, offered.get(band), reported.get(band)),
+				offered.get(band) ? mapFor(band) : null))
+			: h('div', { class: 'bands' }, BANDS.map((band) => card(at, band, offered.get(band), reported.get(band)))),
 	];
 }
 

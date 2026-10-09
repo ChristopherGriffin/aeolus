@@ -32,6 +32,9 @@ type Result struct {
 	// Problems are the rules the config breaks; an AP whose config has
 	// problems is not sent it (0029).
 	Problems []string
+	// Template is the AP template the AP takes, if any, and what of it
+	// something else replaces (0085).
+	Template *hierarchy.TemplateUse
 }
 
 var slots = []string{"primary", "fallback"}
@@ -49,7 +52,7 @@ var slots = []string{"primary", "fallback"}
 //     enrolled, is a problem (0008), as is a 5 GHz channel Aeolus sets that
 //     cannot carry the width Aeolus sets (0045).
 func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal) (Result, error) {
-	cfg, err := s.Org.ResolveAP(ap)
+	cfg, err := s.ResolveAP(ap)
 	if err != nil {
 		return Result{}, err
 	}
@@ -166,6 +169,8 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	sort.Strings(problems)
 	problems = append(problems, sch.Problems(doc)...)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
+	problems = append(problems, keyVLANProblems(doc, s.Facts[ap])...)
+	problems = append(problems, sixGHzProblems(doc)...)
 	problems = append(problems, bondingProblems(doc)...)
 	problems = append(problems, dfsProblems(doc)...)
 	problems = append(problems, channelsProblems(doc)...)
@@ -177,7 +182,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	if problems == nil {
 		problems = []string{}
 	}
-	return Result{Doc: doc, Problems: problems}, nil
+	return Result{Doc: doc, Problems: problems, Template: cfg.Template}, nil
 }
 
 // Hostname makes an AP's name a hostname (0076): letters, digits and
@@ -240,6 +245,78 @@ func radioProblems(doc map[string]any, facts json.RawMessage) []string {
 	return out
 }
 
+// sixGHzProblems refuses a network offered on 6 GHz by name whose security
+// is not allowed there: WPA2 alone, or open (0086). A network whose bands
+// are left unset is simply not offered on 6 GHz.
+func sixGHzProblems(doc map[string]any) []string {
+	var out []string
+	nets, _ := doc["network"].(map[string]any)
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		bands, _ := n["bands"].([]any)
+		security, _ := n["security"].(string)
+		if !slices.Contains(bands, any("6g")) {
+			continue
+		}
+		if _, ok := radio.SixGHzEncryption(security); !ok {
+			out = append(out, fmt.Sprintf("network.%s: 6 GHz takes WPA3 or OWE only, not %s; take 6g out of its bands, or make it wpa3-sae, wpa2-wpa3 or owe", id, security))
+		}
+	}
+	return out
+}
+
+// keyVLANProblems refuses the VLANs a network offers its per-user keys
+// (0070) on a radio whose driver makes no AP/VLAN interfaces, by what the AP
+// reported when it enrolled (0082): hostapd would fail every network on that
+// radio. A radio reported without it, or one another service owns (0081), is
+// not checked.
+func keyVLANProblems(doc map[string]any, facts json.RawMessage) []string {
+	var f struct {
+		Radios []struct {
+			Radio    string `json:"radio"`
+			Band     string `json:"band"`
+			APVLAN   *bool  `json:"ap_vlan"`
+			Reserved bool   `json:"reserved"`
+		} `json:"radios"`
+	}
+	if len(facts) == 0 || json.Unmarshal(facts, &f) != nil {
+		return nil
+	}
+	nets, _ := doc["network"].(map[string]any)
+	var out []string
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		if n["enabled"] == false {
+			continue
+		}
+		keys, _ := n["keys"].(map[string]any)
+		if vlans, _ := keys["vlans"].([]any); len(vlans) == 0 {
+			continue
+		}
+		bands := map[string]bool{}
+		if list, ok := n["bands"].([]any); ok {
+			for _, b := range list {
+				if s, ok := b.(string); ok {
+					bands[s] = true
+				}
+			}
+		}
+		security, _ := n["security"].(string)
+		_, onSix := radio.SixGHzEncryption(security)
+		var cannot []string
+		for _, r := range f.Radios {
+			if r.Reserved || r.APVLAN == nil || *r.APVLAN || (len(bands) > 0 && !bands[r.Band]) || (r.Band == "6g" && !onSix) {
+				continue
+			}
+			cannot = append(cannot, r.Radio)
+		}
+		if len(cannot) > 0 {
+			out = append(out, fmt.Sprintf("network.%s.keys.vlans: %s cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs", id, strings.Join(cannot, ", ")))
+		}
+	}
+	return out
+}
+
 // bondingProblems refuses a channel and width, both set by Aeolus, that do
 // not fit together (0045). A channel the AP picks itself is left to the
 // render check (0044).
@@ -284,30 +361,44 @@ func dfsProblems(doc map[string]any) []string {
 }
 
 // channelsProblems refuses a set of channels an automatic channel may be
-// (0075) that leaves the radio nowhere to go: on 5 GHz, no block of the
-// width wholly in the set, or none outside DFS while it is avoided.
+// (0075) that leaves the radio nowhere to go: on 5 and 6 GHz, no block of
+// the width wholly in the set, or on 5 GHz none outside DFS while it is
+// avoided, or on 6 GHz no preferred scanning channel in one while only
+// those may be used (0087). A channel set by hand that is not a preferred
+// scanning channel is refused then too.
 func channelsProblems(doc map[string]any) []string {
 	radios, _ := doc["radio"].(map[string]any)
 	var out []string
 	for _, band := range sortedKeys(radios) {
 		set, _ := radios[band].(map[string]any)
-		list, ok := set["channels"].([]any)
-		if !ok || band != "5g" {
-			continue
+		psc := band == "6g" && set["psc"] == true
+		spread := band == "6g" && set["non_overlapping"] == true
+		if ch, ok := set["channel"].(float64); psc && ok && !radio.PSC(int(ch)) {
+			out = append(out, fmt.Sprintf("radio.6g.channel: %d is not a preferred scanning channel (5, 21, 37 and every 16th to 229), and radio.6g.psc is on", int(ch)))
 		}
+		list, ok := set["channels"].([]any)
 		var chans []int
-		for _, c := range list {
-			if f, ok := c.(float64); ok {
-				chans = append(chans, int(f))
+		switch {
+		case ok && (band == "5g" || band == "6g"):
+			for _, c := range list {
+				if f, ok := c.(float64); ok {
+					chans = append(chans, int(f))
+				}
 			}
+		case psc || spread:
+			chans = radio.Channels6
+		default:
+			continue
 		}
 		w, _ := set["width"].(float64)
 		width := max(20, int(w))
-		avoid := set["dfs"] == "avoid"
-		if len(radio.Whole(band, chans, width, avoid)) > 0 {
+		avoid := band == "5g" && set["dfs"] == "avoid"
+		if len(radio.Usable(band, chans, width, avoid, psc, spread)) > 0 {
 			continue
 		}
 		switch {
+		case psc:
+			out = append(out, fmt.Sprintf("radio.6g.channels: no preferred scanning channel is in a whole %d MHz block of the set, and radio.6g.psc is on", width))
 		case avoid:
 			out = append(out, fmt.Sprintf("radio.%s.channels: no %d MHz block outside DFS is wholly in the set, and radio.%s.dfs is avoid", band, width, band))
 		default:

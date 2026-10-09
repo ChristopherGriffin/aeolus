@@ -366,7 +366,7 @@ func fingerprints(s *change.State) map[hierarchy.NodeID]fingerprint {
 	}
 	o := s.Org
 	for _, ap := range o.Locations.APs() {
-		cfg, err := o.ResolveAP(ap)
+		cfg, err := s.ResolveAP(ap) // with its template (0085)
 		if err != nil {
 			out[ap] = fingerprint{err: err}
 			continue

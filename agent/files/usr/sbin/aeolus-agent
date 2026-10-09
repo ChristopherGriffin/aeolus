@@ -212,8 +212,14 @@ function has_bss_transition() {
 	return methods ? 'bss_transition_request' in methods : null;
 }
 
+// installed says whether an OpenWrt package is installed: by apk, or by
+// opkg before OpenWrt 25.12 (0083). pkg is one of the agent's own names.
+function installed(pkg) {
+	return system(`{ apk info -e ${pkg} || opkg status ${pkg} | grep -q '^Status:.* installed'; } >/dev/null 2>&1`) == 0;
+}
+
 function has_nft_bridge() {
-	return system('apk info -e kmod-nft-bridge >/dev/null 2>&1') == 0;
+	return installed('kmod-nft-bridge');
 }
 
 // has_prober says whether the prober can run: it needs ucode's socket
@@ -225,7 +231,7 @@ function has_prober() {
 // has_veth says whether kmod-veth is installed, which a network with a
 // fallback needs for a VLAN transport (0061).
 function has_veth() {
-	return system('apk info -e kmod-veth >/dev/null 2>&1') == 0;
+	return installed('kmod-veth');
 }
 
 // write_clamp makes the MSS clamp's file from the network config (0054) and
@@ -261,12 +267,38 @@ function macs() {
 	return slice(out, 0, 32);
 }
 
+// ap_vlan says whether a radio's driver makes AP/VLAN interfaces, which
+// hostapd puts a per-user key's clients in their VLAN with (0070, 0082):
+// ath11k's radios have none. null when iw is missing or lists no modes.
+function ap_vlan(phy) {
+	let modes = null;
+	for (let line in split(run(`iw phy ${phy} info 2>/dev/null`), '\n')) {
+		if (match(line, /^[ \t]*Supported interface modes:/)) {
+			modes = [];
+			continue;
+		}
+		if (modes == null)
+			continue;
+		let m = match(line, /^[ \t]+\* (.+)$/);
+		if (!m)
+			break;
+		push(modes, trim(m[1]));
+	}
+	return modes == null ? null : index(modes, 'AP/VLAN') >= 0;
+}
+
 function radio_list() {
 	let out = [];
 	cursor().foreach('wireless', 'wifi-device', s => {
 		let phy = run(`iwinfo nl80211 phyname ${s['.name']}`);
-		let info = match(phy, /^phy[0-9]+$/) ? bus.call('iwinfo', 'info', { device: phy }) : null;
-		push(out, { radio: s['.name'], band: s.band, htmodes: info?.htmodes ?? [] });
+		let ok = match(phy, /^phy[0-9]+$/);
+		let info = ok ? bus.call('iwinfo', 'info', { device: phy }) : null;
+		push(out, {
+			radio: s['.name'], band: s.band, htmodes: info?.htmodes ?? [],
+			ap_vlan: ok ? ap_vlan(phy) : null,
+			// a radio another service owns, which Aeolus leaves alone (0081)
+			reserved: s.airscan == '1',
+		});
 	});
 	return out;
 }
@@ -305,7 +337,7 @@ function posix_tz(zone) {
 function render_facts(intent, ap) {
 	let radios = {};
 	for (let r in radio_list())
-		radios[r.radio] = { htmodes: r.htmodes };
+		radios[r.radio] = { htmodes: r.htmodes, ap_vlan: r.ap_vlan };
 	return {
 		uplink: settings().uplink, management: mgmt_interface(), radios: radios,
 		timezone: posix_tz(intent.system?.tz), vxlan: vxlan_loaded(), nft_bridge: has_nft_bridge(),

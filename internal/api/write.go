@@ -2,13 +2,26 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
+	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
+
+// NewKinds gives each kind of AP adopted that no template is for a template
+// of its own, empty, at the Org, in the manager's name (0085). The manager
+// runs it when it starts, and after each change, which may have adopted one.
+func NewKinds(log *changelog.Log) {
+	for _, op := range change.NewKinds(log.Snapshot()) {
+		if _, err := log.Commit(change.SystemActor, "a new kind of AP adopted (0085)", op); err != nil {
+			slog.Warn("the template of a new kind of AP", "board", op.Boards, "err", err)
+		}
+	}
+}
 
 type changeRequest struct {
 	Op     change.Op `json:"op"`
@@ -26,6 +39,25 @@ func (s *Server) prepare(op change.Op) (change.Op, error) {
 		return op, badRequest("the Org is created on the manager host with aeolus init")
 	case change.IssueToken:
 		return op, badRequest("tokens are issued with POST /v1/tokens")
+	case change.SetConcentrator, change.RemoveConcentrator, change.SetVNI, change.RemoveVNI:
+		return op, badRequest("the library's concentrators are retired (0085): a tunnel is set in Interfaces, as concentrators.<name> on a folder or AP (0055)")
+	case change.SetTemplate:
+		// A template's values are Locations fields, checked and sealed as
+		// they are (0085).
+		if len(op.Values) == 0 {
+			v, err := s.prepareValue(change.Locations, op.Path, op.Value)
+			op.Value = v
+			return op, err
+		}
+		values := make(map[hierarchy.Path]json.RawMessage, len(op.Values))
+		for p, raw := range op.Values {
+			v, err := s.prepareValue(change.Locations, p, raw)
+			if err != nil {
+				return op, err
+			}
+			values[p] = v
+		}
+		op.Values = values
 	case change.Set:
 		if len(op.Values) == 0 {
 			v, err := s.prepareValue(op.Tree, op.Path, op.Value)
@@ -87,6 +119,9 @@ func (s *Server) commit(w http.ResponseWriter, r *http.Request, c call) error {
 	}
 	after := s.log.Snapshot()
 	reversioned := s.reversioned(after, e.Seq)
+	if op.Kind == change.Move {
+		NewKinds(s.log) // an adoption, perhaps; its template changes no AP's config
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"change":      viewEntry(e),
 		"reversioned": reversioned,

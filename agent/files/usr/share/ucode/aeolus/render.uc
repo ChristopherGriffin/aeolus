@@ -13,7 +13,9 @@
 // settings. It takes OpenWrt's internet pool out of the time servers, and
 // adds to dnsmasq's rebind_domain the names it uses on the AP (0069). A
 // section it did not create is never otherwise edited, or removed; nor are
-// the key agent's wifi-station sections, which hold per-user keys (0070).
+// the key agent's wifi-station sections, which hold per-user keys (0070). A
+// radio another service owns, such as airscan's scan radio, is left alone
+// altogether (0081).
 
 'use strict';
 
@@ -32,6 +34,9 @@ const ENCRYPTION = {
 	'open': 'none', 'owe': 'owe', 'wpa2-psk': 'psk2', 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae-mixed',
 };
 const NEEDS_KEY = { 'wpa2-psk': true, 'wpa3-sae': true, 'wpa2-wpa3': true };
+// 6 GHz takes WPA3 and OWE only (0086): a network in WPA2/WPA3 transition is
+// WPA3 alone there, and one that is WPA2 or open is not offered there.
+const SIX_GHZ = { 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae', 'owe': 'owe' };
 
 // The htmode families each band can use, best first.
 const FAMILIES = { '2g': ['EHT', 'HE', 'HT'], '5g': ['EHT', 'HE', 'VHT', 'HT'], '6g': ['EHT', 'HE'] };
@@ -108,32 +113,105 @@ const BLOCKS5 = {
 	'160': [[36, 64], [100, 128]],
 };
 
+// BLOCKS6 are the 6 GHz channels joined at each width, 1–233, as
+// internal/radio has them (0087): a 40 MHz block every 8, 80 every 16, 160
+// every 32, and two families of 320 that overlap by 160.
+const BLOCKS6 = (() => {
+	let b = { '40': [], '80': [], '160': [], '320': [] };
+	for (let w in [[40, 8, 229], [80, 16, 221], [160, 32, 221]])
+		for (let lo = 1; lo + w[1] - 4 <= w[2]; lo += w[1])
+			push(b['' + w[0]], [lo, lo + w[1] - 4]);
+	for (let lo in [1, 33, 65, 97, 129, 161])
+		push(b['320'], [lo, lo + 60]);
+	return b;
+})();
+
+// CHANNELS6 are 6 GHz's 20 MHz channels, 1–233.
+const CHANNELS6 = (() => {
+	let out = [];
+	for (let c = 1; c <= 233; c += 4)
+		push(out, c);
+	return out;
+})();
+
+// psc says whether a 6 GHz channel is a preferred scanning channel: 5, 21,
+// 37 and every 16th to 229, where clients look for 6 GHz networks (0087).
+function psc(c) {
+	return c >= 5 && c <= 229 && (c - 5) % 16 == 0;
+}
+
 // whole keeps, of the channels an automatic channel may be (0075), those a
-// radio at width can use: on 5 GHz at 40 MHz or more, the blocks wholly in
-// the set, as hostapd checks only a block's primary channel against its
-// list. Sorted, as strings for UCI.
+// radio at width can use: on 5 and 6 GHz at 40 MHz or more, the blocks
+// wholly in the set, as hostapd checks only a block's primary channel
+// against its list. Sorted, without repeats, as strings for UCI.
 function whole(band, set, width) {
 	let have = {};
 	for (let c in set)
 		have['' + c] = true;
+	let blocks = band == '5g' ? BLOCKS5['' + width] : band == '6g' ? BLOCKS6['' + width] : null;
 	let out = [];
-	if (band != '5g' || width <= 20)
+	if (!blocks || width <= 20)
 		out = map(keys(have), c => +c);
 	else
-		for (let b in BLOCKS5['' + width] ?? []) {
+		for (let b in blocks) {
 			let all = true;
 			for (let c = b[0]; c <= b[1]; c += 4)
 				all = all && have['' + c];
 			if (all)
 				for (let c = b[0]; c <= b[1]; c += 4)
-					push(out, c);
+					if (index(out, c) < 0)
+						push(out, c);
 		}
 	return map(sort(out, (a, b) => a - b), c => '' + c);
+}
+
+// usable is what an automatic channel may be, as internal/radio's Usable
+// has it (0075, 0087): the set's whole blocks at the width; on 6 GHz, with
+// only_psc, preferred scanning channels alone; and with spread, one channel
+// to a block, the blocks apart, so radios on different channels never share
+// one. As strings for UCI.
+function usable(band, set, width, only_psc, spread) {
+	let list = map(whole(band, set, width), c => +c);
+	only_psc = only_psc && band == '6g';
+	let ok = c => !only_psc || psc(c);
+	let blocks = band == '5g' ? BLOCKS5['' + width] : band == '6g' ? BLOCKS6['' + width] : null;
+	let out = [];
+	if (!spread || !blocks || width <= 20)
+		out = filter(list, ok);
+	else {
+		let last = 0;
+		for (let b in sort([...blocks], (x, y) => x[0] - y[0])) {
+			if (b[0] <= last || index(list, b[0]) < 0 || index(list, b[1]) < 0)
+				continue;
+			for (let c = b[0]; c <= b[1]; c += 4)
+				if (ok(c)) {
+					push(out, c);
+					last = b[1];
+					break;
+				}
+		}
+	}
+	return map(out, c => '' + c);
+}
+
+// reserved says another service on the AP owns a radio, and Aeolus leaves it
+// alone (0081): no radio settings, no networks. airscan marks the dedicated
+// scan radio it takes out of netifd's hands (option airscan '1').
+function reserved(s) {
+	return s.airscan == '1';
+}
+
+// scan_radio says the AP has a radio another service owns, a scan radio
+// that serves no clients: there its serving radios never scan (0081).
+function scan_radio(w) {
+	return length(filter(of_type(w, 'wifi-device'), reserved)) > 0;
 }
 
 function radios(w, intent, facts) {
 	let country = intent.system?.country;
 	for (let s in of_type(w, 'wifi-device')) {
+		if (reserved(s))
+			continue;
 		let set = intent.radio?.[s.band] ?? {};
 		if (country != null)
 			s.country = country;
@@ -146,8 +224,13 @@ function radios(w, intent, facts) {
 			// An automatic channel is one of the set's (0075), at the radio's
 			// width; unset, on 2.4 GHz, one of 1, 6 and 11, the only ones that
 			// do not overlap (0045).
+			// On 6 GHz, it may be kept to preferred scanning channels, and to
+			// one channel a block (0087).
 			let width = int(match(s.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
-			let list = set.channel != 'auto' ? [] : set.channels ? whole(s.band, set.channels, width) : s.band == '2g' ? ['1', '6', '11'] : [];
+			let only_psc = s.band == '6g' && set.psc === true;
+			let spread = s.band == '6g' && set.non_overlapping === true;
+			let base = set.channels ?? (only_psc || spread ? CHANNELS6 : null);
+			let list = set.channel != 'auto' ? [] : base ? usable(s.band, base, width, only_psc, spread) : s.band == '2g' ? ['1', '6', '11'] : [];
 			if (length(list))
 				s.channels = list;
 			else
@@ -203,13 +286,17 @@ function ensure_vlan(n, bridge, uplink, vlan, keep) {
 	return n[name];
 }
 
-function iface_options(net, radio, network, btm) {
+function iface_options(net, radio, band, network, btm) {
 	let o = {
 		device: radio, mode: 'ap', network: network, ssid: net.ssid,
-		encryption: ENCRYPTION[net.security] ?? 'none',
+		encryption: (band == '6g' ? SIX_GHZ[net.security] : null) ?? ENCRYPTION[net.security] ?? 'none',
 	};
 	if (NEEDS_KEY[net.security])
 		o.key = net.passphrase;
+	// Every network's beacons list the AP's other networks, on every band,
+	// in a Reduced Neighbor Report, so a client hearing one band learns the
+	// others: a phone on 5 GHz finds 6 GHz this way (0087).
+	o.rnr = '1';
 	if (net.hidden)
 		o.hidden = '1';
 	if (net.isolation)
@@ -246,10 +333,6 @@ function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
 	if (!bridge)
 		return null;
 	let device = `${bridge}.${vlan}`;
-	if (n[facts.management]?.device == device) {
-		push(errors, `${where}: VLAN ${vlan} is the management VLAN here, which tunnels start from anyway; set it to the management VLAN`);
-		return null;
-	}
 	ensure_vlan(n, bridge, facts.uplink, vlan, keep);
 	let name = `aeolus_vlan${vlan}_tunnels`;
 	put(n, name, 'interface', { proto: 'dhcp', device: device, ip4table: START_TABLE + vlan, peerdns: 0 });
@@ -260,6 +343,13 @@ function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
 	put(fw, 'aeolus_zone_ul', 'zone', { name: START_ZONE, input: 'REJECT', output: 'ACCEPT', forward: 'REJECT', network: nets });
 	keep.aeolus_zone_ul = true;
 	return name;
+}
+
+// managed_on says whether the AP is managed on VLAN vlan of the uplink: its
+// management interface is that VLAN of the uplink's bridge.
+function managed_on(n, vlan, facts) {
+	let bridge = uplink_bridge(n, facts.uplink, []);
+	return bridge != null && n[facts.management]?.device == `${bridge}.${vlan}`;
 }
 
 // tunnel renders a VXLAN transport (0054): an interface named for the VNI,
@@ -284,9 +374,11 @@ function tunnel(cfg, where, standby, t, conc, facts, errors, keep, bridged) {
 		push(errors, `${where}: the AP's management interface is not known`);
 		return null;
 	}
-	// Where it starts: the management interface, or a VLAN (0063).
+	// Where it starts: the management interface, or a VLAN (0063). The VLAN
+	// the AP is managed on is its management interface's, so one value fits
+	// APs managed on different VLANs (0084).
 	let from = facts.management, zone = null;
-	if (conc.underlay_vlan) {
+	if (conc.underlay_vlan && !managed_on(n, conc.underlay_vlan, facts)) {
 		if (six) {
 			push(errors, `${where}: a tunnel to an IPv6 concentrator starts from the management VLAN for now (0063)`);
 			return null;
@@ -458,15 +550,29 @@ function networks(cfg, intent, facts, errors, keep) {
 			push(errors, `network.${id}: band steering and BSS transition need 802.11v, which this AP's hostapd lacks (install wpad-mbedtls)`);
 			btm = false;
 		}
-		let names = [];
+		// Named on 6 GHz, a network 6 GHz does not take is refused; left to
+		// every band, it is not offered there (0086).
+		if (!SIX_GHZ[net.security] && index(net.bands ?? [], '6g') >= 0)
+			push(errors, `network.${id}: 6 GHz takes WPA3 or OWE only, not ${net.security}; take 6g out of its bands, or make it wpa3-sae, wpa2-wpa3 or owe`);
+		let names = [], no_ap_vlan = [];
 		for (let d in of_type(w, 'wifi-device')) {
-			if (net.bands && index(net.bands, d.band) < 0)
+			if (reserved(d) || (net.bands && index(net.bands, d.band) < 0))
+				continue;
+			if (d.band == '6g' && !SIX_GHZ[net.security])
 				continue;
 			let name = iface_name(id, d['.name']);
-			put(w, name, 'wifi-iface', iface_options(net, d['.name'], iface, btm));
+			put(w, name, 'wifi-iface', iface_options(net, d['.name'], d.band, iface, btm));
 			keep[name] = true;
 			push(names, name);
+			if (facts.radios?.[d['.name']]?.ap_vlan === false)
+				push(no_ap_vlan, d['.name']);
 		}
+		// A key's VLAN is an AP/VLAN interface hostapd makes for its clients.
+		// On a radio whose driver makes none (ath11k), hostapd fails every
+		// network on the radio, and the apply is reverted (0082): refused here
+		// instead, before anything is applied.
+		if (length(net.keys?.vlans ?? []) && length(no_ap_vlan))
+			push(errors, `network.${id}.keys.vlans: ${join(', ', no_ap_vlan)} cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs`);
 		// The VLANs the network's per-user keys may put clients in (0070):
 		// each tagged on the uplink, an interface on it, and a wifi-vlan on
 		// the network's Wi-Fi. hostapd makes the VLAN's Wi-Fi interface,
@@ -783,10 +889,11 @@ function watches(cfg, intent, facts, keep) {
 // rrm turns radio resource management on (0073): the agent's daemon then
 // advertises this AP in its beacons, keeps neighbours with the others, and
 // moves its radios as the policy says, defaults written out. Off, there is
-// no section, and the daemon stays idle.
-function rrm(a, intent, facts, keep) {
+// no section, and the daemon stays idle. It stays off on an AP with a scan
+// radio (0081): its scans are the serving radios' own, which there never scan.
+function rrm(a, w, intent, facts, keep) {
 	let r = intent.rrm;
-	if (r?.enabled != true)
+	if (r?.enabled != true || scan_radio(w))
 		return;
 	// Power control (0077) runs in the same daemon, with RRM's neighbours.
 	let p = intent.apc?.enabled == true ? intent.apc : null;
@@ -1033,7 +1140,7 @@ function render(intent, current, facts) {
 				delete pkg[k];
 	probes(cfg, intent, facts ?? {}, keep);
 	watches(cfg, intent, facts ?? {}, keep);
-	rrm(cfg.aeolus, intent, facts ?? {}, keep);
+	rrm(cfg.aeolus, cfg.wireless, intent, facts ?? {}, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
 			delete cfg.aeolus[k];

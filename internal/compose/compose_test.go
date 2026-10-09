@@ -385,6 +385,57 @@ func TestWidthTheRadioCannotDoIsAProblem(t *testing.T) {
 	}
 }
 
+// A key's VLAN is an AP/VLAN interface: on a radio whose driver makes none,
+// hostapd fails every network on it, so the config is refused (0082).
+func TestKeyVLANsNeedAPVLANInterfaces(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("network.sweet.security", "wpa2-psk")
+	set("network.sweet.keys.vlans", []int{50})
+	keyProblems := func() []string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		var out []string
+		for _, p := range res.Problems {
+			if strings.HasPrefix(p, "network.sweet.keys.vlans:") {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	// radio0 has no AP/VLAN interfaces (ath11k); radio1 has; radio2 is the
+	// scan radio another service owns (0081); radio3 said nothing.
+	s.Facts["gate-ap"] = json.RawMessage(`{"radios":[
+		{"radio":"radio0","band":"5g","htmodes":["HE80"],"ap_vlan":false},
+		{"radio":"radio1","band":"2g","htmodes":["HE20"],"ap_vlan":true},
+		{"radio":"radio2","band":"6g","htmodes":["HE80"],"ap_vlan":false,"reserved":true},
+		{"radio":"radio3","band":"6g","htmodes":["HE80"]}]}`)
+	want := "network.sweet.keys.vlans: radio0 cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs"
+	if got := keyProblems(); len(got) != 1 || got[0] != want {
+		t.Fatalf("problems = %v", got)
+	}
+	// Offered only where every radio can, it is not a problem.
+	set("network.sweet.bands", []string{"2g", "6g"})
+	if got := keyProblems(); len(got) != 0 {
+		t.Fatalf("on 2g and 6g: %v", got)
+	}
+	set("network.sweet.bands", []string{"5g"})
+	if got := keyProblems(); len(got) != 1 {
+		t.Fatalf("on 5g: %v", got)
+	}
+	// An AP that reported nothing about its radios is not judged.
+	s.Facts["gate-ap"] = nil
+	if got := keyProblems(); len(got) != 0 {
+		t.Fatalf("without facts: %v", got)
+	}
+}
+
 func TestSNMPNeedsAWayIn(t *testing.T) {
 	s, sch := site(t)
 	set := func(path string, v any) {
@@ -723,5 +774,96 @@ func TestTheAPsNameIsItsHostname(t *testing.T) {
 		if got := Hostname(name); got != want {
 			t.Errorf("Hostname(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+// 6 GHz takes WPA3 and OWE only (0086): a network named on 6 GHz that is
+// WPA2 or open is a problem; one whose bands are unset is simply not
+// offered there, and nothing is said.
+func TestSixGHzTakesWPA3OrOWE(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sixProblems := func() []string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		var out []string
+		for _, p := range res.Problems {
+			if strings.Contains(p, "6 GHz") {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	set("network.sweet.security", "wpa2-psk")
+	if got := sixProblems(); len(got) != 0 {
+		t.Fatalf("bands unset: %v", got)
+	}
+	set("network.sweet.bands", []string{"5g", "6g"})
+	want := "network.sweet: 6 GHz takes WPA3 or OWE only, not wpa2-psk; take 6g out of its bands, or make it wpa3-sae, wpa2-wpa3 or owe"
+	if got := sixProblems(); len(got) != 1 || got[0] != want {
+		t.Fatalf("WPA2 named on 6 GHz: %v", got)
+	}
+	for _, ok := range []string{"wpa2-wpa3", "wpa3-sae", "owe"} {
+		set("network.sweet.security", ok)
+		if got := sixProblems(); len(got) != 0 {
+			t.Fatalf("%s on 6 GHz: %v", ok, got)
+		}
+	}
+	set("network.sweet.security", "open")
+	if got := sixProblems(); len(got) != 1 {
+		t.Fatalf("open named on 6 GHz: %v", got)
+	}
+}
+
+// 6 GHz channels (0087): with preferred scanning channels only, a channel
+// set by hand must be one, and the set must leave one in a whole block.
+func TestSixGHzChannels(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() []string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		var out []string
+		for _, p := range res.Problems {
+			if strings.HasPrefix(p, "radio.6g.") {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	set("radio.6g.width", 160)
+	set("radio.6g.channel", 1)
+	if got := problems(); len(got) != 0 {
+		t.Fatalf("channel 1 at 160 MHz: %v", got)
+	}
+	set("radio.6g.psc", true)
+	if got := problems(); len(got) != 1 || !strings.Contains(got[0], "1 is not a preferred scanning channel") {
+		t.Fatalf("channel 1, psc: %v", got)
+	}
+	set("radio.6g.channel", "auto")
+	set("radio.6g.non_overlapping", true)
+	if got := problems(); len(got) != 0 {
+		t.Fatalf("automatic, psc, one to a block: %v", got)
+	}
+	// 1-13 is no whole 160 MHz block.
+	set("radio.6g.channels", []int{1, 5, 9, 13})
+	if got := problems(); len(got) != 1 || !strings.Contains(got[0], "no preferred scanning channel is in a whole 160 MHz block") {
+		t.Fatalf("a set with no whole block: %v", got)
+	}
+	set("radio.6g.width", 80)
+	if got := problems(); len(got) != 0 {
+		t.Fatalf("1-13 at 80 MHz: %v", got)
 	}
 }

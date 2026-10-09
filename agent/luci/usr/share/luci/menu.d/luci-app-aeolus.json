@@ -1,0 +1,13 @@
+{
+	"admin/services/aeolus": {
+		"title": "Aeolus",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "aeolus/enroll"
+		},
+		"depends": {
+			"acl": [ "luci-app-aeolus" ]
+		}
+	}
+}

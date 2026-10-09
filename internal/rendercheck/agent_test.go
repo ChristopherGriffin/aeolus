@@ -33,6 +33,10 @@ type agentCase struct {
 	Facts   struct {
 		AP string `json:"ap"` // the AP it renders for, whose segment MACs are checked (0060)
 	} `json:"facts"`
+	// The renderer's errors, which make the agent refuse the config: with
+	// "errors" in a case, exactly these, in order; without, they are not
+	// checked.
+	Errors *[]string `json:"errors"`
 	golden string
 }
 
@@ -87,6 +91,59 @@ func TestAgentOutputPassesTheCheck(t *testing.T) {
 				t.Errorf("%s: %s was kept", c.name, ref)
 			}
 		}
+	}
+}
+
+// A radio another service owns, airscan's scan radio, comes out exactly as
+// it went in: no radio settings and no network on it (0081).
+func TestAgentLeavesReservedRadiosAlone(t *testing.T) {
+	seen := 0
+	for _, c := range agentCases(t) {
+		raw, err := os.ReadFile(filepath.Join(agentDir, "test", c.Current))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var current map[string]map[string]map[string]any
+		if err := json.Unmarshal(raw, &current); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := uci.Parse(c.golden)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		w := cfg.Package("wireless")
+		for name, s := range current["wireless"] {
+			if s[".type"] != "wifi-device" || s["airscan"] != "1" {
+				continue
+			}
+			seen++
+			got := w.Named(name)
+			if got == nil {
+				t.Errorf("%s: reserved radio %s was removed", c.name, name)
+				continue
+			}
+			for k, v := range s {
+				if strings.HasPrefix(k, ".") {
+					continue
+				}
+				if have, _ := got.Option(k); have != v {
+					t.Errorf("%s: reserved radio %s: %s is %q, want %v", c.name, name, k, have, v)
+				}
+			}
+			for _, k := range got.Names() {
+				if _, ok := s[k]; !ok {
+					t.Errorf("%s: reserved radio %s gained %s", c.name, name, k)
+				}
+			}
+			for _, iface := range w.OfType("wifi-iface") {
+				if dev, _ := iface.Option("device"); dev == name && strings.HasPrefix(iface.Name, "aeolus_") {
+					t.Errorf("%s: %s puts a network on reserved radio %s", c.name, iface.Name, name)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no test case has a reserved radio")
 	}
 }
 
@@ -229,6 +286,17 @@ func TestAgentRendersItsOutput(t *testing.T) {
 		}
 		if string(out) != c.golden {
 			t.Errorf("%s: the agent renders something else than %s.uci:\n%s", c.name, c.name, out)
+		}
+		if c.Errors != nil {
+			var got []string
+			for _, line := range strings.Split(stderr.String(), "\n") {
+				if e, ok := strings.CutPrefix(line, "render: "); ok {
+					got = append(got, e)
+				}
+			}
+			if strings.Join(got, "\n") != strings.Join(*c.Errors, "\n") {
+				t.Errorf("%s: the renderer's errors are\n%s\nwant\n%s", c.name, strings.Join(got, "\n"), strings.Join(*c.Errors, "\n"))
+			}
 		}
 		// The MSS clamp's file, made from the rendered tunnels (0054).
 		want, err := os.ReadFile(filepath.Join(agentDir, "test", "cases", c.name+".nft"))

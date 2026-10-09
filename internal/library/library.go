@@ -1,6 +1,7 @@
 // Package library holds the Org's library of reusable definitions (0015):
-// concentrators, each with its labeled VNIs, and the Location folders each may
-// be used at (0023). It is part of the state the change log rebuilds.
+// AP templates (0085). It also keeps the concentrators of 0023, retired, so a
+// change log from before 0055 still replays. It is part of the state the
+// change log rebuilds.
 package library
 
 import (
@@ -30,19 +31,25 @@ var (
 	ErrNoLabel        = errors.New("a VNI needs a label")
 )
 
-// Library is the set of concentrators.
+// Library is the set of AP templates, and of retired concentrators.
 type Library struct {
 	concentrators map[string]*Concentrator
+	templates     map[string]*Template
 }
 
 // New returns an empty library.
-func New() *Library { return &Library{concentrators: map[string]*Concentrator{}} }
+func New() *Library {
+	return &Library{concentrators: map[string]*Concentrator{}, templates: map[string]*Template{}}
+}
 
 // Clone returns an independent copy.
 func (l *Library) Clone() *Library {
 	c := New()
 	for id, k := range l.concentrators {
 		c.concentrators[id] = copyOf(k)
+	}
+	for id, t := range l.templates {
+		c.templates[id] = copyTemplate(t)
 	}
 	return c
 }

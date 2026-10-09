@@ -1,0 +1,4 @@
+/www/luci-static/resources/view/aeolus/
+/usr/share/luci/menu.d/luci-app-aeolus.json
+/usr/share/rpcd/acl.d/luci-app-aeolus.json
+/lib/upgrade/keep.d/luci-app-aeolus

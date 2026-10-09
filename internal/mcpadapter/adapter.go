@@ -97,11 +97,11 @@ func (c client) call(ctx context.Context, method, path string, body any) (any, e
 
 // Op is a change, as the model writes it.
 type Op struct {
-	Kind     string         `json:"kind" jsonschema:"one of: add-folder, add-ap, remove-ap, move, set, unset, lock, unlock, break-hierarchy, assign-services, add-account, grant, revoke, revoke-token, set-concentrator, remove-concentrator, set-vni, remove-vni, add-key, set-key, remove-key"`
+	Kind     string         `json:"kind" jsonschema:"one of: add-folder, add-ap, remove-ap, move, set, unset, lock, unlock, break-hierarchy, assign-services, add-account, grant, revoke, revoke-token, add-key, set-key, remove-key, add-template, edit-template, set-template, unset-template, remove-template. The library's concentrator kinds are retired (0085)."`
 	Tree     string         `json:"tree,omitempty" jsonschema:"locations or services"`
 	Node     string         `json:"node,omitempty" jsonschema:"the folder or AP the change targets; for add-folder and add-ap, the new node's ID"`
-	Parent   string         `json:"parent,omitempty" jsonschema:"parent folder, for add-folder, add-ap and move"`
-	Name     string         `json:"name,omitempty" jsonschema:"display name, for add-folder, add-ap and add-account"`
+	Parent   string         `json:"parent,omitempty" jsonschema:"parent folder, for add-folder, add-ap and move; for add-template, the Locations folder (or the Org) it is made at, offered there and below"`
+	Name     string         `json:"name,omitempty" jsonschema:"display name, for add-folder, add-ap, add-account, add-template and edit-template"`
 	Path     string         `json:"path,omitempty" jsonschema:"field path, e.g. radio.5g.width or network.sweet.transport.primary.vlan"`
 	Value    any            `json:"value,omitempty" jsonschema:"the field's new value, for set; for set-concentrator the definition {name, address, port, mtu, scope}; for add-key and set-key the key {name, passphrase, vlan, macs, expires}, its passphrase in plain text, which the manager seals (set-key may leave it out to keep it)"`
 	Values   map[string]any `json:"values,omitempty" jsonschema:"several fields of one node to set together, for set, in place of path and value: {path: value}; all or none are set"`
@@ -111,11 +111,19 @@ type Op struct {
 	Role     string         `json:"role,omitempty" jsonschema:"viewer, operator or admin, for grant and revoke"`
 	TokenID  string         `json:"token_id,omitempty" jsonschema:"token ID, for revoke-token"`
 
-	Concentrator string `json:"concentrator,omitempty" jsonschema:"library concentrator ID, for the concentrator and VNI kinds"`
-	VNI          int    `json:"vni,omitempty" jsonschema:"VNI number, for set-vni and remove-vni (its label goes in name)"`
+	Concentrator string `json:"concentrator,omitempty" jsonschema:"retired: the library's concentrators take no new changes (0085)"`
+	VNI          int    `json:"vni,omitempty" jsonschema:"retired, with the library's concentrators (0085)"`
+
+	Template string   `json:"template,omitempty" jsonschema:"for the template kinds: the AP template's ID (0085); for set-template and unset-template its fields go in path and value, values or paths, as for set and unset, and are Locations fields of radio, ports, system (not system.agent), rrm and apc. A folder picks a template for a board with set, path templates.<board>, value the template's ID"`
+	Boards   []string `json:"boards,omitempty" jsonschema:"for add-template and edit-template: the boards it is for, as OpenWrt names them (arista,c360)"`
+	Default  bool     `json:"default,omitempty" jsonschema:"for add-template: also pick it where it is made, for each of its boards nothing is picked for there"`
 
 	Network string `json:"network,omitempty" jsonschema:"for the key kinds: the network, as the Services folder in node offers it"`
 	Key     string `json:"key,omitempty" jsonschema:"for the key kinds: the key's ID; add-key makes one if it is left out"`
+}
+
+type libraryIn struct {
+	At string `json:"at,omitempty" jsonschema:"a Locations node: list the templates offered there"`
 }
 
 type keysIn struct {
@@ -181,9 +189,13 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", "/v1/aps/"+url.PathEscape(in.AP)+"/history", nil)
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "get_library", Description: "The Org's library of concentrators and their labeled VNIs, which is shelved (0055): nothing uses it. Tunnels are Location fields instead, concentrators.<name>.address, .port and .mtu, set with make_change, and a network transport's concentrator names one.", Annotations: readOnly},
-		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, any, error) {
-			out, err := c.call(ctx, "GET", "/v1/library", nil)
+	mcp.AddTool(s, &mcp.Tool{Name: "get_library", Description: "The Org's library: AP templates (0085). A template is a named set of Locations settings for the APs of one or more boards (arista,c360), made at the Org or a folder and offered there and below. A folder picks one for a board with templates.<board>; an AP takes the one picked nearest above it, its values counting as set where it is picked, ahead of that folder's own, so what is set below or locked replaces them. With at, the templates offered at that Locations node, nearest first. Each lists the APs that take it and whether each follows it; an AP's config (get_ap_config) says which of its template's fields something else replaces. Tunnels are not in the library: they are Location fields, concentrators.<name> (0055).", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in libraryIn) (*mcp.CallToolResult, any, error) {
+			path := "/v1/library"
+			if in.At != "" {
+				path += "?at=" + url.QueryEscape(in.At)
+			}
+			out, err := c.call(ctx, "GET", path, nil)
 			return nil, out, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_relayed_dhcp", Description: "What the manager hears from DHCP relays that copy it clients' requests (0068): for each subnet, by the relay's address on it, the relay, the requests of the last 10 minutes, the clients new in that time, a burst of new ones (a sign of DHCP starvation), and its clients newest first, each with its host name, vendor class, parameter list, address, option 82 IDs, maker and the manager's guess at what it is. Relays copy only requests, not servers' answers.", Annotations: readOnly},

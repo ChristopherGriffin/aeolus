@@ -1,0 +1,78 @@
+{
+	"about": "An Arista C-360 with an automatic 6 GHz channel at 160 MHz, preferred scanning channels only and one to a block (0087): its channels are 5, 37, 69, 101, 133, 165 and 197, one in each 160 MHz block, so two radios on different channels never share a block. On 5 GHz, a set of 36-48 and 149-161 at 80 MHz. The scan radio, radio2, is left alone (0081).",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"radio": {
+			"5g": {
+				"channel": "auto",
+				"width": 80,
+				"channels": [
+					36,
+					40,
+					44,
+					48,
+					149,
+					153,
+					157,
+					161
+				]
+			},
+			"6g": {
+				"channel": "auto",
+				"width": 160,
+				"psc": true,
+				"non_overlapping": true
+			}
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa3-sae",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": [],
+	"kept": [
+		"wireless.radio2",
+		"wireless.default_radio2"
+	],
+	"gone": []
+}

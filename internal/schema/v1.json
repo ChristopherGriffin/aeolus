@@ -76,6 +76,7 @@
       "propertyNames": { "$ref": "#/$defs/networkId" },
       "additionalProperties": { "$ref": "#/$defs/network" }
     },
+    "templates": { "x-aeolus-tree": "locations", "description": "AP templates, by board as OpenWrt names it (arista,c360): the template the board's APs below take (0085). Not sent to APs: the manager applies the template.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/templateId" } },
     "concentrators": {
       "x-aeolus-tree": "locations",
       "description": "Tunnels, by name: the far end a VXLAN transport reaches (0055). A network picks one by name.",
@@ -117,6 +118,7 @@
     }
   },
   "$defs": {
+    "templateId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$", "description": "An AP template's ID (0085)." },
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
     "ipAddress": {
       "description": "An IPv4 or IPv6 address.",
@@ -176,7 +178,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "channel": { "oneOf": [{ "const": "auto" }, { "enum": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221, 225, 229, 233] }] },
-        "width": { "enum": [20, 40, 80, 160, 320], "description": "MHz." },
+        "channels": { "type": "array", "items": { "enum": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221, 225, 229, 233] }, "uniqueItems": true, "minItems": 1, "maxItems": 59, "description": "The channels an automatic channel may be, chosen in whole blocks of the width (0075, 0087). Unset, any." }, "non_overlapping": { "type": "boolean", "default": false, "description": "One channel to a block: an automatic channel is the first usable channel of each whole block of the width, the blocks apart (one 320 MHz family), so radios that pick different channels never share a block (0087). With psc, each block's first preferred scanning channel." }, "psc": { "type": "boolean", "default": false, "description": "Preferred scanning channels only: an automatic channel is one of 5, 21, 37 and every 16th to 229, which clients look for 6 GHz networks on by themselves (0087). Off (the default), any channel of the set." }, "width": { "enum": [20, 40, 80, 160, 320], "description": "MHz." },
         "power": { "$ref": "#/$defs/power" }
       }
     },
@@ -218,7 +220,7 @@
         "enabled": { "type": "boolean", "default": true, "description": "false turns off an inherited network in one place (0012); unset, it is on." },
         "ssid": { "type": "string", "minLength": 1, "maxLength": 32 },
         "hidden": { "type": "boolean" },
-        "bands": { "type": "array", "items": { "enum": ["2g", "5g", "6g"] }, "minItems": 1, "uniqueItems": true },
+        "bands": { "description": "The bands the network is offered on; unset, every band the AP serves. 6 GHz takes WPA3 or OWE only: a WPA2 or open network is never offered there, and naming 6g for one is refused (0086).", "type": "array", "items": { "enum": ["2g", "5g", "6g"] }, "minItems": 1, "uniqueItems": true },
         "security": { "enum": ["open", "owe", "wpa2-psk", "wpa3-sae", "wpa2-wpa3"] },
         "passphrase": { "type": "string", "minLength": 8, "maxLength": 63, "writeOnly": true },
         "isolation": { "type": "boolean", "description": "Client isolation." },
@@ -294,7 +296,7 @@
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "mtu": { "type": "integer", "minimum": 1280, "maximum": 9000, "description": "The largest frame the tunnel carries. Unset, it is the default: 1450 over IPv4 and 1430 over IPv6, which a 1500-byte path carries (0056). Larger needs the AP's uplink to carry it plus 50 bytes, or 70 over IPv6." },
         "probe_interval": { "type": "integer", "minimum": 5, "maximum": 300, "default": 30, "description": "Seconds between the AP's probes of each VNI on the tunnel, which keep it open at the concentrator and show whether it works (0059); three missed in a row and it is down." },
-        "underlay_vlan": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "Where the tunnel starts on the AP (0063): 0, or unset, for the management VLAN; otherwise a VLAN on the AP's uplink, where the AP takes an address by DHCP for its tunnels." }
+        "underlay_vlan": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "Where the tunnel starts on the AP (0063): 0, or unset, for the management VLAN; otherwise a VLAN on the AP's uplink, where the AP takes an address by DHCP for its tunnels. On an AP managed on that VLAN, its management interface (0084)." }
       },
       "required": ["address", "port"]
     },

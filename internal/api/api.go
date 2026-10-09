@@ -36,14 +36,15 @@ import (
 
 // Server serves the API.
 type Server struct {
-	log    *changelog.Log
-	schema *schema.Schema
-	box    *secret.Box
-	conds  *conditions.Store
-	watch  *dhcpwatch.Book // what the manager's DHCP listeners hear (0068); nil if none
-	psks   pskCache        // per-user keys' PSKs, worked out (0070)
-	agents *bundle.Store   // the agent bundles it offers its APs (0079); nil if none
-	agent  bundle.Bundle   // its own release's bundle
+	log     *changelog.Log
+	schema  *schema.Schema
+	box     *secret.Box
+	conds   *conditions.Store
+	watch   *dhcpwatch.Book // what the manager's DHCP listeners hear (0068); nil if none
+	psks    pskCache        // per-user keys' PSKs, worked out (0070)
+	agents  *bundle.Store   // the agent bundles it offers its APs (0079); nil if none
+	agent   bundle.Bundle   // its own release's bundle
+	install *Install        // what it hands out to an AP installing from it (0083); nil if nothing
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
@@ -98,6 +99,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/ap/applied", s.apAuth(s.applied))
 	mux.Handle("POST /v1/ap/state", s.apAuth(s.state))
 	mux.Handle("GET /v1/ap/keys", s.apAuth(s.apKeys))
+
+	// Installing from the manager, before an AP has a token (0083).
+	mux.HandleFunc("GET /install", s.installScript)
+	mux.HandleFunc("GET /install/manager.crt", s.installCert)
+	mux.HandleFunc("GET /install/manifest", s.installManifest)
+	mux.HandleFunc("GET /install/files/{sha256}", s.installFile)
 	return mux
 }
 
@@ -160,6 +167,7 @@ func status(err error) int {
 	var be *changelog.APBreakError
 	var fe *schema.FieldError
 	var ce *hierarchy.NetworkConflictError
+	var pe *change.TemplatePickError
 	switch {
 	case errors.As(err, &ae):
 		return ae.code
@@ -170,8 +178,11 @@ func status(err error) int {
 	case errors.Is(err, hierarchy.ErrNotFound), errors.Is(err, access.ErrNoAccount),
 		errors.Is(err, access.ErrNoToken), errors.Is(err, access.ErrNoGrant):
 		return http.StatusNotFound
-	case errors.Is(err, library.ErrNoConcentrator), errors.Is(err, library.ErrNoVNI), errors.Is(err, keys.ErrNoKey):
+	case errors.Is(err, library.ErrNoConcentrator), errors.Is(err, library.ErrNoVNI), errors.Is(err, keys.ErrNoKey),
+		errors.Is(err, library.ErrNoTemplate):
 		return http.StatusNotFound
+	case errors.Is(err, library.ErrTemplateExists):
+		return http.StatusConflict
 	case errors.Is(err, change.ErrBadKey):
 		return http.StatusBadRequest
 	case errors.Is(err, keys.ErrKeyExists), errors.Is(err, keys.ErrTooMany):
@@ -189,7 +200,11 @@ func status(err error) int {
 		errors.Is(err, hierarchy.ErrBadParent), errors.Is(err, hierarchy.ErrAPsNotHere), errors.Is(err, hierarchy.ErrMoveRoot),
 		errors.Is(err, hierarchy.ErrCycle), errors.Is(err, hierarchy.ErrBreakRoot), errors.Is(err, hierarchy.ErrBroken),
 		errors.Is(err, hierarchy.ErrNotSetHere), errors.Is(err, hierarchy.ErrLockOnValue), errors.Is(err, hierarchy.ErrNotLocked),
-		errors.Is(err, hierarchy.ErrNotAnAP), errors.Is(err, access.ErrBadTokenArg):
+		errors.Is(err, hierarchy.ErrNotAnAP), errors.Is(err, access.ErrBadTokenArg),
+		errors.As(err, &pe), errors.Is(err, change.ErrNoTemplateID), errors.Is(err, change.ErrTemplateLevel),
+		errors.Is(err, change.ErrTemplateField), errors.Is(err, change.ErrTemplateName),
+		errors.Is(err, library.ErrTemplateID), errors.Is(err, library.ErrBoard), errors.Is(err, library.ErrNoBoards),
+		errors.Is(err, library.ErrNotSet):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

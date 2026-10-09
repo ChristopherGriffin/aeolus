@@ -365,6 +365,22 @@ func (s *Schema) CheckOp(op change.Op) error {
 		}
 	case change.Lock, change.Unlock:
 		return s.checkField(op.Tree, op.Path, nil, false)
+	case change.SetTemplate:
+		// A template holds Locations fields (0085).
+		for _, f := range op.Fields() {
+			if !change.TemplateFieldOK(f.Path) {
+				return &FieldError{Path: f.Path, Err: change.ErrTemplateField}
+			}
+			if err := s.checkField(change.Locations, f.Path, f.Value, true); err != nil {
+				return err
+			}
+		}
+	case change.UnsetTemplate:
+		for _, p := range op.Unsets() {
+			if err := s.checkField(change.Locations, p, nil, false); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

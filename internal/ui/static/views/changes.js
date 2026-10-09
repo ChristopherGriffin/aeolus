@@ -63,6 +63,13 @@ function summary(ctx, op) {
 	case 'remove-concentrator': return `library: remove concentrator ${op.concentrator}`;
 	case 'set-vni': return `library: VNI ${op.vni} on ${op.concentrator} = ${op.name}`;
 	case 'remove-vni': return `library: remove VNI ${op.vni} from ${op.concentrator}`;
+	case 'add-template': return `library: add template ${op.name} for ${(op.boards || []).join(', ')} at ${node(op.parent, 'locations')}` + (op.default ? ', picked there' : '');
+	case 'edit-template': return `library: template ${op.template} is ${op.name}, for ${(op.boards || []).join(', ')}`;
+	case 'set-template': return `library: template ${op.template}: ` + (op.values
+		? Object.keys(op.values).sort().map((p) => `${p} = ${val(op.values[p])}`).join(', ')
+		: `${op.path} = ${val(op.value)}`);
+	case 'unset-template': return `library: template ${op.template}: unset ${op.paths ? op.paths.join(', ') : op.path}`;
+	case 'remove-template': return `library: remove template ${op.template}`;
 	case 'grant': return `grant ${op.account} ${op.role} on ${op.tree} › ${node(op.node)}`;
 	case 'revoke': return `revoke ${op.account} ${op.role} on ${op.tree} › ${node(op.node)}`;
 	case 'add-account': return `add account ${op.account}`;

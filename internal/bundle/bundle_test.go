@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -74,6 +75,36 @@ func TestPathOK(t *testing.T) {
 		if PathOK(p) != ok {
 			t.Errorf("PathOK(%q) = %v", p, !ok)
 		}
+	}
+}
+
+// LuCI's Aeolus page (0083) is a bundle of its own places, which an agent
+// bundle may not hold but for its keep.d list, and the other way round.
+func TestLuCIPage(t *testing.T) {
+	b, _, err := FromFSChecked(agent.LuCI, "luci", "dev", LuCIPathOK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Files) != 4 {
+		t.Fatalf("LuCI's page: %+v", b.Files)
+	}
+	for _, f := range b.Files {
+		if f.Mode != "0644" || PathOK(f.Path) && !strings.HasPrefix(f.Path, "/lib/upgrade/keep.d/") {
+			t.Errorf("%s: mode %s, an agent place %v", f.Path, f.Mode, PathOK(f.Path))
+		}
+	}
+	for p, ok := range map[string]bool{
+		"/www/luci-static/resources/view/aeolus/enroll.js": true, "/usr/share/luci/menu.d/luci-app-aeolus.json": true,
+		"/usr/share/rpcd/acl.d/luci-app-aeolus.json": true, "/lib/upgrade/keep.d/luci-app-aeolus": true,
+		"/usr/share/rpcd/acl.d/luci-base.json": false, "/www/luci-static/resources/view/aeolus/../x.js": false,
+		"/www/cgi-bin/luci": false, "/usr/sbin/aeolus-agent": false,
+	} {
+		if LuCIPathOK(p) != ok {
+			t.Errorf("LuCIPathOK(%q) = %v", p, !ok)
+		}
+	}
+	if _, _, err := FromFS(agent.LuCI, "luci", "dev"); err == nil {
+		t.Fatal("LuCI's page taken for agent files")
 	}
 }
 

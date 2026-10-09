@@ -1275,6 +1275,9 @@ func (s *Server) aps(w http.ResponseWriter, _ *http.Request, c call) error {
 			"config": config, "problems": len(res.Problems), "seen": l.Seen, "in_sync": inSync,
 			"agent": s.agentView(c.state, id, report),
 		}
+		if !res.Unassigned {
+			ap["template"] = templateView(c.state, id, res.Template)
+		}
 		if wirelessMissing(report) {
 			ap["wireless_missing"] = true
 		}

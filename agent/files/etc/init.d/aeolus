@@ -5,7 +5,26 @@
 START=99
 USE_PROCD=1
 
+# The ucode modules the agent cannot start without; the package depends on
+# them (0080).
+REQUIRED="fs uci ubus uloop uclient math log digest"
+
 start_service() {
+	# Installed, the agent is inert until aeolus-setup has said where the
+	# manager is (0080).
+	[ -n "$(uci -q get aeolus.agent.url)" ] || return 0
+
+	# After a sysupgrade the agent's files are kept (keep.d) but packages
+	# are not, and where the image lacks one of the modules the agent needs
+	# (uclient, on some), it cannot start to put them back itself. This
+	# script is plain shell, so it starts that here; procd retries the agent
+	# until the module is back.
+	for m in $REQUIRED; do
+		[ -e /usr/lib/ucode/$m.so ] && continue
+		setsid /usr/libexec/aeolus-packages restore </dev/null >/dev/null 2>&1 &
+		break
+	done
+
 	procd_open_instance
 	procd_set_param command /usr/sbin/aeolus-agent
 	procd_set_param respawn 3600 5 0

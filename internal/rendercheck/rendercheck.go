@@ -33,6 +33,9 @@ var Coverage = map[string]string{
 	"radio.*.power":    "",
 	"radio.*.dfs":      "",
 	"radio.*.channels": "",
+	"radio.*.psc":      "",
+
+	"radio.*.non_overlapping": "",
 
 	"system.country":               "",
 	"system.tz":                    "",
@@ -90,8 +93,10 @@ var Coverage = map[string]string{
 	"network.*.transport.failback":       "",
 	"network.*.transport.holddown":       "",
 
-	"concentrators.*.address":        "",
-	"concentrators.*.port":           "",
+	"concentrators.*.address": "",
+	"concentrators.*.port":    "",
+	"templates.*":             "not sent to APs: the manager applies the AP's template (0085)",
+
 	"concentrators.*.mtu":            "",
 	"concentrators.*.probe_interval": "",
 	"concentrators.*.underlay_vlan":  "",
@@ -215,8 +220,30 @@ type device struct {
 	s    *uci.Section
 }
 
-// radios lists the AP's radios in name order, and checks that the wireless
-// package is there if anything needs it.
+// Reserved says another service on the AP owns a radio, which Aeolus leaves
+// alone (0081), as the agent does: airscan marks the dedicated scan radio it
+// takes out of netifd's hands with option airscan '1'.
+func Reserved(d *uci.Section) bool {
+	v, _ := d.Option("airscan")
+	return v == "1"
+}
+
+// scanRadio says the AP has a radio another service owns, a scan radio that
+// serves no clients (0081).
+func (k *checker) scanRadio() bool {
+	if w := k.c.Package("wireless"); w != nil {
+		for _, d := range w.OfType("wifi-device") {
+			if Reserved(d) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// radios lists the AP's radios in name order, but those another service
+// owns (0081), and checks that the wireless package is there if anything
+// needs it.
 func (k *checker) radios(doc map[string]any) []device {
 	w := k.c.Package("wireless")
 	if w == nil {
@@ -230,6 +257,9 @@ func (k *checker) radios(doc map[string]any) []device {
 		band, _ := d.Option("band")
 		if d.Name == "" {
 			k.add("wireless: the wifi-device at line %d has no name", d.Line)
+			continue
+		}
+		if Reserved(d) {
 			continue
 		}
 		out = append(out, device{band: band, s: d})
@@ -249,24 +279,29 @@ var htmodeRE = regexp.MustCompile(`^(NOHT|HT|VHT|HE|EHT)([0-9]*)$`)
 // 2.4 GHz, 1, 6 and 11.
 func autoChannels(r device, set map[string]any) []string {
 	list, ok := set["channels"].([]any)
-	if !ok {
-		if r.band == "2g" {
-			return auto2g
-		}
-		return nil
-	}
+	psc := r.band == "6g" && set["psc"] == true // preferred scanning channels only (0087)
+	spread := r.band == "6g" && set["non_overlapping"] == true
 	var chans []int
-	for _, c := range list {
-		if f, ok := c.(float64); ok {
-			chans = append(chans, int(f))
+	switch {
+	case ok:
+		for _, c := range list {
+			if f, ok := c.(float64); ok {
+				chans = append(chans, int(f))
+			}
 		}
+	case psc || spread:
+		chans = radio.Channels6
+	case r.band == "2g":
+		return auto2g
+	default:
+		return nil
 	}
 	w := 20
 	if m := htmodeRE.FindStringSubmatch(value(r.s, "htmode")); m != nil && m[2] != "" {
 		w, _ = strconv.Atoi(m[2])
 	}
 	var out []string
-	for _, c := range radio.Whole(r.band, chans, w, false) {
+	for _, c := range radio.Usable(r.band, chans, w, false, psc, spread) {
 		out = append(out, strconv.Itoa(c))
 	}
 	return out
@@ -350,10 +385,18 @@ func (k *checker) dfs(where string, r device, v string) {
 // rrm checks radio resource management (0073): on, the agent's package has
 // the daemon's section, which names the AP it advertises and holds the
 // policy for moves, defaults written out; otherwise there is none, and the
-// daemon stays idle.
+// daemon stays idle. On an AP with a scan radio, it stays off whatever the
+// config says (0081): its scans are the serving radios' own, and there the
+// serving radios never scan.
 func (k *checker) rrm(set, apc map[string]any) {
 	const where = "aeolus.aeolus_rrm"
 	s := k.c.Package("aeolus").Named("aeolus_rrm")
+	if set["enabled"] == true && k.scanRadio() {
+		if s != nil {
+			k.add("%s: the AP has a scan radio, where the serving radios never scan (0081), but radio resource management's section is there", where)
+		}
+		return
+	}
 	if set["enabled"] != true {
 		if s != nil {
 			k.add("%s: radio resource management is not on, but its section is there", where)
@@ -424,9 +467,14 @@ func (k *checker) networks(doc map[string]any, radios []device) {
 		for _, b := range list(n["bands"]) {
 			bands[b] = true
 		}
+		security, _ := n["security"].(string)
 		var ifaces []string
 		for _, r := range radios {
 			if len(bands) > 0 && !bands[r.band] {
+				continue
+			}
+			// WPA2 and open networks are not on 6 GHz (0086).
+			if _, ok := radio.SixGHzEncryption(security); r.band == "6g" && !ok {
 				continue
 			}
 			name := IfaceName(id, r.s.Name)
@@ -516,11 +564,16 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 	where := "wireless." + s.Name
 	k.option(where, s, "device", r.s.Name)
 	k.option(where, s, "mode", "ap")
+	k.option(where, s, "rnr", "1") // a Reduced Neighbor Report everywhere (0087)
 	if ssid, _ := n["ssid"].(string); ssid != "" {
 		k.option(where, s, "ssid", ssid)
 	}
 	security, _ := n["security"].(string)
-	if want, ok := encryption[security]; ok {
+	want, ok := encryption[security]
+	if six, allowed := radio.SixGHzEncryption(security); r.band == "6g" && allowed {
+		want, ok = six, true // WPA3 alone on 6 GHz (0086)
+	}
+	if ok {
 		got, _ := s.Option("encryption")
 		if base, _, _ := strings.Cut(got, "+"); base != want {
 			k.add("%s: encryption is %q, want %q for %s", where, got, want, security)
@@ -613,7 +666,9 @@ func (k *checker) steering(nets map[string]any) {
 func (k *checker) snmp(want map[string]any) {
 	on, _ := want["enabled"].(bool)
 	p := k.c.Package("snmpd")
-	if p == nil {
+	// No package, or an empty one, as the agent exports on an AP without
+	// snmpd (a C-360's image, say, 0081): snmpd isn't installed.
+	if p == nil || len(p.Sections) == 0 {
 		if on {
 			k.add("snmpd: SNMP needs snmpd, which this AP does not have; install it (apk add snmpd-ssl)")
 		}
@@ -712,17 +767,7 @@ func (k *checker) ports(want, concentrators map[string]any) {
 		}
 		return
 	}
-	uplink := ""
-	if s := k.c.Package("aeolus").Named("agent"); s != nil {
-		uplink = value(s, "uplink")
-	}
-	var bridge *uci.Section
-	for _, d := range net.OfType("device") {
-		if value(d, "type") == "bridge" && slices.Contains(d.List("ports"), uplink) {
-			bridge = d
-			break
-		}
-	}
+	uplink, bridge := k.uplinkBridge()
 	if bridge == nil {
 		k.add("ports: the uplink %q is in no bridge", uplink)
 		return
@@ -821,6 +866,33 @@ func (k *checker) ports(want, concentrators map[string]any) {
 // (0063): on the uplink's bridge at that VLAN, its address by DHCP, its
 // routes in a table of their own and its DNS servers unused, in a zone that
 // rejects what comes in and what it would forward.
+// uplinkBridge is the uplink the agent's package names, and the bridge it is
+// in, if any.
+func (k *checker) uplinkBridge() (string, *uci.Section) {
+	uplink := ""
+	if s := k.c.Package("aeolus").Named("agent"); s != nil {
+		uplink = value(s, "uplink")
+	}
+	for _, d := range k.c.Package("network").OfType("device") {
+		if value(d, "type") == "bridge" && slices.Contains(d.List("ports"), uplink) {
+			return uplink, d
+		}
+	}
+	return uplink, nil
+}
+
+// managedOn says whether link is the AP's own interface on VLAN vlan of the
+// uplink's bridge, where it is managed, and not one Aeolus made to start
+// tunnels from (0084).
+func (k *checker) managedOn(link string, vlan int) bool {
+	l := k.c.Package("network").Named(link)
+	if l == nil || l.Type != "interface" || startSection.MatchString(link) {
+		return false
+	}
+	_, bridge := k.uplinkBridge()
+	return bridge != nil && value(l, "device") == value(bridge, "name")+"."+strconv.Itoa(vlan)
+}
+
 func (k *checker) start(vlan int) {
 	if k.starts[vlan] {
 		return
@@ -1191,10 +1263,14 @@ func (k *checker) tunnel(where string, standby bool, t, conc map[string]any, bri
 		}
 	}
 	// Where it starts (0063): the management interface, or the interface of
-	// Aeolus's own on the VLAN the tunnel names.
+	// Aeolus's own on the VLAN the tunnel names. On the VLAN the AP is
+	// managed on, that is the management interface (0084).
 	start := 0
 	if v, ok := conc["underlay_vlan"].(float64); ok {
 		start = int(v)
+	}
+	if start > 0 && k.managedOn(value(s, "tunlink"), start) {
+		start = 0
 	}
 	if link := value(s, "tunlink"); start > 0 && link != StartInterface(start) {
 		k.add("%s: tunlink is %q, want %s, as the tunnel starts from VLAN %d (0063)", at, link, StartInterface(start), start)

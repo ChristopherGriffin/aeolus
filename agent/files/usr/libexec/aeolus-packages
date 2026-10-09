@@ -6,6 +6,7 @@
 #	aeolus-packages feeds     point the AP's package feeds at the manager
 #	aeolus-packages install   install them, when the agent is installed
 #	aeolus-packages restore   after a sysupgrade, install again those that were
+#	aeolus-packages required  install the modules the agent cannot start without
 #
 # The packages: usteer, for band steering (0050); snmpd-ssl, for SNMP (0052);
 # vxlan and kmod-nft-bridge, for VXLAN tunnels and their MSS clamp (0054);
@@ -15,16 +16,35 @@
 # one, everything else works, and a setting that needs it is refused until
 # it is installed.
 #
+# And the full wpad, for 802.11v (BSS transition), which band steering needs
+# (0050, 0057, 0088): OpenWrt's images have wpad-basic, built without it,
+# and hostapd refuses a radio's whole config that asks for it. The full one,
+# of the same TLS library, replaces it in one go, and the Wi-Fi comes up
+# again on it.
+#
 # install exits 3 when it installed vxlan: netifd loads its protocols only
 # when it starts, so the network must be restarted (0057). restore restarts
 # it itself, and the agent when it installed the prober's module.
+#
+# restore also puts back the ucode modules the agent cannot start without,
+# the package's dependencies (0080): after a sysupgrade onto an image that
+# lacks one (uclient, on some), the agent cannot run to ask for it, so the
+# init script starts restore itself. required installs only those, for
+# aeolus-setup on an AP that never had the agent (0083).
+#
+# apk on OpenWrt 25.12 and later, opkg before (0083).
 
 PACKAGES="usteer snmpd-ssl vxlan kmod-nft-bridge ucode-mod-socket kmod-veth ucode-mod-nl80211 ucode-mod-digest"
+REQUIRED="ucode-mod-fs ucode-mod-uci ucode-mod-ubus ucode-mod-uloop ucode-mod-uclient ucode-mod-math ucode-mod-log ucode-mod-digest"
 LIST=/etc/aeolus/packages      # what was installed; kept over a sysupgrade
 DONE=/usr/lib/aeolus/packages  # not kept: present until the next sysupgrade
 UPSTREAM=https://downloads.openwrt.org/releases/
-FEEDS=/etc/apk/repositories.d/distfeeds.list
 CERT=/etc/ssl/certs/aeolus-manager.crt
+if command -v apk >/dev/null 2>&1; then
+	PM=apk ADD='apk add' FEEDS=/etc/apk/repositories.d/distfeeds.list
+else
+	PM=opkg ADD='opkg install' FEEDS=/etc/opkg/distfeeds.conf
+fi
 
 say() {
 	logger -t aeolus-packages "$*"
@@ -32,8 +52,16 @@ say() {
 }
 
 has() {
-	apk info -e "$1" >/dev/null 2>&1
+	if [ $PM = apk ]; then
+		apk info -e "$1"
+	else
+		opkg status "$1" | grep -q '^Status:.* installed'
+	fi >/dev/null 2>&1
 }
+
+pm_update() { $PM update; }
+
+pm_add() { $ADD "$@"; }
 
 # feeds points the AP's feeds at the manager: OpenWrt's release tree, or a
 # manager the AP knew before, becomes this one's /feeds/. apk fetches through
@@ -89,21 +117,51 @@ why() {
 	esac
 }
 
+# full_wpad replaces wpad-basic with the full wpad of the same TLS library,
+# then starts it and brings the Wi-Fi up again on it: removing the basic one
+# stops hostapd, and installing the full one does not start it, so without
+# that every network on the AP stays down (OfficeOpenWrt, 2026-10-09). It
+# returns 0 when it did, 1 when it could not, 2 when there is none to
+# replace. Under apk it is one change; under opkg the basic one goes first,
+# and comes back should the full one not install.
+full_wpad() {
+	for tls in mbedtls openssl wolfssl; do
+		has wpad-basic-$tls || continue
+		if [ $PM = apk ]; then
+			apk add wpad-$tls "!wpad-basic-$tls" >/dev/null 2>&1
+		else
+			opkg remove wpad-basic-$tls >/dev/null 2>&1 &&
+				{ opkg install wpad-$tls >/dev/null 2>&1 || { opkg install wpad-basic-$tls >/dev/null 2>&1; false; }; }
+		fi
+		/etc/init.d/wpad enable >/dev/null 2>&1
+		/etc/init.d/wpad start >/dev/null 2>&1
+		wifi >/dev/null 2>&1
+		if has wpad-$tls; then
+			say "wpad-basic-$tls is replaced with wpad-$tls, for 802.11v"
+			return 0
+		fi
+		say "wpad-basic-$tls could not be replaced with wpad-$tls: band steering and BSS transition will be refused on this AP until it is"
+		return 1
+	done
+	return 2
+}
+
 install_all() {
 	feeds
-	apk update >/dev/null 2>&1 || say "the package index could not be read through the manager"
+	pm_update >/dev/null 2>&1 || say "the package index could not be read through the manager"
 	rc=0
+	full_wpad
 	: >$LIST.new
 	for p in $PACKAGES; do
 		if has $p; then
 			echo $p >>$LIST.new
 			configure $p
-		elif apk add $p >/dev/null 2>&1; then
+		elif pm_add $p >/dev/null 2>&1; then
 			echo $p >>$LIST.new
 			configure $p
 			[ $p = vxlan ] && rc=3
 		else
-			say "$p could not be installed: $(why $p) until it is (apk add $p)"
+			say "$p could not be installed: $(why $p) until it is ($ADD $p)"
 		fi
 	done
 	mv $LIST.new $LIST
@@ -112,23 +170,32 @@ install_all() {
 }
 
 restore() {
-	[ -f $DONE ] && return 0
+	# What the agent cannot start without comes first (0080).
+	required=
+	for p in $REQUIRED; do has $p || required="$required $p"; done
+	[ -f $DONE ] && [ -z "$required" ] && return 0
 	# An AP installed before 0069: what it has is what it was given.
 	if [ ! -f $LIST ]; then
 		for p in $PACKAGES; do has $p && echo $p; done >$LIST
-		mkdir -p ${DONE%/*} && touch $DONE
-		return 0
+		[ -z "$required" ] && { mkdir -p ${DONE%/*} && touch $DONE; return 0; }
 	fi
-	missing=
+	# The full wpad comes back in place of the image's basic one, not
+	# beside it.
+	missing=$required basic=
 	for p in $(cat $LIST); do has $p || missing="$missing $p"; done
-	if [ -z "$missing" ]; then
+	for tls in mbedtls openssl wolfssl; do has wpad-basic-$tls && basic=$tls; done
+	if [ -z "$missing" ] && [ -z "$basic" ]; then
 		mkdir -p ${DONE%/*} && touch $DONE
 		return 0
 	fi
 	feeds
-	if ! { apk update >/dev/null 2>&1 && apk add $missing >/dev/null 2>&1; }; then
+	if ! pm_update >/dev/null 2>&1 || { [ -n "$missing" ] && ! pm_add $missing >/dev/null 2>&1; }; then
 		say "after a sysupgrade, these could not be installed again:$missing; the agent tries again in an hour"
 		return 1
+	fi
+	if [ -n "$basic" ]; then
+		full_wpad || { say "the agent tries again in an hour"; return 1; }
+		missing="$missing wpad-$basic"
 	fi
 	say "after a sysupgrade, installed again:$missing"
 	mkdir -p ${DONE%/*} && touch $DONE
@@ -137,7 +204,11 @@ restore() {
 		/etc/init.d/network restart
 		;;
 	esac
-	case " $missing " in *" ucode-mod-socket "* | *" ucode-mod-nl80211 "* | *" ucode-mod-digest "*) /etc/init.d/aeolus restart ;; esac
+	if [ -n "$required" ]; then
+		/etc/init.d/aeolus restart
+	else
+		case " $missing " in *" ucode-mod-socket "* | *" ucode-mod-nl80211 "* | *" ucode-mod-digest "*) /etc/init.d/aeolus restart ;; esac
+	fi
 	return 0
 }
 
@@ -146,12 +217,28 @@ LOCK=/var/run/aeolus-packages.lock
 mkdir $LOCK 2>/dev/null || { [ "$1" = feeds ] || say "already running"; exit 0; }
 trap 'rmdir $LOCK' EXIT
 
+# required installs the modules the agent cannot start without, those
+# missing, through the manager (0083). It exits 1 if one still is.
+required() {
+	missing=
+	for p in $REQUIRED; do has $p || missing="$missing $p"; done
+	[ -z "$missing" ] && return 0
+	feeds
+	pm_update >/dev/null 2>&1 || say "the package index could not be read through the manager"
+	pm_add $missing >/dev/null 2>&1 || true
+	for p in $missing; do
+		has $p || { say "$p could not be installed: the agent cannot start without it ($ADD $p)"; return 1; }
+	done
+	say "installed what the agent needs:$missing"
+}
+
 case $1 in
 feeds) feeds ;;
 install) install_all ;;
 restore) restore ;;
+required) required ;;
 *)
-	sed -n '6,8p' "$0" >&2
+	sed -n '6,9p' "$0" >&2
 	exit 2
 	;;
 esac

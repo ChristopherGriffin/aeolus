@@ -12,6 +12,7 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/changelog"
 	"github.com/ChristopherGriffin/aeolus/internal/compose"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/library"
 )
 
 type grantView struct {
@@ -75,6 +76,21 @@ var originNames = map[hierarchy.Origin]string{
 	hierarchy.OriginInherited: "inherited",
 	hierarchy.OriginLocked:    "locked",
 	hierarchy.OriginBaseline:  "baseline",
+	hierarchy.OriginTemplate:  "template",
+}
+
+// templateView says which AP template an AP takes (0085) and whether it
+// follows it: the template's fields that something set closer to the AP,
+// or locked, replaces, each with where. An AP with no template has none.
+func templateView(state *change.State, ap hierarchy.NodeID, use *hierarchy.TemplateUse) map[string]any {
+	out := map[string]any{"board": state.Board(ap), "id": nil}
+	if use == nil {
+		return out
+	}
+	out["id"], out["name"], out["at"] = use.ID, use.Name, use.At
+	out["replaced"] = viewOverrides(use.Replaced)
+	out["follows"] = len(use.Replaced) == 0
+	return out
 }
 
 func viewResolved(r hierarchy.Resolved) resolvedView {
@@ -109,6 +125,17 @@ func (s *Server) node(w http.ResponseWriter, r *http.Request, c call) error {
 	fields := make(map[hierarchy.Path]resolvedView, len(resolved))
 	for p, res := range resolved {
 		fields[p] = viewResolved(res)
+	}
+	// An AP's page shows what its template gives it, where the template
+	// wins (0085).
+	if n.Kind == hierarchy.KindAP && name == change.Locations {
+		if cfg, err := c.state.ResolveAP(id); err == nil && cfg.Template != nil {
+			for p, res := range cfg.Location {
+				if res.Origin == hierarchy.OriginTemplate {
+					fields[p] = viewResolved(res)
+				}
+			}
+		}
 	}
 	problems := compose.Node(c.state, s.schema, name, t, id, s.reveal)
 	page := map[string]any{
@@ -187,7 +214,7 @@ func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error 
 	if n, ok := t.Node(id); !ok || n.Kind != hierarchy.KindAP || roleOn(c, change.Locations, t, id) < access.Viewer {
 		return errNotFound
 	}
-	cfg, err := c.state.Org.ResolveAP(id)
+	cfg, err := c.state.ResolveAP(id)
 	if err != nil {
 		return err
 	}
@@ -238,6 +265,7 @@ func (s *Server) apConfig(w http.ResponseWriter, r *http.Request, c call) error 
 		"ap":         id,
 		"version":    version,
 		"services":   services,
+		"template":   templateView(c.state, id, cfg.Template),
 		"location":   location,
 		"networks":   networks,
 		"unassigned": checked.Unassigned,
@@ -324,8 +352,61 @@ func (s *Server) changes(w http.ResponseWriter, r *http.Request, c call) error {
 
 // library lists the concentrators and their VNIs. Any account may read it: it
 // is what the transport pull-downs offer (0023).
-func (s *Server) library(w http.ResponseWriter, _ *http.Request, c call) error {
-	writeJSON(w, http.StatusOK, map[string]any{"concentrators": c.state.Library.All()})
+// library lists the AP templates (0085). With ?at=, those offered at that
+// Locations node, made there or above it, nearest first; without, those made
+// where the caller may view. Each has the APs the caller may view that take
+// it, and whether each follows it, or has fields of it replaced; and
+// whether the caller may change it.
+func (s *Server) library(w http.ResponseWriter, r *http.Request, c call) error {
+	st, t := c.state, c.state.Org.Locations
+	var list []library.Template
+	if at := hierarchy.NodeID(r.URL.Query().Get("at")); at != "" {
+		if _, ok := t.Node(at); !ok || roleOn(c, change.Locations, t, at) < access.Viewer {
+			return errNotFound
+		}
+		anc := t.Ancestry(at)
+		level := map[hierarchy.NodeID]int{}
+		for i, n := range anc {
+			level[n] = len(anc) - i // the node itself first
+		}
+		for _, tm := range st.Library.Templates() {
+			if level[tm.At] > 0 {
+				list = append(list, tm)
+			}
+		}
+		sort.SliceStable(list, func(i, j int) bool { return level[list[i].At] < level[list[j].At] })
+	} else {
+		for _, tm := range st.Library.Templates() {
+			if roleOn(c, change.Locations, t, tm.At) >= access.Viewer {
+				list = append(list, tm)
+			}
+		}
+	}
+	takes := map[string][]map[string]any{}
+	for _, ap := range t.APs() {
+		if roleOn(c, change.Locations, t, ap) < access.Viewer {
+			continue
+		}
+		cfg, err := st.ResolveAP(ap)
+		if err != nil || cfg.Template == nil {
+			continue
+		}
+		takes[cfg.Template.ID] = append(takes[cfg.Template.ID], map[string]any{"ap": ap, "follows": len(cfg.Template.Replaced) == 0})
+	}
+	out := make([]map[string]any, 0, len(list))
+	for _, tm := range list {
+		values := map[hierarchy.Path]any{}
+		for p, v := range tm.Values {
+			values[p] = mask(v)
+		}
+		aps := takes[tm.ID]
+		if aps == nil {
+			aps = []map[string]any{}
+		}
+		out = append(out, map[string]any{"id": tm.ID, "name": tm.Name, "at": tm.At, "boards": tm.Boards, "values": values, "aps": aps,
+			"can_edit": roleOn(c, change.Locations, t, tm.At) >= access.Operator})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"templates": out})
 	return nil
 }
 
