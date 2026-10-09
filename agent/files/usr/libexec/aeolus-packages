@@ -19,12 +19,12 @@
 # And the full wpad, for 802.11v (BSS transition), which band steering needs
 # (0050, 0057, 0088): OpenWrt's images have wpad-basic, built without it,
 # and hostapd refuses a radio's whole config that asks for it. The full one,
-# of the same TLS library, replaces it in one go.
+# of the same TLS library, replaces it in one go, and the Wi-Fi comes up
+# again on it.
 #
-# install exits 3 when it installed vxlan or the full wpad: netifd loads its
-# protocols only when it starts, and hostapd is restarted with it, so the
-# network must be restarted (0057). restore restarts it itself, and the
-# agent when it installed the prober's module.
+# install exits 3 when it installed vxlan: netifd loads its protocols only
+# when it starts, so the network must be restarted (0057). restore restarts
+# it itself, and the agent when it installed the prober's module.
 #
 # restore also puts back the ucode modules the agent cannot start without,
 # the package's dependencies (0080): after a sysupgrade onto an image that
@@ -117,8 +117,11 @@ why() {
 	esac
 }
 
-# full_wpad replaces wpad-basic with the full wpad of the same TLS library.
-# It returns 0 when it did, 1 when it could not, 2 when there is none to
+# full_wpad replaces wpad-basic with the full wpad of the same TLS library,
+# then starts it and brings the Wi-Fi up again on it: removing the basic one
+# stops hostapd, and installing the full one does not start it, so without
+# that every network on the AP stays down (OfficeOpenWrt, 2026-10-09). It
+# returns 0 when it did, 1 when it could not, 2 when there is none to
 # replace. Under apk it is one change; under opkg the basic one goes first,
 # and comes back should the full one not install.
 full_wpad() {
@@ -130,6 +133,9 @@ full_wpad() {
 			opkg remove wpad-basic-$tls >/dev/null 2>&1 &&
 				{ opkg install wpad-$tls >/dev/null 2>&1 || { opkg install wpad-basic-$tls >/dev/null 2>&1; false; }; }
 		fi
+		/etc/init.d/wpad enable >/dev/null 2>&1
+		/etc/init.d/wpad start >/dev/null 2>&1
+		wifi >/dev/null 2>&1
 		if has wpad-$tls; then
 			say "wpad-basic-$tls is replaced with wpad-$tls, for 802.11v"
 			return 0
@@ -144,7 +150,7 @@ install_all() {
 	feeds
 	pm_update >/dev/null 2>&1 || say "the package index could not be read through the manager"
 	rc=0
-	full_wpad && rc=3
+	full_wpad
 	: >$LIST.new
 	for p in $PACKAGES; do
 		if has $p; then
@@ -193,8 +199,8 @@ restore() {
 	fi
 	say "after a sysupgrade, installed again:$missing"
 	mkdir -p ${DONE%/*} && touch $DONE
-	case " $missing " in *" vxlan "* | *" wpad-"*)
-		say "restarting the network so netifd loads vxlan, and hostapd is the full wpad"
+	case " $missing " in *" vxlan "*)
+		say "restarting the network so netifd loads vxlan"
 		/etc/init.d/network restart
 		;;
 	esac

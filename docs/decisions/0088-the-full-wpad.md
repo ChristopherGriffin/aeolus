@@ -17,7 +17,7 @@
   - `aeolus-packages install` does it when the agent is set up;
   - `restore` does it again after a sysupgrade brings the image's basic one back.
   Under apk it is one change. Under opkg the basic one is removed first, and comes back should the full one not install.
-- **The network restarts once, afterwards,** as it does for vxlan (0057): hostapd starts again as the full wpad. The Wi-Fi is off for a few seconds.
+- **Then hostapd is started, and the Wi-Fi brought up on it** (`/etc/init.d/wpad start`, `wifi`). Removing the basic wpad stops hostapd, and installing the full one does not start it again. Found on OfficeOpenWrt (2026-10-09): every network on it, Sweet Spot included, stayed down for about six minutes, until hostapd was started by hand. The Wi-Fi is off for a few seconds. The network is not restarted, so nothing else moves: on OfficeOpenWrt a network restart had also brought a new DHCP lease, 192.168.1.69 in place of .55.
 - **The C-360's image ships `wpad-mbedtls`** (openwrt-arista ce3fb5b), so it needs no swap.
 - **0057's hold stays** for an AP where the swap failed, or that has not reported since it.
 
