@@ -117,8 +117,8 @@ function reported(rows, band, k) {
 }
 
 // bandsSection is the view: where the node's band settings come from, then
-// a panel a band. Below the Org, a bar says the folder they come from (the
-// nearest above that sets one), offers every folder above to go to, and
+// a panel a band. Below the Org, a bar names the folder directly above,
+// which they are inherited from, with an arrow to its Bands, and
 // Customize: a node that sets none of them here shows them greyed out until
 // it is pressed (Griff, 2026-10-09). report is the AP's latest state
 // report, on an AP's page; rows are the APs the node reaches, each with its
@@ -132,8 +132,6 @@ export function bandsSection(ctx, node, page, report, rows = []) {
 	const above = (page.ancestry || []).filter((a) => a !== node);
 	const radio = Object.entries(page.fields || {}).filter(([p]) => p.startsWith('radio.'));
 	const setHere = radio.filter(([, r]) => r.from === node).map(([p]) => p);
-	const from = new Set(radio.map(([, r]) => r.from));
-	const source = [...above].reverse().find((a) => from.has(a)) ?? above[above.length - 1];
 	const offered = new Map(hw.bands.map((b) => [b.band, b]));
 
 	const panels = h('div', { class: 'bandpanels' });
@@ -149,14 +147,8 @@ export function bandsSection(ctx, node, page, report, rows = []) {
 	let bar = null;
 	const box = h('div', { class: 'edit' });
 	if (above.length) {
-		const href = (a) => `#/locations/${encodeURIComponent(a)}/interfaces/radios`;
-		const pick = h('select', { 'aria-label': 'The folders above' },
-			above.map((a) => h('option', { value: a, selected: a === source }, ctx.name('locations', a))));
-		const go = h('a', { class: 'go', href: href(source), title: `Go to ${ctx.name('locations', source)}` }, '→');
-		pick.addEventListener('change', () => {
-			go.href = href(pick.value);
-			go.title = `Go to ${ctx.name('locations', pick.value)}`;
-		});
+		const parent = above[above.length - 1];
+		const go = h('a', { class: 'go', href: `#/locations/${encodeURIComponent(parent)}/interfaces/radios`, title: `Go to ${ctx.name('locations', parent)}` }, '→');
 		let right = null;
 		if (setHere.length) {
 			right = [h('span', { class: 'chip' }, 'Customized here'),
@@ -170,7 +162,8 @@ export function bandsSection(ctx, node, page, report, rows = []) {
 				draw(customizing);
 			} }, 'Customize');
 		}
-		bar = h('div', { class: 'inherits' }, h('span', { class: 'label' }, 'Inherits from'), pick, go, h('span', { class: 'gap' }), right);
+		bar = h('div', { class: 'inherits' }, h('span', { class: 'label' }, 'Inherits from'),
+			h('strong', { class: 'from' }, ctx.name('locations', parent)), go, h('span', { class: 'gap' }), right);
 	}
 	return [
 		bar,
