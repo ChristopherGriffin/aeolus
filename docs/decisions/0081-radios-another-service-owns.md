@@ -8,7 +8,7 @@
 ## Context
 
 - **Griff's rule on scanning is conditional.** Where an AP has a radio that serves no clients, the serving radios never scan or go off channel. Where it has none, they may, as RRM does today (0073).
-- **The C-360 has four radios, two of them on 6 GHz.** radio3, a QCN9074, serves clients. radio2, a second QCN9074 that covers 2.4, 5 and 6 GHz, is a dedicated scan radio: `airscan` runs the AP's spectrum, BSS and client surveys on it, and it never serves.
+- **The C-360 has four radios, two of them on 6 GHz.** radio3, a QCN9074, serves clients. radio2, a QCN9072 (the QCN9074's 2x2 sibling, the same 17cb:1104; identified 2026-10-09 from the FCC internal photos) that covers 2.4, 5 and 6 GHz, is a dedicated scan radio: `airscan` runs the AP's spectrum, BSS and client surveys on it, and it never serves.
 - **airscan takes its radio out of netifd's hands.** It sets `disabled '1'` on that wifi-device and marks it with `option airscan '1'`.
 - **The agent renders per band.** `radio.6g` would apply to both 6 GHz radios, turning the scan radio on, and each network would get a wifi-iface on it. That breaks airscan and serves clients from the scan radio. The manager's render check would demand the same: settings and a wifi-iface on every radio of a band.
 

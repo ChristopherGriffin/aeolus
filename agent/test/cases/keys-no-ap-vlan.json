@@ -1,0 +1,75 @@
+{
+	"about": "Per-user keys' VLANs on a radio without AP/VLAN interfaces (0082): the same network as keys.json, on an AP whose radio0 driver makes none (as ath11k's). The config renders as there, and the renderer refuses it, before anything is applied.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				],
+				"ap_vlan": false
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				],
+				"ap_vlan": true
+			}
+		}
+	},
+	"extra": {
+		"wireless": {
+			"aeolus_key_k1": {
+				".anonymous": false,
+				".type": "wifi-station",
+				".name": "aeolus_key_k1",
+				".index": 90,
+				"iface": [
+					"aeolus_lab_radio0",
+					"aeolus_lab_radio1"
+				],
+				"mac": [
+					"00:00:00:00:00:00"
+				],
+				"key": "cc3350be975b923d8b02b41405a64fef5f89a52294b8bb0b90ddb47c78063855",
+				"vid": "101"
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				},
+				"keys": {
+					"vlans": [
+						101,
+						102
+					]
+				}
+			}
+		}
+	},
+	"errors": [
+		"network.lab.keys.vlans: radio0 cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs"
+	]
+}

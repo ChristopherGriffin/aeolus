@@ -166,6 +166,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	sort.Strings(problems)
 	problems = append(problems, sch.Problems(doc)...)
 	problems = append(problems, radioProblems(doc, s.Facts[ap])...)
+	problems = append(problems, keyVLANProblems(doc, s.Facts[ap])...)
 	problems = append(problems, bondingProblems(doc)...)
 	problems = append(problems, dfsProblems(doc)...)
 	problems = append(problems, channelsProblems(doc)...)
@@ -236,6 +237,56 @@ func radioProblems(doc map[string]any, facts json.RawMessage) []string {
 			}
 		}
 		out = append(out, fmt.Sprintf("radio.%s.width: this AP's radio cannot use %d MHz; it can use %s MHz", band, int(w), strings.Join(list, ", ")))
+	}
+	return out
+}
+
+// keyVLANProblems refuses the VLANs a network offers its per-user keys
+// (0070) on a radio whose driver makes no AP/VLAN interfaces, by what the AP
+// reported when it enrolled (0082): hostapd would fail every network on that
+// radio. A radio reported without it, or one another service owns (0081), is
+// not checked.
+func keyVLANProblems(doc map[string]any, facts json.RawMessage) []string {
+	var f struct {
+		Radios []struct {
+			Radio    string `json:"radio"`
+			Band     string `json:"band"`
+			APVLAN   *bool  `json:"ap_vlan"`
+			Reserved bool   `json:"reserved"`
+		} `json:"radios"`
+	}
+	if len(facts) == 0 || json.Unmarshal(facts, &f) != nil {
+		return nil
+	}
+	nets, _ := doc["network"].(map[string]any)
+	var out []string
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		if n["enabled"] == false {
+			continue
+		}
+		keys, _ := n["keys"].(map[string]any)
+		if vlans, _ := keys["vlans"].([]any); len(vlans) == 0 {
+			continue
+		}
+		bands := map[string]bool{}
+		if list, ok := n["bands"].([]any); ok {
+			for _, b := range list {
+				if s, ok := b.(string); ok {
+					bands[s] = true
+				}
+			}
+		}
+		var cannot []string
+		for _, r := range f.Radios {
+			if r.Reserved || r.APVLAN == nil || *r.APVLAN || (len(bands) > 0 && !bands[r.Band]) {
+				continue
+			}
+			cannot = append(cannot, r.Radio)
+		}
+		if len(cannot) > 0 {
+			out = append(out, fmt.Sprintf("network.%s.keys.vlans: %s cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs", id, strings.Join(cannot, ", ")))
+		}
 	}
 	return out
 }

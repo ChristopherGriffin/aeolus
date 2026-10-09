@@ -385,6 +385,57 @@ func TestWidthTheRadioCannotDoIsAProblem(t *testing.T) {
 	}
 }
 
+// A key's VLAN is an AP/VLAN interface: on a radio whose driver makes none,
+// hostapd fails every network on it, so the config is refused (0082).
+func TestKeyVLANsNeedAPVLANInterfaces(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("network.sweet.security", "wpa2-psk")
+	set("network.sweet.keys.vlans", []int{50})
+	keyProblems := func() []string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		var out []string
+		for _, p := range res.Problems {
+			if strings.HasPrefix(p, "network.sweet.keys.vlans:") {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	// radio0 has no AP/VLAN interfaces (ath11k); radio1 has; radio2 is the
+	// scan radio another service owns (0081); radio3 said nothing.
+	s.Facts["gate-ap"] = json.RawMessage(`{"radios":[
+		{"radio":"radio0","band":"5g","htmodes":["HE80"],"ap_vlan":false},
+		{"radio":"radio1","band":"2g","htmodes":["HE20"],"ap_vlan":true},
+		{"radio":"radio2","band":"6g","htmodes":["HE80"],"ap_vlan":false,"reserved":true},
+		{"radio":"radio3","band":"6g","htmodes":["HE80"]}]}`)
+	want := "network.sweet.keys.vlans: radio0 cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs"
+	if got := keyProblems(); len(got) != 1 || got[0] != want {
+		t.Fatalf("problems = %v", got)
+	}
+	// Offered only where every radio can, it is not a problem.
+	set("network.sweet.bands", []string{"2g", "6g"})
+	if got := keyProblems(); len(got) != 0 {
+		t.Fatalf("on 2g and 6g: %v", got)
+	}
+	set("network.sweet.bands", []string{"5g"})
+	if got := keyProblems(); len(got) != 1 {
+		t.Fatalf("on 5g: %v", got)
+	}
+	// An AP that reported nothing about its radios is not judged.
+	s.Facts["gate-ap"] = nil
+	if got := keyProblems(); len(got) != 0 {
+		t.Fatalf("without facts: %v", got)
+	}
+}
+
 func TestSNMPNeedsAWayIn(t *testing.T) {
 	s, sch := site(t)
 	set := func(path string, v any) {

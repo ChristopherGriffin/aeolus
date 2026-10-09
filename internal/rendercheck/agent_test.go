@@ -33,6 +33,10 @@ type agentCase struct {
 	Facts   struct {
 		AP string `json:"ap"` // the AP it renders for, whose segment MACs are checked (0060)
 	} `json:"facts"`
+	// The renderer's errors, which make the agent refuse the config: with
+	// "errors" in a case, exactly these, in order; without, they are not
+	// checked.
+	Errors *[]string `json:"errors"`
 	golden string
 }
 
@@ -282,6 +286,17 @@ func TestAgentRendersItsOutput(t *testing.T) {
 		}
 		if string(out) != c.golden {
 			t.Errorf("%s: the agent renders something else than %s.uci:\n%s", c.name, c.name, out)
+		}
+		if c.Errors != nil {
+			var got []string
+			for _, line := range strings.Split(stderr.String(), "\n") {
+				if e, ok := strings.CutPrefix(line, "render: "); ok {
+					got = append(got, e)
+				}
+			}
+			if strings.Join(got, "\n") != strings.Join(*c.Errors, "\n") {
+				t.Errorf("%s: the renderer's errors are\n%s\nwant\n%s", c.name, strings.Join(got, "\n"), strings.Join(*c.Errors, "\n"))
+			}
 		}
 		// The MSS clamp's file, made from the rendered tunnels (0054).
 		want, err := os.ReadFile(filepath.Join(agentDir, "test", "cases", c.name+".nft"))

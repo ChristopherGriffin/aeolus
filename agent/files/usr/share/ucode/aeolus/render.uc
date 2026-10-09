@@ -475,7 +475,7 @@ function networks(cfg, intent, facts, errors, keep) {
 			push(errors, `network.${id}: band steering and BSS transition need 802.11v, which this AP's hostapd lacks (install wpad-mbedtls)`);
 			btm = false;
 		}
-		let names = [];
+		let names = [], no_ap_vlan = [];
 		for (let d in of_type(w, 'wifi-device')) {
 			if (reserved(d) || (net.bands && index(net.bands, d.band) < 0))
 				continue;
@@ -483,7 +483,15 @@ function networks(cfg, intent, facts, errors, keep) {
 			put(w, name, 'wifi-iface', iface_options(net, d['.name'], iface, btm));
 			keep[name] = true;
 			push(names, name);
+			if (facts.radios?.[d['.name']]?.ap_vlan === false)
+				push(no_ap_vlan, d['.name']);
 		}
+		// A key's VLAN is an AP/VLAN interface hostapd makes for its clients.
+		// On a radio whose driver makes none (ath11k), hostapd fails every
+		// network on the radio, and the apply is reverted (0082): refused here
+		// instead, before anything is applied.
+		if (length(net.keys?.vlans ?? []) && length(no_ap_vlan))
+			push(errors, `network.${id}.keys.vlans: ${join(', ', no_ap_vlan)} cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs`);
 		// The VLANs the network's per-user keys may put clients in (0070):
 		// each tagged on the uplink, an interface on it, and a wifi-vlan on
 		// the network's Wi-Fi. hostapd makes the VLAN's Wi-Fi interface,
