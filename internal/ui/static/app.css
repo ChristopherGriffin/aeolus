@@ -305,6 +305,15 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 /* A band's 802.11 generations and its guard intervals, one for each kind
    (0089). */
 .ticks.inline { margin: 0; display: inline-flex; }
+/* Where a node's band settings come from, and Customize (Griff,
+   2026-10-09): until it is pressed, a node that sets none of them shows
+   them greyed out. */
+.inherits { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
+.inherits .label { color: var(--muted); }
+.inherits .gap { flex: 1; }
+.inherits .go { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--ink); font-size: 16px; }
+.inherits .go:hover { border-color: var(--accent); color: var(--accent); }
+.bandpanel.inherited .chmap, .bandpanel.inherited > .ticks, .bandpanel.inherited > .row, .bandpanel.inherited .bandhead .width, .bandpanel.inherited .bandhead .radio-on .switch { opacity: 0.55; }
 .gis { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
 .chrange { display: flex; gap: 6px; }
 .chblock { display: flex; gap: 1px; padding: 2px; border-radius: 6px; }

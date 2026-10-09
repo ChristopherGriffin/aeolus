@@ -1,4 +1,4 @@
-// Interfaces › Radios › Bands and Channels (0047, 0075, 0087): one panel a
+// Interfaces › Radios › Bands (0047, 0075, 0087): one panel a
 // band. The radio's on/off and its width head it; the band's tick boxes
 // (DFS channels on 5 GHz; preferred scanning channels and one channel a
 // block on 6 GHz) sit under that; then the channel map; then the channel,
@@ -116,31 +116,69 @@ function reported(rows, band, k) {
 	return texts.length === 1 ? texts[0] : seen.map((s) => `${s.name} ${s.text}`).join(' · ');
 }
 
-// bandsSection is the view: a line on what it applies to, then a panel a
-// band. report is the AP's latest state report, on an AP's page; rows are
-// the APs the node reaches, each with its config and condition.
+// bandsSection is the view: where the node's band settings come from, then
+// a panel a band. Below the Org, a bar says the folder they come from (the
+// nearest above that sets one), offers every folder above to go to, and
+// Customize: a node that sets none of them here shows them greyed out until
+// it is pressed (Griff, 2026-10-09). report is the AP's latest state
+// report, on an AP's page; rows are the APs the node reaches, each with its
+// config and condition.
 export function bandsSection(ctx, node, page, report, rows = []) {
 	const hw = page.hardware;
 	if (!hw) return null;
 	const isAP = page.node.kind === 'ap';
-	const reach = hw.aps.length === 1 ? hw.aps[0].name : `${hw.aps.length} APs`;
-	const at = {
-		ctx, node, page, isAP, rows,
-		nodeName: page.node.name,
-		canEdit: page.role === 'operator' || page.role === 'admin',
-		parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null,
-	};
+	const may = page.role === 'operator' || page.role === 'admin';
+	const parentName = page.node.parent ? ctx.name('locations', page.node.parent) : null;
+	const above = (page.ancestry || []).filter((a) => a !== node);
+	const radio = Object.entries(page.fields || {}).filter(([p]) => p.startsWith('radio.'));
+	const setHere = radio.filter(([, r]) => r.from === node).map(([p]) => p);
+	const from = new Set(radio.map(([, r]) => r.from));
+	const source = [...above].reverse().find((a) => from.has(a)) ?? above[above.length - 1];
 	const offered = new Map(hw.bands.map((b) => [b.band, b]));
-	return [
-		h('div', { class: 'sub lead' }, isAP
-			? (report ? `Reported ${ago(report.at)}.` : 'No report yet.')
-			: hw.aps.length ? `Applies to ${reach} below.` : 'No APs here yet.'),
-		hw.unknown.length > 0 && h('div', { class: 'banner info' },
-			`${hw.unknown.map((a) => a.name).join(', ')} never said what its radios can do, so ${hw.unknown.length === 1 ? 'it is' : 'they are'} not counted.`),
-		BANDS.map((band) => (offered.get(band)
+
+	const panels = h('div', { class: 'bandpanels' });
+	const draw = (customizing) => {
+		const at = { ctx, node, page, isAP, rows, parentName, nodeName: page.node.name, canEdit: may && customizing, inherited: !customizing };
+		panels.replaceChildren(...BANDS.map((band) => (offered.get(band)
 			? bandPanel(at, band, offered.get(band))
 			: h('section', { class: 'panel band none' }, h('h2', null, bandName(band)),
-				h('div', { class: 'empty' }, isAP ? 'This AP has no radio for this band.' : 'No AP here has a radio for this band.')))),
+				h('div', { class: 'empty' }, isAP ? 'This AP has no radio for this band.' : 'No AP here has a radio for this band.')))));
+	};
+	draw(!above.length || setHere.length > 0);
+
+	let bar = null;
+	const box = h('div', { class: 'edit' });
+	if (above.length) {
+		const href = (a) => `#/locations/${encodeURIComponent(a)}/interfaces/radios`;
+		const pick = h('select', { 'aria-label': 'The folders above' },
+			above.map((a) => h('option', { value: a, selected: a === source }, ctx.name('locations', a))));
+		const go = h('a', { class: 'go', href: href(source), title: `Go to ${ctx.name('locations', source)}` }, '→');
+		pick.addEventListener('change', () => {
+			go.href = href(pick.value);
+			go.title = `Go to ${ctx.name('locations', pick.value)}`;
+		});
+		let right = null;
+		if (setHere.length) {
+			right = [h('span', { class: 'chip' }, 'Customized here'),
+				may && followButton(ctx, 'locations', node, page.node.name, parentName, setHere, box, 'Inherit again')];
+		} else if (may) {
+			let customizing = false;
+			right = h('button', { type: 'button', class: 'button small primary', onclick: (e) => {
+				customizing = !customizing;
+				e.currentTarget.textContent = customizing ? 'Cancel' : 'Customize';
+				e.currentTarget.className = customizing ? 'button small' : 'button small primary';
+				draw(customizing);
+			} }, 'Customize');
+		}
+		bar = h('div', { class: 'inherits' }, h('span', { class: 'label' }, 'Inherits from'), pick, go, h('span', { class: 'gap' }), right);
+	}
+	return [
+		bar,
+		box,
+		isAP && h('div', { class: 'sub lead' }, report ? `Reported ${ago(report.at)}.` : 'No report yet.'),
+		hw.unknown.length > 0 && h('div', { class: 'banner info' },
+			`${hw.unknown.map((a) => a.name).join(', ')} never said what its radios can do, so ${hw.unknown.length === 1 ? 'it is' : 'they are'} not counted.`),
+		panels,
 	];
 }
 
@@ -201,7 +239,7 @@ function bandPanel(at, band, b) {
 		}
 
 	const box = h('div', { class: 'edit' });
-	const panel = h('section', { class: 'panel bandpanel' });
+	const panel = h('section', { class: `panel bandpanel${at.inherited ? ' inherited' : ''}` });
 	const count = h('span', { class: 'chip' });
 	const map = h('div', { class: 'chmap' });
 

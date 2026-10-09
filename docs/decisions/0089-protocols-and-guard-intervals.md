@@ -35,13 +35,17 @@
   - `aeolus-gi` sets it with iw on each AP interface that is up. It runs after each apply and with each state report, and keeps what it holds in `/var/run/aeolus/gi/`, the guard interval with the interface's index. A band set back to `auto` is cleared.
   - The net hotplug (`/etc/hotplug.d/net/60-aeolus-gi`) runs it for an interface hostapd makes anew, once hostapd says its network is up (90 seconds at most, for a radar check).
   - Changing it restarts no radio.
-- **Interfaces › Radios › Bands and Channels is one panel a band:**
+- **Interfaces › Radios › Bands is one panel a band:**
   - the radio's on/off top left, the width top right;
   - tick boxes for DFS channels (ticked allows them) and, on 6 GHz, preferred scanning channels and one channel a block;
   - the map;
   - then the channel (automatic or manual: manual picks one channel on the map), the power, the protocols as tick boxes, and the guard intervals: "802.11n/ac" short or long, and "802.11ax" automatic or 0.8, 1.6 or 3.2 µs, each shown only while its kind is allowed.
 
   A tick that would leave a gap fills it. Unticking any but the newest raises the oldest. The last tick stays. Unset, the boxes show what any AP serves, except 802.11b. 802.11be shows only where an AP serves it. Widths the newest can't carry are disabled, and a set one narrows. Save is disabled, with the reason, when an AP can't serve the oldest. Everything saves as one change, through the preview.
+- **Above the panels, below the Org, a bar says where the node's band settings come from** (Griff, 2026-10-09). It replaces the line on how many APs a setting reaches.
+  - It reads "Inherits from", then a pulldown of every folder above. The pulldown starts on the nearest folder that sets one of the node's band settings, else the one just above. An arrow goes to the picked folder's Bands.
+  - On the right, a node that sets none of its band settings itself has Customize. Until it is pressed, every control below shows greyed out and locked. Pressed, it becomes Cancel, and each band saves as before.
+  - A node that sets some of them says "Customized here", with Inherit again, which unsets them all through the preview.
 - **On a folder, a value nothing sets says nothing** (Griff, 2026-10-09). No "each AP's own" appears beside it, and its pulldown shows a dash. On an AP's page it still says "its own". A folder's channel map has no dots for the channels APs are on now; an AP's map still marks its own. Each guard interval pulldown marks the usual value "(default)": short, 400 ns, for 802.11n/ac, which OpenWrt advertises wherever the radio can, and 0.8 µs for 802.11ax.
 - **The hardware view** gives each band's `modes`: each generation, `ok` where every AP serves it, `any` where one does, and `why`.
 
