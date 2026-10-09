@@ -294,7 +294,7 @@
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "mtu": { "type": "integer", "minimum": 1280, "maximum": 9000, "description": "The largest frame the tunnel carries. Unset, it is the default: 1450 over IPv4 and 1430 over IPv6, which a 1500-byte path carries (0056). Larger needs the AP's uplink to carry it plus 50 bytes, or 70 over IPv6." },
         "probe_interval": { "type": "integer", "minimum": 5, "maximum": 300, "default": 30, "description": "Seconds between the AP's probes of each VNI on the tunnel, which keep it open at the concentrator and show whether it works (0059); three missed in a row and it is down." },
-        "underlay_vlan": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "Where the tunnel starts on the AP (0063): 0, or unset, for the management VLAN; otherwise a VLAN on the AP's uplink, where the AP takes an address by DHCP for its tunnels." }
+        "underlay_vlan": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "Where the tunnel starts on the AP (0063): 0, or unset, for the management VLAN; otherwise a VLAN on the AP's uplink, where the AP takes an address by DHCP for its tunnels. On an AP managed on that VLAN, its management interface (0084)." }
       },
       "required": ["address", "port"]
     },

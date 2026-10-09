@@ -263,10 +263,6 @@ function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
 	if (!bridge)
 		return null;
 	let device = `${bridge}.${vlan}`;
-	if (n[facts.management]?.device == device) {
-		push(errors, `${where}: VLAN ${vlan} is the management VLAN here, which tunnels start from anyway; set it to the management VLAN`);
-		return null;
-	}
 	ensure_vlan(n, bridge, facts.uplink, vlan, keep);
 	let name = `aeolus_vlan${vlan}_tunnels`;
 	put(n, name, 'interface', { proto: 'dhcp', device: device, ip4table: START_TABLE + vlan, peerdns: 0 });
@@ -277,6 +273,13 @@ function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
 	put(fw, 'aeolus_zone_ul', 'zone', { name: START_ZONE, input: 'REJECT', output: 'ACCEPT', forward: 'REJECT', network: nets });
 	keep.aeolus_zone_ul = true;
 	return name;
+}
+
+// managed_on says whether the AP is managed on VLAN vlan of the uplink: its
+// management interface is that VLAN of the uplink's bridge.
+function managed_on(n, vlan, facts) {
+	let bridge = uplink_bridge(n, facts.uplink, []);
+	return bridge != null && n[facts.management]?.device == `${bridge}.${vlan}`;
 }
 
 // tunnel renders a VXLAN transport (0054): an interface named for the VNI,
@@ -301,9 +304,11 @@ function tunnel(cfg, where, standby, t, conc, facts, errors, keep, bridged) {
 		push(errors, `${where}: the AP's management interface is not known`);
 		return null;
 	}
-	// Where it starts: the management interface, or a VLAN (0063).
+	// Where it starts: the management interface, or a VLAN (0063). The VLAN
+	// the AP is managed on is its management interface's, so one value fits
+	// APs managed on different VLANs (0084).
 	let from = facts.management, zone = null;
-	if (conc.underlay_vlan) {
+	if (conc.underlay_vlan && !managed_on(n, conc.underlay_vlan, facts)) {
 		if (six) {
 			push(errors, `${where}: a tunnel to an IPv6 concentrator starts from the management VLAN for now (0063)`);
 			return null;

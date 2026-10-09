@@ -747,17 +747,7 @@ func (k *checker) ports(want, concentrators map[string]any) {
 		}
 		return
 	}
-	uplink := ""
-	if s := k.c.Package("aeolus").Named("agent"); s != nil {
-		uplink = value(s, "uplink")
-	}
-	var bridge *uci.Section
-	for _, d := range net.OfType("device") {
-		if value(d, "type") == "bridge" && slices.Contains(d.List("ports"), uplink) {
-			bridge = d
-			break
-		}
-	}
+	uplink, bridge := k.uplinkBridge()
 	if bridge == nil {
 		k.add("ports: the uplink %q is in no bridge", uplink)
 		return
@@ -856,6 +846,33 @@ func (k *checker) ports(want, concentrators map[string]any) {
 // (0063): on the uplink's bridge at that VLAN, its address by DHCP, its
 // routes in a table of their own and its DNS servers unused, in a zone that
 // rejects what comes in and what it would forward.
+// uplinkBridge is the uplink the agent's package names, and the bridge it is
+// in, if any.
+func (k *checker) uplinkBridge() (string, *uci.Section) {
+	uplink := ""
+	if s := k.c.Package("aeolus").Named("agent"); s != nil {
+		uplink = value(s, "uplink")
+	}
+	for _, d := range k.c.Package("network").OfType("device") {
+		if value(d, "type") == "bridge" && slices.Contains(d.List("ports"), uplink) {
+			return uplink, d
+		}
+	}
+	return uplink, nil
+}
+
+// managedOn says whether link is the AP's own interface on VLAN vlan of the
+// uplink's bridge, where it is managed, and not one Aeolus made to start
+// tunnels from (0084).
+func (k *checker) managedOn(link string, vlan int) bool {
+	l := k.c.Package("network").Named(link)
+	if l == nil || l.Type != "interface" || startSection.MatchString(link) {
+		return false
+	}
+	_, bridge := k.uplinkBridge()
+	return bridge != nil && value(l, "device") == value(bridge, "name")+"."+strconv.Itoa(vlan)
+}
+
 func (k *checker) start(vlan int) {
 	if k.starts[vlan] {
 		return
@@ -1226,10 +1243,14 @@ func (k *checker) tunnel(where string, standby bool, t, conc map[string]any, bri
 		}
 	}
 	// Where it starts (0063): the management interface, or the interface of
-	// Aeolus's own on the VLAN the tunnel names.
+	// Aeolus's own on the VLAN the tunnel names. On the VLAN the AP is
+	// managed on, that is the management interface (0084).
 	start := 0
 	if v, ok := conc["underlay_vlan"].(float64); ok {
 		start = int(v)
+	}
+	if start > 0 && k.managedOn(value(s, "tunlink"), start) {
+		start = 0
 	}
 	if link := value(s, "tunlink"); start > 0 && link != StartInterface(start) {
 		k.add("%s: tunlink is %q, want %s, as the tunnel starts from VLAN %d (0063)", at, link, StartInterface(start), start)
