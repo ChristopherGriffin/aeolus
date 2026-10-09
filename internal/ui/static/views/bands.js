@@ -1,4 +1,4 @@
-// Interfaces › Radios › Bands and channels (0047, 0075, 0087): one panel a
+// Interfaces › Radios › Bands and Channels (0047, 0075, 0087): one panel a
 // band. The radio's on/off and its width head it; the band's tick boxes
 // (DFS channels on 5 GHz; preferred scanning channels and one channel a
 // block on 6 GHz) sit under that; then the channel map; then the channel,
@@ -384,6 +384,8 @@ function bandPanel(at, band, b) {
 								: onlyPSC() && !g.whole.some(psc) ? 'No preferred scanning channel in this block'
 									: radar(band, c) ? 'Shared with radar (DFS)' : '';
 					const isOn = manual ? picked.has(c) : all;
+					// A dot marks the AP's own channel on its page; a folder's map
+					// has none (Griff, 2026-10-09).
 					return h('button', {
 						type: 'button',
 						class: `ch${isOn ? ' on' : ''}${some ? ' part' : ''}${can ? '' : ' off'}${radar(band, c) ? ' dfs' : ''}${band === '6g' && psc(c) ? ' psc' : ''}${(marked && goes.has(c)) || (manual && d.channel === c) ? ' goes' : ''}`,
@@ -399,7 +401,7 @@ function bandPanel(at, band, b) {
 							}
 							draw();
 						},
-					}, h('span', null, String(c)), h('span', { class: aps.length ? 'ap' : 'ap none' }));
+					}, h('span', null, String(c)), isAP && h('span', { class: aps.length ? 'ap' : 'ap none' }));
 				}));
 			}));
 		}));
