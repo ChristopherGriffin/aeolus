@@ -1,0 +1,23 @@
+{
+	"aeolus_template": 1,
+	"name": "Arista C-360",
+	"about": "The Arista C-360 (Wi-Fi 6E, tri-band) as the Symtus lab runs it: 6 GHz at 160 MHz on preferred scanning channels, one a block; 5 GHz at 80 MHz; 2.4 GHz at 20 MHz on 1, 6 and 11; automatic channels and power; no 802.11b. Country US.",
+	"boards": ["arista,c360"],
+	"values": {
+		"system.country": "US",
+		"radio.2g.channel": "auto",
+		"radio.2g.width": 20,
+		"radio.2g.power": "auto",
+		"radio.2g.modes": ["g", "n", "ax"],
+		"radio.5g.channel": "auto",
+		"radio.5g.width": 80,
+		"radio.5g.power": "auto",
+		"radio.5g.modes": ["a", "n", "ac", "ax"],
+		"radio.6g.channel": "auto",
+		"radio.6g.width": 160,
+		"radio.6g.psc": true,
+		"radio.6g.non_overlapping": true,
+		"radio.6g.power": "auto",
+		"radio.6g.modes": ["ax"]
+	}
+}

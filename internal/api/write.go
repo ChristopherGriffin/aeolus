@@ -41,9 +41,12 @@ func (s *Server) prepare(op change.Op) (change.Op, error) {
 		return op, badRequest("tokens are issued with POST /v1/tokens")
 	case change.SetConcentrator, change.RemoveConcentrator, change.SetVNI, change.RemoveVNI:
 		return op, badRequest("the library's concentrators are retired (0085): a tunnel is set in Interfaces, as concentrators.<name> on a folder or AP (0055)")
-	case change.SetTemplate:
+	case change.AddTemplate, change.SetTemplate:
 		// A template's values are Locations fields, checked and sealed as
-		// they are (0085).
+		// they are (0085); an imported template comes with them (0090).
+		if op.Kind == change.AddTemplate && len(op.Values) == 0 {
+			return op, nil
+		}
 		if len(op.Values) == 0 {
 			v, err := s.prepareValue(change.Locations, op.Path, op.Value)
 			op.Value = v

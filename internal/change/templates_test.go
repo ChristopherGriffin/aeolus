@@ -178,3 +178,42 @@ func TestNewKinds(t *testing.T) {
 		t.Fatalf("a taken ID: %s", got)
 	}
 }
+
+// An imported template is made with its settings in one change (0090): what
+// a template may not set is refused, and leaves nothing behind; the manager
+// may make one only empty.
+func TestAddTemplateWithValues(t *testing.T) {
+	s := templateOrg(t)
+	op := Op{Kind: AddTemplate, Template: "c360-6e", Name: "Arista C-360", Parent: "house", Boards: []string{"arista,c360"}, Default: true,
+		Values: map[hierarchy.Path]json.RawMessage{"radio.6g.width": raw(`160`), "radio.6g.psc": raw(`true`), "system.country": raw(`"US"`)}}
+	_, eff, err := Apply(s, op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, ok := s.Library.Template("c360-6e")
+	if !ok || len(tm.Values) != 3 || tm.Values["radio.6g.width"] != float64(160) {
+		t.Fatalf("template = %+v", tm)
+	}
+	if v, _ := eff.After.(map[string]any)["values"].(map[string]any); len(v) != 3 {
+		t.Errorf("effect = %+v", eff.After)
+	}
+	if r := resolved(t, s, "c360", "radio.6g.width"); r.Value != float64(160) || r.Origin != hierarchy.OriginTemplate || r.From != "house" {
+		t.Errorf("radio.6g.width = %+v", r)
+	}
+	bad := Op{Kind: AddTemplate, Template: "with-a-tunnel", Name: "X", Parent: "house", Boards: []string{"arista,c360"},
+		Values: map[hierarchy.Path]json.RawMessage{"radio.6g.width": raw(`160`), "concentrators.lab.address": raw(`"1.1.1.2"`)}}
+	c := s.Clone()
+	if _, _, err := Apply(c, bad); !errors.Is(err, ErrTemplateField) {
+		t.Errorf("a tunnel in an imported template: %v", err)
+	}
+	if _, _, err := Apply(s.Clone(), Op{Kind: AddTemplate, Template: "x", Name: "X", Parent: "house", Boards: []string{"arista,c360"},
+		Path: "radio.6g.width", Value: raw(`160`)}); !errors.Is(err, ErrTwoForms) {
+		t.Errorf("path and value on add-template: %v", err)
+	}
+	empty := templateOrg(t)
+	sys := Op{Kind: AddTemplate, Template: "arista-c360", Name: "Arista C-360", Parent: empty.Org.Locations.Root(), Boards: []string{"arista,c360"}, Default: true,
+		Values: map[hierarchy.Path]json.RawMessage{"radio.6g.width": raw(`160`)}}
+	if err := Authorize(empty, SystemActor, sys); !errors.Is(err, ErrDefaultTemplate) {
+		t.Errorf("the manager making a template with settings: %v", err)
+	}
+}
