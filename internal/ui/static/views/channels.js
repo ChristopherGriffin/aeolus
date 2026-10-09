@@ -35,10 +35,13 @@ const BLOCKS6 = {
 export const psc = (c) => c >= 5 && c <= 229 && (c - 5) % 16 === 0;
 
 // ranges are a band's 20 MHz channels, in the stretches of spectrum they
-// fall in: 2.4 GHz's 1–11, or 1–13 outside North America; 5 GHz's three.
+// fall in: 2.4 GHz's 1–11, or 1–13 outside North America; 5 GHz's three;
+// 6 GHz's 1–233 in four.
 function ranges(band, country) {
 	if (band === '2g') return [step(1, country === 'US' || country === 'CA' ? 11 : 13, 1)];
-	if (band === '6g') return [step(1, 233, 4)];
+	// 6 GHz in 320 MHz stretches, which wrap as 5 GHz's ranges do: each 40,
+	// 80 and 160 MHz block falls wholly in one (Griff, 2026-10-09).
+	if (band === '6g') return [step(1, 61, 4), step(65, 125, 4), step(129, 189, 4), step(193, 233, 4)];
 	return [step(36, 64, 4), step(100, 144, 4), step(149, 165, 4)];
 }
 
