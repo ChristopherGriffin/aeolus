@@ -17,8 +17,7 @@ import { schema } from '../api.js';
 import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY, uplinkJudgment, switchPort } from '../format.js';
 import { tabBar, pick } from '../layout.js';
 import { configs } from './sections.js';
-import { bandMap } from './channels.js';
-import { radiosSection } from './hardware.js';
+import { bandsSection } from './bands.js';
 import { neighboursSection, ratingsSection } from './neighbours.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
@@ -67,10 +66,7 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 			parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null };
 		if (view === 'ratings') body = ratingsSection(ctx, await rows());
 		else if (view === 'neighbours') body = neighboursSection(ctx, at, await rows());
-		else {
-			const list = await rows();
-			body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state, list, (band) => bandMap(ctx, at, band, list));
-		}
+		else body = bandsSection(ctx, id, page, ap?.cfg?.condition?.state, await rows());
 		return [bar, tabBar(`${base}/interfaces/radios`, RADIOS, view, 'minor'), body];
 	}
 	const body = sub === 'tunnels' ? await tunnels(ctx, id, page, ap, edit) : await ethernet(ctx, id, page, ap, edit);

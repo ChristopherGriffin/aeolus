@@ -225,7 +225,7 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 func TestAgentCallsOnlyWhatIsDeclaredAbove(t *testing.T) {
 	decl := regexp.MustCompile(`^(?:export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	call := regexp.MustCompile(`(^|[^A-Za-z0-9_.$])([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm"}
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/libexec/aeolus-gi"}
 	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
 	for _, m := range mods {
 		rel, _ := filepath.Rel(agentDir, m)

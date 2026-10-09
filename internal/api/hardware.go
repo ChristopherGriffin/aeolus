@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ChristopherGriffin/aeolus/internal/change"
@@ -40,6 +41,17 @@ type bandView struct {
 	Band   string      `json:"band"`
 	APs    int         `json:"aps"`
 	Widths []widthView `json:"widths"`
+	Modes  []modeView  `json:"modes"`
+}
+
+// modeView is an 802.11 generation of a band (0089): whether every AP
+// serves it, which it must to be the least the band allows, and whether
+// any does.
+type modeView struct {
+	Mode string `json:"mode"`
+	OK   bool   `json:"ok"`
+	Any  bool   `json:"any"`
+	Why  string `json:"why,omitempty"`
 }
 
 type hardwareView struct {
@@ -54,6 +66,7 @@ type hardwareView struct {
 type apRadios struct {
 	ref      apRef
 	can      map[string]map[int]bool // band -> widths every radio of that band can use
+	serves   map[string][]string     // band -> the 802.11 generations every radio of that band serves (0089)
 	channels map[string]int          // band -> channel; 0 for automatic or unknown
 	setBelow map[string]apRef        // band -> the node below that sets its channel, out of the node's reach
 }
@@ -125,6 +138,22 @@ func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardware
 		avoid := dfsAvoided(t, node, band)
 		for _, w := range radio.Widths[band] {
 			bv.Widths = append(bv.Widths, judge(band, w, have, alone, lockedBy, avoid))
+		}
+		for _, m := range radio.Generations[band] {
+			var cannot []string
+			for _, r := range have {
+				if !slices.Contains(r.serves[band], m) {
+					cannot = append(cannot, r.ref.Name)
+				}
+			}
+			v := modeView{Mode: m, OK: len(cannot) == 0, Any: len(cannot) < len(have)}
+			switch {
+			case len(cannot) > 0 && alone:
+				v.Why = "its radio cannot do it"
+			case len(cannot) > 0:
+				v.Why = names(cannot) + " cannot do it"
+			}
+			bv.Modes = append(bv.Modes, v)
 		}
 		hw.Bands = append(hw.Bands, bv)
 	}
@@ -223,7 +252,7 @@ func more(n int) string {
 // apRadios reads one AP's radios. above holds the node the setting would be
 // made on and its ancestors: a channel set anywhere else is set below it.
 func (s *Server) apRadios(state *change.State, t *hierarchy.Tree, ref apRef, above map[hierarchy.NodeID]bool) (apRadios, error) {
-	r := apRadios{ref: ref, can: map[string]map[int]bool{}, channels: map[string]int{}, setBelow: map[string]apRef{}}
+	r := apRadios{ref: ref, can: map[string]map[int]bool{}, serves: map[string][]string{}, channels: map[string]int{}, setBelow: map[string]apRef{}}
 	var facts struct {
 		Radios []struct {
 			Band    string   `json:"band"`
@@ -240,14 +269,19 @@ func (s *Server) apRadios(state *change.State, t *hierarchy.Tree, ref apRef, abo
 		if len(can) == 0 {
 			continue
 		}
+		serves := radio.Serves(fr.Band, fr.HTModes)
 		if prev, ok := r.can[fr.Band]; ok {
 			for w := range prev { // a band setting applies to every radio of that band
 				if !can[w] {
 					delete(prev, w)
 				}
 			}
+			if len(serves) < len(r.serves[fr.Band]) {
+				r.serves[fr.Band] = serves
+			}
 		} else {
 			r.can[fr.Band] = can
+			r.serves[fr.Band] = serves
 		}
 	}
 	reported, err := s.reportedChannels(ref.ID)

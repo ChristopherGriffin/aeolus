@@ -1296,6 +1296,120 @@ func TestRRM(t *testing.T) {
 	}
 }
 
+// The 802.11 generations a band allows (0089): 802.11b is legacy_rates, the
+// oldest is require_mode, and the mode's family lies between the oldest and
+// the newest. The short guard interval off is each short_gi option at 0.
+func TestModesAndShortGI(t *testing.T) {
+	check := func(radio, text string) string {
+		t.Helper()
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(`{"radio": `+radio+`}`), &doc); err != nil {
+			t.Fatal(err)
+		}
+		c, err := uci.Parse("package wireless\n" + text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	got := check(`{"2g": {"modes": ["b", "g"]}, "5g": {"modes": ["ac", "ax"], "short_gi": false}}`, `config wifi-device 'a'
+	option band '2g'
+	option htmode 'NOHT'
+	option legacy_rates '1'
+config wifi-device 'b'
+	option band '2g'
+	option htmode 'HT20'
+config wifi-device 'c'
+	option band '5g'
+	option htmode 'HE80'
+	option require_mode 'ac'
+	option short_gi_20 '0'
+	option short_gi_40 '0'
+	option short_gi_80 '0'
+	option short_gi_160 '0'
+config wifi-device 'd'
+	option band '5g'
+	option htmode 'HT40'
+	option short_gi_80 '1'
+`)
+	for _, want := range []string{
+		`wireless.b: legacy_rates is "", want it on for 802.11b the oldest radio.2g.modes allows`,
+		`wireless.b: htmode is "HT20", want one of 802.11b to 802.11g, as radio.2g.modes allows`,
+		`wireless.d: require_mode is "", want "ac" for 802.11ac the oldest radio.5g.modes allows`,
+		`wireless.d: htmode is "HT40", want one of 802.11ac to 802.11ax, as radio.5g.modes allows`,
+		`wireless.d: short_gi_20 is "", want it off for radio.5g.short_gi false`,
+		`wireless.d: short_gi_80 is "1", want it off for radio.5g.short_gi false`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %s", want, got)
+		}
+	}
+	for _, ok := range []string{"wireless.a:", "wireless.c:"} {
+		if strings.Contains(got, ok) {
+			t.Errorf("%s should pass: %s", ok, got)
+		}
+	}
+	// Without 802.11b, legacy_rates is off; the short guard interval on is
+	// OpenWrt's default, no option, and a 0 is caught.
+	got = check(`{"2g": {"modes": ["g", "n", "ax"], "short_gi": true}}`, `config wifi-device 'a'
+	option band '2g'
+	option htmode 'HE20'
+config wifi-device 'b'
+	option band '2g'
+	option htmode 'HE20'
+	option legacy_rates '1'
+	option require_mode 'n'
+	option short_gi_20 '0'
+`)
+	for _, want := range []string{
+		`wireless.b: legacy_rates is "1", want it off for 802.11g the oldest radio.2g.modes allows`,
+		`wireless.b: require_mode is "n", want "" for 802.11g the oldest radio.2g.modes allows`,
+		`wireless.b: short_gi_20 is "0", want it on for radio.2g.short_gi true`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "wireless.a:") {
+		t.Errorf("wireless.a should pass: %s", got)
+	}
+}
+
+// The 802.11ax guard interval set for a band the AP serves is in the
+// agent's gi section, which aeolus-gi sets with iw; automatic, or none set,
+// there is no section (0089).
+func TestHEGuardInterval(t *testing.T) {
+	check := func(radio, text string) string {
+		t.Helper()
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(`{"radio": `+radio+`}`), &doc); err != nil {
+			t.Fatal(err)
+		}
+		c, err := uci.Parse("package wireless\nconfig wifi-device 'radio0'\n\toption band '5g'\nconfig wifi-device 'radio1'\n\toption band '2g'\n" +
+			"config wifi-device 'radio2'\n\toption band '6g'\n\toption airscan '1'\npackage aeolus\n" + text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	set := `{"5g": {"he_gi": 1600}, "2g": {"he_gi": "auto"}, "6g": {"he_gi": 800}}`
+	if got := check(set, "config gi 'aeolus_gi'\n\toption he_gi_5g '1.6'\n"); got != "" {
+		t.Errorf("1.6 on 5 GHz, automatic on 2.4, 6 GHz only the scan radio's: %s", got)
+	}
+	if got := check(set, ""); !strings.Contains(got, "aeolus.aeolus_gi: an 802.11ax guard interval is set, but the section is missing") {
+		t.Errorf("no section: %s", got)
+	}
+	got := check(set, "config gi 'aeolus_gi'\n\toption he_gi_5g '0.8'\n\toption he_gi_6g '0.8'\n")
+	for _, want := range []string{`aeolus.aeolus_gi: he_gi_5g is "0.8", want "1.6"`, `aeolus.aeolus_gi: he_gi_6g is "0.8", but no such guard interval is set`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %s", want, got)
+		}
+	}
+	if got := check(`{"5g": {"he_gi": "auto"}}`, "config gi 'aeolus_gi'\n\toption he_gi_5g '1.6'\n"); !strings.Contains(got, "aeolus.aeolus_gi: no 802.11ax guard interval is set, but the section is there") {
+		t.Errorf("automatic, with a section: %s", got)
+	}
+}
+
 // Every schema field is either checked or deferred with a reason, and every
 // entry names a real field (0039).
 func TestCoverageMatchesTheSchema(t *testing.T) {

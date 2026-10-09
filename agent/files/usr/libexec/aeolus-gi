@@ -1,0 +1,112 @@
+#!/usr/bin/ucode -S
+// aeolus-gi: holds the AP's networks to the 802.11ax guard interval Aeolus
+// sets for their band (0089). OpenWrt has no option for it, so it is set
+// with iw on each network's interface, which keeps it only until hostapd
+// makes the interface anew. The agent runs this after each apply and every
+// few minutes, and the net hotplug when an interface comes.
+//
+//	aeolus-gi              every AP interface that is up: set where its band
+//	                       has a guard interval and it doesn't hold it yet;
+//	                       back to automatic where it held one and the band
+//	                       no longer has it
+//	aeolus-gi <interface>  one interface hostapd has just made, once its
+//	                       network is up, a radar check included
+//
+// The guard intervals are the renderer's, in the agent's package: the
+// aeolus_gi section's he_gi_<band>, in microseconds as iw takes them. What
+// it holds is in /var/run/aeolus/gi/, a file an interface: the guard
+// interval, and the interface's index, which a new one doesn't share.
+
+'use strict';
+
+import * as fs from 'fs';
+import { cursor } from 'uci';
+import { connect } from 'ubus';
+import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING } from 'log';
+
+const HELD = '/var/run/aeolus/gi';
+const IW = { '2g': '2.4', '5g': '5', '6g': '6' };
+const WAIT = 90;   // seconds a new interface's network has to come up, a radar check included
+
+openlog('aeolus', LOG_PID, LOG_DAEMON);
+let bus = connect();
+let want = cursor().get_all('aeolus', 'aeolus_gi') ?? {};
+
+function read(path) {
+	let v = fs.readfile(path);
+	return v == null ? null : trim(v);
+}
+
+// interfaces lists the AP interfaces netifd has, each with its radio's band.
+function interfaces() {
+	let out = [];
+	for (let name, d in bus?.call('network.wireless', 'status') ?? {})
+		for (let i in d.interfaces ?? [])
+			if (i.ifname && i.config?.mode == 'ap' && IW[d.config?.band])
+				push(out, { ifname: i.ifname, band: d.config.band });
+	return out;
+}
+
+// up says hostapd has the interface's network up, on its channel: the
+// driver takes a guard interval only then.
+function up(ifname) {
+	return bus?.call(`hostapd.${ifname}`, 'get_status')?.status == 'ENABLED';
+}
+
+function index_of(ifname) {
+	return read(`/sys/class/net/${ifname}/ifindex`) ?? '';
+}
+
+function hold(i, gi) {
+	let held = `${gi} ${index_of(i.ifname)}`;
+	if (read(`${HELD}/${i.ifname}`) == held)
+		return;
+	if (system(sprintf("iw dev '%s' set bitrates he-gi-%s %s >/dev/null 2>&1", i.ifname, IW[i.band], gi)) != 0) {
+		syslog(LOG_WARNING, '%s: its 802.11ax guard interval could not be set to %s us', i.ifname, gi);
+		return;
+	}
+	fs.mkdir('/var/run/aeolus');
+	fs.mkdir(HELD);
+	fs.writefile(`${HELD}/${i.ifname}`, held + '\n');
+	syslog(LOG_INFO, '%s: 802.11ax guard interval %s us', i.ifname, gi);
+}
+
+function let_go(ifname) {
+	system(sprintf("iw dev '%s' set bitrates >/dev/null 2>&1", ifname));
+	fs.unlink(`${HELD}/${ifname}`);
+	syslog(LOG_INFO, '%s: 802.11ax guard interval automatic', ifname);
+}
+
+let only = ARGV[0];
+if (only) {
+	// A new interface: its band from netifd, its network up from hostapd.
+	let deadline = time() + WAIT, me;
+	while (true) {
+		me = filter(interfaces(), i => i.ifname == only)[0];
+		if (me && up(only))
+			break;
+		if (time() >= deadline)
+			exit(0);
+		sleep(2000);
+	}
+	// What the old one held went with it.
+	fs.unlink(`${HELD}/${only}`);
+	let gi = want['he_gi_' + me.band];
+	if (gi)
+		hold(me, gi);
+	exit(0);
+}
+
+let seen = {};
+for (let i in interfaces()) {
+	seen[i.ifname] = true;
+	let gi = want['he_gi_' + i.band];
+	if (gi && up(i.ifname))
+		hold(i, gi);
+	else if (!gi && fs.access(`${HELD}/${i.ifname}`))
+		let_go(i.ifname);
+}
+// Interfaces that went hold nothing.
+for (let f in fs.lsdir(HELD) ?? [])
+	if (!seen[f])
+		fs.unlink(`${HELD}/${f}`);

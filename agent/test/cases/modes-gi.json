@@ -1,0 +1,76 @@
+{
+	"about": "An Arista C-360 holding its clients to the newer 802.11 generations (0089). 2.4 GHz allows 802.11g to 802.11ax: no 802.11b, so legacy_rates goes; its short guard interval is off, short_gi_20 to _160 '0'. 5 GHz allows 802.11ac and 802.11ax at 80 MHz, so require_mode is ac. 6 GHz allows 802.11ax, which it requires anyway. The 802.11ax guard intervals, 1.6, 0.8 and 3.2 microseconds, go in the agent's gi section, which aeolus-gi sets with iw. The scan radio, radio2, is left alone (0081).",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"radio": {
+			"2g": {
+				"modes": [
+					"g",
+					"n",
+					"ax"
+				],
+				"short_gi": false,
+				"he_gi": 1600
+			},
+			"5g": {
+				"modes": [
+					"ac",
+					"ax"
+				],
+				"width": 80,
+				"he_gi": 800
+			},
+			"6g": {
+				"modes": [
+					"ax"
+				],
+				"he_gi": 3200
+			}
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa3-sae",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": []
+}

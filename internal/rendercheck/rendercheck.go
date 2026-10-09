@@ -36,6 +36,9 @@ var Coverage = map[string]string{
 	"radio.*.psc":      "",
 
 	"radio.*.non_overlapping": "",
+	"radio.*.modes":           "",
+	"radio.*.short_gi":        "",
+	"radio.*.he_gi":           "",
 
 	"system.country":               "",
 	"system.tz":                    "",
@@ -208,6 +211,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.ports(obj(doc, "ports"), obj(doc, "concentrators"))
 	k.probes(doc)
 	k.rrm(obj(doc, "rrm"), obj(doc, "apc"))
+	k.guardInterval(obj(doc, "radio"), radios)
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -357,6 +361,84 @@ func (k *checker) radioSettings(doc map[string]any, radios []device) {
 		if v, ok := set["dfs"].(string); ok {
 			k.dfs(where, r, v)
 		}
+		if list, ok := set["modes"].([]any); ok {
+			k.modes(where, r, list)
+		}
+		if v, ok := set["short_gi"].(bool); ok {
+			for _, w := range []string{"20", "40", "80", "160"} {
+				o := "short_gi_" + w
+				got, has := r.s.Option(o)
+				if v && has && !r.s.Flag(o) || !v && (!has || r.s.Flag(o)) {
+					k.add("%s: %s is %q, want it %s for radio.%s.short_gi %v", where, o, got, onOff(v), r.band, v)
+				}
+			}
+		}
+	}
+}
+
+// modes checks a radio against the 802.11 generations its band allows
+// (0089): 802.11b as legacy_rates, the oldest as require_mode, and a mode
+// whose family serves the oldest and goes no further than the newest. A
+// list compose refuses is not checked.
+func (k *checker) modes(where string, r device, list []any) {
+	var modes []string
+	for _, m := range list {
+		if s, ok := m.(string); ok {
+			modes = append(modes, s)
+		}
+	}
+	oldest, newest, err := radio.Span(r.band, modes)
+	if err != nil {
+		return
+	}
+	if r.band == "2g" {
+		if want := oldest == "b"; r.s.Flag("legacy_rates") != want {
+			k.add("%s: legacy_rates is %q, want it %s for 802.11%s the oldest radio.2g.modes allows", where, value(r.s, "legacy_rates"), onOff(want), oldest)
+		}
+	}
+	if got, want := value(r.s, "require_mode"), radio.Required(r.band, oldest); got != want {
+		k.add("%s: require_mode is %q, want %q for 802.11%s the oldest radio.%s.modes allows", where, got, want, oldest, r.band)
+	}
+	m := htmodeRE.FindStringSubmatch(value(r.s, "htmode"))
+	fam := "HT" // OpenWrt's default with no htmode
+	if m != nil {
+		fam = m[1]
+	}
+	if radio.Rank(fam) > radio.Rank(radio.Family[newest]) || radio.Rank(fam) < radio.Rank(radio.Family[oldest]) {
+		k.add("%s: htmode is %q, want one of 802.11%s to 802.11%s, as radio.%s.modes allows", where, value(r.s, "htmode"), oldest, newest, r.band)
+	}
+}
+
+// guardInterval checks the 802.11ax guard interval the agent holds each
+// band's networks to (0089): the agent's gi section has it for each band
+// the AP serves where one is set, and nothing else; with none, there is no
+// section.
+func (k *checker) guardInterval(set map[string]any, radios []device) {
+	const where = "aeolus.aeolus_gi"
+	want := map[string]string{}
+	for _, r := range radios {
+		if ns, ok := obj(set, r.band)["he_gi"].(float64); ok && radio.GI[int(ns)] != "" {
+			want["he_gi_"+r.band] = radio.GI[int(ns)]
+		}
+	}
+	s := k.c.Package("aeolus").Named("aeolus_gi")
+	if len(want) == 0 {
+		if s != nil {
+			k.add("%s: no 802.11ax guard interval is set, but the section is there", where)
+		}
+		return
+	}
+	if s == nil || s.Type != "gi" {
+		k.add("%s: an 802.11ax guard interval is set, but the section is missing", where)
+		return
+	}
+	for _, o := range s.Names() {
+		if _, ok := want[o]; !ok {
+			k.add("%s: %s is %q, but no such guard interval is set", where, o, value(s, o))
+		}
+	}
+	for _, o := range slices.Sorted(maps.Keys(want)) {
+		k.option(where, s, o, want[o])
 	}
 }
 
@@ -1547,6 +1629,7 @@ func (k *checker) probes(doc map[string]any) {
 		expected[name] = true
 	}
 	expected["aeolus_rrm"] = true // radio resource management's, which k.rrm judges (0073)
+	expected["aeolus_gi"] = true  // the 802.11ax guard interval's, which k.guardInterval judges (0089)
 	if a != nil {
 		for _, s := range a.Sections {
 			if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {
