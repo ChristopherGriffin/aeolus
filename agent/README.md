@@ -1,6 +1,6 @@
 # The Aeolus agent
 
-The program that runs on each AP (0040). It's written in ucode. It ships as the OpenWrt package `aeolus-agent` (0080), which depends on the ucode modules it needs; on most images they are there already. Setting it up also adds usteer, for band steering (0050), snmpd, for SNMP (0052), vxlan and kmod-nft-bridge, for tunnels (0054), and ucode-mod-socket, for the prober (0059). It was built against OpenWrt 25.12.5 on PumphouseAP; its scripts speak opkg too, for releases before apk (0083).
+The program that runs on each AP (0040). It's written in ucode. It ships as the OpenWrt package `aeolus-agent` (0080), which depends on the ucode modules it needs; on most images they are there already. Setting it up also adds usteer, for band steering (0050), snmpd, for SNMP (0052), vxlan and kmod-nft-bridge, for tunnels (0054), and ucode-mod-socket, for the prober (0059). It was built against OpenWrt 25.12.5 on PumphouseAP; it needs OpenWrt 24.10 or later, the first release whose feeds have all its modules, and its scripts speak 24.10's opkg as well as apk (0083).
 
 | Path | What it is |
 |---|---|

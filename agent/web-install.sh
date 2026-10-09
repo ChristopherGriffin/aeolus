@@ -42,6 +42,12 @@ main() {
 	[ -f /etc/openwrt_release ] || die "this is not OpenWrt"
 	[ "$(id -u)" = 0 ] || die "run it as root"
 	command -v ucode >/dev/null 2>&1 || die "this OpenWrt has no ucode, which the agent is written in"
+	# The agent's ucode modules: uclient and digest first come in 24.10's
+	# feeds (0083). A snapshot has them.
+	release=$(. /etc/openwrt_release && echo "${DISTRIB_RELEASE:-}")
+	case $release in
+	1[0-9].* | 2[0-3].*) die "Aeolus needs OpenWrt 24.10 or later; this is $release, whose feeds lack ucode modules the agent needs (uclient, digest)" ;;
+	esac
 	[ -z "$uplink" ] || [ -d "/sys/class/net/$uplink" ] || die "no port named $uplink"
 
 	if command -v apk >/dev/null 2>&1; then

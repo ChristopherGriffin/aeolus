@@ -26,7 +26,12 @@
   - `-n` installs without joining.
   Where it can't tell the uplink, it installs and says how to finish.
 - **Files a package owns are left alone.** With `aeolus-agent` installed, the agent updates itself from the manager (0079); with `luci-app-aeolus` installed, the page is the package's.
-- **Any OpenWrt with ucode,** apk or opkg. `aeolus-packages` speaks both, and `aeolus-setup` now first installs the modules the agent can't start without. An AP given only the files lacks the package's dependencies.
+- **OpenWrt 24.10 and later,** opkg or apk. `aeolus-packages` speaks both, and `aeolus-setup` now first installs the modules the agent can't start without. An AP given only the files lacks the package's dependencies.
+- **24.10 is the first release whose feeds have every module the agent needs.** As of 2026-10-09, from each release's base feed:
+  - 22.03 has ucode 2022-12-02, without `log`, `digest`, `socket` or `uclient`;
+  - 23.05 has ucode 2024-07-11, with `log` but without `digest`, `socket` or `uclient`;
+  - 24.10 has ucode 2025.07.18 and all of them, `uclient` from uclient 2024.10.22.
+  Before 22.03, the base feed has no ucode at all. The installer refuses a release before 24.10, and says why.
 
 ### Joining a manager by hand
 
@@ -65,4 +70,4 @@
 - Discovery (0033): with a DNS name or a DHCP option, the web installer and this page become the fallback, not the way in.
 - A manager with a CA-signed certificate. `/install/manager.crt` serves the manager's own certificate, which the AP pins. A CA's certificate would need serving instead, as 0033 has it.
 - Limiting requests to `/install`, with the same limits as enrollment (0033).
-- **Older OpenWrt** (Griff, 2026-10-09). In time, an AP whose firmware can't do the newer features should still get the basics: its SSIDs and the control plane (enroll, poll, check, apply with revert, report). What it can't do would be left out, and the manager would say so, instead of the whole config being held as it is now (0057). The installer already speaks opkg. The agent needs ucode and its modules, though, and which releases' feeds have them is still to be checked. An AP older than ucode would need another agent.
+- **Older OpenWrt** (Griff, 2026-10-09). In time, an AP whose firmware can't do the newer features should still get the basics: its SSIDs and the control plane (enroll, poll, check, apply with revert, report). What it can't do would be left out, and the manager would say so, instead of the whole config being held as it is now (0057). The installer already speaks opkg. For 23.05, the agent would have to do without `uclient`, perhaps by running `uclient-fetch`, and without `digest`, perhaps by running `sha256sum`; `socket` already only turns the prober off. 22.03 lacks `log` too, and an older ucode, which the agent has never run on. An AP older than ucode (21.02, RutOS on the RUTM50) would need another agent.
