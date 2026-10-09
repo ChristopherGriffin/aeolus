@@ -42,6 +42,7 @@
   - then the channel (automatic or manual: manual picks one channel on the map), the power, the protocols as tick boxes, and the guard intervals: "802.11n/ac" short or long, and "802.11ax" automatic or 0.8, 1.6 or 3.2 µs, each shown only while its kind is allowed.
 
   A tick that would leave a gap fills it. Unticking any but the newest raises the oldest. The last tick stays. Unset, the boxes show what any AP serves, except 802.11b. 802.11be shows only where an AP serves it. Widths the newest can't carry are disabled, and a set one narrows. Save is disabled, with the reason, when an AP can't serve the oldest. Everything saves as one change, through the preview.
+- **On a folder, a value nothing sets says nothing** (Griff, 2026-10-09). No "each AP's own" appears beside it, and its pulldown shows a dash. On an AP's page it still says "its own". Each guard interval pulldown marks the usual value "(default)": short, 400 ns, for 802.11n/ac, which OpenWrt advertises wherever the radio can, and 0.8 µs for 802.11ax.
 - **The hardware view** gives each band's `modes`: each generation, `ok` where every AP serves it, `any` where one does, and `why`.
 
 ## Consequences
