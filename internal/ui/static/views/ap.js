@@ -3,7 +3,7 @@
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
-import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort, dhcpWarnings } from '../format.js';
+import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort, dhcpWarnings, templateSays } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, keepPath, moved } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
@@ -53,6 +53,7 @@ export async function apPage(ctx, id, tab, sub, view) {
 		revertBox,
 		nameBox,
 		statusPanel(st, cfg, cond),
+		templateNote(ctx, id, cfg),
 		cfg.check?.problems?.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Its config breaks these rules, so it is not sent'),
 			h('ul', null, cfg.check.problems.map((p) => h('li', null, p)))),
@@ -212,3 +213,16 @@ function history(hist) {
 		!checks.length && !applies.length && !states.length && h('div', { class: 'empty' }, 'Nothing yet.'));
 }
 
+// templateNote says which AP template the AP takes (0085), and whether it
+// follows it: each of the template's settings that something set closer to
+// the AP replaces, and where.
+function templateNote(ctx, id, cfg) {
+	const t = cfg.template;
+	if (!t || cfg.unassigned) return null;
+	if (!t.id) return h('div', { class: 'banner info' }, templateSays(t));
+	const at = (node) => (node === id ? 'on this AP' : ['at ', link(`/locations/${encodeURIComponent(node)}`, ctx.name('locations', node))]);
+	return h('div', { class: 'banner ' + (t.follows ? 'info' : 'branch'), style: 'flex-direction: column; gap: 6px' },
+		h('div', null, h('strong', null, templateSays(t)), ' · picked ', at(t.at), ' · ', link('/library', 'Library')),
+		t.replaced.length > 0 && h('ul', { style: 'margin: 0; padding-left: 18px' }, t.replaced.map((r) => h('li', null,
+			h('span', { class: 'mono' }, r.path), ' is ', h('span', { class: 'mono' }, JSON.stringify(r.value)), ', set ', at(r.node)))));
+}

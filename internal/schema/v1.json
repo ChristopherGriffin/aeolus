@@ -76,6 +76,7 @@
       "propertyNames": { "$ref": "#/$defs/networkId" },
       "additionalProperties": { "$ref": "#/$defs/network" }
     },
+    "templates": { "x-aeolus-tree": "locations", "description": "AP templates, by board as OpenWrt names it (arista,c360): the template the board's APs below take (0085). Not sent to APs: the manager applies the template.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/templateId" } },
     "concentrators": {
       "x-aeolus-tree": "locations",
       "description": "Tunnels, by name: the far end a VXLAN transport reaches (0055). A network picks one by name.",
@@ -117,6 +118,7 @@
     }
   },
   "$defs": {
+    "templateId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$", "description": "An AP template's ID (0085)." },
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
     "ipAddress": {
       "description": "An IPv4 or IPv6 address.",

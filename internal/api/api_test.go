@@ -398,42 +398,16 @@ func TestChangeLogNeedsViewerAtTheRoot(t *testing.T) {
 	}
 }
 
-func TestLibraryThroughTheAPI(t *testing.T) {
+// The library's concentrators are retired (0085): no new ones.
+func TestLibraryConcentratorsAreRetired(t *testing.T) {
 	f := newFixture(t)
 	homelab := map[string]any{"kind": "set-concentrator", "concentrator": "homelab",
 		"value": map[string]any{"name": "Homelab", "address": "1.1.1.2", "port": 4789, "mtu": 1450}}
-	if code, body := f.change("claude", homelab); code != 403 {
-		t.Fatalf("operator editing the library: %d %v", code, body)
+	if code, body := f.change("griff", homelab); code != 400 || !strings.Contains(body["error"].(string), "retired") {
+		t.Fatalf("a new concentrator: %d %v", code, body)
 	}
-	bad := map[string]any{"kind": "set-concentrator", "concentrator": "bad",
-		"value": map[string]any{"name": "Bad", "address": "1.1.1.3", "port": 70000, "mtu": 1450}}
-	if code, body := f.change("griff", bad); code != 400 || !strings.Contains(body["error"].(string), "port") {
-		t.Fatalf("bad port: %d %v", code, body)
-	}
-	if code, body := f.change("griff", homelab); code != 200 {
-		t.Fatalf("%d %v", code, body)
-	}
-	if code, body := f.change("griff", map[string]any{"kind": "set-vni", "concentrator": "homelab", "vni": 20, "name": "Trusted"}); code != 200 {
-		t.Fatalf("%d %v", code, body)
-	}
-	code, body := f.do("GET", "/v1/library", "tenant", nil)
-	concs := body["concentrators"].([]any)
-	if code != 200 || len(concs) != 1 || concs[0].(map[string]any)["vnis"].(map[string]any)["20"] != "Trusted" {
+	if code, body := f.do("GET", "/v1/library", "griff", nil); code != 200 || len(body["templates"].([]any)) != 0 || body["concentrators"] != nil {
 		t.Fatalf("library = %d %v", code, body)
-	}
-
-	ref := func(id string) map[string]any {
-		return map[string]any{"kind": "set", "tree": "services", "node": "household", "path": "network.sweet.transport.fallback.concentrator", "value": id}
-	}
-	// A transport names a tunnel set in Locations, not a library entry (0055).
-	if code, body := f.change("griff", ref("nowhere")); code != 200 {
-		t.Fatalf("a tunnel the library lacks: %d %v", code, body)
-	}
-	if code, body := f.change("griff", ref("homelab")); code != 200 {
-		t.Fatalf("%d %v", code, body)
-	}
-	if code, body := f.change("griff", map[string]any{"kind": "remove-concentrator", "concentrator": "homelab"}); code != 409 || !strings.Contains(body["error"].(string), "in use") {
-		t.Fatalf("removing a concentrator in use: %d %v", code, body)
 	}
 }
 

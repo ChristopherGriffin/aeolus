@@ -3,7 +3,7 @@
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
-import { ago } from '../format.js';
+import { ago, templateSays } from '../format.js';
 import { apStatus } from '../layout.js';
 
 export async function apsPage(ctx) {
@@ -17,6 +17,7 @@ export async function apsPage(ctx) {
 			h('td', null, h('span', { class: 'chip ' + st.chip }, st.label)),
 			h('td', null, link(`/aps/${encodeURIComponent(a.id)}`, a.name)),
 			h('td', null, where(a)),
+			h('td', null, a.template ? (a.template.id && !a.template.follows ? h('span', { class: 'chip warn' }, templateSays(a.template)) : h('span', { class: 'sub' }, templateSays(a.template))) : '—'),
 			h('td', { class: 'mono' }, a.seen?.running != null ? `${a.seen.running} / ${a.version}` : `— / ${a.version}`),
 			h('td', null, ago(a.seen?.at)),
 			h('td', { class: 'mono' }, a.seen?.source || '—'));
@@ -29,7 +30,7 @@ export async function apsPage(ctx) {
 					h('div', { class: 'sub' }, aps.length === 0 ? 'No APs yet.' : Object.entries(counts).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ')))),
 			aps.length > 0 && h('section', { class: 'panel' },
 				h('table', { class: 'list' },
-					h('tr', null, ['State', 'AP', 'Where', 'Running / its version', 'Last seen', 'From'].map((c) => h('th', null, c))),
+					h('tr', null, ['State', 'AP', 'Where', 'Template', 'Running / its version', 'Last seen', 'From'].map((c) => h('th', null, c))),
 					rows)),
 			detected(ctx, found),
 		],

@@ -167,6 +167,7 @@ func status(err error) int {
 	var be *changelog.APBreakError
 	var fe *schema.FieldError
 	var ce *hierarchy.NetworkConflictError
+	var pe *change.TemplatePickError
 	switch {
 	case errors.As(err, &ae):
 		return ae.code
@@ -177,8 +178,11 @@ func status(err error) int {
 	case errors.Is(err, hierarchy.ErrNotFound), errors.Is(err, access.ErrNoAccount),
 		errors.Is(err, access.ErrNoToken), errors.Is(err, access.ErrNoGrant):
 		return http.StatusNotFound
-	case errors.Is(err, library.ErrNoConcentrator), errors.Is(err, library.ErrNoVNI), errors.Is(err, keys.ErrNoKey):
+	case errors.Is(err, library.ErrNoConcentrator), errors.Is(err, library.ErrNoVNI), errors.Is(err, keys.ErrNoKey),
+		errors.Is(err, library.ErrNoTemplate):
 		return http.StatusNotFound
+	case errors.Is(err, library.ErrTemplateExists):
+		return http.StatusConflict
 	case errors.Is(err, change.ErrBadKey):
 		return http.StatusBadRequest
 	case errors.Is(err, keys.ErrKeyExists), errors.Is(err, keys.ErrTooMany):
@@ -196,7 +200,11 @@ func status(err error) int {
 		errors.Is(err, hierarchy.ErrBadParent), errors.Is(err, hierarchy.ErrAPsNotHere), errors.Is(err, hierarchy.ErrMoveRoot),
 		errors.Is(err, hierarchy.ErrCycle), errors.Is(err, hierarchy.ErrBreakRoot), errors.Is(err, hierarchy.ErrBroken),
 		errors.Is(err, hierarchy.ErrNotSetHere), errors.Is(err, hierarchy.ErrLockOnValue), errors.Is(err, hierarchy.ErrNotLocked),
-		errors.Is(err, hierarchy.ErrNotAnAP), errors.Is(err, access.ErrBadTokenArg):
+		errors.Is(err, hierarchy.ErrNotAnAP), errors.Is(err, access.ErrBadTokenArg),
+		errors.As(err, &pe), errors.Is(err, change.ErrNoTemplateID), errors.Is(err, change.ErrTemplateLevel),
+		errors.Is(err, change.ErrTemplateField), errors.Is(err, change.ErrTemplateName),
+		errors.Is(err, library.ErrTemplateID), errors.Is(err, library.ErrBoard), errors.Is(err, library.ErrNoBoards),
+		errors.Is(err, library.ErrNotSet):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

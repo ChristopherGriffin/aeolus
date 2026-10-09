@@ -10,6 +10,7 @@ const (
 	OriginInherited               // set at a node above
 	OriginLocked                  // enforced by a lock at From (which may be the node itself)
 	OriginBaseline                // copied when From broke hierarchy
+	OriginTemplate                // from the AP's template (0085, APConfig.Template), picked at From
 )
 
 // Resolved is a field's value at a node and where it came from.
@@ -31,6 +32,10 @@ func (t *Tree) chain(id NodeID) []NodeID {
 	}
 	return out
 }
+
+// Chain returns id and the nodes above it that it inherits from, nearest
+// first: what Resolve looks through.
+func (t *Tree) Chain(id NodeID) []NodeID { return t.chain(id) }
 
 // Resolve returns a field's value at a node (0012): a lock above wins,
 // otherwise the closest node that sets the field, otherwise a copy taken at a

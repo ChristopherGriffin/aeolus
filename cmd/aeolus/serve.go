@@ -124,6 +124,8 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 		log.Close()
 		return nil, nil, nil, fmt.Errorf("adding built-in folders: %w", err)
 	}
+	// Each kind of AP adopted has a template (0085).
+	api.NewKinds(log)
 	conds, err := conditions.Open(*condsPath, nil)
 	if err != nil {
 		log.Close()

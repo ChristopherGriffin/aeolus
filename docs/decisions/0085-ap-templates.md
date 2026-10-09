@@ -1,6 +1,6 @@
 # 0085. The library holds AP templates, and only those
 
-- Status: Proposed
+- Status: Proposed; the library, picking, precedence, new kinds' templates and the API are built (branch hardware-profiles). Built-in templates and the radio plan as a setting are next.
 - Date: 2026-10-09
 - Proposed by: Griff: hardware profiles, so every C-360 is set as one thing, every C-260 as another, every AX6000 or whatever as another. A site with two or three kinds of OpenWrt AP has each set as it comes online. This should be the library's only use; tunnels stay in Interfaces. A new kind of AP makes a template in the library, and templates are applied at any folder level: one location's without 6 GHz, another's with it. In a folder, the library shows the templates offered there; at another level, others. Written up by Claude
 - Supersedes: 0015 and 0023 (what the library holds)
@@ -25,12 +25,13 @@
 
 - **A template is a named set of Locations settings for one or more boards.** It names its boards by OpenWrt's board name and holds settings as a folder does, field by field. It can't hold names or tunnels: tunnels stay in Interfaces › Tunnels (0055), and networks stay in Services.
 - **Templates hold choices, not capabilities.** What an AP can do, it reports: its bands and widths (0039), AP/VLAN interfaces (0082), and a radio another service owns (0081). The manager goes by those reports. A template that copied them would go stale when firmware changes.
-- **A template is made at a level, the Org or a Locations folder, and offered there and below,** as a setting reaches the folders below it (0012). Opened in a folder, the library lists the templates offered there: the folder's own, then those of the folders above, nearest first, then the Org's. A site can keep templates of its own that other sites never see. A name is unique among the templates a folder is offered.
-- **Who may make or edit one is whoever may change its level** (0030): admin at the Locations root for the Org's, as for any setting there.
+- **A template is made at a level, the Org or a Locations folder, and offered there and below,** by where a folder is in the tree. A break doesn't hide one: a broken branch still sees the templates above it. Opened in a folder, the library lists the templates offered there: the folder's own, then those of the folders above, nearest first, then the Org's. A site can keep templates of its own that other sites never see. A name is unique among the templates a folder is offered.
+- **Who may make or edit one is whoever may set values at its level:** operator there (0030), as for any setting.
 - **A new kind of AP makes its template.** When the first AP of a board that no template fits, built in or not, is adopted, the manager adds one at the Org: named for the AP's model (`Arista C-360`), for that board, and the Org's default for it. It holds no settings yet, so it changes nothing until someone fills it in. It shows what the AP reported (its radios, bands and ports) to fill it in by. Any AP can also be made into a template by hand, from Landing Zone too, to get one ready before adopting.
 - **Each board has one default template, at the Org.** Every adopted AP of that board takes it.
-- **A board may have several templates, and any folder may pick one of those it is offered,** by reference, as 0015 has it. Its APs of that board below take that template instead of the default, unless a folder below picks again. For example, one location gets `C-360, 6 GHz` and another `C-360, no 6 GHz`. The second runs dual 5 GHz, so its third radio serves 5 GHz instead of standing idle. That is the choice a folder's own `radio.6g.enabled` can't make, since it only turns 6 GHz off.
-- **Where a value comes from, weakest first:** the baseline, the AP's template, its folders, the AP itself. A folder's setting beats a template because the site decides. A lock above stops what is set below it, as before (0012). The UI shows a template's value as from "template <name>".
+- **A board may have several templates, and any folder may pick one of those it is offered,** by reference, as 0015 has it, with the Locations field `templates.<board>`. The field inherits like any other, so its APs of that board below take that template instead of the default, unless a folder below picks again. An AP takes one template at a time: the one picked nearest above it. For example, one location gets `C-360, 6 GHz` and another `C-360, no 6 GHz`. The second runs dual 5 GHz, so its third radio serves 5 GHz instead of standing idle. That is the choice a folder's own `radio.6g.enabled` can't make, since it only turns 6 GHz off.
+- **A template's values count as set at the folder that picks it, just ahead of that folder's own settings.** What is set below that folder, or locked, replaces them; what is set at it or above it does not. So for C-360s, the Org's C-360 template beats the Org's general settings, and a site's own settings beat both. A lock stops what is set below it, a template's values included, as before (0012). The UI shows a template's value as "Template · picked at <folder>".
+- **Each AP says whether it follows its template.** Its config lists the template it takes and each of the template's fields that something set closer to the AP replaces, and where. The APs list and the library show which APs follow their template and which have settings of their own.
 - **Editing a template is one logged change** that re-versions every AP that takes it, as 0015 has it.
 
 ### Built-in templates
@@ -48,12 +49,16 @@
 
 ### Concentrators leave the library
 
-- **The library's concentrators are retired.** The change log keeps replaying their old entries, so a log from before 0055 still opens. The API refuses new ones. The Library page, and the MCP tool `get_library`, show templates.
+- **The library's concentrators are retired.** The change log keeps replaying their old entries, so a log from before 0055 still opens. The API refuses new ones. The Library page, back among the tabs, and the MCP tool `get_library`, show templates.
+
+### What makes one
+
+- **The manager makes a new kind's template in its own name** (0036), as it adds the built-in folders: after a change that may have adopted an AP, and when it starts, for the APs adopted before this. It may make only that: at the Org, picked there, for a board no template is for, with nothing in it.
 
 ## Consequences
 
 - **A site with a few kinds of AP sets each kind once.** A new AP of a known kind comes up right once adopted, with nothing set on it alone.
-- **One more place a value can come from.** It is shown, as every origin is, and it is the weakest after the baseline. A folder or AP setting always wins over it.
+- **One more place a value can come from.** It is shown, as every origin is. It sits where the template is picked: a setting below that folder, or on the AP, wins over it; the picking folder's own general settings, and those above it, do not, for that board's APs.
 - **A board-specific setting,** such as the C-360's radio plan, needs a setting Aeolus renders only on boards that have it. Today the radio plan lives in the C-360 image's own `arista-c360-radio` package, outside Aeolus.
 
 ## Open

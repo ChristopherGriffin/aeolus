@@ -94,6 +94,7 @@ a.chip:hover { text-decoration: none; filter: brightness(0.97); }
 .chip.locked { background: var(--lock); color: var(--lock-ink); }
 .chip.lockhere { background: var(--lock-ink); color: #FFFFFF; }
 .chip.baseline { background: var(--branch); border-color: var(--branch-line); color: var(--branch-ink); }
+.chip.template { background: var(--panel); border-color: var(--branch-line); border-style: dashed; color: var(--branch-ink); }
 .chip.break { background: #F6E3BF; color: var(--branch-ink); font-weight: 600; letter-spacing: 0.04em; }
 .chip.ok { background: var(--ok-bg); color: var(--ok); }
 .chip.warn { background: var(--warn-bg); color: var(--warn); }

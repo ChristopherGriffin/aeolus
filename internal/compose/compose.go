@@ -32,6 +32,9 @@ type Result struct {
 	// Problems are the rules the config breaks; an AP whose config has
 	// problems is not sent it (0029).
 	Problems []string
+	// Template is the AP template the AP takes, if any, and what of it
+	// something else replaces (0085).
+	Template *hierarchy.TemplateUse
 }
 
 var slots = []string{"primary", "fallback"}
@@ -49,7 +52,7 @@ var slots = []string{"primary", "fallback"}
 //     enrolled, is a problem (0008), as is a 5 GHz channel Aeolus sets that
 //     cannot carry the width Aeolus sets (0045).
 func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal) (Result, error) {
-	cfg, err := s.Org.ResolveAP(ap)
+	cfg, err := s.ResolveAP(ap)
 	if err != nil {
 		return Result{}, err
 	}
@@ -178,7 +181,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	if problems == nil {
 		problems = []string{}
 	}
-	return Result{Doc: doc, Problems: problems}, nil
+	return Result{Doc: doc, Problems: problems, Template: cfg.Template}, nil
 }
 
 // Hostname makes an AP's name a hostname (0076): letters, digits and

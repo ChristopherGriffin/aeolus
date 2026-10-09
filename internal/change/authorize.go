@@ -132,6 +132,14 @@ func Authorize(s *State, actor string, op Op) error {
 	case SetConcentrator, RemoveConcentrator, SetVNI, RemoveVNI:
 		// The library serves every network (0037).
 		return need(access.Admin, Services, s.Org.Services.Root())
+	case AddTemplate:
+		// A template is its level's, as a setting there is (0085).
+		return need(access.Operator, Locations, op.Parent)
+	case EditTemplate, SetTemplate, UnsetTemplate, RemoveTemplate:
+		if tm, ok := s.Library.Template(op.Template); ok {
+			return need(access.Operator, Locations, tm.At)
+		}
+		return nil // Apply reports the unknown template
 	case AddAccount:
 		if !s.Access.AdminAnywhere(who) {
 			return &ForbiddenError{Actor: actor, Need: access.Admin}
@@ -158,11 +166,24 @@ func Authorize(s *State, actor string, op Op) error {
 }
 
 // authorizeSystem limits what the manager may do in its own name (0036):
-// create the built-in folders, and enroll APs into Landing Zone while it has
-// room (0038).
+// create the built-in folders, enroll APs into Landing Zone while it has
+// room (0038), and make the template of a kind of AP no template is for, at
+// the Org, picked there, with nothing in it (0085).
 func authorizeSystem(s *State, op Op) error {
 	switch op.Kind {
 	case AddBuiltins:
+		return nil
+	case AddTemplate:
+		if op.Parent != s.Org.Locations.Root() || !op.Default {
+			return ErrDefaultTemplate
+		}
+		for _, tm := range s.Library.Templates() {
+			for _, b := range op.Boards {
+				if tm.ForBoard(b) {
+					return ErrDefaultTemplate
+				}
+			}
+		}
 		return nil
 	case Enroll:
 		if len(s.Org.Locations.Descendants(LandingZone)) >= LandingZoneLimit {
@@ -170,5 +191,5 @@ func authorizeSystem(s *State, op Op) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("%w: the manager itself may only add built-in folders and enroll APs into Landing Zone", ErrForbidden)
+	return fmt.Errorf("%w: the manager itself may only add built-in folders, enroll APs into Landing Zone, and make a new kind of AP's template", ErrForbidden)
 }

@@ -64,6 +64,19 @@ type APConfig struct {
 	Location   map[Path]Resolved
 	Services   []NodeID
 	Networks   map[string]Network
+	// Template is the AP template the AP takes (0085), if any. The Org
+	// resolves no templates; the change package's State does.
+	Template *TemplateUse
+}
+
+// TemplateUse is the AP template an AP takes (0085): the template, the node
+// that picks it, and the template's fields that something else replaces at
+// the AP, each with the node that sets what replaces it, and that value.
+type TemplateUse struct {
+	ID       string     `json:"id"`
+	Name     string     `json:"name"`
+	At       NodeID     `json:"at"`
+	Replaced []Override `json:"replaced"`
 }
 
 // Network is one network's fields as resolved at the service folder that

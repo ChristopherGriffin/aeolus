@@ -90,8 +90,10 @@ var Coverage = map[string]string{
 	"network.*.transport.failback":       "",
 	"network.*.transport.holddown":       "",
 
-	"concentrators.*.address":        "",
-	"concentrators.*.port":           "",
+	"concentrators.*.address": "",
+	"concentrators.*.port":    "",
+	"templates.*":             "not sent to APs: the manager applies the AP's template (0085)",
+
 	"concentrators.*.mtu":            "",
 	"concentrators.*.probe_interval": "",
 	"concentrators.*.underlay_vlan":  "",
