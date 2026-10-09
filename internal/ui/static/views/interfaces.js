@@ -1,11 +1,12 @@
 // The Interfaces tab of a Locations folder or AP (0053, 0072): its APs'
 // radios, Ethernet ports and tunnels. Radios has the band cards, the
 // channel map, where the channels the APs may go to are picked (0075), and
-// its radio neighbours and their ratings (0073). Ethernet has the ports of its APs, as each
-// last reported them, and what Aeolus sets for each
-// port, with an editor built from the schema. A port is set by name, so a
-// folder's setting for lan2 reaches every AP below with a lan2. The uplink
-// carries the AP's management, so it is shown but not offered for editing.
+// its radio neighbours and their ratings (0073). Ethernet is one table of
+// its APs' ports, a row each: its link, as each AP last reported it, its
+// mode and what it carries, with an editor built from the schema under its
+// row. A port is set by name, so a folder's setting for lan2 reaches every
+// AP below with a lan2. The uplink carries the AP's management, so it is
+// shown but not offered for editing.
 // A port in tunnel mode carries VNIs instead of VLANs, each untagged or on a
 // VLAN of its own (0058).
 // Tunnels is where tunnels are set, by name, for every AP below (0055), and
@@ -22,6 +23,7 @@ import { neighboursSection, ratingsSection } from './neighbours.js';
 import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
+import { inheritsBar } from './inherits.js';
 import { tunnelsAt, tunnelName } from './networks.js';
 import { vxlanPath, probed } from './path.js';
 
@@ -438,30 +440,59 @@ function tunnelState(report, t) {
 	return [h('span', { class: 'chip warn' }, 'down'), from];
 }
 
+// ethernet is Interfaces › Ethernet (Griff, 2026-10-09). The bar says where
+// the node's ports come from, as on Bands. Below it, one table, a row a
+// port: its link, as each AP here last reported it; its mode; what it
+// carries, and where that is set when not here; and Edit, which opens the
+// port's form under its row. The uplink carries the AP's management, so
+// Aeolus leaves it alone: its row comes first, with Info, all the AP knows
+// of it, in place of Edit. The last row adds a port no AP here has
+// reported yet. A node that sets no port itself shows them greyed out,
+// without Edit, until Customize is pressed.
 async function ethernet(ctx, here, page, ap, edit) {
 	const [d, rows] = await Promise.all([schema(), ap ? [ap] : configs(page.hardware?.aps || [])]);
-	// Each port by name: the APs here that reported it, and whether it is
-	// the uplink on any of them.
+	// Each port by name: what each AP here last reported of it.
 	const seen = new Map();
 	for (const r of rows)
 		for (const p of r.cfg?.condition?.state?.report?.ports || []) {
-			if (!seen.has(p.name)) seen.set(p.name, { aps: [], uplinkOn: [] });
-			seen.get(p.name).aps.push(r.ap);
-			if (p.uplink) seen.get(p.name).uplinkOn.push(r.ap);
+			if (!seen.has(p.name)) seen.set(p.name, []);
+			seen.get(p.name).push({ ap: r.ap, cfg: r.cfg, p });
 		}
 	const fields = page.fields || {};
 	const named = Object.keys(fields).filter((p) => p.startsWith('ports.')).map((p) => p.split('.')[1]);
-	const names = [...new Set([...seen.keys(), ...named])].sort(byPort);
-	const addBox = h('div', { class: 'edit flush' });
+	const uplink = (name) => (seen.get(name) || []).some((s) => s.p.uplink);
+	const names = [...new Set([...seen.keys(), ...named])]
+		.sort((a, b) => Number(uplink(b)) - Number(uplink(a)) || byPort(a, b));
+	const report = ap?.cfg?.condition?.state;
+	const box = h('div', { class: 'edit flush' });
+	const panel = h('section', { class: 'panel ports' });
+	const draw = (open) => {
+		const canEdit = !!edit && open;
+		panel.classList.toggle('inherited', !open);
+		const addBox = h('div', { class: 'edit flush' });
+		panel.replaceChildren(
+			names.length === 0 && h('div', { class: 'sub' }, 'No AP here has reported its ports yet, and no port is set here.'),
+			names.length > 0 && h('table', { class: 'list portlist' },
+				h('tr', null, ['Port', 'Link', 'Mode', 'Carries', ''].map((c) => h('th', null, c))),
+				names.map((name) => portRows(ctx, d, here, page.node.name, name, fields, seen.get(name) || [], rows, canEdit, edit, !ap))),
+			canEdit && h('div', { class: 'below' },
+				h('button', { type: 'button', class: 'button small', onclick: () => addPort(ctx, d, here, page.node.name, fields, addBox, edit) }, '+ Add a port'),
+				h('span', { class: 'sub' }, ' for a port no AP here has reported yet')),
+			addBox);
+	};
+	const bar = inheritsBar(ctx, here, page, { prefix: 'ports.', tab: 'interfaces/ethernet', box, onToggle: (open) => {
+		// Customizing pauses the page's redraw, as an open form does.
+		if (open) panel.setAttribute('data-editing', 'true');
+		else panel.removeAttribute('data-editing');
+		draw(open);
+	} });
+	draw(bar.open);
 	return [
+		bar.bar,
+		box,
+		ap && h('div', { class: 'sub lead' }, report ? `Reported ${ago(report.at)}.` : 'No report yet.'),
 		loopBanner(rows),
-		names.length
-			? h('div', { class: 'bands' }, names.map((name) => portCard(ctx, d, here, page.node.name, name, fields, seen.get(name), edit, !ap)))
-			: h('div', { class: 'banner info' }, 'No AP here has reported its ports yet, and no port is set here.'),
-		edit && h('div', { class: 'below' },
-			h('button', { type: 'button', class: 'button', onclick: () => addPort(ctx, d, here, page.node.name, fields, addBox, edit) }, 'Set up another port')),
-		addBox,
-		portsNow(rows),
+		panel,
 	];
 }
 
@@ -470,49 +501,99 @@ function byPort(a, b) {
 	return a.localeCompare(b, undefined, { numeric: true });
 }
 
-// portCard shows one port by name; on a folder, folder is true, and the
-// card says how many of its APs have that port.
-function portCard(ctx, d, here, nodeName, name, fields, seen, edit, folder) {
-	const f = (k) => fields[`ports.${name}.${k}`];
-	const uplinkOn = seen?.uplinkOn || [];
-	const body = h('div', null);
-	const viewNow = () => view(ctx, here, nodeName, name, fields, edit);
-	const close = () => body.replaceChildren(h('div', null, viewNow()));
-	close();
-	return h('section', { class: 'panel' },
-		h('h2', null, name,
-			uplinkOn.length > 0 && h('span', { class: 'chip from' }, 'uplink'),
-			f('enabled')?.value === false && h('span', { class: 'chip idle' }, 'off'),
-			folder && h('span', { class: 'note' }, seen ? `on ${seen.aps.length} AP${seen.aps.length === 1 ? '' : 's'}` : 'no AP here has reported it'),
-			edit && uplinkOn.length === 0 && h('span', { class: 'controls' },
-				h('button', { type: 'button', class: 'button small', onclick: () => body.replaceChildren(portForm(ctx, d, here, nodeName, name, fields, close, edit)) }, 'Edit'))),
-		uplinkOn.length > 0 && h('div', { class: 'sub' },
-			`The uplink on ${uplinkOn.map((a) => a.name).join(', ')}: it carries the AP's management, so Aeolus leaves it alone there.`),
-		body);
+// text is a cell's words, whether a string or an element.
+const text = (x) => (typeof x === 'string' ? x : x?.textContent ?? '');
+
+// linkCell says a port's link: on an AP, its own; on a folder, how many of
+// the APs that have it are up, and at what speed if they agree, with each
+// AP's on hover.
+function linkCell(reps, folder) {
+	if (!reps.length) return h('span', { class: 'sub' }, 'not reported');
+	if (!folder || reps.length === 1) return linkState(reps[0].p);
+	const up = reps.filter((r) => r.p.up && r.p.carrier);
+	const speeds = [...new Set(up.map((r) => text(linkState(r.p))))];
+	return h('span', { title: reps.map((r) => `${r.ap.name}: ${text(linkState(r.p))}`).join('\n') },
+		`${up.length} of ${reps.length} up${speeds.length === 1 ? ` · ${speeds[0]}` : ''}`);
 }
 
-function view(ctx, here, nodeName, name, fields, edit) {
-	const set = FIELDS.map((k) => `ports.${name}.${k}`).filter((p) => fields[p]);
-	const vnis = vnisOf(fields, name);
-	if (!set.length && !vnis.length) return h('div', { class: 'sub' }, 'Not set.');
+// carries says what a port carries, by its fields in force: an access
+// port's VLAN; a trunk's untagged and tagged VLANs; a tunnel port's VNIs.
+function carries(fields, name) {
+	const v = (k) => fields[`ports.${name}.${k}`]?.value;
+	switch (v('mode')) {
+	case 'access':
+		return `VLAN ${v('untagged')}, untagged`;
+	case 'trunk':
+		return [v('untagged') ? `untagged ${v('untagged')}` : 'nothing untagged', v('tagged')?.length && `tagged ${v('tagged').join(', ')}`].filter(Boolean).join(' · ');
+	case 'tunnel': {
+		const vnis = vnisOf(fields, name);
+		return vnis.length ? vnis.map((m) => `${onWire(m.vlan, true)} → ${carried(m)}`).join('; ') : 'no VNIs yet';
+	}
+	case 'lacp':
+		return 'LACP, not applied yet';
+	}
+	return null;
+}
+
+const MODES = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' };
+
+// portRows is a port's row, and the row under it that Edit or Info opens.
+function portRows(ctx, d, here, nodeName, name, fields, reps, rows, canEdit, edit, folder) {
+	const f = (k) => fields[`ports.${name}.${k}`];
+	const uplinkOn = reps.filter((r) => r.p.uplink);
+	const allUplink = uplinkOn.length > 0 && uplinkOn.length === reps.length;
+	const off = f('enabled')?.value === false;
 	const names = (id) => ctx.name('locations', id);
-	// What the mode leaves out stays set, but does nothing (0058).
-	const tunnel = fields[`ports.${name}.mode`]?.value === 'tunnel';
-	const unused = (path) => (tunnel ? /\.(untagged|tagged)$/.test(path) : /\.vxlan\./.test(path));
-	const row = (label, path, shown, r, paths) => {
-		const box = h('div', { class: 'edit' });
-		const own = paths.filter((p) => fields[p]?.origin === 'self');
-		return [h('div', { class: 'row' },
-			h('div', { class: 'label' }, label, unused(path) && h('span', { class: 'sub' }, ' (unused in this mode)')),
-			h('div', { class: 'value' }, shown),
-			origin('locations', here, r, names),
-			edit && own.length > 0 && followButton(ctx, 'locations', here, edit.nodeName, edit.parentName, own, box)),
-		box];
+	// Where what is in force comes from, when not here.
+	const set = Object.entries(fields).filter(([p]) => p.startsWith(`ports.${name}.`));
+	const from = [...new Set(set.filter(([, r]) => r.from !== here).map(([, r]) => `${r.origin === 'locked' ? 'locked by' : 'from'} ${names(r.from)}`))];
+	// On a folder, the APs below that set this port their own way.
+	const sum = (loc) => `${loc[`ports.${name}.enabled`]?.value}|${loc[`ports.${name}.mode`]?.value}|${carries(loc, name)}`;
+	const own = folder ? rows.filter((r) => r.cfg && reps.some((x) => x.ap.id === r.ap.id) && sum(r.cfg.location || {}) !== sum(fields)) : [];
+	const slot = h('div', null);
+	const under = h('tr', { class: 'under', hidden: true }, h('td', { colspan: 5 }, slot));
+	let showing = null;
+	const show = (what, make) => {
+		if (showing === what) {
+			under.hidden = true;
+			showing = null;
+			slot.replaceChildren();
+			return;
+		}
+		showing = what;
+		slot.replaceChildren(make());
+		under.hidden = false;
 	};
+	const close = () => {
+		under.hidden = true;
+		showing = null;
+		slot.replaceChildren();
+	};
+	const mine = set.filter(([, r]) => r.from === here && r.origin === 'self').map(([p]) => p);
+	const editForm = () => h('div', null,
+		portForm(ctx, d, here, nodeName, name, fields, close, edit),
+		mine.length > 0 && h('div', { class: 'below' }, followButton(ctx, 'locations', here, nodeName, edit?.parentName, mine, slot, `Follow ${edit?.parentName ?? 'above'} for ${name}`)));
+	const info = () => h('div', null, uplinkOn.map((r) => [folder && h('h3', null, r.ap.name), uplinkInfo(r.cfg.condition.state.report)]));
+	const mode = allUplink ? 'Uplink' : off ? 'Off' : MODES[f('mode')?.value];
+	const what = allUplink
+		? [h('span', { class: 'sub' }, 'The AP\'s management; Aeolus leaves it alone.'),
+			!folder && hasUplinkNews(uplinkOn[0].cfg.condition.state.report) && uplinkCell(uplinkOn[0].cfg.condition.state.report)]
+		: carries(fields, name);
 	return [
-		set.map((path) => row(group(path).label, path, value(path, fields[path].value), fields[path], [path])),
-		vnis.map((m) => row(onWire(m.vlan, true), vniPath(name, m.vlan, 'vni'), carried(m), m.tunnel ?? m.vni,
-			VNI_FIELDS.map((k) => vniPath(name, m.vlan, k)))),
+		h('tr', null,
+			h('td', { class: 'mono' }, name,
+				uplinkOn.length > 0 && [' ', h('span', { class: 'chip from', title: uplinkOn.map((r) => r.ap.name).join(', ') }, allUplink ? 'uplink' : `uplink on ${uplinkOn.length}`)],
+				off && [' ', h('span', { class: 'chip idle' }, 'off')],
+				reps.some((r) => r.cfg?.condition?.state?.report?.vxlan?.loops?.some((l) => l.port === name)) && [' ', h('span', { class: 'chip bad' }, 'off its tunnels: a loop')]),
+			h('td', null, linkCell(reps, folder)),
+			h('td', { class: 'set' }, mode ?? h('span', { class: 'sub' }, '—')),
+			h('td', { class: 'set' }, what ?? h('span', { class: 'sub' }, 'Not set'),
+				from.length > 0 && h('span', { class: 'whence' }, from.join(', ')),
+				own.length > 0 && h('div', { class: 'sub', title: own.map((r) => r.ap.name).join(', ') }, `${own.length} AP${own.length === 1 ? ' sets its' : 's set their'} own`)),
+			h('td', { class: 'actions' },
+				allUplink ? h('button', { type: 'button', class: 'button small', onclick: () => show('info', info) }, 'Info')
+					: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => show('edit', editForm) }, 'Edit'))),
+		under,
 	];
 }
 
@@ -761,7 +842,7 @@ function addPort(ctx, d, here, nodeName, fields, box, edit) {
 		slot.replaceChildren(portForm(ctx, d, here, nodeName, name, fields, () => box.replaceChildren(), edit));
 	};
 	box.replaceChildren(h('section', { class: 'panel', 'data-editing': true },
-		h('h2', null, 'Set up another port'),
+		h('h2', null, 'Add a port'),
 		h('div', { class: 'fieldform' },
 			h('label', { class: 'field' }, h('span', { class: 'label' }, 'Port name'), nameIn),
 			msg,
@@ -771,40 +852,9 @@ function addPort(ctx, d, here, nodeName, fields, box, edit) {
 			slot)));
 }
 
-// portsNow lists each AP's ports as it last reported them: whether each has
-// a link and at what speed, beside what Aeolus sets for it there.
-function portsNow(rows) {
-	if (!rows.length) return null;
-	const lines = rows.flatMap(({ ap, cfg }) => {
-		const rep = cfg?.condition?.state;
-		const ports = rep?.report?.ports || [];
-		const apLink = link(`/aps/${encodeURIComponent(ap.id)}`, ap.name);
-		if (!ports.length) return [h('tr', null, h('td', null, apLink), h('td', { colspan: 4, class: 'sub' }, cfg ? 'No ports reported yet; its agent may be older than this.' : 'You cannot see this AP.'))];
-		return ports.flatMap((p, i) => {
-			// The uplink's Info opens all the AP knows of it, below its row.
-			const info = p.uplink && h('tr', { hidden: true }, h('td', { colspan: 5 }, uplinkInfo(rep.report)));
-			const toggle = info && h('button', {
-				type: 'button', class: 'button small', 'aria-expanded': 'false',
-				onclick: (e) => {
-					info.hidden = !info.hidden;
-					e.currentTarget.setAttribute('aria-expanded', String(!info.hidden));
-				},
-			}, 'Info');
-			return [h('tr', null,
-				h('td', null, i === 0 && apLink),
-				h('td', { class: 'mono' }, p.name, p.uplink && h('span', { class: 'chip from' }, 'uplink'), toggle && [' ', toggle]),
-				h('td', null, linkState(p)),
-				h('td', null, p.uplink ? uplinkCell(rep.report) : settings(cfg.location || {}, p.name),
-					rep.report.vxlan?.loops?.some((l) => l.port === p.name) && [' ', h('span', { class: 'chip bad' }, 'off its tunnels: a loop')]),
-				h('td', null, i === 0 && ago(rep.at))), info];
-		});
-	});
-	return h('section', { class: 'panel' },
-		h('h2', null, 'Ports now', h('span', { class: 'note' }, 'as each AP last reported')),
-		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'Port', 'Link', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
-			lines));
-}
+// hasUplinkNews says whether an AP knows anything of its uplink's switch
+// port or VLANs to show beside it.
+const hasUplinkNews = (report) => Boolean(report?.uplink_neighbor || report?.uplink_vlans?.length);
 
 // uplinkCell says what reaches the AP on its uplink (0064): the switch port
 // it is on, by LLDP, and each VLAN it carries for Aeolus, with whether that
@@ -917,22 +967,4 @@ function linkState(p) {
 	if (!m) return 'link';
 	const mbit = Number(m[1]);
 	return `${mbit >= 1000 ? mbit / 1000 + ' Gbit/s' : mbit + ' Mbit/s'}${m[2] === 'H' ? ', half duplex' : ''}`;
-}
-
-// settings sums up what Aeolus sets for a port at an AP.
-function settings(location, name) {
-	const v = (k) => location[`ports.${name}.${k}`]?.value;
-	const parts = [];
-	if (v('enabled') === false) parts.push('off');
-	if (v('mode') === 'access') parts.push(`access, VLAN ${v('untagged')}`);
-	else if (v('mode') === 'trunk') {
-		parts.push('trunk');
-		if (v('untagged')) parts.push(`untagged ${v('untagged')}`);
-		if (v('tagged')?.length) parts.push(`tagged ${v('tagged').join(', ')}`);
-	} else if (v('mode') === 'tunnel') {
-		// "VLAN 50 → arista · VNI 50" for each VNI the port carries (0058).
-		const vnis = vnisOf(location, name);
-		parts.push(vnis.length ? `tunnel: ${vnis.map((m) => `${onWire(m.vlan)} → ${carried(m)}`).join(', ')}` : 'tunnel, with no VNIs yet');
-	} else if (v('mode') === 'lacp') parts.push('LACP (not applied yet)');
-	return parts.length ? parts.join(', ') : h('span', { class: 'sealed' }, 'not set');
 }

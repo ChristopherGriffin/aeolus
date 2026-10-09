@@ -17,6 +17,7 @@ import { h } from '../dom.js';
 import { bandName, ago } from '../format.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
+import { inheritsBar } from './inherits.js';
 
 const BANDS = ['2g', '5g', '6g'];
 
@@ -129,9 +130,6 @@ export function bandsSection(ctx, node, page, report, rows = []) {
 	const isAP = page.node.kind === 'ap';
 	const may = page.role === 'operator' || page.role === 'admin';
 	const parentName = page.node.parent ? ctx.name('locations', page.node.parent) : null;
-	const above = (page.ancestry || []).filter((a) => a !== node);
-	const radio = Object.entries(page.fields || {}).filter(([p]) => p.startsWith('radio.'));
-	const setHere = radio.filter(([, r]) => r.from === node).map(([p]) => p);
 	const offered = new Map(hw.bands.map((b) => [b.band, b]));
 
 	const panels = h('div', { class: 'bandpanels' });
@@ -142,29 +140,9 @@ export function bandsSection(ctx, node, page, report, rows = []) {
 			: h('section', { class: 'panel band none' }, h('h2', null, bandName(band)),
 				h('div', { class: 'empty' }, isAP ? 'This AP has no radio for this band.' : 'No AP here has a radio for this band.')))));
 	};
-	draw(!above.length || setHere.length > 0);
-
-	let bar = null;
 	const box = h('div', { class: 'edit' });
-	if (above.length) {
-		const parent = above[above.length - 1];
-		const go = h('a', { class: 'go', href: `#/locations/${encodeURIComponent(parent)}/interfaces/radios`, title: `Go to ${ctx.name('locations', parent)}` }, '→');
-		let right = null;
-		if (setHere.length) {
-			right = [h('span', { class: 'chip' }, 'Customized here'),
-				may && followButton(ctx, 'locations', node, page.node.name, parentName, setHere, box, 'Inherit again')];
-		} else if (may) {
-			let customizing = false;
-			right = h('button', { type: 'button', class: 'button small primary', onclick: (e) => {
-				customizing = !customizing;
-				e.currentTarget.textContent = customizing ? 'Cancel' : 'Customize';
-				e.currentTarget.className = customizing ? 'button small' : 'button small primary';
-				draw(customizing);
-			} }, 'Customize');
-		}
-		bar = h('div', { class: 'inherits' }, h('span', { class: 'label' }, 'Inherits from'),
-			h('strong', { class: 'from' }, ctx.name('locations', parent)), go, h('span', { class: 'gap' }), right);
-	}
+	const { bar, open } = inheritsBar(ctx, node, page, { prefix: 'radio.', tab: 'interfaces/radios', box, onToggle: draw });
+	draw(open);
 	return [
 		bar,
 		box,

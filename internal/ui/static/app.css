@@ -313,6 +313,12 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .inherits .gap { flex: 1; }
 .inherits .go { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--ink); font-size: 16px; }
 .inherits .go:hover { border-color: var(--accent); color: var(--accent); }
+/* Interfaces › Ethernet (Griff, 2026-10-09): a row a port, the uplink
+   first; Edit or Info opens a row under it. Inherited, greyed out. */
+.portlist td.actions { text-align: right; white-space: nowrap; width: 1%; }
+.portlist tr.under > td { padding: 4px 0 14px; border-top: none; }
+.portlist .whence { display: block; margin-left: 0; }
+.ports.inherited td.set { opacity: 0.55; }
 .bandpanel.inherited .chmap, .bandpanel.inherited > .ticks, .bandpanel.inherited > .row, .bandpanel.inherited .bandhead .width, .bandpanel.inherited .bandhead .radio-on .switch { opacity: 0.55; }
 .gis { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
 .chrange { display: flex; gap: 6px; }
