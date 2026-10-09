@@ -91,3 +91,65 @@ func TestWhole(t *testing.T) {
 		t.Errorf("2.4 GHz: %v", got)
 	}
 }
+
+// 6 GHz (0087): blocks of 40, 80, 160 and 320 MHz across 1–233, two
+// overlapping families at 320; the preferred scanning channels.
+func TestSixGHz(t *testing.T) {
+	if len(Channels6) != 59 || Channels6[0] != 1 || Channels6[58] != 233 {
+		t.Fatalf("channels %v", Channels6)
+	}
+	for ch, want := range map[int]bool{5: true, 21: true, 37: true, 229: true, 1: false, 33: false, 233: false, 213: true} {
+		if PSC(ch) != want {
+			t.Errorf("PSC(%d) = %v", ch, !want)
+		}
+	}
+	if got := PSCOnly(Channels6); len(got) != 15 {
+		t.Errorf("15 preferred scanning channels, got %v", got)
+	}
+	for _, c := range []struct {
+		ch, width int
+		ok        bool
+	}{{1, 160, true}, {29, 160, true}, {225, 160, false}, {233, 40, false}, {229, 40, true}, {221, 80, true}, {225, 80, false}, {93, 320, true}, {189, 320, true}, {225, 320, false}} {
+		if ok, why := Fits("6g", c.ch, c.width); ok != c.ok {
+			t.Errorf("Fits(6g, %d, %d) = %v %q", c.ch, c.width, ok, why)
+		}
+	}
+	// 1–29 is a whole 160 MHz block, 33–57 is not; at 320 the two
+	// families overlap, so 1–93 holds two whole blocks.
+	set := []int{1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57}
+	if got := Whole("6g", set, 160, false); len(got) != 8 || got[7] != 29 {
+		t.Errorf("Whole 160 = %v", got)
+	}
+	var low []int
+	for c := 1; c <= 93; c += 4 {
+		low = append(low, c)
+	}
+	if got := Whole("6g", low, 320, false); len(got) != 24 || got[0] != 1 || got[23] != 93 {
+		t.Errorf("Whole 320 = %v", got)
+	}
+}
+
+// Usable (0087): preferred scanning channels only, and one channel to a
+// block, so 160 MHz radios on different channels never share a block.
+func TestUsable(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		width       int
+		psc, spread bool
+		want        []int
+	}{
+		{"psc at 160", 160, true, false, []int{5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213}},
+		{"psc, one to a block, at 160", 160, true, true, []int{5, 37, 69, 101, 133, 165, 197}},
+		{"one to a block at 160", 160, false, true, []int{1, 33, 65, 97, 129, 161, 193}},
+		{"psc at 80, one to a block anyway", 80, true, true, []int{5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213}},
+		{"psc, one to a block, at 320: one family", 320, true, true, []int{5, 69, 133}},
+	} {
+		if got := Usable("6g", Channels6, c.width, false, c.psc, c.spread); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	// 5 GHz is as before: psc means nothing there.
+	if got := Usable("5g", []int{36, 40, 44, 48}, 80, false, true, false); !slices.Equal(got, []int{36, 40, 44, 48}) {
+		t.Errorf("5 GHz: %v", got)
+	}
+}

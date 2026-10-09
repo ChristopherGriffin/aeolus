@@ -33,6 +33,9 @@ var Coverage = map[string]string{
 	"radio.*.power":    "",
 	"radio.*.dfs":      "",
 	"radio.*.channels": "",
+	"radio.*.psc":      "",
+
+	"radio.*.non_overlapping": "",
 
 	"system.country":               "",
 	"system.tz":                    "",
@@ -276,24 +279,29 @@ var htmodeRE = regexp.MustCompile(`^(NOHT|HT|VHT|HE|EHT)([0-9]*)$`)
 // 2.4 GHz, 1, 6 and 11.
 func autoChannels(r device, set map[string]any) []string {
 	list, ok := set["channels"].([]any)
-	if !ok {
-		if r.band == "2g" {
-			return auto2g
-		}
-		return nil
-	}
+	psc := r.band == "6g" && set["psc"] == true // preferred scanning channels only (0087)
+	spread := r.band == "6g" && set["non_overlapping"] == true
 	var chans []int
-	for _, c := range list {
-		if f, ok := c.(float64); ok {
-			chans = append(chans, int(f))
+	switch {
+	case ok:
+		for _, c := range list {
+			if f, ok := c.(float64); ok {
+				chans = append(chans, int(f))
+			}
 		}
+	case psc || spread:
+		chans = radio.Channels6
+	case r.band == "2g":
+		return auto2g
+	default:
+		return nil
 	}
 	w := 20
 	if m := htmodeRE.FindStringSubmatch(value(r.s, "htmode")); m != nil && m[2] != "" {
 		w, _ = strconv.Atoi(m[2])
 	}
 	var out []string
-	for _, c := range radio.Whole(r.band, chans, w, false) {
+	for _, c := range radio.Usable(r.band, chans, w, false, psc, spread) {
 		out = append(out, strconv.Itoa(c))
 	}
 	return out

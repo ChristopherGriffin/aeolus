@@ -113,27 +113,85 @@ const BLOCKS5 = {
 	'160': [[36, 64], [100, 128]],
 };
 
+// BLOCKS6 are the 6 GHz channels joined at each width, 1–233, as
+// internal/radio has them (0087): a 40 MHz block every 8, 80 every 16, 160
+// every 32, and two families of 320 that overlap by 160.
+const BLOCKS6 = (() => {
+	let b = { '40': [], '80': [], '160': [], '320': [] };
+	for (let w in [[40, 8, 229], [80, 16, 221], [160, 32, 221]])
+		for (let lo = 1; lo + w[1] - 4 <= w[2]; lo += w[1])
+			push(b['' + w[0]], [lo, lo + w[1] - 4]);
+	for (let lo in [1, 33, 65, 97, 129, 161])
+		push(b['320'], [lo, lo + 60]);
+	return b;
+})();
+
+// CHANNELS6 are 6 GHz's 20 MHz channels, 1–233.
+const CHANNELS6 = (() => {
+	let out = [];
+	for (let c = 1; c <= 233; c += 4)
+		push(out, c);
+	return out;
+})();
+
+// psc says whether a 6 GHz channel is a preferred scanning channel: 5, 21,
+// 37 and every 16th to 229, where clients look for 6 GHz networks (0087).
+function psc(c) {
+	return c >= 5 && c <= 229 && (c - 5) % 16 == 0;
+}
+
 // whole keeps, of the channels an automatic channel may be (0075), those a
-// radio at width can use: on 5 GHz at 40 MHz or more, the blocks wholly in
-// the set, as hostapd checks only a block's primary channel against its
-// list. Sorted, as strings for UCI.
+// radio at width can use: on 5 and 6 GHz at 40 MHz or more, the blocks
+// wholly in the set, as hostapd checks only a block's primary channel
+// against its list. Sorted, without repeats, as strings for UCI.
 function whole(band, set, width) {
 	let have = {};
 	for (let c in set)
 		have['' + c] = true;
+	let blocks = band == '5g' ? BLOCKS5['' + width] : band == '6g' ? BLOCKS6['' + width] : null;
 	let out = [];
-	if (band != '5g' || width <= 20)
+	if (!blocks || width <= 20)
 		out = map(keys(have), c => +c);
 	else
-		for (let b in BLOCKS5['' + width] ?? []) {
+		for (let b in blocks) {
 			let all = true;
 			for (let c = b[0]; c <= b[1]; c += 4)
 				all = all && have['' + c];
 			if (all)
 				for (let c = b[0]; c <= b[1]; c += 4)
-					push(out, c);
+					if (index(out, c) < 0)
+						push(out, c);
 		}
 	return map(sort(out, (a, b) => a - b), c => '' + c);
+}
+
+// usable is what an automatic channel may be, as internal/radio's Usable
+// has it (0075, 0087): the set's whole blocks at the width; on 6 GHz, with
+// only_psc, preferred scanning channels alone; and with spread, one channel
+// to a block, the blocks apart, so radios on different channels never share
+// one. As strings for UCI.
+function usable(band, set, width, only_psc, spread) {
+	let list = map(whole(band, set, width), c => +c);
+	only_psc = only_psc && band == '6g';
+	let ok = c => !only_psc || psc(c);
+	let blocks = band == '5g' ? BLOCKS5['' + width] : band == '6g' ? BLOCKS6['' + width] : null;
+	let out = [];
+	if (!spread || !blocks || width <= 20)
+		out = filter(list, ok);
+	else {
+		let last = 0;
+		for (let b in sort([...blocks], (x, y) => x[0] - y[0])) {
+			if (b[0] <= last || index(list, b[0]) < 0 || index(list, b[1]) < 0)
+				continue;
+			for (let c = b[0]; c <= b[1]; c += 4)
+				if (ok(c)) {
+					push(out, c);
+					last = b[1];
+					break;
+				}
+		}
+	}
+	return map(out, c => '' + c);
 }
 
 // reserved says another service on the AP owns a radio, and Aeolus leaves it
@@ -166,8 +224,13 @@ function radios(w, intent, facts) {
 			// An automatic channel is one of the set's (0075), at the radio's
 			// width; unset, on 2.4 GHz, one of 1, 6 and 11, the only ones that
 			// do not overlap (0045).
+			// On 6 GHz, it may be kept to preferred scanning channels, and to
+			// one channel a block (0087).
 			let width = int(match(s.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
-			let list = set.channel != 'auto' ? [] : set.channels ? whole(s.band, set.channels, width) : s.band == '2g' ? ['1', '6', '11'] : [];
+			let only_psc = s.band == '6g' && set.psc === true;
+			let spread = s.band == '6g' && set.non_overlapping === true;
+			let base = set.channels ?? (only_psc || spread ? CHANNELS6 : null);
+			let list = set.channel != 'auto' ? [] : base ? usable(s.band, base, width, only_psc, spread) : s.band == '2g' ? ['1', '6', '11'] : [];
 			if (length(list))
 				s.channels = list;
 			else

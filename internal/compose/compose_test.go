@@ -820,3 +820,50 @@ func TestSixGHzTakesWPA3OrOWE(t *testing.T) {
 		t.Fatalf("open named on 6 GHz: %v", got)
 	}
 }
+
+// 6 GHz channels (0087): with preferred scanning channels only, a channel
+// set by hand must be one, and the set must leave one in a whole block.
+func TestSixGHzChannels(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() []string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		var out []string
+		for _, p := range res.Problems {
+			if strings.HasPrefix(p, "radio.6g.") {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	set("radio.6g.width", 160)
+	set("radio.6g.channel", 1)
+	if got := problems(); len(got) != 0 {
+		t.Fatalf("channel 1 at 160 MHz: %v", got)
+	}
+	set("radio.6g.psc", true)
+	if got := problems(); len(got) != 1 || !strings.Contains(got[0], "1 is not a preferred scanning channel") {
+		t.Fatalf("channel 1, psc: %v", got)
+	}
+	set("radio.6g.channel", "auto")
+	set("radio.6g.non_overlapping", true)
+	if got := problems(); len(got) != 0 {
+		t.Fatalf("automatic, psc, one to a block: %v", got)
+	}
+	// 1-13 is no whole 160 MHz block.
+	set("radio.6g.channels", []int{1, 5, 9, 13})
+	if got := problems(); len(got) != 1 || !strings.Contains(got[0], "no preferred scanning channel is in a whole 160 MHz block") {
+		t.Fatalf("a set with no whole block: %v", got)
+	}
+	set("radio.6g.width", 80)
+	if got := problems(); len(got) != 0 {
+		t.Fatalf("1-13 at 80 MHz: %v", got)
+	}
+}
