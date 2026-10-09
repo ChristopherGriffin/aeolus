@@ -76,6 +76,7 @@ config wifi-iface 'aeolus_lab_radio0'
 	option ssid 'Aeolus Lab'
 	option encryption 'sae'
 	option key 'fixture-passphrase-1'
+	option rnr '1'
 
 config wifi-iface 'aeolus_lab_radio1'
 	option device 'radio1'
@@ -84,6 +85,7 @@ config wifi-iface 'aeolus_lab_radio1'
 	option ssid 'Aeolus Lab'
 	option encryption 'sae'
 	option key 'fixture-passphrase-1'
+	option rnr '1'
 
 config wifi-iface 'aeolus_lab_radio3'
 	option device 'radio3'
@@ -92,6 +94,7 @@ config wifi-iface 'aeolus_lab_radio3'
 	option ssid 'Aeolus Lab'
 	option encryption 'sae'
 	option key 'fixture-passphrase-1'
+	option rnr '1'
 
 package network
 

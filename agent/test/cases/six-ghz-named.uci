@@ -73,6 +73,7 @@ config wifi-iface 'aeolus_home_radio0'
 	option ssid 'Home'
 	option encryption 'psk2'
 	option key 'fixture-passphrase-1'
+	option rnr '1'
 
 package network
 

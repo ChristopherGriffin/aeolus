@@ -556,6 +556,7 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 	where := "wireless." + s.Name
 	k.option(where, s, "device", r.s.Name)
 	k.option(where, s, "mode", "ap")
+	k.option(where, s, "rnr", "1") // a Reduced Neighbor Report everywhere (0087)
 	if ssid, _ := n["ssid"].(string); ssid != "" {
 		k.option(where, s, "ssid", ssid)
 	}

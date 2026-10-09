@@ -230,6 +230,10 @@ function iface_options(net, radio, band, network, btm) {
 	};
 	if (NEEDS_KEY[net.security])
 		o.key = net.passphrase;
+	// Every network's beacons list the AP's other networks, on every band,
+	// in a Reduced Neighbor Report, so a client hearing one band learns the
+	// others: a phone on 5 GHz finds 6 GHz this way (0087).
+	o.rnr = '1';
 	if (net.hidden)
 		o.hidden = '1';
 	if (net.isolation)
