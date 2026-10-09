@@ -4,13 +4,18 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"flag"
+	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -72,4 +77,39 @@ func ensureCert(certPath, keyPath string, hosts []string, now time.Time) error {
 		return err
 	}
 	return os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+}
+
+// fingerprint is a certificate's SHA-256, of its DER, as browsers show it:
+// AB:CD:... A person checks it when joining an AP by hand (0083).
+func fingerprint(der []byte) string {
+	sum := sha256.Sum256(der)
+	var b strings.Builder
+	for i, c := range sum {
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		fmt.Fprintf(&b, "%02X", c)
+	}
+	return b.String()
+}
+
+// runFingerprint prints the fingerprint of the manager's certificate, the
+// one aeolus-enroll and LuCI's Aeolus page show on an AP (0083).
+func runFingerprint(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("fingerprint", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	certPath := fs.String("cert", "/etc/aeolus/tls.crt", "TLS certificate")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(*certPath)
+	if err != nil {
+		return err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return fmt.Errorf("%s holds no certificate", *certPath)
+	}
+	fmt.Fprintln(stdout, fingerprint(block.Bytes))
+	return nil
 }

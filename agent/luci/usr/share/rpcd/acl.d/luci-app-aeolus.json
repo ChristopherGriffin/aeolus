@@ -1,0 +1,17 @@
+{
+	"luci-app-aeolus": {
+		"description": "Grant access to joining this AP to an Aeolus manager",
+		"read": {
+			"file": {
+				"/usr/libexec/aeolus-enroll status": [ "exec" ],
+				"/usr/libexec/aeolus-enroll ports": [ "exec" ]
+			}
+		},
+		"write": {
+			"file": {
+				"/usr/libexec/aeolus-enroll cert *": [ "exec" ],
+				"/usr/libexec/aeolus-enroll start *": [ "exec" ]
+			}
+		}
+	}
+}

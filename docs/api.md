@@ -80,6 +80,19 @@ What an AP uses (0033, 0038). An AP token starts `aeolusap1.` and works only her
 
 Every AP request updates when it was last seen. An AP in Landing Zone can only poll: its checks and reports answer `409` and are not recorded. The UCI from each check is kept with its secrets blanked (0041); a stale one is not kept. The agent that uses these routes is in [`agent/`](../agent).
 
+## Installing from the manager
+
+What an AP with nothing of Aeolus fetches, with no token, from the manager it will join (0083): `wget -qO- --no-check-certificate https://<manager>:8443/install | sh`. None of it is secret.
+
+| Request | Returns |
+|---|---|
+| `GET /install` | the installer, a shell script, with `https://` and the request's Host as the manager's URL; `400` for a Host that is not a DNS name or an address with an optional port |
+| `GET /install/manager.crt` | the manager's TLS certificate, PEM, which the AP pins |
+| `GET /install/manifest` | `{version, agent, luci}`: the manager's own release, its agent bundle (as `GET /v1/ap/agent` gives one) and LuCI's Aeolus page, a bundle of the same form |
+| `GET /install/files/{sha256}` | one of those bundles' files, as it is; `404` for any other |
+
+All four answer `404` from a manager that keeps no agent bundles.
+
 ## The feed cache
 
 `GET /feeds/<path>` (0069) is the same file as `https://downloads.openwrt.org/releases/<path>`, through the manager's cache: APs fetch their packages through it. It needs no token, since `apk` can't send one and the files are OpenWrt's own, signed by OpenWrt. It answers only paths in that tree, each part letters, digits and `._+~-`, and only `GET` and `HEAD`.

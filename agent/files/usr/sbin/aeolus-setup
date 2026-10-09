@@ -12,12 +12,14 @@
 # The arguments are the manager's URL, the uplink port (the one carrying the
 # VLANs), and the certificate the agent will trust. Use the manager's IP
 # address, not its name: OpenWrt's dnsmasq drops DNS answers that point to
-# private addresses (0040).
+# private addresses (0040). aeolus-enroll, which takes a name, sees to that
+# first (0083).
 #
-# It also installs the packages Aeolus needs (aeolus-packages says which),
-# through the manager's cache of OpenWrt's feeds (0069). Without them,
-# everything else works, and a setting that needs a missing package is
-# refused until it is installed. Then it checks the agent can reach the
+# It also installs the modules the agent needs, for an AP given only its
+# files, and the packages Aeolus needs (aeolus-packages says which),
+# through the manager's cache of OpenWrt's feeds (0069). Without a module
+# it stops; without a package, everything else works, and a setting that
+# needs the package is refused until it is installed. Then it checks the agent can reach the
 # manager, and starts it. The AP enrolls into Landing Zone and waits for a
 # person to adopt it. Its log: logread -e aeolus
 set -eu
@@ -37,6 +39,10 @@ uci -q get aeolus.agent >/dev/null || uci set aeolus.agent=agent
 uci set aeolus.agent.url="$url"
 uci set aeolus.agent.uplink="$uplink"
 uci commit aeolus
+
+# What the agent cannot start without, on an AP that never had it: the
+# package's dependencies, which an AP given only the files lacks (0083).
+/usr/libexec/aeolus-packages required
 
 # The packages, through the manager (0069). Installing vxlan means
 # restarting the network, at the end, so netifd loads it (0057).

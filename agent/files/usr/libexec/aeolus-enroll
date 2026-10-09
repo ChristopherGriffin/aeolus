@@ -1,0 +1,234 @@
+#!/bin/sh
+# Joins this AP to a manager a person names (0083): what LuCI's Aeolus page
+# runs, for an AP that nothing else pointed at a manager.
+#
+#	aeolus-enroll cert <manager>                           its certificate's fingerprint, as JSON
+#	aeolus-enroll enroll <manager> <fingerprint> [uplink]  join it
+#	aeolus-enroll start <manager> <fingerprint> [uplink]   the same, in the background
+#	aeolus-enroll status                                   where it stands, as JSON
+#	aeolus-enroll ports                                    the ports an uplink can be, as JSON
+#
+# <manager> is a URL, or a name or an address, then reached at
+# https://<it>:8443. The fingerprint is the SHA-256 of the manager's TLS
+# certificate (of its DER), as a browser or `aeolus fingerprint` shows it,
+# with or without colons. The AP trusts the manager only once it matches:
+# the agent pins that certificate (0033). The uplink is the port carrying
+# the VLANs; without one, the port the default route leaves by (a VLAN
+# device's parent, a bridge's one wired port).
+#
+# A manager named by DNS must get past dnsmasq's rebind protection, which
+# drops answers that point to private addresses (0040): its name goes on
+# rebind_domain, as the agent's own (0069), so the agent takes it out again
+# should the manager change.
+set -eu
+
+PORT=8443
+LOG=/tmp/aeolus-enroll.log
+STATE=/tmp/aeolus-enroll.state
+
+die() {
+	echo "aeolus-enroll: $*" >&2
+	exit 1
+}
+
+# url <manager>: the manager's URL, https://<host>:<port>
+url() {
+	case $1 in http://*) die "the manager is reached over https" ;; esac
+	hp=${1#https://}
+	hp=${hp%%/*}
+	echo "$hp" | grep -Eq '^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:[0-9]{1,5})?$' ||
+		die "not a manager's name or address: $1 (an IPv6 address goes in brackets)"
+	case $hp in
+	*\]:* | [!\[]*:*) echo "https://$hp" ;;
+	*) echo "https://$hp:$PORT" ;;
+	esac
+}
+
+# host <url>: its name or address
+host() {
+	hp=${1#https://}
+	hp=${hp%%/*}
+	case $hp in
+	\[*) hp=${hp%%]*} && echo "${hp#\[}" ;;
+	*) echo "${hp%%:*}" ;;
+	esac
+}
+
+# named <host>: whether it is a DNS name, not an address, as the renderer
+# tells them (0069)
+named() {
+	echo "$1" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$' && echo "$1" | grep -Eqv '^[0-9.]+$'
+}
+
+# fingerprint <file>: the SHA-256 of its first certificate's DER
+fingerprint() {
+	b64=$(sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/{p;/-----END/q;}' "$1" | sed '/-----/d' | tr -d '\r\n')
+	echo "$b64" | grep -Eq '^[A-Za-z0-9+/=]+$' || return 1
+	ucode -e "print(b64dec('$b64'))" | sha256sum | cut -d' ' -f1
+}
+
+# want <fingerprint>: it as fingerprint prints it
+want() {
+	w=$(echo "$1" | tr -d ': ' | tr A-F a-f)
+	echo "$w" | grep -Eq '^[0-9a-f]{64}$' || die "the fingerprint is the certificate's SHA-256: 64 hex digits"
+	echo "$w"
+}
+
+# rebind <host>: let dnsmasq answer the manager's name with a private address
+rebind() {
+	named "$1" || return 0
+	s=$(uci -q show dhcp | sed -n 's/^dhcp\.\([^.=]*\)=dnsmasq$/\1/p' | head -n 1)
+	[ -n "$s" ] || return 0
+	for d in $(uci -q get dhcp.$s.rebind_domain); do
+		[ "$d" = "$1" ] && return 0
+	done
+	uci add_list dhcp.$s.rebind_domain="$1"
+	[ -f /etc/config/aeolus ] || touch /etc/config/aeolus
+	uci -q get aeolus.agent >/dev/null || uci set aeolus.agent=agent
+	uci add_list aeolus.agent.rebind="$1"
+	uci commit dhcp
+	uci commit aeolus
+	/etc/init.d/dnsmasq reload >/dev/null 2>&1 || true
+	echo "dnsmasq may now answer $1 with a private address (rebind_domain)" >&2
+}
+
+# fetch_cert <url> <file>: the manager's certificate, not yet trusted
+fetch_cert() {
+	h=$(host "$1")
+	rebind "$h"
+	rm -f "$2"
+	# dnsmasq takes a moment to come back after a reload.
+	for try in 1 2 3; do
+		uclient-fetch -q -T 20 --no-check-certificate -O "$2" "$1/install/manager.crt" 2>/dev/null && break
+		rm -f "$2"
+		[ $try = 3 ] || sleep 2
+	done
+	if [ ! -s "$2" ]; then
+		named "$h" && ! nslookup "$h" >/dev/null 2>&1 &&
+			die "this AP cannot look up $h; give the manager's address instead, or fix the AP's DNS"
+		die "no certificate from $1: is an Aeolus manager there, and can this AP reach it?"
+	fi
+	fingerprint "$2" >/dev/null || die "$1 sent no certificate"
+}
+
+# uplink: the port the default route leaves by
+uplink() {
+	dev=$(ip route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)
+	[ -n "$dev" ] || return 1
+	# a VLAN device's parent: br-lan.20 is on br-lan, eth0.20 on eth0
+	for l in /sys/class/net/$dev/lower_*; do
+		[ -e "$l" ] && dev=${l##*/lower_}
+		break
+	done
+	if [ -d /sys/class/net/$dev/brif ]; then
+		set -- $(ports /sys/class/net/$dev/brif/*)
+		[ $# -eq 1 ] || return 1
+		dev=$1
+	fi
+	echo "$dev"
+}
+
+# ports [<dir>...]: of those (all), the wired ports and the bonds made of
+# them, not a radio's interfaces, veths or tunnels
+ports() {
+	[ $# -gt 0 ] || set -- /sys/class/net/*
+	for d in "$@"; do
+		d=/sys/class/net/${d##*/}
+		[ -e $d/phy80211 ] && continue
+		[ -e $d/device ] || [ -d $d/bonding ] || continue
+		echo "${d##*/}"
+	done
+}
+
+# jshn reads variables it never set, so it runs without set -u.
+json() {
+	set +u
+	. /usr/share/libubox/jshn.sh
+	json_init
+	while [ $# -ge 2 ]; do
+		json_add_string "$1" "$2"
+		shift 2
+	done
+	json_dump
+}
+
+cert() {
+	[ $# -eq 1 ] || die "usage: aeolus-enroll cert <manager>"
+	u=$(url "$1")
+	tmp=$(mktemp)
+	fetch_cert "$u" "$tmp"
+	fp=$(fingerprint "$tmp")
+	rm -f "$tmp"
+	json url "$u" fingerprint "$fp"
+}
+
+enroll() {
+	[ $# -ge 2 ] || die "usage: aeolus-enroll enroll <manager> <fingerprint> [uplink]"
+	u=$(url "$1")
+	w=$(want "$2")
+	up=${3:-}
+	[ -n "$up" ] || up=$(uplink) || die "no one uplink port found; name it: aeolus-enroll enroll $1 <fingerprint> <port>"
+	[ -d "/sys/class/net/$up" ] || die "no port named $up"
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	fetch_cert "$u" "$tmp/manager.crt"
+	have=$(fingerprint "$tmp/manager.crt")
+	[ "$have" = "$w" ] || die "$u's certificate is $have, not $w: not trusted"
+	echo "joining $u, uplink $up"
+	/usr/sbin/aeolus-setup "$u" "$up" "$tmp/manager.crt"
+}
+
+# start runs enroll on its own, for LuCI, which polls status: installing
+# the packages outlasts a LuCI call, and a network restart cuts it off.
+start() {
+	[ $# -ge 2 ] || die "usage: aeolus-enroll start <manager> <fingerprint> [uplink]"
+	url "$1" >/dev/null
+	want "$2" >/dev/null
+	[ -z "${3:-}" ] || [ -d "/sys/class/net/$3" ] || die "no port named $3"
+	[ "$(cat $STATE 2>/dev/null)" != running ] || die "an enrollment is already running"
+	: >$LOG
+	echo running >$STATE
+	setsid sh -c '
+		if "$0" enroll "$@" >>'$LOG' 2>&1; then echo done; else echo failed; fi >'$STATE'
+	' "$0" "$@" </dev/null >/dev/null 2>&1 &
+	json state running
+}
+
+status() {
+	fp=
+	[ -f /etc/aeolus/manager.crt ] && fp=$(fingerprint /etc/aeolus/manager.crt || true)
+	running=no
+	pgrep -f /usr/sbin/aeolus-agent >/dev/null 2>&1 && running=yes
+	enrolled=no
+	[ -s /etc/aeolus/token ] && enrolled=yes
+	json url "$(uci -q get aeolus.agent.url || true)" uplink "$(uci -q get aeolus.agent.uplink || true)" \
+		fingerprint "$fp" running "$running" enrolled "$enrolled" \
+		guess "$(uplink || true)" job "$(cat $STATE 2>/dev/null || echo none)" \
+		log "$(tail -n 30 $LOG 2>/dev/null || true)"
+}
+
+ports_json() {
+	set +u
+	. /usr/share/libubox/jshn.sh
+	json_init
+	json_add_array ports
+	for p in $(ports); do
+		json_add_string "" "$p"
+	done
+	json_close_array
+	json_dump
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case $cmd in
+cert) cert "$@" ;;
+enroll) enroll "$@" ;;
+start) start "$@" ;;
+status) status ;;
+ports) ports_json ;;
+*)
+	sed -n '5,9p' "$0" >&2
+	exit 2
+	;;
+esac

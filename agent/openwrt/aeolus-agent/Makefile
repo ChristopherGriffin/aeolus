@@ -52,7 +52,8 @@ define Package/aeolus-agent/install
 	find $(1) -type f -exec chmod 0644 {} +
 	chmod 0755 $(1)/usr/sbin/aeolus-agent $(1)/usr/sbin/aeolus-prober \
 		$(1)/usr/sbin/aeolus-rrm $(1)/usr/sbin/aeolus-setup \
-		$(1)/usr/libexec/aeolus-packages $(1)/usr/libexec/aeolus-rollback \
+		$(1)/usr/libexec/aeolus-enroll $(1)/usr/libexec/aeolus-packages \
+		$(1)/usr/libexec/aeolus-rollback \
 		$(1)/etc/init.d/aeolus
 endef
 

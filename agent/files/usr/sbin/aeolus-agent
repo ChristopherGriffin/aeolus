@@ -212,8 +212,14 @@ function has_bss_transition() {
 	return methods ? 'bss_transition_request' in methods : null;
 }
 
+// installed says whether an OpenWrt package is installed: by apk, or by
+// opkg before OpenWrt 25.12 (0083). pkg is one of the agent's own names.
+function installed(pkg) {
+	return system(`{ apk info -e ${pkg} || opkg status ${pkg} | grep -q '^Status:.* installed'; } >/dev/null 2>&1`) == 0;
+}
+
 function has_nft_bridge() {
-	return system('apk info -e kmod-nft-bridge >/dev/null 2>&1') == 0;
+	return installed('kmod-nft-bridge');
 }
 
 // has_prober says whether the prober can run: it needs ucode's socket
@@ -225,7 +231,7 @@ function has_prober() {
 // has_veth says whether kmod-veth is installed, which a network with a
 // fallback needs for a VLAN transport (0061).
 function has_veth() {
-	return system('apk info -e kmod-veth >/dev/null 2>&1') == 0;
+	return installed('kmod-veth');
 }
 
 // write_clamp makes the MSS clamp's file from the network config (0054) and

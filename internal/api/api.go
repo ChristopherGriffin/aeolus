@@ -36,14 +36,15 @@ import (
 
 // Server serves the API.
 type Server struct {
-	log    *changelog.Log
-	schema *schema.Schema
-	box    *secret.Box
-	conds  *conditions.Store
-	watch  *dhcpwatch.Book // what the manager's DHCP listeners hear (0068); nil if none
-	psks   pskCache        // per-user keys' PSKs, worked out (0070)
-	agents *bundle.Store   // the agent bundles it offers its APs (0079); nil if none
-	agent  bundle.Bundle   // its own release's bundle
+	log     *changelog.Log
+	schema  *schema.Schema
+	box     *secret.Box
+	conds   *conditions.Store
+	watch   *dhcpwatch.Book // what the manager's DHCP listeners hear (0068); nil if none
+	psks    pskCache        // per-user keys' PSKs, worked out (0070)
+	agents  *bundle.Store   // the agent bundles it offers its APs (0079); nil if none
+	agent   bundle.Bundle   // its own release's bundle
+	install *Install        // what it hands out to an AP installing from it (0083); nil if nothing
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
@@ -98,6 +99,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/ap/applied", s.apAuth(s.applied))
 	mux.Handle("POST /v1/ap/state", s.apAuth(s.state))
 	mux.Handle("GET /v1/ap/keys", s.apAuth(s.apKeys))
+
+	// Installing from the manager, before an AP has a token (0083).
+	mux.HandleFunc("GET /install", s.installScript)
+	mux.HandleFunc("GET /install/manager.crt", s.installCert)
+	mux.HandleFunc("GET /install/manifest", s.installManifest)
+	mux.HandleFunc("GET /install/files/{sha256}", s.installFile)
 	return mux
 }
 

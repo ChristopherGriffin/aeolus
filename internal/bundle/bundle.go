@@ -47,6 +47,18 @@ func PathOK(p string) bool {
 	return pathRE.MatchString(p) && !strings.Contains(p, "..")
 }
 
+// The places of LuCI's enrollment page (0083): its view, its menu entry,
+// the ACL that lets it run aeolus-enroll, and what keeps them over a
+// sysupgrade. They are installed beside the agent by the manager's
+// installer or the luci-app-aeolus package, never by a fleet update
+// (0079), whose bundles hold only agent files.
+var luciRE = regexp.MustCompile(`^/(www/luci-static/resources/view/aeolus/[a-z0-9_-]+\.js|usr/share/luci/menu\.d/luci-app-aeolus\.json|usr/share/rpcd/acl\.d/luci-app-aeolus\.json|lib/upgrade/keep\.d/luci-app-aeolus)$`)
+
+// LuCIPathOK says whether p may be a place of LuCI's enrollment page.
+func LuCIPathOK(p string) bool {
+	return luciRE.MatchString(p) && !strings.Contains(p, "..")
+}
+
 // mode is a file's mode on the AP: the programs and the init script run.
 func mode(p string) string {
 	for _, dir := range []string{"/usr/sbin/", "/usr/libexec/", "/etc/init.d/"} {
@@ -72,6 +84,12 @@ func hash(files []File) string {
 // below root on the AP, for the given release. It returns the files'
 // contents, by their SHA-256.
 func FromFS(fsys fs.FS, root, version string) (Bundle, map[string][]byte, error) {
+	return FromFSChecked(fsys, root, version, PathOK)
+}
+
+// FromFSChecked is FromFS with another rule for the files' places, such as
+// LuCIPathOK.
+func FromFSChecked(fsys fs.FS, root, version string, placeOK func(string) bool) (Bundle, map[string][]byte, error) {
 	b := Bundle{Version: version}
 	contents := map[string][]byte{}
 	err := fs.WalkDir(fsys, root, func(p string, d fs.DirEntry, err error) error {
@@ -83,7 +101,7 @@ func FromFS(fsys fs.FS, root, version string) (Bundle, map[string][]byte, error)
 			return err
 		}
 		place := "/" + strings.TrimPrefix(p, root+"/")
-		if !PathOK(place) {
+		if !placeOK(place) {
 			return fmt.Errorf("agent file %s: not a place an agent file may have", place)
 		}
 		sum := sha256.Sum256(data)
