@@ -1,6 +1,8 @@
 // AP templates (0085): a template's own page, where its settings are edited,
 // and a Locations folder's Templates tab, where the folder picks the
 // template each kind of AP below it takes, and makes templates of its own.
+// A template downloads as a file, and a file imports as a template (0090):
+// the repo's templates/ holds ready-made ones.
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
@@ -27,6 +29,60 @@ const slug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^
 // at a comma only where a space follows it.
 const boardsOf = (text) => text.split(/[\s;]+|,\s+/).map((b) => b.trim().replace(/,$/, '')).filter(Boolean);
 
+// A template file (0090): its kind and version, its name, the boards it is
+// for, an optional line about it, and its settings by field path. Where it
+// lives is picked when it is imported.
+const FILE_KIND = 'aeolus_template';
+const FILE_VERSION = 1;
+const sealed = (v) => v && typeof v === 'object' && !Array.isArray(v) && v.sealed === true;
+
+// templateFile is a template as a file: its settings but the sealed ones,
+// which can't be read back (0027).
+function templateFile(t) {
+	const values = {};
+	const left = [];
+	for (const p of Object.keys(t.values).sort()) {
+		if (sealed(t.values[p])) left.push(p);
+		else values[p] = t.values[p];
+	}
+	const file = { [FILE_KIND]: FILE_VERSION, name: t.name, boards: t.boards, values };
+	return { text: JSON.stringify(file, null, '\t') + '\n', left };
+}
+
+// download saves a template's file.
+function download(t, note) {
+	const { text, left } = templateFile(t);
+	const a = h('a', { href: URL.createObjectURL(new Blob([text], { type: 'application/json' })), download: `${t.id}.json` });
+	document.body.append(a);
+	a.click();
+	a.remove();
+	note.textContent = left.length ? `Saved ${t.id}.json without ${left.join(', ')}: secrets can't be read back.` : '';
+}
+
+// readTemplateFile checks a template file's text and returns what it holds,
+// or throws why not.
+function readTemplateFile(text) {
+	let f;
+	try {
+		f = JSON.parse(text);
+	} catch {
+		throw new Error('This is not a template file: it is not JSON.');
+	}
+	if (!f || f[FILE_KIND] !== FILE_VERSION) throw new Error(`This is not an Aeolus template file: it has no "${FILE_KIND}": ${FILE_VERSION}.`);
+	if (typeof f.name !== 'string' || !f.name.trim()) throw new Error('The template file has no name.');
+	if (!Array.isArray(f.boards) || !f.boards.length || f.boards.some((b) => typeof b !== 'string')) throw new Error('The template file names no boards.');
+	if (!f.values || typeof f.values !== 'object' || Array.isArray(f.values)) throw new Error('The template file has no settings.');
+	return { name: f.name.trim(), boards: f.boards, about: typeof f.about === 'string' ? f.about : '', values: f.values };
+}
+
+// freeID is an ID made from a name that no template in the library has.
+function freeID(name, taken) {
+	const base = slug(name);
+	let id = base;
+	for (let n = 2; taken.has(id); n++) id = `${base.slice(0, 60)}-${n}`;
+	return id;
+}
+
 // templatePage is one template: what it is for, where it is made and
 // picked, its settings, and the APs that take it, each following it or with
 // settings of their own.
@@ -36,6 +92,7 @@ export async function templatePage(ctx, id) {
 	if (!t) return { main: [h('div', { class: 'banner info' }, `No template ${id} that you can view.`)] };
 	const names = new Map(fleet.aps.map((a) => [a.id, a]));
 	const box = h('div', { class: 'edit flush' });
+	const note = h('div', { class: 'sub' });
 	const paths = Object.keys(t.values).sort();
 	const fields = Object.fromEntries(paths.map((p) => [p, { value: t.values[p], from: t.at, origin: 'self' }]));
 	const d = t.can_edit ? await schema() : null;
@@ -54,10 +111,12 @@ export async function templatePage(ctx, id) {
 					h('div', { class: 'sub' }, 'AP template ', h('span', { class: 'mono' }, t.id), ' · for ', t.boards.join(', '),
 						' · made at ', link(`/locations/${encodeURIComponent(t.at)}`, ctx.name('locations', t.at)),
 						' · offered there and below')),
-				t.can_edit && h('div', { class: 'below', style: { display: 'flex', gap: '8px' } },
-					h('button', { type: 'button', class: 'button primary', onclick: () => templateEditor(ctx, d, t, fields, box) }, 'Edit settings'),
-					h('button', { type: 'button', class: 'button', onclick: () => aboutEditor(ctx, t, box) }, 'Name and boards'),
-					h('button', { type: 'button', class: 'button', onclick: () => removeTemplate(ctx, t, box) }, 'Remove'))),
+				h('div', { class: 'below', style: { display: 'flex', gap: '8px' } },
+					t.can_edit && h('button', { type: 'button', class: 'button primary', onclick: () => templateEditor(ctx, d, t, fields, box) }, 'Edit settings'),
+					t.can_edit && h('button', { type: 'button', class: 'button', onclick: () => aboutEditor(ctx, t, box) }, 'Name and boards'),
+					h('button', { type: 'button', class: 'button', title: 'Save it as a file, to keep, share or import elsewhere', onclick: () => download(t, note) }, 'Download'),
+					t.can_edit && h('button', { type: 'button', class: 'button', onclick: () => removeTemplate(ctx, t, box) }, 'Remove'))),
+			note,
 			box,
 			h('section', { class: 'panel' },
 				h('h2', null, 'Its settings', h('span', { class: 'note' }, 'counted as set where it is picked, ahead of that folder’s own')),
@@ -202,9 +261,66 @@ export async function templatesTab(ctx, here, page, edit) {
 						h('td', { class: 'mono' }, t.boards.join(', ')),
 						h('td', null, t.at === here ? 'here' : nodeName(t.at)),
 						h('td', null, String(Object.keys(t.values).length))))),
-			edit && h('div', { class: 'below' },
-				h('button', { type: 'button', class: 'button', onclick: () => newTemplate(ctx, here, page.node.name, [...boards].sort(), box) }, `New template at ${page.node.name}`))),
+			edit && h('div', { class: 'below', style: { display: 'flex', gap: '8px' } },
+				h('button', { type: 'button', class: 'button', onclick: () => newTemplate(ctx, here, page.node.name, [...boards].sort(), box) }, `New template at ${page.node.name}`),
+				importButton(ctx, here, page.node.name, box))),
 	];
+}
+
+// importButton imports a template file at this folder (0090): it is read
+// here, shown with its settings, and made, settings and all, as one change,
+// picked here for its boards unless that is unticked.
+function importButton(ctx, here, nodeName, box) {
+	const input = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+	input.addEventListener('change', async () => {
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		let f;
+		try {
+			f = readTemplateFile(await file.text());
+		} catch (e) {
+			box.replaceChildren(h('section', { class: 'panel', 'data-editing': true },
+				h('h2', null, `Import ${file.name}`), h('div', { class: 'error' }, e.message), h('div', { class: 'actions' }, cancelButton(box))));
+			return;
+		}
+		const { templates } = await get('/v1/library');
+		importForm(ctx, here, nodeName, f, new Set(templates.map((t) => t.id)), box);
+	});
+	return [input, h('button', { type: 'button', class: 'button', title: 'From a file, such as one of the repo\'s templates/', onclick: () => input.click() }, 'Import template…')];
+}
+
+// importForm shows what a template file holds, its name and boards to
+// change if need be, and makes it.
+function importForm(ctx, here, nodeName, f, taken, box) {
+	const name = h('input', { type: 'text', maxlength: 64, value: f.name });
+	const boards = h('input', { type: 'text', class: 'mono', value: f.boards.join(', ') });
+	const pick = h('input', { type: 'checkbox', checked: true });
+	const out = h('div', { class: 'edit flush' });
+	const paths = Object.keys(f.values).sort();
+	const review = async () => {
+		const op = { kind: 'add-template', template: freeID(name.value, taken), name: name.value.trim(), parent: here,
+			boards: boardsOf(boards.value), default: pick.checked, values: f.values };
+		const p = await ask(out, op);
+		if (p) confirm(ctx, out, op, p, [h('div', null, h('strong', null, `Import ${op.name} at ${nodeName}`)),
+			h('div', { class: 'sub' }, `For ${op.boards.join(', ')}, offered at ${nodeName} and below${op.default ? ', and picked here for those boards nothing is picked for here yet' : ''}, with ${paths.length} setting${paths.length === 1 ? '' : 's'}.`)],
+		[h('div', { class: 'sub warn' }, 'Where it is picked, its radio and country settings restart the Wi-Fi on the APs it reaches; clients drop for a few seconds and reconnect.')]);
+	};
+	box.replaceChildren(h('section', { class: 'panel', 'data-editing': true },
+		h('h2', null, `Import ${f.name}`),
+		f.about && h('div', { class: 'sub' }, f.about),
+		h('div', { class: 'fieldform' },
+			h('div', { class: 'fields' },
+				h('label', { class: 'field' }, h('span', { class: 'label' }, 'Name'), name),
+				h('label', { class: 'field' }, h('span', { class: 'label' }, 'Boards'), boards),
+				h('label', { class: 'field' }, h('span', { class: 'label' }, 'Pick it here'), pick)),
+			h('div', { class: 'sub' }, `Its settings (${paths.length}):`),
+			h('ul', { class: 'becomes' }, paths.map((p) => h('li', null, `${group(p).title} · ${group(p).label}: `, value(p, f.values[p])))),
+			h('div', { class: 'actions' },
+				h('button', { type: 'button', class: 'button primary', onclick: review }, 'Review'),
+				cancelButton(box)),
+			out)));
+	name.focus();
 }
 
 // pickControl picks a board's template at this folder, from those offered

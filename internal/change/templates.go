@@ -74,6 +74,16 @@ func validateTemplate(op Op) error {
 		if op.Parent == "" {
 			return ErrNoNode
 		}
+		// Made with its settings, as an imported template is (0090): only
+		// values, never path and value.
+		if op.Path != "" || len(op.Value) > 0 {
+			return ErrTwoForms
+		}
+		for p := range op.Values {
+			if p == "" {
+				return ErrNoPath
+			}
+		}
 		fallthrough
 	case EditTemplate:
 		if err := folderName(op.Name); err != nil {
@@ -125,6 +135,24 @@ func applyTemplate(s *State, op Op) (Effect, error) {
 			return Effect{}, err
 		}
 		after := templateView(tm)
+		// Its settings, made with it: an imported template (0090).
+		if len(op.Values) > 0 {
+			values := map[string]any{}
+			for _, f := range op.Fields() {
+				if !TemplateFieldOK(f.Path) {
+					return Effect{}, fmt.Errorf("%w: %s", ErrTemplateField, f.Path)
+				}
+				v, err := decode(f.Value)
+				if err != nil {
+					return Effect{}, err
+				}
+				if _, _, err := lib.SetTemplateValue(op.Template, f.Path, v); err != nil {
+					return Effect{}, err
+				}
+				values[string(f.Path)] = v
+			}
+			after["values"] = values
+		}
 		// Default: picked where it is made, for each of its boards that
 		// nothing is picked for there yet.
 		if op.Default {

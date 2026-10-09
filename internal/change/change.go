@@ -125,7 +125,8 @@ type Op struct {
 	Key     string `json:"key,omitempty"`
 
 	// AP templates (0085): the template's ID; for add-template its level
-	// (Parent), name and boards, and Default to pick it there for them; for
+	// (Parent), name and boards, Default to pick it there for them, and
+	// Values to make it with its settings, as an import does (0090); for
 	// edit-template its name and boards; for set-template and
 	// unset-template its fields, as for set and unset.
 	Template string   `json:"template,omitempty"`

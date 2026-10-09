@@ -1,6 +1,10 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -167,5 +171,60 @@ func TestTemplatesThroughTheAPI(t *testing.T) {
 	}
 	if code, body := f.change("claude", map[string]any{"kind": "remove-template", "template": "r7800-quiet"}); code != 200 {
 		t.Fatalf("remove-template: %d %v", code, body)
+	}
+}
+
+// An imported template (0090) is one add-template with its values, checked
+// against the schema as any setting is: a value the schema refuses refuses
+// the whole template.
+func TestImportedTemplateThroughTheAPI(t *testing.T) {
+	f := newFixture(t)
+	op := map[string]any{"kind": "add-template", "template": "arista-c360-6e", "name": "Arista C-360", "parent": "office",
+		"boards": []string{"arista,c360"}, "values": map[string]any{"radio.6g.width": 999, "system.country": "US"}}
+	if code, body := f.change("griff", op); code != 400 || !strings.Contains(body["error"].(string), "radio.6g.width") {
+		t.Fatalf("a width the schema refuses: %d %v", code, body)
+	}
+	op["values"] = map[string]any{"radio.6g.width": 160, "radio.6g.psc": true, "system.country": "US"}
+	if code, body := f.change("griff", op); code != 200 {
+		t.Fatalf("import: %d %v", code, body)
+	}
+	code, body := f.do("GET", "/v1/library?at=office", "griff", nil)
+	if code != 200 {
+		t.Fatalf("library: %d %v", code, body)
+	}
+	tm := body["templates"].([]any)[0].(map[string]any)
+	if v := tm["values"].(map[string]any); tm["id"] != "arista-c360-6e" || len(v) != 3 || v["radio.6g.width"] != float64(160) {
+		t.Fatalf("imported template = %v", tm)
+	}
+}
+
+// Every ready-made template in the repo's templates/ (0090) imports: it is a
+// template file, and Aeolus takes all of its settings.
+func TestRepoTemplatesImport(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "..", "templates", "*.json"))
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no templates in templates/: %v", err)
+	}
+	f := newFixture(t)
+	for i, p := range paths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var file struct {
+			Kind   int            `json:"aeolus_template"`
+			Name   string         `json:"name"`
+			Boards []string       `json:"boards"`
+			Values map[string]any `json:"values"`
+		}
+		if err := json.Unmarshal(raw, &file); err != nil || file.Kind != 1 || file.Name == "" || len(file.Boards) == 0 || len(file.Values) == 0 {
+			t.Errorf("%s: not a template file: %v", p, err)
+			continue
+		}
+		op := map[string]any{"kind": "add-template", "template": fmt.Sprintf("repo-%d", i), "name": file.Name, "parent": "office",
+			"boards": file.Boards, "values": file.Values}
+		if code, body := f.change("griff", op); code != 200 {
+			t.Errorf("%s: %d %v", p, code, body)
+		}
 	}
 }

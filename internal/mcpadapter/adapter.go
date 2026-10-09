@@ -114,7 +114,7 @@ type Op struct {
 	Concentrator string `json:"concentrator,omitempty" jsonschema:"retired: the library's concentrators take no new changes (0085)"`
 	VNI          int    `json:"vni,omitempty" jsonschema:"retired, with the library's concentrators (0085)"`
 
-	Template string   `json:"template,omitempty" jsonschema:"for the template kinds: the AP template's ID (0085); for set-template and unset-template its fields go in path and value, values or paths, as for set and unset, and are Locations fields of radio, ports, system (not system.agent), rrm and apc. A folder picks a template for a board with set, path templates.<board>, value the template's ID"`
+	Template string   `json:"template,omitempty" jsonschema:"for the template kinds: the AP template's ID (0085); for set-template and unset-template its fields go in path and value, values or paths, as for set and unset, and add-template may carry values to make it with its settings (0090); and are Locations fields of radio, ports, system (not system.agent), rrm and apc. A folder picks a template for a board with set, path templates.<board>, value the template's ID"`
 	Boards   []string `json:"boards,omitempty" jsonschema:"for add-template and edit-template: the boards it is for, as OpenWrt names them (arista,c360)"`
 	Default  bool     `json:"default,omitempty" jsonschema:"for add-template: also pick it where it is made, for each of its boards nothing is picked for there"`
 

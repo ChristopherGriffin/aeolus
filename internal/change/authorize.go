@@ -174,7 +174,7 @@ func authorizeSystem(s *State, op Op) error {
 	case AddBuiltins:
 		return nil
 	case AddTemplate:
-		if op.Parent != s.Org.Locations.Root() || !op.Default {
+		if op.Parent != s.Org.Locations.Root() || !op.Default || len(op.Values) > 0 {
 			return ErrDefaultTemplate
 		}
 		for _, tm := range s.Library.Templates() {
