@@ -1,7 +1,9 @@
-// The channel map (0075): for each band, every real channel, shaded in the
-// blocks the band's width makes, where the channels an automatic channel may
-// be are picked a block at a time, as sets the APs can jump to. The APs on
-// each channel now are marked under it.
+// The channel map (0075, 0087): for each band, every real channel, shaded in
+// the blocks the band's width makes, where the channels an automatic channel
+// may be are picked a block at a time, as sets the APs can jump to. The APs
+// on each channel now are marked under it. On 6 GHz, the preferred scanning
+// channels are marked, and the set can be kept to them, and to one channel
+// a block.
 
 import { h } from '../dom.js';
 import { bandName, origin, value } from '../format.js';
@@ -18,25 +20,60 @@ const BLOCKS5 = {
 
 const step = (lo, hi, by) => Array.from({ length: (hi - lo) / by + 1 }, (_, i) => lo + i * by);
 
+// The 6 GHz blocks at each width, 1–233, as internal/radio has them (0087).
+// 320 MHz blocks come in two families that overlap; the map draws the first
+// (1–61, 65–125, 129–189), so 193–233 are in no block it draws at 320.
+const BLOCKS6 = {
+	40: step(1, 225, 8).map((lo) => [lo, lo + 4]),
+	80: step(1, 209, 16).map((lo) => [lo, lo + 12]),
+	160: step(1, 193, 32).map((lo) => [lo, lo + 28]),
+	320: [[1, 61], [65, 125], [129, 189]],
+};
+
+// psc says whether a 6 GHz channel is a preferred scanning channel, one
+// clients look for 6 GHz networks on by themselves: 5, 21, 37 … 229.
+export const psc = (c) => c >= 5 && c <= 229 && (c - 5) % 16 === 0;
+
 // ranges are a band's 20 MHz channels, in the stretches of spectrum they
 // fall in: 2.4 GHz's 1–11, or 1–13 outside North America; 5 GHz's three.
 function ranges(band, country) {
 	if (band === '2g') return [step(1, country === 'US' || country === 'CA' ? 11 : 13, 1)];
+	if (band === '6g') return [step(1, 233, 4)];
 	return [step(36, 64, 4), step(100, 144, 4), step(149, 165, 4)];
 }
 
 // DEFAULT is what an unset set means: 1, 6 and 11 on 2.4 GHz, every
-// channel on 5 GHz.
-const DEFAULT = { '2g': () => [1, 6, 11], '5g': () => ranges('5g').flat() };
+// channel on 5 and 6 GHz.
+const DEFAULT = { '2g': () => [1, 6, 11], '5g': () => ranges('5g').flat(), '6g': () => ranges('6g').flat() };
 
 const radar = (band, c) => band === '5g' && c >= 52 && c <= 144;
 
 // block is the channels a radio at width takes up with ch among them, or
 // null where no block at that width holds it.
 function block(band, ch, width) {
-	if (band !== '5g' || width <= 20) return [ch];
-	const b = (BLOCKS5[width] || []).find(([lo, hi]) => ch >= lo && ch <= hi);
+	if (band === '2g' || width <= 20) return [ch];
+	const b = ((band === '6g' ? BLOCKS6 : BLOCKS5)[width] || []).find(([lo, hi]) => ch >= lo && ch <= hi);
 	return b ? step(b[0], b[1], 4) : null;
+}
+
+// usable is what the APs may go to from a set, as internal/radio's Usable
+// has it: the set's whole blocks; on 6 GHz, with onlyPSC, preferred
+// scanning channels alone, and with spread, one channel to a block.
+function usable(band, chosen, width, avoid, onlyPSC, spread) {
+	const out = [];
+	const seen = new Set();
+	for (const c of [...chosen].sort((a, b) => a - b)) {
+		const b = block(band, c, width);
+		if (!b || !b.every((x) => chosen.has(x)) || (avoid && radar(band, c))) continue;
+		if (spread && width > 20) {
+			if (seen.has(b[0])) continue;
+			const first = b.find((x) => !onlyPSC || psc(x));
+			if (first === undefined) continue;
+			seen.add(b[0]);
+			out.push(first);
+		} else if (!onlyPSC || psc(c)) out.push(c);
+	}
+	return out;
 }
 
 // spans writes a set of channels as runs, such as 36–48, 149–161, each run
@@ -51,19 +88,8 @@ function spans(list, by) {
 	return runs.map(([a, b]) => (a === b ? String(a) : `${a}–${b}`)).join(', ');
 }
 
-// channelMap draws a map for each band the APs here have. at is the node's
-// page ({ node, nodeName, page, canEdit, parentName }); rows are its APs,
-// each with its config and condition.
-export function channelMap(ctx, at, rows) {
-	const bands = (at.page.hardware?.bands || []).map((b) => b.band).filter((b) => b === '2g' || b === '5g');
-	if (!bands.length) return h('div', { class: 'banner info' }, 'No AP here has a 2.4 or 5 GHz radio.');
-	return [
-		h('div', { class: 'sub lead' }, 'The channels an automatic channel may be, for the APs here: picked a block at a time, at the band\'s width. RRM moves radios only within them.'),
-		bands.map((band) => bandMap(ctx, at, band, rows)),
-	];
-}
-
-function bandMap(ctx, at, band, rows) {
+// bandMap is one band's channel map, for the node at.
+export function bandMap(ctx, at, band, rows) {
 	const { node, nodeName, page, canEdit, parentName } = at;
 	const path = `radio.${band}.channels`;
 	const field = page.fields?.[path];
@@ -71,6 +97,10 @@ function bandMap(ctx, at, band, rows) {
 	const editable = canEdit && !lockedAbove;
 	const country = page.fields?.['system.country']?.value;
 	const avoid = band === '5g' && page.fields?.['radio.5g.dfs']?.value === 'avoid';
+	// On 6 GHz: preferred scanning channels only, and one channel a block.
+	const onlyPSC = band === '6g' && page.fields?.['radio.6g.psc']?.value === true;
+	const spread = band === '6g' && page.fields?.['radio.6g.non_overlapping']?.value === true;
+	const auto = page.fields?.[`radio.${band}.channel`]?.value === 'auto';
 
 	// The width the blocks are drawn at: the band's in force here, or what
 	// most of the APs below report.
@@ -139,22 +169,29 @@ function bandMap(ctx, at, band, rows) {
 			return h('div', { class: `chbr dfs${start ? ' start' : ''}${end ? ' end' : ''}${join ? ' join' : ''}${cont ? ' cont' : ''}` },
 				h('span', { class: 'lbl' }, 'DFS'));
 		};
+		// The channels the APs go to from the set, marked where that is not
+		// every channel picked: with preferred scanning channels only, or one
+		// channel a block (0087).
+		const goes = new Set(usable(band, chosen, width, avoid, onlyPSC, spread));
+		const marked = onlyPSC || spread;
 		map.replaceChildren(...all.map((groups) => {
 			return h('div', { class: 'chrange' }, groups.map((g, i) => {
 				const all = g.whole && g.whole.every((c) => chosen.has(c));
 				const some = g.whole && !all && g.whole.some((c) => chosen.has(c));
-				const off = !g.whole || (avoid && g.chans.some((c) => radar(band, c)));
+				const off = !g.whole || (avoid && g.chans.some((c) => radar(band, c))) || (onlyPSC && !g.whole.some(psc));
 				// At 20 MHz each channel is its own block: one shade for all.
-				return h('div', { class: 'chstack' }, bracket(g), h('div', { class: `chblock ${width > 20 && band === '5g' && i % 2 ? 'b' : 'a'}` }, g.chans.map((c) => {
+				return h('div', { class: 'chstack' }, bracket(g), h('div', { class: `chblock ${width > 20 && band !== '2g' && i % 2 ? 'b' : 'a'}` }, g.chans.map((c) => {
 					const aps = on.get(c) || [];
 					const why = !g.whole ? `No ${width} MHz block includes ${c}`
 						: avoid && radar(band, c) ? 'DFS is avoided here'
-							: radar(band, c) ? 'Shared with radar (DFS)' : '';
+							: onlyPSC && !g.whole.some(psc) ? 'No preferred scanning channel in this block'
+								: radar(band, c) ? 'Shared with radar (DFS)' : '';
 					return h('button', {
 						type: 'button',
-						class: `ch${all ? ' on' : ''}${some ? ' part' : ''}${off ? ' off' : ''}${radar(band, c) ? ' dfs' : ''}`,
+						class: `ch${all ? ' on' : ''}${some ? ' part' : ''}${off ? ' off' : ''}${radar(band, c) ? ' dfs' : ''}${band === '6g' && psc(c) ? ' psc' : ''}${marked && goes.has(c) ? ' goes' : ''}`,
 						disabled: !editable || off,
-						title: [why, some && 'Part of this block was picked at another width', aps.length && `Now: ${aps.join(', ')}`].filter(Boolean).join(' · '),
+						title: [why, band === '6g' && psc(c) && 'Preferred scanning channel', marked && goes.has(c) && 'The APs go to this channel',
+							some && 'Part of this block was picked at another width', aps.length && `Now: ${aps.join(', ')}`].filter(Boolean).join(' · '),
 						onclick: () => {
 							const next = new Set(chosen);
 							for (const x of g.whole) (all ? next.delete(x) : next.add(x));
@@ -166,11 +203,10 @@ function bandMap(ctx, at, band, rows) {
 			}));
 		}));
 		requestAnimationFrame(joinBracket);
-		const usable = [...chosen].filter((c) => block(band, c, width)?.every((x) => chosen.has(x)) && !(avoid && radar(band, c)));
-		count.textContent = `${usable.length} Channel${usable.length === 1 ? '' : 's'} Available`;
-		count.className = usable.length ? 'chip ok' : 'chip bad';
-		count.title = usable.length ? '' : `No whole ${width} MHz block is picked: the APs would have nowhere to go.`;
-		save.disabled = save.disabled || !usable.length;
+		count.textContent = `${goes.size} Channel${goes.size === 1 ? '' : 's'} Available`;
+		count.className = goes.size ? 'chip ok' : 'chip bad';
+		count.title = goes.size ? '' : `No whole ${width} MHz block${onlyPSC ? ' with a preferred scanning channel' : ''} is picked: the APs would have nowhere to go.`;
+		save.disabled = save.disabled || !goes.size;
 	};
 	// joinBracket draws the DFS bracket as one where 52–64 and 100–144 sit on
 	// one line, and as two, each with its ticks and label, where they wrap.
@@ -197,14 +233,16 @@ function bandMap(ctx, at, band, rows) {
 			h('div', null, h('strong', null, `${bandName(band)} channels on ${nodeName}: `),
 				field ? list(saved) : `${list(saved)} (not set)`, ' → ', list(chosen)),
 		], [
-			h('div', { class: 'sub warn' }, `Applying restarts the ${bandName(band)} radio on each AP listed whose channel is automatic: its clients drop for a few seconds and reconnect, and it picks a channel from the set. RRM then moves it only within the set.`),
+			h('div', { class: 'sub warn' }, `Applying restarts the ${bandName(band)} radio on each AP listed whose channel is automatic: its clients drop for a few seconds and reconnect, and it picks a channel from the set.${band === '6g' ? '' : ' RRM then moves it only within the set.'}`),
 		]);
 	});
 	draw();
 
-	panel.append(
+	// append, unlike h, would write a false out as text.
+	panel.append(...[
 		h('h2', null, h('span', { class: 'title' }, bandName(band), count), h('span', { class: 'note' },
-			`${width} MHz blocks${fromAPs ? ', the width most APs here report' : ''}${avoid ? ' · DFS avoided' : ''}`)),
+			`${width} MHz blocks${fromAPs ? ', the width most APs here report' : ''}${avoid ? ' · DFS avoided' : ''}${onlyPSC ? ' · preferred scanning channels only' : ''}${spread ? ' · one channel a block' : ''}`)),
+		!auto && h('div', { class: 'sub' }, `The set is for an automatic channel. Here the ${bandName(band)} channel is ${page.fields?.[`radio.${band}.channel`] ? `set to ${page.fields[`radio.${band}.channel`].value}` : 'not set, so each AP keeps its own'}: make it automatic on the band's card for the set to take effect.`),
 		h('div', { class: 'row' },
 			h('div', { class: 'label' }, 'Channels'),
 			h('div', { class: 'value' }, field ? spans(field.value, band === '2g' ? 1 : 4) : h('span', { class: 'sealed' }, band === '2g' ? '1, 6 and 11 (not set)' : 'any (not set)')),
@@ -214,8 +252,13 @@ function bandMap(ctx, at, band, rows) {
 				editable && reset, editable && save)),
 		band === '5g' && dfsRow({ ctx, node, nodeName, page, isAP: page.node.kind === 'ap', canEdit, parentName },
 			reports.find((x) => x.r.band === '5g')?.r, box),
+		band === '6g' && switchRow({ ctx, node, nodeName, page, isAP: page.node.kind === 'ap', canEdit, parentName }, 'radio.6g.psc',
+			'Preferred scanning channels only', 'Clients look for 6 GHz networks on 5, 21, 37 and every 16th to 229 by themselves; elsewhere only where another band’s beacons send them.', box),
+		band === '6g' && switchRow({ ctx, node, nodeName, page, isAP: page.node.kind === 'ap', canEdit, parentName }, 'radio.6g.non_overlapping',
+			'One channel a block', 'Each block of the width offers one channel, so radios that pick different channels never share a block: at 160 MHz with preferred scanning channels only, 5, 37, 69 …, not also 21, 53 ….', box),
 		map,
-		box);
+		box,
+	].filter(Boolean));
 	return panel;
 }
 
@@ -255,3 +298,31 @@ async function dfsPreview(at, now, path, field, choice, box) {
 	]);
 }
 
+// switchRow is one of 6 GHz's on/off settings for an automatic channel
+// (0087): preferred scanning channels only, or one channel a block. Off
+// unless set.
+function switchRow(at, path, label, about, box) {
+	const { ctx, node, nodeName, page, isAP, canEdit, parentName } = at;
+	const field = page.fields?.[path];
+	const lockedAbove = field?.origin === 'locked' && field.from !== node;
+	const on = field?.value === true;
+	const preview = async () => {
+		const op = { kind: 'set', tree: 'locations', node, path, value: !on };
+		const p = await ask(box, op);
+		if (!p) return;
+		confirm(ctx, box, op, p, [
+			h('div', null, h('strong', null, `${label} on ${nodeName}: `), on ? 'on' : 'off', ' → ', on ? 'off' : 'on'),
+			h('div', { class: 'sub' }, about),
+		], [
+			h('div', { class: 'sub warn' }, 'Applying restarts the 6 GHz radio on each AP listed whose channel is automatic: its clients drop for a few seconds and reconnect, and it picks a channel again.'),
+		]);
+	};
+	return h('div', { class: 'row' },
+		h('div', { class: 'label', title: about }, label),
+		h('div', { class: 'value' }, field ? value(path, field.value) : h('span', { class: 'sealed' }, 'off (not set)')),
+		field && origin('locations', node, field, (id) => ctx.name('locations', id)),
+		isAP && field?.origin === 'self' && h('span', { class: 'chip warn' }, 'custom'),
+		canEdit && !lockedAbove && h('span', { class: 'controls' },
+			field?.origin === 'self' && followButton(ctx, 'locations', node, nodeName, parentName, [path], box),
+			h('button', { type: 'button', class: 'button small', onclick: preview }, on ? 'Turn off…' : 'Turn on…')));
+}

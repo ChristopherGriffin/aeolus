@@ -17,7 +17,7 @@ import { schema } from '../api.js';
 import { group, value, origin, ago, secondsAgo, probeOnly, PROBE_ONLY, uplinkJudgment, switchPort } from '../format.js';
 import { tabBar, pick } from '../layout.js';
 import { configs } from './sections.js';
-import { channelMap } from './channels.js';
+import { bandMap } from './channels.js';
 import { radiosSection } from './hardware.js';
 import { neighboursSection, ratingsSection } from './neighbours.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -29,7 +29,9 @@ import { vxlanPath, probed } from './path.js';
 const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
 // Radios' views: the band cards, the channel map (0075), the other Aeolus
 // APs each hears, and how it rates each channel (0073).
-const RADIOS = [['bands', 'Bands'], ['channels', 'Channels'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings']];
+// Bands and their channel maps are one view (Griff, 2026-10-09); an old
+// link to Channels lands there.
+const RADIOS = [['bands', 'Bands and channels'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings']];
 
 // The port fields offered, in order. LACP and its bond are not applied yet,
 // and the uplink is the agent's own setting.
@@ -63,10 +65,12 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 		let body;
 		const at = { node: id, nodeName: page.node.name, page, canEdit: !!edit,
 			parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null };
-		if (view === 'channels') body = channelMap(ctx, at, await rows());
-		else if (view === 'ratings') body = ratingsSection(ctx, await rows());
+		if (view === 'ratings') body = ratingsSection(ctx, await rows());
 		else if (view === 'neighbours') body = neighboursSection(ctx, at, await rows());
-		else body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state, await rows());
+		else {
+			const list = await rows();
+			body = radiosSection(ctx, id, page.node.name, page, ap?.cfg?.condition?.state, list, (band) => bandMap(ctx, at, band, list));
+		}
 		return [bar, tabBar(`${base}/interfaces/radios`, RADIOS, view, 'minor'), body];
 	}
 	const body = sub === 'tunnels' ? await tunnels(ctx, id, page, ap, edit) : await ethernet(ctx, id, page, ap, edit);
