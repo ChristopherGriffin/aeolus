@@ -16,9 +16,15 @@
 # one, everything else works, and a setting that needs it is refused until
 # it is installed.
 #
-# install exits 3 when it installed vxlan: netifd loads its protocols only
-# when it starts, so the network must be restarted (0057). restore restarts
-# it itself, and the agent when it installed the prober's module.
+# And the full wpad, for 802.11v (BSS transition), which band steering needs
+# (0050, 0057, 0088): OpenWrt's images have wpad-basic, built without it,
+# and hostapd refuses a radio's whole config that asks for it. The full one,
+# of the same TLS library, replaces it in one go.
+#
+# install exits 3 when it installed vxlan or the full wpad: netifd loads its
+# protocols only when it starts, and hostapd is restarted with it, so the
+# network must be restarted (0057). restore restarts it itself, and the
+# agent when it installed the prober's module.
 #
 # restore also puts back the ucode modules the agent cannot start without,
 # the package's dependencies (0080): after a sysupgrade onto an image that
@@ -111,10 +117,34 @@ why() {
 	esac
 }
 
+# full_wpad replaces wpad-basic with the full wpad of the same TLS library.
+# It returns 0 when it did, 1 when it could not, 2 when there is none to
+# replace. Under apk it is one change; under opkg the basic one goes first,
+# and comes back should the full one not install.
+full_wpad() {
+	for tls in mbedtls openssl wolfssl; do
+		has wpad-basic-$tls || continue
+		if [ $PM = apk ]; then
+			apk add wpad-$tls "!wpad-basic-$tls" >/dev/null 2>&1
+		else
+			opkg remove wpad-basic-$tls >/dev/null 2>&1 &&
+				{ opkg install wpad-$tls >/dev/null 2>&1 || { opkg install wpad-basic-$tls >/dev/null 2>&1; false; }; }
+		fi
+		if has wpad-$tls; then
+			say "wpad-basic-$tls is replaced with wpad-$tls, for 802.11v"
+			return 0
+		fi
+		say "wpad-basic-$tls could not be replaced with wpad-$tls: band steering and BSS transition will be refused on this AP until it is"
+		return 1
+	done
+	return 2
+}
+
 install_all() {
 	feeds
 	pm_update >/dev/null 2>&1 || say "the package index could not be read through the manager"
 	rc=0
+	full_wpad && rc=3
 	: >$LIST.new
 	for p in $PACKAGES; do
 		if has $p; then
@@ -143,21 +173,28 @@ restore() {
 		for p in $PACKAGES; do has $p && echo $p; done >$LIST
 		[ -z "$required" ] && { mkdir -p ${DONE%/*} && touch $DONE; return 0; }
 	fi
-	missing=$required
+	# The full wpad comes back in place of the image's basic one, not
+	# beside it.
+	missing=$required basic=
 	for p in $(cat $LIST); do has $p || missing="$missing $p"; done
-	if [ -z "$missing" ]; then
+	for tls in mbedtls openssl wolfssl; do has wpad-basic-$tls && basic=$tls; done
+	if [ -z "$missing" ] && [ -z "$basic" ]; then
 		mkdir -p ${DONE%/*} && touch $DONE
 		return 0
 	fi
 	feeds
-	if ! { pm_update >/dev/null 2>&1 && pm_add $missing >/dev/null 2>&1; }; then
+	if ! pm_update >/dev/null 2>&1 || { [ -n "$missing" ] && ! pm_add $missing >/dev/null 2>&1; }; then
 		say "after a sysupgrade, these could not be installed again:$missing; the agent tries again in an hour"
 		return 1
 	fi
+	if [ -n "$basic" ]; then
+		full_wpad || { say "the agent tries again in an hour"; return 1; }
+		missing="$missing wpad-$basic"
+	fi
 	say "after a sysupgrade, installed again:$missing"
 	mkdir -p ${DONE%/*} && touch $DONE
-	case " $missing " in *" vxlan "*)
-		say "restarting the network so netifd loads vxlan"
+	case " $missing " in *" vxlan "* | *" wpad-"*)
+		say "restarting the network so netifd loads vxlan, and hostapd is the full wpad"
 		/etc/init.d/network restart
 		;;
 	esac

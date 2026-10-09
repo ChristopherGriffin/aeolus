@@ -564,6 +564,32 @@ function form(d, net, fields, folder, lib) {
 		rows.get(prefix + k)?.it.el.addEventListener('change', guard);
 	for (const slot of ['primary', 'fallback'])
 		rows.get(`${prefix}transport.${slot}.type`)?.it.el.addEventListener('change', () => { guard(); fill(slot); guard(); });
+	// 6 GHz takes WPA3 or OWE only (0086): picking WPA2 or open unticks 6 GHz
+	// and holds it off, saying why; picking WPA3 or OWE gives it back as it
+	// was (Griff, 2026-10-09).
+	const security = rows.get(`${prefix}security`)?.it.el;
+	const bands = rows.get(`${prefix}bands`);
+	const six = bands?.it.el.querySelector('input[value="6g"]');
+	if (security && six) {
+		const why = h('span', { class: 'sub warn', hidden: true }, '6 GHz takes WPA3 or OWE only');
+		bands.row.append(why);
+		let had = six.checked;
+		six.addEventListener('change', () => { had = six.checked; });
+		const legal = () => {
+			const ok = !security.value || SIX_GHZ.has(security.value);
+			if (!ok && !six.disabled) {
+				had = six.checked;
+				six.checked = false;
+				six.disabled = true;
+			} else if (ok && six.disabled) {
+				six.disabled = false;
+				six.checked = had;
+			}
+			why.hidden = ok;
+		};
+		security.addEventListener('change', legal);
+		legal();
+	}
 	sync();
 	guard();
 	return { body, inputs, rows, sync, clash };
