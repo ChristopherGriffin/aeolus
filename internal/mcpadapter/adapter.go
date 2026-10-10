@@ -227,6 +227,15 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", path, nil)
 			return nil, out, err
 		})
+	mcp.AddTool(s, &mcp.Tool{Name: "list_airspace", Description: "The Wi-Fi networks the APs you can view hear (0106), once each by BSSID, with its SSID, band and channel, and every AP that hears it with its signal and when it last did, the strongest first. Each is a rogue (it broadcasts one of Aeolus's SSIDs from a BSSID no AP names as its own: an evil twin, or a same-named AP Aeolus does not manage), known (such a BSSID a folder's rogues.known says is no rogue; set it with make_change to quiet one), aeolus (one of the APs' own, heard by an AP that is not its radio neighbour) or other; rogues first. Only APs with radio resource management on listen. With under, only the APs below that Locations node.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in alertsIn) (*mcp.CallToolResult, any, error) {
+			path := "/v1/airspace"
+			if in.Under != "" {
+				path += "?under=" + url.QueryEscape(in.Under)
+			}
+			out, err := c.call(ctx, "GET", path, nil)
+			return nil, out, err
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_client_journey", Description: "One Wi-Fi client's history across the APs you can view (0103), by its MAC, over the last hours (24 unless set, at most 720): its sessions, each on one AP, band and network, from and to, with its signal (min, max, mean), mean rate, retries, address and DHCP verdict; how often it roamed; and issues: a weak signal, many retries, a slow rate, no DHCP or a static address, or moving back and forth between two APs. Built from the APs' state reports, every few minutes, so a session's edges are to within a report.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in journeyIn) (*mcp.CallToolResult, any, error) {
 			path := "/v1/clients/" + url.PathEscape(in.MAC)

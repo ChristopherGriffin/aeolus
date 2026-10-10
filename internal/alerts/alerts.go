@@ -48,7 +48,8 @@ type Input struct {
 	WantsAgent string        // the agent bundle it should run (0079); empty if unknown
 	Problems   []string      // why the manager holds its config, if it does
 	Latest     conditions.Latest
-	Fleet      *Fleet // what is the fleet's own, to tell a stranger's network (0105)
+	Fleet      *Fleet          // what is the fleet's own, to tell a stranger's network (0105)
+	Known      map[string]bool // BSSIDs its folders' rogues.known say are no rogues (0106)
 }
 
 // Fleet is what the APs together call their own (0105): every BSSID an AP
@@ -263,7 +264,7 @@ func fromReport(in Input, st *conditions.State) []Alert {
 	// evil twin, or an AP of the same name Aeolus does not manage (0105).
 	if f := in.Fleet; f != nil && r.RRM != nil {
 		for _, o := range r.RRM.Others {
-			if !f.SSIDs[o.SSID] || f.BSSIDs[o.BSSID] {
+			if !f.SSIDs[o.SSID] || f.BSSIDs[o.BSSID] || in.Known[o.BSSID] {
 				continue
 			}
 			ago = o.Ago
