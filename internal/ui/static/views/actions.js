@@ -1,6 +1,6 @@
 // An AP's actions (0104): Locate, Restart Wi-Fi and Reboot, asked of it
 // once each, which it takes up on its next poll, within about a minute; and
-// what came of the latest ones.
+// what came of the latest ones, a client's Reconnect among them (0107).
 
 import { h } from '../dom.js';
 import { get, post } from '../api.js';
@@ -47,7 +47,7 @@ export async function actionsPanel(id, name, canAct) {
 		list.length ? h('table', { class: 'list' },
 			h('tr', null, ['Action', 'Asked', 'By', 'What came of it'].map((t) => h('th', null, t))),
 			list.slice(0, 8).map((a) => h('tr', null,
-				h('td', null, KINDS.find(([k]) => k === a.kind)?.[1] ?? a.kind),
+				h('td', null, a.kind === 'disconnect' ? ['Reconnect ', h('span', { class: 'mono' }, a.target)] : KINDS.find(([k]) => k === a.kind)?.[1] ?? a.kind),
 				h('td', null, ago(a.at)),
 				h('td', null, a.actor),
 				h('td', null, h('span', { class: `chip ${STATE[a.state]?.[0] ?? ''}` }, STATE[a.state]?.[1] ?? a.state), a.result && h('span', { class: 'sub' }, ` ${a.result}`)))))

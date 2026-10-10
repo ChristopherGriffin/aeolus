@@ -14,12 +14,12 @@ func TestActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	a, err := s.AddAction("ap-1", "locate", "griff")
+	a, err := s.AddAction("ap-1", "locate", "", "griff")
 	if err != nil || a.State != "pending" || a.Kind != "locate" {
 		t.Fatalf("add = %+v, %v", a, err)
 	}
 	// Asked twice, it is the one action.
-	if b, _ := s.AddAction("ap-1", "locate", "griff"); b.ID != a.ID {
+	if b, _ := s.AddAction("ap-1", "locate", "", "griff"); b.ID != a.ID {
 		t.Fatalf("a second locate made %+v", b)
 	}
 	if p, _ := s.PendingActions("ap-1"); len(p) != 1 {
@@ -34,7 +34,7 @@ func TestActions(t *testing.T) {
 		t.Fatalf("claimed again = %+v", c)
 	}
 	// While it runs, asking again gives the one running, not another.
-	if b, _ := s.AddAction("ap-1", "locate", "griff"); b.ID != a.ID || b.State != "running" {
+	if b, _ := s.AddAction("ap-1", "locate", "", "griff"); b.ID != a.ID || b.State != "running" {
 		t.Fatalf("a locate while one runs = %+v", b)
 	}
 	// Another AP cannot finish it.
@@ -46,7 +46,7 @@ func TestActions(t *testing.T) {
 		t.Fatalf("finish = %+v, %v", done, err)
 	}
 	// One that waits too long expires, and is not done late.
-	r, _ := s.AddAction("ap-1", "reboot", "griff")
+	r, _ := s.AddAction("ap-1", "reboot", "", "griff")
 	now = now.Add(ActionWait + time.Minute)
 	if p, _ := s.PendingActions("ap-1"); len(p) != 0 {
 		t.Fatalf("pending after the wait = %+v", p)
@@ -95,7 +95,7 @@ func TestAddActionRacesTheAP(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 25 {
-				if a, err := s.AddAction("ap-1", "reboot", "griff"); err != nil || a.ID == 0 {
+				if a, err := s.AddAction("ap-1", "reboot", "", "griff"); err != nil || a.ID == 0 {
 					errs <- err
 					return
 				}
@@ -114,5 +114,25 @@ func TestAddActionRacesTheAP(t *testing.T) {
 	var open int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM actions WHERE state IN ('pending', 'running')`).Scan(&open); err != nil || open > 1 {
 		t.Fatalf("%d open, %v", open, err)
+	}
+}
+
+// A disconnect is of one client (0107): each client its own, one client
+// asked twice the one action.
+func TestActionTargets(t *testing.T) {
+	now := time.Date(2026, 10, 10, 2, 0, 0, 0, time.UTC)
+	s, err := Open(filepath.Join(t.TempDir(), "c.db"), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	a, _ := s.AddAction("ap-1", "disconnect", "7e:2a:ea:9b:2b:8f", "griff")
+	b, _ := s.AddAction("ap-1", "disconnect", "84:0d:8e:5a:df:f7", "griff")
+	again, _ := s.AddAction("ap-1", "disconnect", "7e:2a:ea:9b:2b:8f", "griff")
+	if a.ID == b.ID || again.ID != a.ID || a.Target != "7e:2a:ea:9b:2b:8f" {
+		t.Fatalf("a %+v, b %+v, again %+v", a, b, again)
+	}
+	if c, _ := s.ClaimActions("ap-1"); len(c) != 2 || c[1].Target != "84:0d:8e:5a:df:f7" {
+		t.Fatalf("claimed = %+v", c)
 	}
 }
