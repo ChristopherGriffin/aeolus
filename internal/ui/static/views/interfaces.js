@@ -626,12 +626,18 @@ function jack(name, state, under, title, onclick, marks = []) {
 const mbit = (speed) => Number(/^(\d+)/.exec(speed || '')?.[1] || 0);
 const gbit = (m) => (m >= 1000 ? `${m / 1000} Gbit/s` : `${m} Mbit/s`);
 
-// speedNote says why a link is slower than its port can go: what the port
-// can do, and what the far end offers it (0093).
-function speedNote(p) {
+// short writes a speed the short way, 2.5G or 100M; gbe a port's, 10GbE.
+const short = (m) => (m >= 1000 ? `${m / 1000}G` : `${m}M`);
+const gbe = (m) => (m >= 1000 ? `${m / 1000}GbE` : `${m}M`);
+
+// sync says a link as its port and the speed it synced at, "10GbE
+// port/2.5G sync" (Griff, 2026-10-09; 0093), with what the far end offers
+// on hover; a port that doesn't say how fast it can go, its speed alone.
+function sync(p) {
+	if (!p.carrier) return 'no link';
 	const now = mbit(p.speed);
-	if (!p.carrier || !p.max || p.max <= now) return '';
-	return `the port can do ${gbit(p.max)}${p.partner_max ? `; the far end offers ${gbit(p.partner_max)}` : ''}`;
+	if (!p.max) return gbit(now);
+	return h('span', { title: p.partner_max ? `the far end offers up to ${gbit(p.partner_max)}` : '' }, `${gbe(p.max)} port/${short(now)} sync`);
 }
 
 // poe says what the switch's LLDP says of the power it gives the AP, or
@@ -746,9 +752,8 @@ function portJack(c, name, reps, pick) {
 					: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => show(editForm) }, 'Edit'),
 				h('button', { type: 'button', class: 'button small', onclick: () => pick(name, () => null) }, 'Close')));
 		panel.append(...[head(),
-			row('Link', [linkCell(reps, folder), !folder && reps[0] && speedNote(reps[0].p) && h('span', { class: 'sub' }, ` · ${speedNote(reps[0].p)}`)]),
-			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ',
-				m.carrier ? gbit(mbit(m.speed)) : 'no link', speedNote(m) && h('span', { class: 'sub' }, ` · ${speedNote(m)}`),
+			row('Link', !folder && reps[0]?.p.max ? sync(reps[0].p) : linkCell(reps, folder)),
+			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ', sync(m),
 				m.aggregator != null && bond.aggregator != null && m.aggregator !== bond.aggregator && h('span', { class: 'chip warn' }, 'outside the aggregate')))),
 			row('Mode', mode ?? h('span', { class: 'sub' }, 'not set')),
 			row('Carries', [what ?? h('span', { class: 'sub' }, 'not set'), from.length > 0 && h('span', { class: 'whence' }, from.join(', '))]),
