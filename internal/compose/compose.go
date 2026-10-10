@@ -344,10 +344,10 @@ func sixGHzProblems(doc map[string]any) []string {
 }
 
 // keyVLANProblems refuses the VLANs a network offers its per-user keys
-// (0070) on a radio whose driver makes no AP/VLAN interfaces, by what the AP
-// reported when it enrolled (0082): hostapd would fail every network on that
-// radio. A radio reported without it, or one another service owns (0081), is
-// not checked.
+// (0070), or its RADIUS server (0111, 0112), on a radio whose driver makes
+// no AP/VLAN interfaces, by what the AP reported when it enrolled (0082):
+// hostapd would fail every network on that radio. A radio reported without
+// it, or one another service owns (0081), is not checked.
 func keyVLANProblems(doc map[string]any, facts json.RawMessage) []string {
 	var f struct {
 		Radios []struct {
@@ -367,8 +367,21 @@ func keyVLANProblems(doc map[string]any, facts json.RawMessage) []string {
 		if n["enabled"] == false {
 			continue
 		}
+		// Which of its VLANs would be rendered: the keys' off WPA Enterprise,
+		// the server's on it or with MAC authentication, as the AP's
+		// renderer has it.
+		security, _ := n["security"].(string)
+		enterprise := strings.HasSuffix(security, "-enterprise")
 		keys, _ := n["keys"].(map[string]any)
-		if vlans, _ := keys["vlans"].([]any); len(vlans) == 0 {
+		rad, _ := n["radius"].(map[string]any)
+		keyVLANs, _ := keys["vlans"].([]any)
+		radiusVLANs, _ := rad["vlans"].([]any)
+		if enterprise {
+			keyVLANs = nil
+		} else if rad["mac_auth"] != true {
+			radiusVLANs = nil
+		}
+		if len(keyVLANs) == 0 && len(radiusVLANs) == 0 {
 			continue
 		}
 		bands := map[string]bool{}
@@ -379,7 +392,6 @@ func keyVLANProblems(doc map[string]any, facts json.RawMessage) []string {
 				}
 			}
 		}
-		security, _ := n["security"].(string)
 		_, onSix := radio.SixGHzEncryption(security)
 		var cannot []string
 		for _, r := range f.Radios {
@@ -388,8 +400,11 @@ func keyVLANProblems(doc map[string]any, facts json.RawMessage) []string {
 			}
 			cannot = append(cannot, r.Radio)
 		}
-		if len(cannot) > 0 {
+		if len(cannot) > 0 && len(keyVLANs) > 0 {
 			out = append(out, fmt.Sprintf("network.%s.keys.vlans: %s cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs", id, strings.Join(cannot, ", ")))
+		}
+		if len(cannot) > 0 && len(radiusVLANs) > 0 {
+			out = append(out, fmt.Sprintf("network.%s.radius.vlans: %s cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or take them out of radius.vlans", id, strings.Join(cannot, ", ")))
 		}
 	}
 	return out

@@ -643,6 +643,16 @@ function converge(poll, token) {
 	let key = version + ':' + sha256(uci);
 	if (attempted[key])
 		return;
+	// What this AP's own renderer refuses is never applied, whatever the
+	// manager's check makes of the UCI: the renderer knows the AP, such as a
+	// driver with no AP/VLAN interfaces, on which hostapd would fail every
+	// network of the radio (the C-360, 2026-10-10). The manager hears why.
+	if (length(out.errors)) {
+		attempted[key] = true;
+		fail('version %d is not applied: this AP cannot render it', version);
+		report_applied(version, sha256(uci), false, substr('this AP cannot render it: ' + join('; ', out.errors), 0, 2000), token);
+		return;
+	}
 	let check = http('POST', '/v1/ap/render', { version: version, uci: uci }, token);
 	if (check.status != 200) {
 		fail('render check: %s', describe(check));
