@@ -82,6 +82,13 @@ var Coverage = map[string]string{
 	"network.*.isolation":                "",
 	"network.*.max_clients":              "",
 	"network.*.dtim":                     "",
+	"network.*.radius.auth_server":       "",
+	"network.*.radius.auth_port":         "",
+	"network.*.radius.auth_secret":       "",
+	"network.*.radius.acct_server":       "",
+	"network.*.radius.acct_port":         "",
+	"network.*.radius.acct_secret":       "",
+	"network.*.radius.nas_id":            "",
 	"network.*.keys.vlans":               "",
 	"network.*.roaming.ft":               "",
 	"network.*.roaming.rrm":              "",
@@ -147,6 +154,10 @@ var encryption = map[string]string{
 	"wpa2-psk":  "psk2",
 	"wpa3-sae":  "sae",
 	"wpa2-wpa3": "sae-mixed",
+	// WPA Enterprise, 802.1X against a RADIUS server (0098).
+	"wpa2-enterprise":      "wpa2",
+	"wpa3-enterprise":      "wpa3",
+	"wpa2-wpa3-enterprise": "wpa3-mixed",
 }
 
 var needsKey = map[string]bool{"wpa2-psk": true, "wpa3-sae": true, "wpa2-wpa3": true}
@@ -810,6 +821,7 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 			k.add("%s: key does not match the passphrase", where)
 		}
 	}
+	k.radius(where, security, obj(n, "radius"), s)
 	roaming := obj(n, "roaming")
 	rrm, _ := roaming["rrm"].(bool)
 	btm, _ := roaming["btm"].(bool)
@@ -854,6 +866,45 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 	for _, name := range ifaces {
 		if i := k.c.Package("network").Named(name); i == nil || i.Type != "interface" {
 			k.add("%s: network interface %s does not exist", where, name)
+		}
+	}
+}
+
+// radius checks a WPA Enterprise network's RADIUS servers on its Wi-Fi
+// interface (0098): the one clients sign in against, at its port, 1812
+// unless set, with its secret; accounting, where set, at 1813 unless set,
+// with its own secret or the sign-in one; and the NAS-Identifier. Another
+// network has none of them.
+func (k *checker) radius(where, security string, r map[string]any, s *uci.Section) {
+	opts := []string{"auth_server", "auth_port", "auth_secret", "acct_server", "acct_port", "acct_secret", "nasid"}
+	if !strings.HasSuffix(security, "-enterprise") {
+		for _, o := range opts {
+			if got, ok := s.Option(o); ok {
+				k.add("%s: %s is %q, but %s is no WPA Enterprise", where, o, got, security)
+			}
+		}
+		return
+	}
+	str := func(key string) string { v, _ := r[key].(string); return v }
+	port := func(key string, def int) string {
+		if v, ok := r[key].(float64); ok {
+			return text(v)
+		}
+		return strconv.Itoa(def)
+	}
+	want := map[string]string{"auth_server": str("auth_server"), "auth_port": port("auth_port", 1812), "auth_secret": str("auth_secret"), "nasid": str("nas_id")}
+	if str("acct_server") != "" {
+		want["acct_server"], want["acct_port"] = str("acct_server"), port("acct_port", 1813)
+		want["acct_secret"] = cmp.Or(str("acct_secret"), str("auth_secret"))
+	}
+	for _, o := range opts {
+		got, _ := s.Option(o)
+		if got != want[o] {
+			if strings.HasSuffix(o, "_secret") {
+				k.add("%s: %s does not match the RADIUS secret", where, o)
+			} else {
+				k.add("%s: %s is %q, want %q", where, o, got, want[o])
+			}
 		}
 	}
 }

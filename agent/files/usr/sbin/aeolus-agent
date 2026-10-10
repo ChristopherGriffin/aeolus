@@ -236,6 +236,12 @@ function has_veth() {
 	return installed('kmod-veth');
 }
 
+// has_eap says whether hostapd can do 802.1X, which WPA Enterprise needs
+// (0098): OpenWrt's hostapd says what it was built with by -v<feature>.
+function has_eap() {
+	return system('/usr/sbin/hostapd -veap >/dev/null 2>&1') == 0;
+}
+
 // has_ustp says whether ustp, the RSTP daemon, is installed, which spanning
 // tree needs (0095).
 function has_ustp() {
@@ -411,7 +417,7 @@ function render_facts(intent, ap) {
 		uplink: settings().uplink, management: mgmt_interface(), radios: radios,
 		timezone: posix_tz(intent.system?.tz), vxlan: vxlan_loaded(), nft_bridge: has_nft_bridge(),
 		bss_transition: has_bss_transition(), ap: ap, prober: has_prober(), veth: has_veth(),
-		ustp: has_ustp(),
+		ustp: has_ustp(), eap: has_eap(),
 	};
 }
 

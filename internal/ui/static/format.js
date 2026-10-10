@@ -7,6 +7,7 @@ const BANDS = { '2g': '2.4 GHz', '5g': '5 GHz', '6g': '6 GHz' };
 const SECURITY = {
 	'open': 'Open', 'owe': 'OWE (encrypted open)', 'wpa2-psk': 'WPA2',
 	'wpa3-sae': 'WPA3', 'wpa2-wpa3': 'WPA2/WPA3',
+	'wpa2-enterprise': 'WPA2-Enterprise', 'wpa3-enterprise': 'WPA3-Enterprise', 'wpa2-wpa3-enterprise': 'WPA2/WPA3-Enterprise',
 };
 
 const SYSTEM = {
@@ -37,6 +38,8 @@ const MODE = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' 
 const NETWORK = {
 	'ssid': 'SSID', 'security': 'Security', 'passphrase': 'Passphrase', 'hidden': 'Hidden',
 	'bands': 'Bands', 'isolation': 'Client isolation', 'enabled': 'Broadcast', 'max_clients': 'Most clients a band', 'dtim': 'DTIM period',
+	'radius.auth_server': 'RADIUS server', 'radius.auth_port': 'RADIUS port', 'radius.auth_secret': 'RADIUS secret',
+	'radius.acct_server': 'Accounting server', 'radius.acct_port': 'Accounting port', 'radius.acct_secret': 'Accounting secret', 'radius.nas_id': 'NAS-Identifier',
 	'multicast_to_unicast': 'Multicast to unicast', 'band_steering': 'Band steering',
 	'roaming.ft': 'Fast roaming (11r)', 'roaming.rrm': 'Neighbor reports (11k)', 'roaming.btm': 'Steering (11v)',
 	'rate_limit.down_kbps': 'Download limit', 'rate_limit.up_kbps': 'Upload limit',

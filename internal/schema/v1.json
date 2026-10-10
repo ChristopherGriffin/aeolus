@@ -265,9 +265,23 @@
         "ssid": { "type": "string", "minLength": 1, "maxLength": 32 },
         "hidden": { "type": "boolean" },
         "bands": { "description": "The bands the network is offered on; unset, every band the AP serves. 6 GHz takes WPA3 or OWE only: a WPA2 or open network is never offered there, and naming 6g for one is refused (0086).", "type": "array", "items": { "enum": ["2g", "5g", "6g"] }, "minItems": 1, "uniqueItems": true },
-        "security": { "enum": ["open", "owe", "wpa2-psk", "wpa3-sae", "wpa2-wpa3"] },
+        "security": { "enum": ["open", "owe", "wpa2-psk", "wpa3-sae", "wpa2-wpa3", "wpa2-enterprise", "wpa3-enterprise", "wpa2-wpa3-enterprise"], "description": "The PSK modes sign every client in with the passphrase; the enterprise ones sign each in as itself, by 802.1X against the RADIUS server under radius (0098). 6 GHz takes WPA3 and OWE only." },
         "passphrase": { "type": "string", "minLength": 8, "maxLength": 63, "writeOnly": true },
         "isolation": { "type": "boolean", "description": "Client isolation." },
+        "radius": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The RADIUS server a WPA Enterprise network signs its clients in against, and accounting (0098). Each AP asks it itself, from its own address.",
+          "properties": {
+            "auth_server": { "$ref": "#/$defs/host", "description": "The RADIUS server clients sign in against, by IP address or name." },
+            "auth_port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 1812 },
+            "auth_secret": { "type": "string", "minLength": 1, "maxLength": 128, "writeOnly": true, "description": "The secret the APs share with it." },
+            "acct_server": { "$ref": "#/$defs/host", "description": "Where accounting goes, where it is wanted." },
+            "acct_port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 1813 },
+            "acct_secret": { "type": "string", "minLength": 1, "maxLength": 128, "writeOnly": true, "description": "Unset, the sign-in secret." },
+            "nas_id": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[ -~]+$", "description": "The NAS-Identifier the APs give the server." }
+          }
+        },
         "max_clients": { "type": "integer", "minimum": 1, "maximum": 2007, "description": "The most clients at once on each of the network's Wi-Fi interfaces, one a band (0097). Unset, OpenWrt's own, which hostapd allows up to 2007." },
         "dtim": { "type": "integer", "minimum": 1, "maximum": 255, "description": "Beacons between DTIMs, when sleeping clients wake for the multicast and broadcast kept for them (0097): higher saves their batteries, and delays that traffic. Unset, OpenWrt's 2." },
         "multicast_to_unicast": { "type": "boolean", "description": "Send all multicast (ARP, IPv4, IPv6) to each client as unicast (0049). Unset: OpenWrt's default, which does so only for groups clients joined (IGMP/MLD snooping)." },

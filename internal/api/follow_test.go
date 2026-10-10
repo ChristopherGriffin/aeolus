@@ -63,7 +63,7 @@ func TestSchemaDescribesItsFields(t *testing.T) {
 		t.Fatalf("%d %v", code, d)
 	}
 	sec := d["fields"].(map[string]any)["network.*.security"].(map[string]any)
-	if len(sec["enum"].([]any)) != 5 || sec["x-aeolus-tree"] != "services" {
+	if len(sec["enum"].([]any)) != 8 || sec["x-aeolus-tree"] != "services" { // three of them WPA Enterprise (0098)
 		t.Fatalf("security = %v", sec)
 	}
 	if d["names"].(map[string]any)["network"] == nil {
