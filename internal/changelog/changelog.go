@@ -84,6 +84,7 @@ type Log struct {
 	seq      int64
 	state    *change.State
 	versions map[hierarchy.NodeID]int64
+	since    map[hierarchy.NodeID]time.Time // when each AP's version was made
 }
 
 // Options configures a Log.
@@ -108,7 +109,7 @@ func Open(path string, opts Options) (*Log, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	l := &Log{db: db, now: opts.Now, check: opts.Check, versions: map[hierarchy.NodeID]int64{}}
+	l := &Log{db: db, now: opts.Now, check: opts.Check, versions: map[hierarchy.NodeID]int64{}, since: map[hierarchy.NodeID]time.Time{}}
 	if err := l.migrate(); err != nil {
 		db.Close()
 		if strings.Contains(err.Error(), "database is locked") {
@@ -170,7 +171,7 @@ func (l *Log) replay() error {
 		}
 		l.state, l.seq = state, e.Seq
 		for _, ap := range changed {
-			l.versions[ap] = e.Seq
+			l.versions[ap], l.since[ap] = e.Seq, e.At
 		}
 	}
 	return nil
@@ -203,7 +204,7 @@ func (l *Log) Commit(actor, reason string, op change.Op) (Entry, error) {
 	}
 	l.state, l.seq = state, e.Seq
 	for _, ap := range changed {
-		l.versions[ap] = e.Seq
+		l.versions[ap], l.since[ap] = e.Seq, e.At
 	}
 	return e, nil
 }
@@ -266,6 +267,14 @@ func (l *Log) Version(ap hierarchy.NodeID) (int64, bool) {
 	defer l.mu.Unlock()
 	v, ok := l.versions[ap]
 	return v, ok
+}
+
+// VersionSince is when an AP's current version was made: the time of the
+// change that last re-versioned it, zero if none has (0099).
+func (l *Log) VersionSince(ap hierarchy.NodeID) time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.since[ap]
 }
 
 // Entries returns changes after seq in order; limit 0 means all.

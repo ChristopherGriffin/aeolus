@@ -32,9 +32,16 @@ func (s *Server) alertsOf(state *change.State, id hierarchy.NodeID, now time.Tim
 			poll = time.Duration(p) * time.Second
 		}
 	}
+	// The agent bundle it should run, as the fleet view has it (0079).
+	wants := ""
+	if s.agents != nil {
+		if b, _, ok := s.agentFor(state, id); ok {
+			wants = b.Hash
+		}
+	}
 	return alerts.For(alerts.Input{
 		AP: id, Name: n.Name, Now: now, Poll: poll, Unassigned: res.Unassigned,
-		Version: version, Problems: res.Problems, Latest: l,
+		Version: version, Since: s.log.VersionSince(id), WantsAgent: wants, Problems: res.Problems, Latest: l,
 	}), nil
 }
 
