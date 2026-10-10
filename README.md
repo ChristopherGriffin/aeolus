@@ -158,6 +158,7 @@ Each milestone ends in something checkable before the next starts.
 | [0102](docs/decisions/0102-overview.md) | A folder's Overview |
 | [0103](docs/decisions/0103-client-journey.md) | A client's journey, first part |
 | [0104](docs/decisions/0104-ap-actions.md) | Asking an AP to act once: Locate, Restart Wi-Fi, Reboot |
+| [0105](docs/decisions/0105-rogue-aps.md) | A network that takes one of Aeolus's SSIDs |
 
 ## Open questions
 
