@@ -626,6 +626,11 @@ function jack(name, state, under, title, onclick, marks = []) {
 const mbit = (speed) => Number(/^(\d+)/.exec(speed || '')?.[1] || 0);
 const gbit = (m) => (m >= 1000 ? `${m / 1000} Gbit/s` : `${m} Mbit/s`);
 
+// SPEED_SET is the speed a folder's port is set to, as its template says:
+// Auto, the port and the far end agreeing it, until a port's speed can be
+// set (Griff, 2026-10-09).
+const SPEED_SET = 'Auto';
+
 // short writes a speed the short way, 2.5G or 100M; gbe a port's, 10GbE.
 const short = (m) => (m >= 1000 ? `${m / 1000}G` : `${m}M`);
 const gbe = (m) => (m >= 1000 ? `${m / 1000}GbE` : `${m}M`);
@@ -755,10 +760,12 @@ function portJack(c, name, reps, pick) {
 					: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => show(editForm) }, 'Edit'),
 				h('button', { type: 'button', class: 'button small', onclick: () => pick(name, () => null) }, 'Close')));
 		// On a folder, the kind's ports as they are for every AP of it: what
-		// each can go, not one AP's link (Griff, 2026-10-09).
+		// each can go and the speed it is set to, not one AP's link (Griff,
+		// 2026-10-09).
 		panel.append(...[head(),
-			folder ? row('Port', capOf && gbe(capOf)) : row('Link', reps[0]?.p.max ? sync(reps[0].p) : linkCell(reps, folder)),
-			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ', folder ? (m.max ? gbe(m.max) : '') : sync(m),
+			folder ? row('Port', capOf && `${gbe(capOf)} port`) : row('Link', reps[0]?.p.max ? sync(reps[0].p) : linkCell(reps, folder)),
+			folder && row('Speed', SPEED_SET),
+			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ', folder ? (m.max ? `${gbe(m.max)} port` : '') : sync(m),
 				!folder && m.aggregator != null && bond.aggregator != null && m.aggregator !== bond.aggregator && h('span', { class: 'chip warn' }, 'outside the aggregate')))),
 			row('Mode', mode ?? h('span', { class: 'sub' }, 'not set')),
 			row('Carries', [what ?? h('span', { class: 'sub' }, 'not set'), from.length > 0 && h('span', { class: 'whence' }, from.join(', '))]),
@@ -781,11 +788,11 @@ function portJack(c, name, reps, pick) {
 			h('span', { class: 'bondname mono' }, name, marks, h('span', { class: 'sub' }, ` ${lacp}${!folder && reps[0]?.p.carrier ? ` · ${gbit(mbit(reps[0].p.speed))}` : ''}`)),
 			h('span', { class: 'members' }, bond.members.map((m) => h('span', { class: `jack ${jackState(folder, { off, set: true, carrier: m.carrier })}` },
 				jackIcon(), h('span', { class: 'jname mono' }, m.name),
-				h('span', { class: 'jsub' }, folder ? (m.max ? gbe(m.max) : '') : m.carrier ? gbit(mbit(m.speed)) : 'no link')))));
+				h('span', { class: 'jsub' }, folder ? SPEED_SET : m.carrier ? gbit(mbit(m.speed)) : 'no link')))));
 		return group;
 	}
 	const p0 = reps[0]?.p;
-	const under = folder ? [capOf && gbe(capOf), mode].filter(Boolean).join(' · ') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
+	const under = folder ? [SPEED_SET, mode].filter(Boolean).join(' · ') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
 	return jack(name, jackState(folder, { off, set: configured, carrier: !!p0?.carrier }), under,
 		[name, mode, what && text(what)].filter(Boolean).join(' · '), choose, marks);
 }
