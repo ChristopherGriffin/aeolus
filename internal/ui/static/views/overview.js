@@ -1,7 +1,8 @@
 // The Overview tab of a Locations folder or the Org (0102): the APs below it
 // at a glance. How many are up, their clients by band, what needs attention,
-// whether their configs are in force, the busiest APs, the clients on each
-// network, and the channels the APs share. It reads what the other tabs do,
+// whether their configs are in force, their usage over the last day (0108),
+// the busiest APs, the clients on each network, and the channels the APs
+// share. It reads what the other tabs do,
 // and sets nothing.
 
 import { h, link } from '../dom.js';
@@ -9,6 +10,7 @@ import { get } from '../api.js';
 import { apStatus } from '../layout.js';
 import { bandName } from '../format.js';
 import { configs } from './sections.js';
+import { usagePanel } from './usage.js';
 
 const BANDS = ['2g', '5g', '6g'];
 
@@ -22,7 +24,7 @@ export async function overviewTab(ctx, id, page, fleet) {
 	if (!below.length) return [h('div', { class: 'banner info' }, 'No APs here yet.')];
 	const ids = new Set(below.map((a) => a.id));
 	const aps = (fleet?.aps || []).filter((a) => ids.has(a.id));
-	const [rows, al] = await Promise.all([configs(below), get(`/v1/alerts?under=${encodeURIComponent(id)}`)]);
+	const [rows, al, usage] = await Promise.all([configs(below), get(`/v1/alerts?under=${encodeURIComponent(id)}`), usagePanel(id, true)]);
 	const base = `#/locations/${encodeURIComponent(id)}`;
 
 	// APs: up is heard from lately and not idle in Landing Zone.
@@ -98,6 +100,7 @@ export async function overviewTab(ctx, id, page, fleet) {
 		trouble.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Critical'),
 			h('ul', null, trouble.map((a) => h('li', null, link(`/locations/${encodeURIComponent(a.ap)}`, a.name), `: ${a.message}`)))),
+		usage,
 		h('div', { class: 'grid2' }, h('div', { class: 'col' }, busy), h('div', { class: 'col' }, netList, chans)),
 	].filter(Boolean);
 }

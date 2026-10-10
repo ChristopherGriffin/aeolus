@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
@@ -1304,7 +1305,17 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err != nil {
 		return err
 	}
+	// What its clients moved since its last report (0108), before this one
+	// is the last.
+	prev, err := s.conds.LatestState(c.ap)
+	if err != nil {
+		return err
+	}
+	down, up := usageOf(prev, time.Now(), req.Clients)
 	if err := s.conds.RecordState(c.ap, req.Version, report); err != nil {
+		return err
+	}
+	if err := s.conds.RecordUse(c.ap, len(req.Clients), down, up); err != nil {
 		return err
 	}
 	if err := s.conds.Running(c.ap, req.Version); err != nil {
