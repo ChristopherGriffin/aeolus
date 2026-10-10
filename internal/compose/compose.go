@@ -541,6 +541,11 @@ func enterpriseProblems(doc map[string]any) []string {
 		if das, _ := r["das"].(map[string]any); das != nil && das["client"] == nil {
 			out = append(out, where+": radius.das needs the address its Disconnect-Requests come from: radius.das.client")
 		}
+		// Required, with no VLAN offered, nothing would be rendered, and a
+		// client the server gives no VLAN would be let in after all.
+		if vlans, _ := r["vlans"].([]any); r["vlan_required"] == true && len(vlans) == 0 {
+			out = append(out, where+": radius.vlan_required needs the VLANs the server may put clients in: radius.vlans")
+		}
 		if r["auth_server"] == nil || r["auth_secret"] == nil {
 			out = append(out, where+": WPA Enterprise needs a RADIUS server to sign clients in against: radius.auth_server and radius.auth_secret")
 		}

@@ -31,7 +31,7 @@
 - **A WPA Enterprise network may let one server disconnect its clients: `radius.das`.**
   - `client` is the address the Disconnect-Requests come from. `secret` is that server's; unset, it is the sign-in one. `port` is where the AP listens, 3799 unless set.
   - The secret is sealed, as the others are (0027), and blanked in the UCI the AP sends back (0041).
-- **Both are for WPA Enterprise alone.** On another network, compose refuses them, as nothing there signs in against the server. `radius.das` without a client is refused too.
+- **Both are for WPA Enterprise alone.** On another network, compose refuses them, as nothing there signs in against the server. `radius.das` without a client is refused too. So is `radius.vlan_required` with no VLANs offered: nothing would be rendered, and every client would be let in after all.
 - **The lab server is FreeRADIUS on Zephyrus.** Its config comes from a script, `/root/aeolus-radius/setup.sh`, which:
   - makes the lab CA and its certificates;
   - points EAP at them, PEAP unless the client asks for another;
