@@ -17,7 +17,8 @@ import (
 )
 
 // fleetOwn is what the APs together call their own (0105): every BSSID an
-// AP's latest report names as its own, and every SSID of Aeolus's networks.
+// AP's latest report names as its own, and every SSID of Aeolus's networks,
+// as an AP hears it (alerts.Heard).
 func (s *Server) fleetOwn(state *change.State) *alerts.Fleet {
 	f := &alerts.Fleet{BSSIDs: map[string]bool{}, SSIDs: map[string]bool{}}
 	for _, id := range state.Org.Locations.APs() {
@@ -36,7 +37,7 @@ func (s *Server) fleetOwn(state *change.State) *alerts.Fleet {
 	}
 	state.Org.Services.EachSet(func(_ hierarchy.NodeID, p hierarchy.Path, v hierarchy.Value) {
 		if ssid, ok := v.(string); ok && strings.HasPrefix(string(p), "network.") && strings.HasSuffix(string(p), ".ssid") {
-			f.SSIDs[ssid] = true
+			f.SSIDs[alerts.Heard(ssid)] = true
 		}
 	})
 	return f

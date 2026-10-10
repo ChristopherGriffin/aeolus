@@ -52,10 +52,26 @@ type Input struct {
 }
 
 // Fleet is what the APs together call their own (0105): every BSSID an AP
-// reported as its own, and every SSID of Aeolus's networks.
+// reported as its own, and every SSID of Aeolus's networks, as Heard makes
+// them.
 type Fleet struct {
 	BSSIDs map[string]bool
 	SSIDs  map[string]bool
+}
+
+// Heard is an SSID as an AP reports one it hears: its first 32 bytes,
+// each not printable ASCII a ?, so Café is heard as Caf??.
+func Heard(ssid string) string {
+	b := []byte(ssid)
+	if len(b) > 32 {
+		b = b[:32]
+	}
+	for i, c := range b {
+		if c < ' ' || c > '~' {
+			b[i] = '?'
+		}
+	}
+	return string(b)
 }
 
 // StateEvery is how often an AP reports its state (0040); a report older
