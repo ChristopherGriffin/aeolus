@@ -95,10 +95,12 @@ func For(in Input) []Alert {
 			why = c.Problems[0]
 		}
 		add(Critical, "refused", fmt.Sprintf("version %d was refused by the render check: %s", c.Version, why), &c.At)
+		out[len(out)-1].Key = fmt.Sprintf("refused:%d", c.Version) // each version's failure its own
 	}
 	if a := l.Apply; a != nil && a.Version == in.Version && !a.OK {
 		failed = true
 		add(Critical, "apply-failed", fmt.Sprintf("version %d did not apply: %s", a.Version, a.Error), &a.At)
+		out[len(out)-1].Key = fmt.Sprintf("apply-failed:%d", a.Version)
 	}
 	// Behind, with no reason above: it has not taken up the current version
 	// for three polls since that version was made, though it calls in.
