@@ -192,6 +192,8 @@ func (s *Server) apPoll(w http.ResponseWriter, r *http.Request, c apCall) error 
 	// The agent it should run (0079), on every answer: an unchanged, held
 	// or unassigned config still carries it.
 	s.setAgentHeader(w, c.ap)
+	// And the actions that wait for it (0104).
+	s.setActionsHeader(w, c.ap)
 	// The version is read before the state, so the state is never older than
 	// the version it is labeled with. If a change lands in between, the AP
 	// gets the newer config under the older version and fetches it once more.

@@ -80,6 +80,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/clients/{mac}", s.auth(s.clientJourney))
 	mux.Handle("GET /v1/aps/{ap}/config", s.auth(s.apConfig))
 	mux.Handle("GET /v1/aps/{ap}/history", s.auth(s.apHistory))
+	mux.Handle("GET /v1/aps/{ap}/actions", s.auth(s.actionList))
+	mux.Handle("POST /v1/aps/{ap}/actions", s.auth(s.addAction))
 	mux.Handle("GET /v1/changes", s.auth(s.changes))
 	mux.Handle("GET /v1/library", s.auth(s.library))
 	mux.Handle("GET /v1/schema", s.auth(s.describe))
@@ -101,6 +103,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/ap/applied", s.apAuth(s.applied))
 	mux.Handle("POST /v1/ap/state", s.apAuth(s.state))
 	mux.Handle("GET /v1/ap/keys", s.apAuth(s.apKeys))
+	mux.Handle("GET /v1/ap/actions", s.apAuth(s.apActions))
+	mux.Handle("POST /v1/ap/actions/{id}", s.apAuth(s.apActionDone))
 
 	// Installing from the manager, before an AP has a token (0083).
 	mux.HandleFunc("GET /install", s.installScript)
