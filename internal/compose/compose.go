@@ -519,8 +519,9 @@ func snmpProblems(doc map[string]any) []string {
 // enterpriseProblems refuses a WPA Enterprise network the AP could not
 // render (0098): one with no RADIUS server or secret to sign in against;
 // with per-user keys, which are passphrases; or with 802.11r, whose keys
-// for 802.1X are not rendered yet. RADIUS's VLANs and disconnects (0111)
-// are for WPA Enterprise alone: on another network, nothing would use them.
+// for 802.1X are not rendered yet. A server's disconnects (0111) are for WPA
+// Enterprise alone, and its VLANs for WPA Enterprise or a network with MAC
+// authentication (0112), which has rules of its own: macAuthProblems.
 func enterpriseProblems(doc map[string]any) []string {
 	nets, _ := doc["network"].(map[string]any)
 	var out []string
@@ -529,14 +530,15 @@ func enterpriseProblems(doc map[string]any) []string {
 		security, _ := n["security"].(string)
 		where := "network." + id
 		r, _ := n["radius"].(map[string]any)
-		if !strings.HasSuffix(security, "-enterprise") {
-			if n["enabled"] != false && (r["vlans"] != nil || r["das"] != nil) {
-				out = append(out, where+": the RADIUS server's VLANs and disconnects are for WPA Enterprise; "+security+" signs no client in against it")
-			}
-			continue
-		}
 		if n["enabled"] == false {
 			continue
+		}
+		if !strings.HasSuffix(security, "-enterprise") {
+			out = append(out, macAuthProblems(where, security, n, r)...)
+			continue
+		}
+		if r["mac_auth"] == true {
+			out = append(out, where+": MAC authentication is for a network that is not WPA Enterprise, which signs each client in as itself already")
 		}
 		if das, _ := r["das"].(map[string]any); das != nil && das["client"] == nil {
 			out = append(out, where+": radius.das needs the address its Disconnect-Requests come from: radius.das.client")
@@ -554,6 +556,48 @@ func enterpriseProblems(doc map[string]any) []string {
 		}
 		if roaming, _ := n["roaming"].(map[string]any); roaming["ft"] == true {
 			out = append(out, where+": 802.11r with WPA Enterprise is not rendered yet; turn roaming.ft off for it")
+		}
+	}
+	return out
+}
+
+// macAuthProblems refuses what a network that is not WPA Enterprise could
+// not do with a RADIUS server (0112). Without MAC authentication nothing
+// asks the server, so its VLANs and disconnects have no use. With it: the
+// server must be named; clients are not blocked on the AP too, as OpenWrt's
+// deny list turns the server's word off; an open network cannot put a
+// device in a VLAN; a VLAN is offered to keys or to the server, not both;
+// and disconnects stay WPA Enterprise's, as OpenWrt gives hostapd their
+// secret nowhere else.
+func macAuthProblems(where, security string, n, r map[string]any) []string {
+	var out []string
+	vlans, _ := r["vlans"].([]any)
+	if r["das"] != nil {
+		out = append(out, where+": radius.das, a server's disconnects, is for WPA Enterprise")
+	}
+	if r["mac_auth"] != true {
+		if r["vlans"] != nil || r["vlan_required"] == true {
+			out = append(out, where+": the RADIUS server's VLANs are for WPA Enterprise, or a network with MAC authentication (radius.mac_auth); "+security+" asks the server nothing")
+		}
+		return out
+	}
+	if r["auth_server"] == nil || r["auth_secret"] == nil {
+		out = append(out, where+": MAC authentication needs a RADIUS server to ask: radius.auth_server and radius.auth_secret")
+	}
+	if blocked, _ := n["blocked"].([]any); len(blocked) > 0 {
+		out = append(out, where+": with MAC authentication, refuse a device at the RADIUS server, not in blocked: the AP's deny list turns the server's word off")
+	}
+	if len(vlans) > 0 && (security == "open" || security == "owe") {
+		out = append(out, where+": on an open network the RADIUS server cannot put a device in a VLAN; give the network a passphrase, or take radius.vlans out")
+	}
+	if r["vlan_required"] == true && len(vlans) == 0 {
+		out = append(out, where+": radius.vlan_required needs the VLANs the server may put clients in: radius.vlans")
+	}
+	keys, _ := n["keys"].(map[string]any)
+	keyVLANs, _ := keys["vlans"].([]any)
+	for _, v := range vlans {
+		if slices.Contains(keyVLANs, v) {
+			out = append(out, fmt.Sprintf("%s: VLAN %v is offered to per-user keys and to the RADIUS server; offer it to one", where, v))
 		}
 	}
 	return out

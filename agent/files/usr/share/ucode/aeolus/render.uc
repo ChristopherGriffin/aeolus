@@ -379,8 +379,11 @@ function iface_options(net, radio, band, network, btm) {
 	if (NEEDS_KEY[net.security])
 		o.key = net.passphrase;
 	// WPA Enterprise: each client signs in against the RADIUS server, which
-	// accounting goes to as well where one is set (0098).
-	if (ENTERPRISE[net.security]) {
+	// accounting goes to as well where one is set (0098). On another
+	// network with MAC authentication, the server is asked of each device
+	// by its MAC before it is let on (0112): OpenWrt does that for a
+	// network that is not WPA Enterprise and has a server.
+	if (ENTERPRISE[net.security] || net.radius?.mac_auth) {
 		let r = net.radius ?? {};
 		o.auth_server = r.auth_server;
 		o.auth_port = '' + (r.auth_port ?? 1812);
@@ -398,8 +401,9 @@ function iface_options(net, radio, band, network, btm) {
 		if (length(r.vlans ?? []))
 			o.dynamic_vlan = r.vlan_required ? '2' : '1';
 		// A Disconnect-Request from the one server named (RFC 5176), so a NAC
-		// can have a client sign in again (0111).
-		if (r.das?.client) {
+		// can have a client sign in again (0111): WPA Enterprise only, as
+		// OpenWrt gives hostapd its secret nowhere else.
+		if (ENTERPRISE[net.security] && r.das?.client) {
 			o.radius_das_client = r.das.client;
 			o.radius_das_secret = r.das.secret ?? r.auth_secret;
 			o.radius_das_port = '' + (r.das.port ?? 3799);
@@ -699,9 +703,14 @@ function networks(cfg, intent, facts, errors, keep) {
 		// On a radio whose driver makes none (ath11k), hostapd fails every
 		// network on the radio, and the apply is reverted (0082): refused here
 		// instead, before anything is applied.
-		// The VLANs a client may be put in: by its per-user key (0070), k, or
-		// on WPA Enterprise by the RADIUS server (0111), r.
-		let offered = ENTERPRISE[net.security] ? [['r', 'radius.vlans', net.radius?.vlans ?? [], 'take them out of radius.vlans']] : [['k', 'keys.vlans', net.keys?.vlans ?? [], 'give its keys no VLANs']];
+		// The VLANs a client may be put in: by its per-user key (0070), k, and
+		// by the RADIUS server, r, on WPA Enterprise (0111) or with MAC
+		// authentication (0112).
+		let offered = [];
+		if (!ENTERPRISE[net.security])
+			push(offered, ['k', 'keys.vlans', net.keys?.vlans ?? [], 'give its keys no VLANs']);
+		if (ENTERPRISE[net.security] || net.radius?.mac_auth)
+			push(offered, ['r', 'radius.vlans', net.radius?.vlans ?? [], 'take them out of radius.vlans']);
 		for (let o in offered)
 			if (length(o[2]) && length(no_ap_vlan))
 				push(errors, `network.${id}.${o[1]}: ${join(', ', no_ap_vlan)} cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or ${o[3]}`);

@@ -994,9 +994,53 @@ func TestEnterpriseNeedsItsServer(t *testing.T) {
 	if got := problems(); strings.Contains(got, "radius") || strings.Contains(got, "RADIUS") {
 		t.Fatalf("problems = %s", got)
 	}
-	// On a PSK network, nothing would use them.
+	// On a PSK network, nothing asks the server, so they have no use.
 	set("network.sweet.security", "wpa2-psk")
-	if got := problems(); !strings.Contains(got, "the RADIUS server's VLANs and disconnects are for WPA Enterprise") {
+	got = problems()
+	if !strings.Contains(got, "radius.das, a server's disconnects, is for WPA Enterprise") || !strings.Contains(got, "the RADIUS server's VLANs are for WPA Enterprise, or a network with MAC authentication") {
+		t.Fatalf("problems = %s", got)
+	}
+}
+
+// MAC authentication (0112): on a network that is not WPA Enterprise, with
+// a server to ask; the server may offer VLANs there, but not ones the keys
+// have, and no client is blocked on the AP as well.
+func TestMACAuthentication(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("network.sweet.security", "wpa2-psk")
+	set("network.sweet.passphrase", "a passphrase for sweet")
+	set("network.sweet.radius.mac_auth", true)
+	if got := problems(); !strings.Contains(got, "MAC authentication needs a RADIUS server to ask") {
+		t.Fatalf("problems = %s", got)
+	}
+	set("network.sweet.radius.auth_server", "192.168.20.106")
+	set("network.sweet.radius.auth_secret", "radius-secret")
+	set("network.sweet.radius.vlans", []int{30, 40})
+	if got := problems(); strings.Contains(got, "radius") || strings.Contains(got, "RADIUS") || strings.Contains(got, "MAC") {
+		t.Fatalf("problems = %s", got)
+	}
+	set("network.sweet.keys.vlans", []int{40, 101})
+	set("network.sweet.blocked", []string{"7e:2a:ea:9b:2b:8f"})
+	got := problems()
+	if !strings.Contains(got, "VLAN 40 is offered to per-user keys and to the RADIUS server") || strings.Contains(got, "VLAN 30 is offered") ||
+		!strings.Contains(got, "refuse a device at the RADIUS server, not in blocked") {
+		t.Fatalf("problems = %s", got)
+	}
+	// WPA Enterprise signs each client in already.
+	set("network.sweet.security", "wpa3-enterprise")
+	if got := problems(); !strings.Contains(got, "MAC authentication is for a network that is not WPA Enterprise") {
 		t.Fatalf("problems = %s", got)
 	}
 }

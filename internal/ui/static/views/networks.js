@@ -26,7 +26,7 @@ const BANDS = ['2g', '5g', '6g'];
 const MORE = 'More settings';
 const SECTIONS = [
 	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation', 'multicast_to_unicast']],
-	['RADIUS', ['radius.auth_server', 'radius.auth_port', 'radius.auth_secret', 'radius.acct_server', 'radius.acct_port', 'radius.acct_secret', 'radius.nas_id',
+	['RADIUS', ['radius.mac_auth', 'radius.auth_server', 'radius.auth_port', 'radius.auth_secret', 'radius.acct_server', 'radius.acct_port', 'radius.acct_secret', 'radius.nas_id',
 		'radius.vlans', 'radius.vlan_required', 'radius.das.client', 'radius.das.secret', 'radius.das.port']],
 	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
 	['Per-user keys', ['keys.vlans']],
@@ -593,20 +593,24 @@ function form(d, net, fields, folder, lib) {
 		legal();
 	}
 	// A passphrase for the PSK modes; a RADIUS server for the enterprise ones
-	// (0098). Each shows only where it is used.
+	// (0098), and for another network once MAC authentication is ticked
+	// (0112), which only such a network offers. A server's disconnects are
+	// WPA Enterprise's alone (0111). Each shows only where it is used.
 	if (security) {
+		const mac = rows.get(`${prefix}radius.mac_auth`)?.row.querySelector('input[type=checkbox]');
 		const kinds = () => {
 			const enterprise = security.value.endsWith('-enterprise');
 			const psk = ['wpa2-psk', 'wpa3-sae', 'wpa2-wpa3'].includes(security.value);
+			const asked = enterprise || !!mac?.checked;
 			for (const [path, r] of rows) {
-				if (path.startsWith(`${prefix}radius.`)) r.row.hidden = !enterprise;
+				if (path === `${prefix}radius.mac_auth`) r.row.hidden = enterprise;
+				else if (path.startsWith(`${prefix}radius.das.`)) r.row.hidden = !enterprise;
+				else if (path.startsWith(`${prefix}radius.`)) r.row.hidden = !asked;
 				if (path === `${prefix}passphrase`) r.row.hidden = !psk && security.value !== '';
 			}
-			// body is the form's sections, each its heading and fields.
-			const nodes = [body].flat(Infinity).flatMap((el) => (el?.querySelectorAll ? [el, ...el.querySelectorAll('h3')] : []));
-			for (const el of nodes) if (el.tagName === 'H3' && el.textContent === 'RADIUS') el.hidden = !enterprise;
 		};
 		security.addEventListener('change', kinds);
+		mac?.addEventListener('change', kinds);
 		kinds();
 	}
 	sync();
