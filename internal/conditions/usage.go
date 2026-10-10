@@ -34,6 +34,10 @@ CREATE TABLE client_usage (
 );
 CREATE INDEX client_usage_at ON client_usage (at);`
 
+// clientUsageByClient lets the host name a client last gave on an AP be
+// found at once, not by reading back through the whole table.
+const clientUsageByClient = `CREATE INDEX client_usage_client ON client_usage (ap, mac, at);`
+
 // ClientUse is what one client moved since its AP's last report (0110),
 // with the host name it gave in DHCP, if any.
 type ClientUse struct {
@@ -43,13 +47,15 @@ type ClientUse struct {
 	Up   int64
 }
 
-// ClientTotal is what one client moved on one AP since a time.
+// ClientTotal is what one client moved on one AP since a time, with the
+// host name it last gave there and when.
 type ClientTotal struct {
-	AP   hierarchy.NodeID
-	MAC  string
-	Host string
-	Down int64
-	Up   int64
+	AP     hierarchy.NodeID
+	MAC    string
+	Host   string
+	HostAt time.Time
+	Down   int64
+	Up     int64
 }
 
 // Use is one AP's clients at a report, and what they moved since its last:
@@ -91,8 +97,10 @@ func (s *Store) RecordUse(ap hierarchy.NodeID, clients int, moved []ClientUse) e
 // ClientTotals is what each client moved on each AP since since (0110),
 // with the last host name it gave there.
 func (s *Store) ClientTotals(since time.Time) ([]ClientTotal, error) {
-	rows, err := s.db.Query(`SELECT ap, mac, SUM(down), SUM(up), (SELECT host FROM client_usage h WHERE h.ap = c.ap AND h.mac = c.mac AND h.host != '' ORDER BY h.at DESC LIMIT 1)
-		FROM client_usage c WHERE at >= ? GROUP BY ap, mac`, stamp(since))
+	rows, err := s.db.Query(`SELECT c.ap, c.mac, SUM(c.down), SUM(c.up),
+		(SELECT h.host FROM client_usage h WHERE h.ap = c.ap AND h.mac = c.mac AND h.host != '' ORDER BY h.at DESC LIMIT 1),
+		(SELECT h.at FROM client_usage h WHERE h.ap = c.ap AND h.mac = c.mac AND h.host != '' ORDER BY h.at DESC LIMIT 1)
+		FROM client_usage c WHERE c.at >= ? GROUP BY c.ap, c.mac`, stamp(since))
 	if err != nil {
 		return nil, err
 	}
@@ -101,11 +109,16 @@ func (s *Store) ClientTotals(since time.Time) ([]ClientTotal, error) {
 	for rows.Next() {
 		var t ClientTotal
 		var ap string
-		var host sql.NullString
-		if err := rows.Scan(&ap, &t.MAC, &t.Down, &t.Up, &host); err != nil {
+		var host, at sql.NullString
+		if err := rows.Scan(&ap, &t.MAC, &t.Down, &t.Up, &host, &at); err != nil {
 			return nil, err
 		}
 		t.AP, t.Host = hierarchy.NodeID(ap), host.String
+		if at.Valid {
+			if t.HostAt, err = time.Parse(time.RFC3339Nano, at.String); err != nil {
+				return nil, err
+			}
+		}
 		out = append(out, t)
 	}
 	return out, rows.Err()
