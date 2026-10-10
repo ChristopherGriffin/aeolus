@@ -724,6 +724,16 @@ function decide(at) {
 	for (let id, s in sw) {
 		let pt = tun[s.plan.probes.primary], ft = tun[s.plan.probes.fallback];
 		let pv = pt ? health(pt, at) : 'unknown', fv = ft ? health(ft, at) : 'unknown';
+		// A primary off for three of its intervals is down: its device is
+		// gone, as a tunnel the kernel deleted under netifd is (2026-10-10).
+		// Only a fallback is stopped on purpose, and a network must not wait
+		// on a primary that will not come back by itself.
+		if (pt && pv == 'off') {
+			pt.off_since ??= at;
+			if (at - pt.off_since >= 3 * pt.plan.interval)
+				pv = 'down';
+		} else if (pt)
+			pt.off_since = null;
 		if (pv != 'up')
 			s.up_since = null;
 		else
