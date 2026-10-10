@@ -213,6 +213,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "default": true, "description": "false turns the port off (0053); unset, the AP leaves it as it is, which is on unless Aeolus turned it off." },
+        "speed": { "description": "The speed the port links at, in Mbit/s, full duplex (0094): it offers the far end that speed alone, and still negotiates, so both ends agree on it. auto offers every speed it can; unset, the AP leaves it as it is. Never on the uplink.", "oneOf": [{ "const": "auto" }, { "enum": [10, 100, 1000, 2500, 5000, 10000] }] },
         "uplink": { "type": "boolean", "description": "The port that reaches the manager: the tunnel source (0018) and where VLANs are detected (0020)." },
         "mode": { "enum": ["trunk", "access", "tunnel", "lacp"], "description": "access carries one VLAN, untagged; trunk an untagged VLAN and tagged ones (0053); tunnel carries VNIs over tunnels instead, as vxlan maps them (0058). LACP is not applied yet." },
         "untagged": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "0 means no untagged VLAN." },

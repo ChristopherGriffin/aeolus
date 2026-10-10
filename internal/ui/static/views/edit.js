@@ -17,6 +17,9 @@ export function describe(d, path) {
 	return null;
 }
 
+// speedName is a port's speed as people say it: Auto, 100M, 2.5G (0094).
+export const speedName = (v) => (v === 'auto' ? 'Auto' : v >= 1000 ? `${v / 1000}G` : `${v}M`);
+
 // input makes an input for the field at path, described by f, showing
 // current. changed() says whether the person changed it; read() returns the
 // value to set, or throws with what is wrong. A secret is never shown: left
@@ -47,6 +50,15 @@ export function input(path, f, current) {
 		const initial = JSON.stringify(read());
 		it.changed = () => JSON.stringify(read()) !== initial;
 		return it;
+	} else if (Array.isArray(f.oneOf) && f.oneOf.every((o) => 'const' in o || Array.isArray(o.enum))) {
+		// One of a few words or numbers, such as a port's speed: auto, or
+		// 1000 (0094).
+		const choices = f.oneOf.flatMap((o) => ('const' in o ? [o.const] : o.enum));
+		const label = (v) => (last === 'speed' ? speedName(v) : String(v));
+		el = h('select', null,
+			current === undefined && h('option', { value: '' }, '—'),
+			choices.map((v) => h('option', { value: String(v), selected: v === current }, label(v))));
+		read = () => (el.value === '' ? undefined : choices.find((v) => String(v) === el.value));
 	} else if (f.enum) {
 		el = h('select', null,
 			current === undefined && h('option', { value: '' }, '—'),

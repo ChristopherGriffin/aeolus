@@ -1,0 +1,86 @@
+{
+	"about": "PumphouseAP with port speeds (0094). lan1 links at 1 Gbit/s: a section Aeolus adds, speed 1000 full duplex. lan2 at 100 Mbit/s, on the device section the AP has for it already. lan3 is turned off, its speed automatic. lan4 had Aeolus's section, off at 100 Mbit/s; its speed goes back to automatic, and it stays off. The uplink, wan, is never set.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				]
+			}
+		}
+	},
+	"extra": {
+		"network": {
+			"cfglan2": {
+				".anonymous": true,
+				".type": "device",
+				".name": "cfglan2",
+				".index": 40,
+				"name": "lan2",
+				"macaddr": "a0:04:60:21:36:5f"
+			},
+			"aeolus_port_lan4": {
+				".anonymous": false,
+				".type": "device",
+				".name": "aeolus_port_lan4",
+				".index": 41,
+				"name": "lan4",
+				"enabled": "0",
+				"speed": "100",
+				"duplex": "1"
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"ports": {
+			"lan1": {
+				"speed": 1000
+			},
+			"lan2": {
+				"speed": 100
+			},
+			"lan3": {
+				"enabled": false,
+				"speed": "auto"
+			},
+			"lan4": {
+				"speed": "auto"
+			}
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"kept": [
+		"network.aeolus_port_lan4"
+	],
+	"errors": []
+}

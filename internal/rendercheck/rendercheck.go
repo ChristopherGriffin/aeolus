@@ -58,6 +58,7 @@ var Coverage = map[string]string{
 	"system.management.dns":        layout,
 
 	"ports.*.enabled":  "",
+	"ports.*.speed":    "",
 	"ports.*.uplink":   "the agent's own setting (0040), not the intent's",
 	"ports.*.mode":     "",
 	"ports.*.untagged": "",
@@ -104,6 +105,7 @@ var Coverage = map[string]string{
 	"concentrators.*.port":            "",
 	"templates.*":                     "not sent to APs: the manager applies the AP's template (0085)",
 	"boards.*.ports.*.enabled":        folded,
+	"boards.*.ports.*.speed":          folded,
 	"boards.*.ports.*.uplink":         folded,
 	"boards.*.ports.*.mode":           folded,
 	"boards.*.ports.*.untagged":       folded,
@@ -905,6 +907,28 @@ func (k *checker) ports(want, concentrators map[string]any) {
 			}
 			if got != on {
 				k.add("%s: the port is %s, want %s", where, onOff(got), onOff(on))
+			}
+		}
+		// Its speed (0094) is on its device section: that speed, full
+		// duplex; auto, none.
+		if v, ok := set["speed"]; ok {
+			want := text(v)
+			var got []string
+			for _, d := range net.OfType("device") {
+				if value(d, "name") == p && value(d, "type") == "" {
+					if sp, has := d.Option("speed"); has {
+						got = append(got, sp)
+						if want != "auto" && !d.Flag("duplex") {
+							k.add("%s: speed %s is set without full duplex", where, sp)
+						}
+					}
+				}
+			}
+			switch {
+			case want == "auto" && len(got) > 0:
+				k.add("%s: the speed is %v, want auto", where, got)
+			case want != "auto" && (len(got) != 1 || got[0] != want):
+				k.add("%s: the speed is %v, want %s", where, got, want)
 			}
 		}
 		mode, _ := set["mode"].(string)
