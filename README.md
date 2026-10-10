@@ -131,6 +131,39 @@ Each milestone ends in something checkable before the next starts.
 | [0075](docs/decisions/0075-channel-sets.md) | Channel sets, and an APs tab |
 | [0076](docs/decisions/0076-ap-names.md) | An AP's name is its hostname |
 | [0077](docs/decisions/0077-power-control.md) | Automatic power control |
+| [0078](docs/decisions/0078-keys-at-scale.md) | Per-user keys at scale, with RADIUS as an option |
+| [0079](docs/decisions/0079-fleet-updates.md) | Fleet updates: APs update their own agent |
+| [0080](docs/decisions/0080-the-agent-as-a-package.md) | The agent as an OpenWrt package |
+| [0081](docs/decisions/0081-radios-another-service-owns.md) | Radios another service owns |
+| [0082](docs/decisions/0082-key-vlans-need-ap-vlan-interfaces.md) | Per-user keys' VLANs need AP/VLAN interfaces |
+| [0083](docs/decisions/0083-installing-from-the-manager.md) | Installing from the manager, and joining one by hand |
+| [0084](docs/decisions/0084-underlay-vlan-is-the-management-vlan.md) | A tunnel's underlay VLAN may be the AP's management VLAN |
+| [0085](docs/decisions/0085-ap-templates.md) | The library holds AP templates, and only those |
+| [0086](docs/decisions/0086-wpa3-or-owe-on-6ghz.md) | 6 GHz takes WPA3 or OWE only |
+| [0087](docs/decisions/0087-finding-6ghz.md) | Finding 6 GHz: neighbour reports everywhere, and 6 GHz channel sets |
+| [0088](docs/decisions/0088-the-full-wpad.md) | The full wpad, so band steering and 802.11v work |
+| [0089](docs/decisions/0089-protocols-and-guard-intervals.md) | Protocols and guard intervals for each band, and Bands and channels in one panel |
+| [0090](docs/decisions/0090-template-files.md) | Template files: ready-made templates in the repo, downloaded and imported |
+| [0091](docs/decisions/0091-ethernet-in-one-table.md) | Interfaces › Ethernet in one table |
+| [0092](docs/decisions/0092-ports-by-kind-of-ap.md) | Ports by kind of AP |
+| [0093](docs/decisions/0093-ports-drawn-as-jacks.md) | Ports drawn as jacks, bonds broken out, and what the far end offers |
+| [0094](docs/decisions/0094-port-speed.md) | A port's speed |
+| [0095](docs/decisions/0095-spanning-tree.md) | Spanning tree on the AP's bridge |
+| [0096](docs/decisions/0096-uplink-bond-apart.md) | The uplink's bond, kept or taken apart |
+| [0097](docs/decisions/0097-admission-and-beacons.md) | Who may join, and how often radios beacon |
+| [0098](docs/decisions/0098-wpa-enterprise.md) | WPA Enterprise, against a RADIUS server |
+| [0099](docs/decisions/0099-alerts.md) | Alerts: what needs attention, across the fleet |
+| [0100](docs/decisions/0100-blocked-clients.md) | Blocking a client from a network |
+| [0101](docs/decisions/0101-alert-delivery.md) | Sending alerts |
+| [0102](docs/decisions/0102-overview.md) | A folder's Overview |
+| [0103](docs/decisions/0103-client-journey.md) | A client's journey, first part |
+| [0104](docs/decisions/0104-ap-actions.md) | Asking an AP to act once: Locate, Restart Wi-Fi, Reboot |
+| [0105](docs/decisions/0105-rogue-aps.md) | A network that takes one of Aeolus's SSIDs |
+| [0106](docs/decisions/0106-networks-heard.md) | The networks the APs hear, and rogues marked known |
+| [0107](docs/decisions/0107-reconnect-a-client.md) | Reconnecting one client |
+| [0108](docs/decisions/0108-usage.md) | Usage over the last day |
+| [0109](docs/decisions/0109-alert-history.md) | What alerted, and for how long |
+| [0110](docs/decisions/0110-top-clients.md) | The clients that moved the most |
 
 ## Open questions
 
