@@ -623,9 +623,60 @@ function steering_state() {
 	};
 }
 
+// fastest is the fastest of a port's link modes, in Mbit/s, as netifd lists
+// them ("10000baseT-F"), or null where it lists none (0093).
+function fastest(modes) {
+	let best = null;
+	for (let m in modes ?? []) {
+		let n = match(m, /^([0-9]+)base/);
+		if (n && (best == null || int(n[1]) > best))
+			best = int(n[1]);
+	}
+	return best;
+}
+
+// port_state is one port as netifd has it: whether it is up, whether it has
+// a link and at what speed ("1000F"), and the fastest it can go, and the
+// fastest the far end offers it (0093), which together say why a link is
+// slower than the port.
+function port_state(d) {
+	return {
+		up: !!d.up, carrier: !!d.carrier, speed: d.carrier ? d.speed ?? '' : '',
+		max: fastest(d['link-supported']), partner_max: d.carrier ? fastest(d['link-partner-advertising']) : null,
+	};
+}
+
+// bond_state is a bond's mode and its member ports, each with its link and
+// the LACP aggregator it is in (0093), or null for a port that is not a
+// bond: the C-360's uplink is bond0, of eth0 and eth1, made by its image.
+function bond_state(p, devs) {
+	let slaves = read(`/sys/class/net/${p}/bonding/slaves`);
+	if (slaves == null)
+		return null;
+	let num = (path) => {
+		let v = read(path);
+		return v != null && match(v, /^[0-9]+$/) ? int(v) : null;
+	};
+	let members = [];
+	for (let s in split(slaves, /[ \t]+/)) {
+		if (s == '')
+			continue;
+		let m = port_state(devs[s] ?? {});
+		m.name = s;
+		m.mii = read(`/sys/class/net/${s}/bonding_slave/mii_status`);
+		m.aggregator = num(`/sys/class/net/${s}/bonding_slave/ad_aggregator_id`);
+		push(members, m);
+	}
+	return {
+		mode: split(read(`/sys/class/net/${p}/bonding/mode`) ?? '', ' ')[0],
+		aggregator: num(`/sys/class/net/${p}/bonding/ad_aggregator`),
+		members: slice(members, 0, 8),
+	};
+}
+
 // ports_state lists the Ethernet ports of the bridge the uplink is in
-// (0053), in the bridge's order: whether each is up, whether it has a link
-// and at what speed ("1000F"), and which is the uplink. The ports are those
+// (0053), in the bridge's order: each port's state (port_state), which is
+// the uplink, and for a bond its members (0093). The ports are those
 // the bridge's config lists, as the renderer reads them; the running bridge
 // holds the Wi-Fi interfaces too. A tunnel port has left that bridge for its
 // tunnels' (0058), on its own or by an 802.1Q device Aeolus made of it, and
@@ -656,8 +707,11 @@ function ports_state() {
 	let devs = bus.call('network.device', 'status') ?? {};
 	let out = [];
 	for (let p in members) {
-		let d = devs[p] ?? {};
-		push(out, { name: p, up: !!d.up, carrier: !!d.carrier, speed: d.carrier ? d.speed ?? '' : '', uplink: p == uplink });
+		let o = port_state(devs[p] ?? {});
+		o.name = p;
+		o.uplink = p == uplink;
+		o.bond = bond_state(p, devs);
+		push(out, o);
 	}
 	return slice(out, 0, 32);
 }
