@@ -124,6 +124,17 @@ func (s *Store) ClientTotals(since time.Time) ([]ClientTotal, error) {
 	return out, rows.Err()
 }
 
+// UsageFrom is when the oldest usage row kept was recorded, and false when
+// there is none: before it, nothing says whether an AP reported.
+func (s *Store) UsageFrom() (time.Time, bool, error) {
+	var at sql.NullString
+	if err := s.db.QueryRow(`SELECT MIN(at) FROM usage`).Scan(&at); err != nil || !at.Valid {
+		return time.Time{}, false, err
+	}
+	t, err := time.Parse(time.RFC3339Nano, at.String)
+	return t, err == nil, err
+}
+
 // Uses calls fn with every AP's use since since, oldest first.
 func (s *Store) Uses(since time.Time, fn func(Use) error) error {
 	rows, err := s.db.Query(`SELECT ap, at, clients, down, up FROM usage WHERE at >= ? ORDER BY at`, stamp(since))
