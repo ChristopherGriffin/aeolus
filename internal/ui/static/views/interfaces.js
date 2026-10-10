@@ -586,21 +586,79 @@ const MODES = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP'
 // own (boards.<board>.ports...) is shown as its port's (0092).
 const plainOf = (path) => path.replace(/^boards\.[^.]+\./, '');
 
-// The kinds whose cards are open, by folder and board, so a redraw keeps
+// The kinds whose ports are open, by folder and board, so a redraw keeps
 // them open.
 const opened = new Set();
 
-// kindPanel is one kind of AP: its line, with its arrow, and its cards.
+// jackIcon is an RJ45 jack as people know it from the front: its body, the
+// latch's slot below, and its eight pins (Griff, 2026-10-09; 0093).
+function jackIcon() {
+	const ns = 'http://www.w3.org/2000/svg';
+	const el = (tag, attrs) => {
+		const e = document.createElementNS(ns, tag);
+		for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+		return e;
+	};
+	const svg = el('svg', { viewBox: '0 0 44 36', 'aria-hidden': 'true' });
+	svg.append(el('polygon', { class: 'body', points: '2,2 42,2 42,26 32,26 32,34 12,34 12,26 2,26' }),
+		...[7.5, 11.5, 15.5, 19.5, 23.5, 27.5, 31.5, 35.5].map((x) => el('line', { class: 'pin', x1: x, y1: 6, x2: x, y2: 13 })));
+	return h('span', { class: 'icon' }, svg);
+}
+
+// jackState is how a port is drawn (0093). On a folder: white where it is
+// set, the uplink and a bond's members included; grey where it is not, or
+// is off. On an AP: green where it has a link, white where it is set but has
+// none, grey where it is not set, or is off.
+function jackState(folder, { off, set, carrier }) {
+	if (off) return 'off';
+	if (!folder && carrier) return 'on';
+	return set ? 'set' : 'unset';
+}
+
+// jack is one port drawn as a jack, with its name and a word under it; it
+// is a button that selects it.
+function jack(name, state, under, title, onclick, marks = []) {
+	return h('button', { type: 'button', class: `jack ${state}`, title, onclick },
+		jackIcon(), h('span', { class: 'jname mono' }, name, marks), under && h('span', { class: 'jsub' }, under));
+}
+
+// mbit reads a link's speed ("2500F") in Mbit/s.
+const mbit = (speed) => Number(/^(\d+)/.exec(speed || '')?.[1] || 0);
+const gbit = (m) => (m >= 1000 ? `${m / 1000} Gbit/s` : `${m} Mbit/s`);
+
+// speedNote says why a link is slower than its port can go: what the port
+// can do, and what the far end offers it (0093).
+function speedNote(p) {
+	const now = mbit(p.speed);
+	if (!p.carrier || !p.max || p.max <= now) return '';
+	return `the port can do ${gbit(p.max)}${p.partner_max ? `; the far end offers ${gbit(p.partner_max)}` : ''}`;
+}
+
+// poe says what the switch's LLDP says of the power it gives the AP, or
+// null where it says nothing (0064, 0093).
+function poe(report) {
+	const n = report?.uplink_neighbor;
+	const x = n?.power;
+	if (!x) return n?.med?.power_w != null ? `${n.med.power_w} W, by LLDP-MED` : null;
+	if (!x.pse) return 'the AP powers the switch';
+	return [`powered by ${n.system || 'the switch'}${n.port ? ` ${n.port}` : ''}`, x.supported ? (x.enabled ? null : 'power off') : 'not supported',
+		x.class != null && `class ${x.class}`, x.allocated_w != null && `${x.allocated_w} W allocated`, x.requested_w != null && `${x.requested_w} W asked`,
+		x.pair && `${x.pair} pair`].filter(Boolean).join(' · ');
+}
+
+// kindPanel is one kind of AP: its line, with its arrow, and its ports
+// drawn as jacks, a bond's members together. A jack selects its port, whose
+// details, Edit and Info open under the jacks.
 function kindPanel(ctx, d, here, page, kind, fields, canEdit, edit, folder, only) {
 	const kf = kindFields(fields, kind, page.ancestry || []);
 	const names = [...kind.ports.keys()];
 	const uplink = (n) => (kind.ports.get(n) || []).some((r) => r.p.uplink);
 	names.sort((a, b) => Number(uplink(b)) - Number(uplink(a)) || byPort(a, b));
 	const key = `${here}|${kind.board}`;
-	const isOpen = () => opened.has(key) || (only && !opened.has('!' + key));
+	const isOpen = () => opened.has(key) || ((only || !folder) && !opened.has('!' + key));
 	const box = h('div', { class: 'edit flush' });
-	const cards = h('div', { class: 'portcards' });
-	const body = h('div', { class: 'kindbody' }, cards, box);
+	const strip = h('div', { class: 'jacks' });
+	const body = h('div', { class: 'kindbody' }, strip, box);
 	const arrow = h('span', { class: 'arrow', 'aria-hidden': 'true' });
 	const head = h('button', { type: 'button', class: 'kindhead', 'aria-expanded': 'false' }, arrow,
 		h('strong', null, kind.name),
@@ -616,14 +674,26 @@ function kindPanel(ctx, d, here, page, kind, fields, canEdit, edit, folder, only
 			opened.delete('!' + key);
 		} else {
 			opened.delete(key);
-			if (only) opened.add('!' + key);
+			opened.add('!' + key);
 		}
 	};
 	head.addEventListener('click', () => set(body.hidden));
-	cards.replaceChildren(
-		...names.map((n) => portCard(ctx, d, here, page.node.name, n, kf, kind, kind.ports.get(n) || [], canEdit, edit, folder, box)),
-		canEdit && h('button', { type: 'button', class: 'portcard add', onclick: () => addPort(ctx, d, here, page.node.name, kf, box, edit, kind) },
-			'+ Add a port', h('span', { class: 'sub' }, `for ${folder && kind.board ? `every ${kind.name}` : 'this AP'} here`)));
+	let chosen = null;
+	const pick = (what, make) => {
+		for (const b of strip.querySelectorAll('.jack.chosen, .bond.chosen')) b.classList.remove('chosen');
+		if (chosen === what) {
+			chosen = null;
+			box.replaceChildren();
+			return;
+		}
+		chosen = what;
+		box.replaceChildren(make());
+	};
+	const ctxPort = { ctx, d, here, nodeName: page.node.name, kf, kind, canEdit, edit, folder, box };
+	strip.replaceChildren(
+		...names.map((n) => portJack(ctxPort, n, kind.ports.get(n) || [], pick)),
+		canEdit && h('button', { type: 'button', class: 'jack add', title: `A port no ${folder && kind.board ? kind.name : 'AP'} here has reported yet`,
+			onclick: () => addPort(ctx, d, here, page.node.name, kf, box, edit, kind) }, h('span', { class: 'icon plus' }, '+'), h('span', { class: 'jname' }, 'Add a port')));
 	set(isOpen());
 	return h('section', { class: 'panel kind' }, head, body);
 }
@@ -638,9 +708,10 @@ function summary(names, uplink, kf, base) {
 	return [up.length && `${up.join(', ')} uplink`, rest.length && rest.join(', '), set.length && `${set.length} set`].filter(Boolean).join(' · ');
 }
 
-// portCard is one port of a kind: its link, mode and what it carries, and
-// Edit, or on the uplink Info, which open under the kind's cards.
-function portCard(ctx, d, here, nodeName, name, kf, kind, reps, canEdit, edit, folder, box) {
+// portJack is one port as a jack, or a bond as its members' jacks together,
+// with what selecting it shows.
+function portJack(c, name, reps, pick) {
+	const { ctx, d, here, nodeName, kf, kind, canEdit, edit, folder, box } = c;
 	const base = kind.base;
 	const f = (k) => kf[`${base}ports.${name}.${k}`];
 	const uplinkOn = reps.filter((r) => r.p.uplink);
@@ -652,37 +723,58 @@ function portCard(ctx, d, here, nodeName, name, kf, kind, reps, canEdit, edit, f
 	const mine = set.filter(([, r]) => r.from === here && r.origin === 'self' && !r.plain).map(([p]) => p);
 	const mode = allUplink ? 'Uplink' : off ? 'Off' : MODES[f('mode')?.value];
 	const report = uplinkOn[0]?.cfg?.condition?.state?.report;
-	const agg = report?.uplink_neighbor?.aggregation;
+	const bond = reps.find((r) => r.p.bond?.members?.length)?.p.bond;
+	const power = allUplink && !folder ? poe(report) : null;
 	const what = allUplink
-		? [h('span', { class: 'sub' }, `The AP's management${agg?.enabled ? ', in an LACP aggregate' : ''}; Aeolus leaves it alone.`),
+		? [h('span', { class: 'sub' }, `The AP's management${bond ? `, over a bond of ${bond.members.length}` : ''}; Aeolus leaves it alone.`),
 			!folder && hasUplinkNews(report) && uplinkCell(report)]
 		: carries(kf, name, base);
-	const showIn = (make) => {
-		box.replaceChildren(h('section', { class: 'panel', 'data-editing': true },
-			h('h2', null, `${name}${folder && kind.board ? ` on every ${kind.name} here` : ''}`, h('span', { class: 'controls' },
-				h('button', { type: 'button', class: 'button small', onclick: () => box.replaceChildren() }, 'Close'))),
-			make()));
-		box.scrollIntoView({ block: 'nearest' });
-	};
+	const row = (label, v) => v != null && v !== '' && h('div', { class: 'row' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, v));
 	const close = () => box.replaceChildren();
 	const editForm = () => h('div', null,
 		portForm(ctx, d, here, nodeName, name, kf, close, edit, kind),
 		mine.length > 0 && h('div', { class: 'below' }, followButton(ctx, 'locations', here, nodeName, edit?.parentName, mine, box, `Follow ${edit?.parentName ?? 'above'} for ${name}`)));
 	const info = () => h('div', null, uplinkOn.map((r) => [folder && h('h3', null, r.ap.name), uplinkInfo(r.cfg.condition.state.report)]));
-	const row = (label, v) => h('div', { class: 'row' }, h('span', { class: 'label' }, label), h('span', { class: 'value' }, v));
-	return h('div', { class: `portcard${allUplink ? ' uplink' : ''}` },
-		h('div', { class: 'cardhead' }, h('span', { class: 'mono' }, name),
-			uplinkOn.length > 0 && h('span', { class: 'chip from', title: uplinkOn.map((r) => r.ap.name).join(', ') }, allUplink ? 'uplink' : `uplink on ${uplinkOn.length}`),
-			off && h('span', { class: 'chip idle' }, 'off'),
-			reps.some((r) => r.cfg?.condition?.state?.report?.vxlan?.loops?.some((l) => l.port === name)) && h('span', { class: 'chip bad' }, 'off its tunnels: a loop')),
-		row('Link', linkCell(reps, folder)),
-		row('Mode', mode ?? h('span', { class: 'sub' }, '—')),
-		h('div', { class: 'row set' }, h('span', { class: 'label' }, 'Carries'),
-			h('span', { class: 'value' }, what ?? h('span', { class: 'sub' }, 'Not set'),
-				from.length > 0 && h('span', { class: 'whence' }, from.join(', ')))),
-		h('div', { class: 'actions' },
-			allUplink ? h('button', { type: 'button', class: 'button small', onclick: () => showIn(info) }, 'Info')
-				: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => showIn(editForm) }, 'Edit')));
+	// What selecting it shows: the port's details, and Edit or Info.
+	const detail = () => {
+		const panel = h('section', { class: 'panel portdetail', 'data-editing': true });
+		const show = (make) => panel.replaceChildren(head(), make());
+		const head = () => h('h2', null, name, bond && h('span', { class: 'note' }, `${bond.mode === '802.3ad' ? 'LACP' : bond.mode} bond`),
+			folder && kind.board && h('span', { class: 'note' }, `every ${kind.name} here`),
+			h('span', { class: 'controls' },
+				allUplink ? h('button', { type: 'button', class: 'button small', onclick: () => show(info) }, 'Info')
+					: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => show(editForm) }, 'Edit'),
+				h('button', { type: 'button', class: 'button small', onclick: () => pick(name, () => null) }, 'Close')));
+		panel.append(...[head(),
+			row('Link', [linkCell(reps, folder), !folder && reps[0] && speedNote(reps[0].p) && h('span', { class: 'sub' }, ` · ${speedNote(reps[0].p)}`)]),
+			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ',
+				m.carrier ? gbit(mbit(m.speed)) : 'no link', speedNote(m) && h('span', { class: 'sub' }, ` · ${speedNote(m)}`),
+				m.aggregator != null && bond.aggregator != null && m.aggregator !== bond.aggregator && h('span', { class: 'chip warn' }, 'outside the aggregate')))),
+			row('Mode', mode ?? h('span', { class: 'sub' }, 'not set')),
+			row('Carries', [what ?? h('span', { class: 'sub' }, 'not set'), from.length > 0 && h('span', { class: 'whence' }, from.join(', '))]),
+			row('Power', power)].filter(Boolean));
+		return panel;
+	};
+	const marks = [uplinkOn.length > 0 && h('span', { class: 'up', title: allUplink ? 'the uplink' : `the uplink on ${uplinkOn.map((r) => r.ap.name).join(', ')}` }, '↑'),
+		power && h('span', { class: 'poe', title: power }, '⚡'),
+		reps.some((r) => r.cfg?.condition?.state?.report?.vxlan?.loops?.some((l) => l.port === name)) && h('span', { class: 'loop', title: 'off its tunnels: a loop' }, '!')];
+	const choose = (e) => {
+		pick(name, detail);
+		e.currentTarget.classList.toggle('chosen', box.childElementCount > 0);
+	};
+	const configured = allUplink || Boolean(mode && mode !== 'Off');
+	if (bond) {
+		// A bond: its members' jacks, together, under its name.
+		const group = h('button', { type: 'button', class: 'bond', title: `${name}: ${bond.members.map((m) => m.name).join(' + ')}`, onclick: choose },
+			h('span', { class: 'bondname mono' }, name, marks, h('span', { class: 'sub' }, ` ${bond.mode === '802.3ad' ? 'LACP' : bond.mode}${reps[0]?.p.carrier ? ` · ${gbit(mbit(reps[0].p.speed))}` : ''}`)),
+			h('span', { class: 'members' }, bond.members.map((m) => h('span', { class: `jack ${jackState(folder, { off, set: true, carrier: m.carrier })}` },
+				jackIcon(), h('span', { class: 'jname mono' }, m.name), h('span', { class: 'jsub' }, m.carrier ? gbit(mbit(m.speed)) : 'no link')))));
+		return group;
+	}
+	const p0 = reps[0]?.p;
+	const under = folder ? (mode ?? '') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
+	return jack(name, jackState(folder, { off, set: configured, carrier: !!p0?.carrier }), under,
+		[name, mode, what && text(what)].filter(Boolean).join(' · '), choose, marks);
 }
 
 // vniPath is where a tunnel port sets one of a VNI's fields (0058, 0059).

@@ -267,7 +267,11 @@ func TestStateReports(t *testing.T) {
 		"steering": map[string]any{"installed": true, "running": true, "interval": 30000, "ssids": []string{"Sweet Spot"},
 			"bss": []any{map[string]any{"ssid": "Sweet Spot", "band": "2g", "clients": 1, "steered_away": 4, "steered_in": 0}}},
 		"ports": []any{map[string]any{"name": "lan1", "up": true, "carrier": false},
-			map[string]any{"name": "wan", "up": true, "carrier": true, "speed": "1000F", "uplink": true}},
+			// A bond, as the C-360's uplink is (0093): its members, each
+			// faster than the switch port it is on.
+			map[string]any{"name": "wan", "up": true, "carrier": true, "speed": "5000F", "uplink": true, "bond": map[string]any{"mode": "802.3ad", "aggregator": 1, "members": []any{
+				map[string]any{"name": "eth0", "up": true, "carrier": true, "speed": "2500F", "max": 10000, "partner_max": 2500, "mii": "up", "aggregator": 1},
+				map[string]any{"name": "eth1", "up": true, "carrier": false, "max": 10000, "mii": "down", "aggregator": 2}}}}},
 		"vxlan": map[string]any{"installed": true, "clamp": true, "prober": true, "tunnels": []any{
 			// What the prober found (0059); what it does not know yet is null.
 			map[string]any{"vni": 50, "peer": "1.1.1.2", "port": 4789, "mtu": 1450, "up": true, "probe": map[string]any{
@@ -298,6 +302,8 @@ func TestStateReports(t *testing.T) {
 		"old vlans":     {"version": 1, "vlans": []int{20}},
 		"vlan name":     {"version": 1, "uplink_neighbor": map[string]any{"vlans": []int{20}, "vlan_names": map[string]string{"30": "x"}}},
 		"other hex":     {"version": 1, "uplink_neighbor": map[string]any{"other": []any{map[string]any{"type": 9, "data": "xyz"}}}},
+		"port max":      {"version": 1, "ports": []any{map[string]any{"name": "lan1", "up": true, "carrier": false, "max": -1}}},
+		"bond member":   {"version": 1, "ports": []any{map[string]any{"name": "bond0", "up": true, "carrier": true, "bond": map[string]any{"mode": "802.3ad", "members": []any{map[string]any{"name": "eth 0"}}}}}},
 		"policy":        {"version": 1, "uplink_neighbor": map[string]any{"med": map[string]any{"policies": []any{map[string]any{"application": "voice", "dscp": 64}}}}},
 		"port mac":      {"version": 1, "uplink_port": map[string]any{"name": "wan", "mac": "A0-04-60-21-36-5E"}},
 		"counters":      {"version": 1, "uplink_port": map[string]any{"name": "wan", "mac": "a0:04:60:21:36:5e", "rx_errors": -1}},
@@ -399,6 +405,11 @@ func TestStateReports(t *testing.T) {
 	}
 	if cond["in_sync"] != true || state["openwrt"] != "25.12.5" || len(state["uplink_vlans"].([]any)) != 3 || steer["interval"] != 30000.0 || len(steer["bss"].([]any)) != 1 || len(ports) != 2 || len(tunnels) != 3 || len(loops) != 1 {
 		t.Fatalf("condition = %v", cond)
+	}
+	// A bond's members, as the agent reported them (0093).
+	if b, _ := ports[1].(map[string]any)["bond"].(map[string]any); b["mode"] != "802.3ad" || len(b["members"].([]any)) != 2 ||
+		b["members"].([]any)[0].(map[string]any)["max"] != 10000.0 || b["members"].([]any)[1].(map[string]any)["aggregator"] != 2.0 {
+		t.Fatalf("the bond as stored: %v", ports[1])
 	}
 	if p, _ := tunnels[0].(map[string]any)["probe"].(map[string]any); p["verdict"] != "up" || p["from"] != "192.168.50.1" || p["rtt_ms"] != 0.8 ||
 		p["lease"].(map[string]any)["address"] != "192.168.50.6" {

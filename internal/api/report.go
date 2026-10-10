@@ -912,13 +912,42 @@ type loopState struct {
 
 // portState is one Ethernet port in the bridge the AP's uplink is in
 // (0053): whether it is up, whether it has a link and at what speed, in
-// Mbit/s and duplex ("1000F"), and whether it is the uplink.
+// Mbit/s and duplex ("1000F"), and whether it is the uplink. Since 0093,
+// the fastest it can go and the fastest the far end offers it, in Mbit/s,
+// and for a bond its members.
 type portState struct {
-	Name    string `json:"name"`
-	Up      bool   `json:"up"`
-	Carrier bool   `json:"carrier"`
-	Speed   string `json:"speed,omitempty"`
-	Uplink  bool   `json:"uplink,omitempty"`
+	Name       string     `json:"name"`
+	Up         bool       `json:"up"`
+	Carrier    bool       `json:"carrier"`
+	Speed      string     `json:"speed,omitempty"`
+	Uplink     bool       `json:"uplink,omitempty"`
+	Max        *int       `json:"max,omitempty"`
+	PartnerMax *int       `json:"partner_max,omitempty"`
+	Bond       *bondState `json:"bond,omitempty"`
+}
+
+// mbitOK says whether a speed a port can go is one a port could: absent,
+// or 1 Mbit/s to a terabit.
+func mbitOK(m *int) bool { return m == nil || *m >= 1 && *m <= 1000000 }
+
+// bondState is a bond's mode ("802.3ad" for LACP), the LACP aggregator in
+// use, and its member ports, each with its link, MII status and aggregator
+// (0093): the C-360's uplink is bond0, of eth0 and eth1.
+type bondState struct {
+	Mode       string       `json:"mode"`
+	Aggregator *int         `json:"aggregator,omitempty"`
+	Members    []bondMember `json:"members"`
+}
+
+type bondMember struct {
+	Name       string `json:"name"`
+	Up         bool   `json:"up"`
+	Carrier    bool   `json:"carrier"`
+	Speed      string `json:"speed,omitempty"`
+	Max        *int   `json:"max,omitempty"`
+	PartnerMax *int   `json:"partner_max,omitempty"`
+	MII        string `json:"mii,omitempty"`
+	Aggregator *int   `json:"aggregator,omitempty"`
 }
 
 // steeringState is what usteer is doing on the AP (0050, 0051), so a person
@@ -1046,10 +1075,20 @@ func (st *stateReport) check() error {
 	}
 	names := map[string]bool{}
 	for _, p := range st.Ports {
-		if !portNameRE.MatchString(p.Name) || names[p.Name] || !speedRE.MatchString(p.Speed) {
-			return badRequest("ports: each has its own name (such as lan1) and a speed such as 1000F, or none")
+		if !portNameRE.MatchString(p.Name) || names[p.Name] || !speedRE.MatchString(p.Speed) || !mbitOK(p.Max) || !mbitOK(p.PartnerMax) {
+			return badRequest("ports: each has its own name (such as lan1), a speed such as 1000F, or none, and speeds it can go of 1 to 1000000 Mbit/s")
 		}
 		names[p.Name] = true
+		if b := p.Bond; b != nil {
+			if len(b.Members) > 8 || len(b.Mode) > 32 {
+				return badRequest("ports: a bond has at most 8 members, and a mode of at most 32 characters")
+			}
+			for _, m := range b.Members {
+				if !portNameRE.MatchString(m.Name) || !speedRE.MatchString(m.Speed) || !mbitOK(m.Max) || !mbitOK(m.PartnerMax) || len(m.MII) > 16 {
+					return badRequest("ports: a bond's member has a name (such as eth0), a speed such as 2500F, or none, and speeds it can go of 1 to 1000000 Mbit/s")
+				}
+			}
+		}
 	}
 	if x := st.VXLAN; x != nil {
 		if len(x.Tunnels) > 64 || x.UplinkMTU < 0 || x.UplinkMTU > 65535 {
