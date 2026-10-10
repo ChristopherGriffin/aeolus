@@ -264,6 +264,11 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .usage .clients { fill: none; stroke: var(--warn); stroke-width: 1.5; }
 .usage .base { stroke: var(--line-2); }
 .usage .axis { font-size: 10px; fill: var(--ink-2); }
+/* An AP's connectivity strip (0108): a cell a bucket. */
+.strip svg { vertical-align: middle; }
+.strip .on { fill: var(--ok); }
+.strip .off { fill: var(--bad); }
+.strip .pending { fill: var(--line-2); }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; background: var(--accent); }
 .swatch.up { opacity: 0.4; }
 .swatch.clients { height: 2px; vertical-align: 3px; background: var(--warn); }

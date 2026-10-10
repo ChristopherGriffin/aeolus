@@ -247,6 +247,11 @@ func (s *Server) apKeys(w http.ResponseWriter, r *http.Request, c apCall) error 
 		}
 		select {
 		case <-r.Context().Done():
+			// The manager is stopping, or the AP gave up: unchanged, as the
+			// protocol says, so an AP still listening asks again at once
+			// rather than taking an empty answer for a failure.
+			w.Header().Set("ETag", `"`+version+`"`)
+			w.WriteHeader(http.StatusNotModified)
 			return nil
 		case <-time.After(time.Second):
 		}

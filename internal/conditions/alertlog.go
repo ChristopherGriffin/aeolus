@@ -2,6 +2,7 @@ package conditions
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
@@ -58,11 +59,16 @@ func (s *Store) OpenAlerts() ([]LoggedAlert, error) {
 	return s.loggedAlerts(`SELECT id, ap, key, kind, severity, message, began, ended FROM alert_log WHERE ended IS NULL ORDER BY id`)
 }
 
-// AlertLog is every alert that lasted at some time since since, newest
-// first, at most limit.
-func (s *Store) AlertLog(since time.Time, limit int) ([]LoggedAlert, error) {
+// AlertLog is every alert on one of aps that lasted at some time since
+// since, newest first, at most limit. The APs are picked in the query, so
+// others' alerts never take up the limit.
+func (s *Store) AlertLog(since time.Time, aps []hierarchy.NodeID, limit int) ([]LoggedAlert, error) {
+	ids, err := json.Marshal(aps)
+	if err != nil {
+		return nil, err
+	}
 	return s.loggedAlerts(`SELECT id, ap, key, kind, severity, message, began, ended FROM alert_log
-		WHERE ended IS NULL OR ended >= ? ORDER BY began DESC, id DESC LIMIT ?`, stamp(since), limit)
+		WHERE (ended IS NULL OR ended >= ?) AND ap IN (SELECT value FROM json_each(?)) ORDER BY began DESC, id DESC LIMIT ?`, stamp(since), string(ids), limit)
 }
 
 func (s *Store) loggedAlerts(q string, args ...any) ([]LoggedAlert, error) {

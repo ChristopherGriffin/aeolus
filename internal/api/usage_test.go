@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
+	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
 
 // GET /v1/usage (0108): what the APs' clients moved, worked out from each
@@ -18,9 +19,10 @@ func TestUsage(t *testing.T) {
 		return map[string]any{"mac": mac, "network": "sweet", "ssid": "Sweet Spot", "band": "5g", "signal": -60, "signal_avg": -60,
 			"tx_rate": 400, "rx_rate": 300, "connected": connected, "inactive_ms": 10, "rx_bytes": rx, "tx_bytes": tx, "rx_packets": 1, "tx_packets": 1}
 	}
+	withHost := func(c map[string]any, host string) map[string]any { c["host"] = host; return c }
 	for i, clients := range [][]any{
 		// It joined in the last interval: all it moved counts.
-		{client("7e:2a:ea:9b:2b:8f", 30, 1000, 5000)},
+		{withHost(client("7e:2a:ea:9b:2b:8f", 30, 1000, 5000), "griffs-phone")},
 		// It moved 4000 down and 500 up since; another, on for two hours,
 		// was not in the last report and counts nothing yet.
 		{client("7e:2a:ea:9b:2b:8f", 330, 1500, 9000), client("84:0d:8e:5a:df:f7", 7200, 10, 10)},
@@ -42,11 +44,33 @@ func TestUsage(t *testing.T) {
 	if a := aps[0].(map[string]any); a["ap"] != ap || a["peak"] != 2.0 || a["down"] != 9200.0 {
 		t.Fatalf("aps = %v", aps)
 	}
+	// It reported in the last bucket, and in no other; office-ap never did.
+	heard := func(a any) (n int, last bool) {
+		h := a.(map[string]any)["heard"].([]any)
+		for _, x := range h {
+			if x == true {
+				n++
+			}
+		}
+		return n, h[len(h)-1] == true
+	}
+	if n, last := heard(aps[0]); n != 1 || !last {
+		t.Fatalf("heard = %v", aps[0])
+	}
+	if n, _ := heard(aps[1]); n != 0 {
+		t.Fatalf("office-ap heard = %v", aps[1])
+	}
+	// The client that moved it all is the top one (0110), by its host name;
+	// the one that moved nothing is not there.
+	top := body["clients"].([]any)
+	if c := top[0].(map[string]any); len(top) != 1 || c["mac"] != "7e:2a:ea:9b:2b:8f" || c["host"] != "griffs-phone" || c["down"] != 9200.0 || c["up"] != 1600.0 || c["aps"].([]any)[0] != "PumphouseAP" {
+		t.Fatalf("top clients = %v", top)
+	}
 	if code, _ := f.do("GET", "/v1/usage?hours=0", "griff", nil); code != 400 {
 		t.Fatalf("hours=0: %d", code)
 	}
 	// office has no role in Locations: no APs, nothing moved.
-	if _, body := f.do("GET", "/v1/usage", "office", nil); len(body["aps"].([]any)) != 0 || body["down"] != 0.0 {
+	if _, body := f.do("GET", "/v1/usage", "office", nil); len(body["aps"].([]any)) != 0 || body["down"] != 0.0 || len(body["clients"].([]any)) != 0 {
 		t.Fatalf("office = %v", body)
 	}
 }
@@ -87,5 +111,25 @@ func TestUsageOfAWrap(t *testing.T) {
 		[]wifiClient{{MAC: "7e:2a:ea:9b:2b:8f", Connected: 1300, RxBytes: 200, TxBytes: 50}})
 	if down != 0 || up != 0 {
 		t.Fatalf("down %d, up %d", down, up)
+	}
+}
+
+// A client that roamed between APs goes by the host name it gave last, on
+// whichever AP (0110).
+func TestTopClientsNameLast(t *testing.T) {
+	f := newFixture(t)
+	ap, _, _ := f.adopted()
+	mac := "7e:2a:ea:9b:2b:8f"
+	if err := f.conds.RecordUse("office-ap", 1, []conditions.ClientUse{{MAC: mac, Host: "old-name", Down: 10, Up: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.conds.RecordUse(hierarchy.NodeID(ap), 1, []conditions.ClientUse{{MAC: mac, Host: "new-name", Down: 20, Up: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	top, err := f.api.topClients(time.Now().Add(-time.Hour), map[hierarchy.NodeID]*usageAP{
+		hierarchy.NodeID(ap): {AP: hierarchy.NodeID(ap), Name: "PumphouseAP"}, "office-ap": {AP: "office-ap", Name: "OfficeOpenWrt"},
+	})
+	if err != nil || len(top) != 1 || top[0].Host != "new-name" || top[0].Down != 30 || len(top[0].APs) != 2 {
+		t.Fatalf("top = %+v, %v", top, err)
 	}
 }
