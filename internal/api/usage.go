@@ -134,11 +134,12 @@ type usageBucket struct {
 
 // usageAP is one AP's part of it.
 type usageAP struct {
-	AP   hierarchy.NodeID `json:"ap"`
-	Name string           `json:"name"`
-	Peak int              `json:"peak"`
-	Down int64            `json:"down"`
-	Up   int64            `json:"up"`
+	AP    hierarchy.NodeID `json:"ap"`
+	Name  string           `json:"name"`
+	Peak  int              `json:"peak"`
+	Down  int64            `json:"down"`
+	Up    int64            `json:"up"`
+	Heard []bool           `json:"heard"` // whether it reported in each bucket
 }
 
 // usageView is the Wi-Fi clients and traffic of the APs the caller may
@@ -146,8 +147,8 @@ type usageAP struct {
 // last ?hours= (24 unless set, at most 720): GET /v1/usage. It is in at
 // most 48 buckets of whole minutes, each the clients the APs had at most in
 // it, summed over the APs, and the bytes they moved; with each AP's peak and
-// totals, the busiest first; and the ten clients that moved the most
-// (0110).
+// totals, the busiest first, and whether it reported in each bucket, its
+// connectivity; and the ten clients that moved the most (0110).
 func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error {
 	hours := 24
 	if q := r.URL.Query().Get("hours"); q != "" {
@@ -168,7 +169,7 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 			continue
 		}
 		n, _ := t.Node(id)
-		mine[id] = &usageAP{AP: id, Name: n.Name}
+		mine[id] = &usageAP{AP: id, Name: n.Name, Heard: []bool{}}
 	}
 	span := time.Duration(hours) * time.Hour
 	// Whole minutes, rounded up, so there are never more than 48.
@@ -179,6 +180,9 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 	buckets := make([]usageBucket, count)
 	for i := range buckets {
 		buckets[i].At = start.Add(time.Duration(i) * bucket)
+	}
+	for _, a := range mine {
+		a.Heard = make([]bool, count)
 	}
 	// The most clients each AP had in each bucket.
 	peaks := map[hierarchy.NodeID][]int{}
@@ -194,6 +198,7 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 			peaks[u.AP] = p
 		}
 		p[i] = max(p[i], u.Clients)
+		a.Heard[i] = true
 		a.Peak = max(a.Peak, u.Clients)
 		a.Down += u.Down
 		a.Up += u.Up
@@ -218,6 +223,13 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 	if err != nil {
 		return err
 	}
+	// Before the oldest row kept, a bucket says nothing of an AP.
+	var from any
+	if t, ok, err := s.conds.UsageFrom(); err != nil {
+		return err
+	} else if ok {
+		from = t
+	}
 	aps := make([]*usageAP, 0, len(mine))
 	for _, a := range mine {
 		aps = append(aps, a)
@@ -230,7 +242,7 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"from": start, "to": end, "bucket": int(bucket / time.Second), "buckets": buckets,
-		"down": down, "up": up, "peak": peak, "aps": aps, "clients": top,
+		"down": down, "up": up, "peak": peak, "aps": aps, "clients": top, "recorded_from": from,
 	})
 	return nil
 }
