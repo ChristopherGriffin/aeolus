@@ -183,10 +183,13 @@ func (s *Server) applied(w http.ResponseWriter, r *http.Request, c apCall) error
 
 // stateReport is what an AP reports about itself periodically (0039).
 type stateReport struct {
-	Version    int64                     `json:"version"`
-	Uptime     int64                     `json:"uptime"`
-	OpenWrt    string                    `json:"openwrt,omitempty"`
-	Radios     []radioState              `json:"radios,omitempty"`
+	Version int64        `json:"version"`
+	Uptime  int64        `json:"uptime"`
+	OpenWrt string       `json:"openwrt,omitempty"`
+	Radios  []radioState `json:"radios,omitempty"`
+	// Its own BSSIDs, which another AP hearing them should not take for a
+	// stranger's (0105).
+	BSSIDs     []string                  `json:"bssids,omitempty"`
 	Transports map[string]transportState `json:"transports,omitempty"`
 	Steering   *steeringState            `json:"steering,omitempty"`
 	Ports      []portState               `json:"ports,omitempty"`
@@ -228,6 +231,18 @@ type rrmState struct {
 	Moves      []rrmMove      `json:"moves"`
 	APC        []rrmPower     `json:"apc,omitempty"`
 	CannotScan []rrmDeaf      `json:"cannot_scan,omitempty"`
+	Others     []rrmOther     `json:"others,omitempty"`
+}
+
+// rrmOther is a network heard in a scan that carries no Aeolus advert
+// (0105): its BSSID and SSID, band, channel and signal, and seconds since.
+type rrmOther struct {
+	BSSID   string  `json:"bssid"`
+	SSID    string  `json:"ssid"`
+	Band    string  `json:"band"`
+	Channel int     `json:"channel"`
+	Signal  float64 `json:"signal"`
+	Ago     int64   `json:"ago"`
 }
 
 // rrmDeaf is a radio that can't scan (2026-10-06): its band and channel;
@@ -372,6 +387,15 @@ func (r *rrmState) check() error {
 	}
 	if len(r.APC) > 4 || len(r.CannotScan) > 4 {
 		return bad
+	}
+	if len(r.Others) > 64 {
+		return badRequest("rrm: at most 64 other networks")
+	}
+	for _, o := range r.Others {
+		if !macRE.MatchString(o.BSSID) || o.SSID == "" || len(o.SSID) > 32 || !printable(o.SSID) || !bands[o.Band] ||
+			o.Channel < 1 || o.Channel > 233 || o.Signal < -120 || o.Signal > 0 || o.Ago < 0 {
+			return badRequest("rrm: another network is a BSSID, a printable SSID of at most 32 characters, a band, a channel from 1 to 233, a signal in dBm and seconds since")
+		}
 	}
 	for _, d := range r.CannotScan {
 		if !bands[d.Band] || d.Channel < 1 || d.Channel > 233 || (d.Why != "dfs" && d.Why != "refused") || d.Ago < 0 {
@@ -1054,6 +1078,14 @@ func (st *stateReport) check() error {
 	}
 	if err := st.RRM.check(); err != nil {
 		return err
+	}
+	if len(st.BSSIDs) > 64 {
+		return badRequest("bssids: at most 64")
+	}
+	for _, b := range st.BSSIDs {
+		if !macRE.MatchString(b) {
+			return badRequest("bssids: each a MAC, such as 02:11:22:33:44:55")
+		}
 	}
 	if err := st.Agent.check(); err != nil {
 		return err

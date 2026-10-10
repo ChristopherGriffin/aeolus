@@ -149,3 +149,25 @@ func TestLandingZone(t *testing.T) {
 		t.Fatalf("alerts = %s", kinds(as))
 	}
 }
+
+// A network not one of the APs' that broadcasts one of Aeolus's SSIDs is a
+// rogue (0105); one of the APs' own BSSIDs, or another SSID, is not.
+func TestRogue(t *testing.T) {
+	report := map[string]any{"rrm": map[string]any{"others": []any{
+		map[string]any{"bssid": "e4:d1:24:0d:e6:11", "ssid": "Aeolus Lab", "band": "2g", "channel": 11, "signal": -61, "ago": 120},
+		map[string]any{"bssid": "02:11:22:33:44:55", "ssid": "Aeolus Lab", "band": "5g", "channel": 36, "signal": -50, "ago": 30},
+		map[string]any{"bssid": "e4:d1:24:0d:e6:12", "ssid": "Sweet Spot", "band": "2g", "channel": 6, "signal": -70, "ago": 30},
+	}}}
+	raw, _ := json.Marshal(report)
+	in := Input{AP: "ap-1", Name: "C360-AP", Now: now, Poll: time.Minute, Version: 7,
+		Fleet: &Fleet{BSSIDs: map[string]bool{"02:11:22:33:44:55": true}, SSIDs: map[string]bool{"Aeolus Lab": true}}}
+	in.Latest.Seen = seen(10*time.Second, 7)
+	in.Latest.State = &conditions.State{At: now.Add(-time.Minute), Version: 7, Report: raw}
+	as := For(in)
+	if kinds(as) != "warning:rogue" || as[0].Key != "rogue:e4:d1:24:0d:e6:11" || !strings.Contains(as[0].Message, `"Aeolus Lab" on 2.4 GHz channel 11`) {
+		t.Fatalf("alerts = %+v", as)
+	}
+	if !as[0].Since.Equal(in.Latest.State.At.Add(-2 * time.Minute)) {
+		t.Fatalf("since = %v", as[0].Since)
+	}
+}

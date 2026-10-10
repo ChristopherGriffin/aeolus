@@ -71,6 +71,8 @@ const VISIT_WAIT = 2;       // seconds a visit is given before its results are r
 const BUSY = 0.6;           // a radio's own channel busier than this puts off a visit elsewhere
 const PUT_OFF = 4;          // visits put off in a row at most
 const HEARD_FOR = 1200;     // seconds an AP stays heard after it was last heard in the air
+const OTHERS_FOR = 3600;    // seconds a network that is not Aeolus's stays listed after it was heard (0105)
+const OTHERS_MAX = 64;      // and how many, the strongest
 const FORGET = 900;         // seconds after which a neighbour that went down is forgotten
 const WRITE_EVERY = 5;      // seconds between writes of the results
 const SCAN_FLAG_AP = 4;     // NL80211_SCAN_FLAG_AP: scan on an AP's own interface
@@ -130,6 +132,8 @@ let sock = null;
 let radios = {};      // radio -> { band, bss, index, channel, width, mode, dfs, pinned, started, list, next, due, put_off, survey, scan, hot, claim, plan }
 let adverts = {};     // the network carrying a radio's element -> { hex, index }
 let heard = {};       // AP -> { address, port, bands: { <band>: { signal, at } } }
+let others = {};      // a BSSID heard that is not an Aeolus AP's -> { ssid, band, channel, signal, at } (0105)
+let aeolus_bss = {};  // the last five bytes of a BSSID that carried an Aeolus advert -> when (0105)
 let nbrs = {};        // AP -> { address, port, last: { at, seq }, at, msg, state }
 let chosen = {};      // AP -> true, among the three heard most strongly on a band
 let picks = {};       // band -> the APs heard most strongly there
@@ -514,6 +518,72 @@ function rate(r, sc, networks, at) {
 	rt.at = at;
 }
 
+// printable is an SSID as the manager takes it: printable ASCII, anything
+// else a ?, at most 32 bytes; null for a hidden network.
+function printable(d) {
+	let s = '';
+	for (let i = 0; i < length(d ?? '') && i < 32; i++) {
+		let c = ord(d, i);
+		s += c >= 32 && c < 127 ? chr(c) : '?';
+	}
+	return length(replace(s, /\?/g, '')) ? s : null;
+}
+
+// channel_of is a frequency's channel.
+function channel_of(f) {
+	if (f == 2484)
+		return 14;
+	if (f < 3000)
+		return int((f - 2407) / 5);
+	return int((f - (f > 5925 ? 5950 : 5000)) / 5);
+}
+
+// other keeps a network heard that carries no Aeolus advert (0105): its
+// BSSID, SSID, band, channel and signal, for an hour, so the manager can
+// tell one that takes the SSID of one of Aeolus's networks.
+function other(b, band, at) {
+	if (!match(b.bssid ?? '', /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/))
+		return;
+	let ssid = null;
+	for (let e in b.beacon_ies ?? [])
+		if (e.type == 0) {
+			ssid = printable(e.data);
+			break;
+		}
+	if (ssid)
+		others[b.bssid] = { ssid: ssid, band: band, channel: channel_of(b.frequency), signal: b.signal_mbm / 100, at: at };
+}
+
+// aeolus_radio says whether a BSSID is another of the networks of a radio
+// whose advert was heard: a radio makes its BSSIDs from one MAC, changing
+// only the first byte (30:86:2d:03:17:d0, 32:86:..., 36:86:..., C-360,
+// 2026-10-10), and only one of them carries the advert.
+function aeolus_radio(bssid, at) {
+	let seen = aeolus_bss[substr(bssid, 3)];
+	return seen != null && at - seen <= OTHERS_FOR;
+}
+
+// others_listed is the networks heard in the last hour, the strongest
+// first; older ones are forgotten.
+function others_listed(at) {
+	let out = [], old = [];
+	for (let bssid, o in others) {
+		if (at - o.at > OTHERS_FOR) {
+			push(old, bssid);
+			continue;
+		}
+		if (aeolus_radio(bssid, at))
+			continue;
+		push(out, { bssid: bssid, ssid: o.ssid, band: o.band, channel: o.channel, signal: o.signal, ago: max(0, int(at - o.at)) });
+	}
+	for (let bssid in old)
+		delete others[bssid];
+	for (let k in keys(aeolus_bss))
+		if (at - aeolus_bss[k] > OTHERS_FOR)
+			delete aeolus_bss[k];
+	return slice(sort(out, (x, y) => y.signal - x.signal), 0, OTHERS_MAX);
+}
+
 // heard_on reads what a visit heard: other Aeolus APs' adverts, and the
 // other networks there, which go into the channel's rating. On 2.4 GHz, a
 // network up to three channels away counts too, 6 dB weaker for each
@@ -543,8 +613,12 @@ function heard_on(r, at) {
 		}
 		if (!a) {
 			push(networks, b.signal_mbm / 100 - 6 * d / 5);
+			if (!d)
+				other(b, r.band, at);
 			continue;
 		}
+		if (match(b.bssid ?? '', /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/))
+			aeolus_bss[substr(b.bssid, 3)] = at;
 		if (a.ap == cfg.ap || d)
 			continue;
 		let h = heard[a.ap] ??= { bands: {} };
@@ -1053,7 +1127,7 @@ function write(at) {
 	store(out, sprintf('%J', {
 		at: time(), on: true, address: address ?? '', advertised: slice(uniq(sort(advertised)), 0, 3),
 		neighbours: slice(list, 0, LISTED), ratings: slice(rated, 0, RATED), moves: moves, apc: powers(),
-		cannot_scan: deaf,
+		cannot_scan: deaf, others: others_listed(at),
 	}));
 }
 
