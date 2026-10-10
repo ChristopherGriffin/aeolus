@@ -40,6 +40,13 @@ func runServe(args []string, stderr io.Writer) error {
 		return err
 	}
 	defer closeAll()
+	// A long poll, such as an AP waiting on its keys (0070), ends when the
+	// server stops: its request's context is the server's, cancelled as
+	// Shutdown starts, which would otherwise wait it out and give up.
+	base, cancelBase := context.WithCancel(context.Background())
+	defer cancelBase()
+	srv.BaseContext = func(net.Listener) context.Context { return base }
+	srv.RegisterOnShutdown(cancelBase)
 	start()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
