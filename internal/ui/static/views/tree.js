@@ -19,8 +19,9 @@ import { interfacesTab, interfacesLive } from './interfaces.js';
 import { clientsTab } from './clients.js';
 import { templatesTab } from './templates.js';
 import { alertsTab } from './alerts.js';
+import { overviewTab } from './overview.js';
 
-const TABS = [['interfaces', 'Interfaces'], ['aps', 'APs'], ['alerts', 'Alerts'], ['networks', 'Networks'], ['clients', 'Clients'], ['templates', 'Templates'], ['system', 'System']];
+const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['aps', 'APs'], ['alerts', 'Alerts'], ['networks', 'Networks'], ['clients', 'Clients'], ['templates', 'Templates'], ['system', 'System']];
 
 export async function treePage(ctx, tree, id, tab, sub, view) {
 	const t = ctx.trees[tree];
@@ -71,14 +72,15 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		[tab, sub, view] = moved(base, tab, sub, view);
 		tab = pick(TABS, tab);
 		main.push(tabBar(base, TABS, tab));
-		if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, null, editing(ctx, tree, page)));
+		if (tab === 'overview') main.push(...await overviewTab(ctx, id, page, fleet));
+		else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, null, editing(ctx, tree, page)));
 		else if (tab === 'aps') main.push(channelsSection(ctx, await configs([...(page.hardware?.aps || []), ...(page.hardware?.unknown || [])]), status, !!editing(ctx, tree, page)));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 		else if (tab === 'clients') main.push(await clientsTab(ctx, page, null));
 		else if (tab === 'alerts') main.push(await alertsTab(ctx, id));
 		else if (tab === 'templates') main.push(await templatesTab(ctx, id, page, editing(ctx, tree, page)));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
-		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients' || tab === 'aps' || tab === 'alerts') refresh = 30; // live
+		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients' || tab === 'aps' || tab === 'alerts' || tab === 'overview') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
 		// A Services folder's networks' per-user keys (0070).
