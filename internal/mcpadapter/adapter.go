@@ -162,6 +162,11 @@ type previewIn struct {
 	Op Op `json:"op" jsonschema:"the change to preview"`
 }
 
+type actionIn struct {
+	AP   string `json:"ap" jsonschema:"AP ID in the Locations tree"`
+	Kind string `json:"kind,omitempty" jsonschema:"locate, restart-wifi or reboot; empty to list its latest actions"`
+}
+
 type changeIn struct {
 	Op     Op     `json:"op" jsonschema:"the change to make"`
 	Reason string `json:"reason,omitempty" jsonschema:"optional: a note for the change log, which records who made the change and when without one"`
@@ -260,6 +265,16 @@ func server(c client, version string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "preview_change", Description: "Run a change with every check (permissions, schema, locks, APs that would stop resolving) and record nothing. Returns the effect, overrides a lock or move would remove, the APs it would re-version, and any whose config would then fail its check.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in previewIn) (*mcp.CallToolResult, any, error) {
 			out, err := c.call(ctx, "POST", "/v1/preview", map[string]any{"op": in.Op})
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "ap_action", Description: "Ask an AP to do something once (0104): locate (blink every LED for a minute, to find it), restart-wifi (every client drops and joins again) or reboot (off the air for about two minutes). It needs operator on the AP. The AP takes it up on its next poll, within about a minute; one it does not take up within 10 minutes expires. A second ask of the same kind while one waits is the same action. Without kind, lists the AP's latest actions and what came of each.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in actionIn) (*mcp.CallToolResult, any, error) {
+			path := "/v1/aps/" + url.PathEscape(in.AP) + "/actions"
+			if in.Kind == "" {
+				out, err := c.call(ctx, "GET", path, nil)
+				return nil, out, err
+			}
+			out, err := c.call(ctx, "POST", path, map[string]any{"kind": in.Kind})
 			return nil, out, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "make_change", Description: "Make one change. It is logged under your name with the time, and with your reason if you give one. Set values are checked against the field schema and secrets are sealed. Returns the logged change, the APs it re-versioned, and any whose config now fails its check.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
