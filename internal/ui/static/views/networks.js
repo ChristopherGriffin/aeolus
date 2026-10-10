@@ -635,6 +635,24 @@ function shown(path, v) {
 	return path.endsWith('.passphrase') ? 'a new passphrase' : 'a new secret';
 }
 
+// leftovers is what a change leaves set on a network that the form no
+// longer shows, and that would then have it refused (0112): MAC
+// authentication once the network is WPA Enterprise, which signs each
+// client in already; and the RADIUS server's VLANs once nothing asks the
+// server. They are cleared with the change that hides them.
+function leftovers(n, values) {
+	const path = (k) => `network.${n.id}.${k}`;
+	const now = (k) => (path(k) in values ? values[path(k)] : n.fields[k]?.value);
+	const enterprise = String(now('security') || '').endsWith('-enterprise');
+	const out = {};
+	if (enterprise && now('radius.mac_auth') === true) out[path('radius.mac_auth')] = false;
+	if (!enterprise && now('radius.mac_auth') !== true) {
+		if ((now('radius.vlans') || []).length) out[path('radius.vlans')] = [];
+		if (now('radius.vlan_required') === true) out[path('radius.vlan_required')] = false;
+	}
+	return out;
+}
+
 function editForm(ctx, d, n, close, lib) {
 	const folderName = ctx.name('services', n.from);
 	const { body, inputs, rows, clash } = form(d, n.id, n.fields, n.from, lib);
@@ -649,6 +667,7 @@ function editForm(ctx, d, n, close, lib) {
 		let values;
 		try {
 			values = changedValues(inputs, rows);
+			values = { ...values, ...leftovers(n, values) };
 		} catch (e) {
 			msg.replaceChildren(e.message);
 			return;

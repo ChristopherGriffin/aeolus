@@ -1042,7 +1042,14 @@ func TestEnterpriseNeedsItsServer(t *testing.T) {
 	// On a PSK network, nothing asks the server, so they have no use.
 	set("network.sweet.security", "wpa2-psk")
 	got = problems()
-	if !strings.Contains(got, "radius.das, a server's disconnects, is for WPA Enterprise") || !strings.Contains(got, "the RADIUS server's VLANs are for WPA Enterprise, or a network with MAC authentication") {
+	if !strings.Contains(got, "the RADIUS server's VLANs are for WPA Enterprise, or a network with MAC authentication") {
+		t.Fatalf("problems = %s", got)
+	}
+	// Emptied, as the network form does when it hides them, they are no
+	// problem; nor are the disconnects left set, which are unused here.
+	set("network.sweet.radius.vlans", []int{})
+	set("network.sweet.radius.vlan_required", false)
+	if got := problems(); strings.Contains(got, "radius") || strings.Contains(got, "RADIUS") {
 		t.Fatalf("problems = %s", got)
 	}
 }

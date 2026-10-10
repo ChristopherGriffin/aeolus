@@ -28,9 +28,10 @@
   - MAC authentication without a server and secret;
   - MAC authentication on WPA Enterprise, which signs each client in already;
   - MAC authentication together with `blocked`: a device is refused at the server instead;
-  - `radius.das` on any network that is not WPA Enterprise;
   - `radius.vlans` where nothing asks the server.
+- **A server's disconnects (`radius.das`) are not rendered off WPA Enterprise.** Left set, as when a network stops being WPA Enterprise, they are unused, as its servers are.
 - **In the network form, MAC authentication is a tick under RADIUS** on a network that is not WPA Enterprise. Ticked, it shows the server's fields. The Disconnect fields show for WPA Enterprise only.
+  - What the form hides, it clears with the same change, where leaving it would have the network refused: MAC authentication when the network becomes WPA Enterprise, and the server's VLANs when nothing asks the server any more.
 
 ## Consequences
 

@@ -578,20 +578,19 @@ func enterpriseProblems(doc map[string]any) []string {
 
 // macAuthProblems refuses what a network that is not WPA Enterprise could
 // not do with a RADIUS server (0112). Without MAC authentication nothing
-// asks the server, so its VLANs and disconnects have no use. With it: the
-// server must be named; clients are not blocked on the AP too, as OpenWrt's
-// deny list turns the server's word off; an open network cannot put a
-// device in a VLAN; a VLAN is offered to keys or to the server, not both;
-// and disconnects stay WPA Enterprise's, as OpenWrt gives hostapd their
-// secret nowhere else.
+// asks the server, so VLANs offered to it would put no one anywhere. With
+// it: the server must be named; clients are not blocked on the AP too, as
+// OpenWrt's deny list turns the server's word off; an open network cannot
+// put a device in a VLAN; and a VLAN is offered to keys or to the server,
+// not both. A server's disconnects (radius.das) are not rendered here, as
+// OpenWrt gives hostapd their secret only for WPA Enterprise: left set, as
+// when a network stops being WPA Enterprise, they are unused, as its
+// servers are.
 func macAuthProblems(where, security string, n, r map[string]any) []string {
 	var out []string
 	vlans, _ := r["vlans"].([]any)
-	if r["das"] != nil {
-		out = append(out, where+": radius.das, a server's disconnects, is for WPA Enterprise")
-	}
 	if r["mac_auth"] != true {
-		if r["vlans"] != nil || r["vlan_required"] == true {
+		if len(vlans) > 0 || r["vlan_required"] == true {
 			out = append(out, where+": the RADIUS server's VLANs are for WPA Enterprise, or a network with MAC authentication (radius.mac_auth); "+security+" asks the server nothing")
 		}
 		return out
