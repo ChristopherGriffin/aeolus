@@ -18,6 +18,8 @@ const SECTIONS = [
 	['SNMP', ['system.snmp.enabled', 'system.snmp.community', 'system.snmp.v3.user', 'system.snmp.v3.auth',
 		'system.snmp.v3.privacy', 'system.snmp.location', 'system.snmp.contact']],
 	['Agent', ['system.poll', 'system.ssh_keys']],
+	// Where the manager sends alerts for the APs here (0101).
+	['Alerts', ['notify.ntfy', 'notify.webhook', 'notify.severity', 'notify.resolved']],
 ];
 
 // systemEditor opens the editor in box, for the Locations node here, with

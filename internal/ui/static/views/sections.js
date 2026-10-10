@@ -86,7 +86,7 @@ export function channelsSection(ctx, rows, status, canEdit) {
 // systemSection shows the system settings that reach the node, and for
 // someone who may change it, an editor for them (0052).
 export async function systemSection(ctx, here, page, edit) {
-	const sys = only(page.fields, (p) => p.startsWith('system.'));
+	const sys = only(page.fields, (p) => p.startsWith('system.') || p.startsWith('notify.'));
 	const panels = Object.keys(sys).length
 		? fieldPanels(ctx, 'locations', here, sys, edit)
 		: h('div', { class: 'banner info' }, 'No system settings here.');

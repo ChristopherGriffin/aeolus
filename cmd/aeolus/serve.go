@@ -170,6 +170,16 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 			}
 		}
 	}
+	// Alerts go where the folders say, looked at every minute (0101).
+	startListeners := start
+	start = func() {
+		startListeners()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			apiServer.Notify(ctx, time.Minute)
+		}()
+	}
 	apiHandler := apiServer.Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpadapter.New(apiHandler, version))

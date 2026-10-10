@@ -22,6 +22,10 @@ import (
 // TemplatesPrefix starts the Locations fields that pick templates.
 const TemplatesPrefix = "templates."
 
+// NotifyPrefix starts the Locations fields that say where the manager sends
+// alerts (0101): the manager's, as the template picks are.
+const NotifyPrefix = "notify."
+
 // TemplatePath is the Locations field that picks a board's template.
 func TemplatePath(board string) hierarchy.Path { return hierarchy.Path(TemplatesPrefix + board) }
 
@@ -323,7 +327,7 @@ func (s *State) ResolveAP(ap hierarchy.NodeID) (hierarchy.APConfig, error) {
 		return cfg, err
 	}
 	for p := range cfg.Location {
-		if strings.HasPrefix(string(p), TemplatesPrefix) {
+		if strings.HasPrefix(string(p), TemplatesPrefix) || strings.HasPrefix(string(p), NotifyPrefix) {
 			delete(cfg.Location, p)
 		}
 	}
