@@ -48,6 +48,14 @@ type Input struct {
 	WantsAgent string        // the agent bundle it should run (0079); empty if unknown
 	Problems   []string      // why the manager holds its config, if it does
 	Latest     conditions.Latest
+	Fleet      *Fleet // what is the fleet's own, to tell a stranger's network (0105)
+}
+
+// Fleet is what the APs together call their own (0105): every BSSID an AP
+// reported as its own, and every SSID of Aeolus's networks.
+type Fleet struct {
+	BSSIDs map[string]bool
+	SSIDs  map[string]bool
 }
 
 // StateEvery is how often an AP reports its state (0040); a report older
@@ -160,6 +168,16 @@ type report struct {
 	Time *struct {
 		Synced *bool `json:"synced"`
 	} `json:"time"`
+	RRM *struct {
+		Others []struct {
+			BSSID   string  `json:"bssid"`
+			SSID    string  `json:"ssid"`
+			Band    string  `json:"band"`
+			Channel int     `json:"channel"`
+			Signal  float64 `json:"signal"`
+			Ago     *int    `json:"ago"`
+		} `json:"others"`
+	} `json:"rrm"`
 }
 
 func fromReport(in Input, st *conditions.State) []Alert {
@@ -225,6 +243,18 @@ func fromReport(in Input, st *conditions.State) []Alert {
 			add(Warning, "dhcp-silent", net, fmt.Sprintf("DHCP on network %s: %d requests in the last 10 minutes, and nothing answered", net, d.Unanswered))
 		}
 	}
+	// A network not one of the APs' broadcasting one of Aeolus's SSIDs: an
+	// evil twin, or an AP of the same name Aeolus does not manage (0105).
+	if f := in.Fleet; f != nil && r.RRM != nil {
+		for _, o := range r.RRM.Others {
+			if !f.SSIDs[o.SSID] || f.BSSIDs[o.BSSID] {
+				continue
+			}
+			ago = o.Ago
+			add(Warning, "rogue", o.BSSID, fmt.Sprintf("%s, not one of the APs', broadcasts %q on %s channel %d, heard at %.0f dBm: an evil twin, or an AP of that name Aeolus does not manage",
+				o.BSSID, o.SSID, bandName(o.Band), o.Channel, o.Signal))
+		}
+	}
 	if t := r.Time; t != nil && t.Synced != nil && !*t.Synced {
 		add(Info, "clock", "", "the clock is not synced: logs and key expiry may be off")
 	}
@@ -258,4 +288,16 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func bandName(b string) string {
+	switch b {
+	case "2g":
+		return "2.4 GHz"
+	case "5g":
+		return "5 GHz"
+	case "6g":
+		return "6 GHz"
+	}
+	return b
 }

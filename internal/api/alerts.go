@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
@@ -14,8 +16,34 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
 
+// fleetOwn is what the APs together call their own (0105): every BSSID an
+// AP's latest report names as its own, and every SSID of Aeolus's networks.
+func (s *Server) fleetOwn(state *change.State) *alerts.Fleet {
+	f := &alerts.Fleet{BSSIDs: map[string]bool{}, SSIDs: map[string]bool{}}
+	for _, id := range state.Org.Locations.APs() {
+		st, err := s.conds.LatestState(id)
+		if err != nil || st == nil {
+			continue
+		}
+		var r struct {
+			BSSIDs []string `json:"bssids"`
+		}
+		if json.Unmarshal(st.Report, &r) == nil {
+			for _, b := range r.BSSIDs {
+				f.BSSIDs[b] = true
+			}
+		}
+	}
+	state.Org.Services.EachSet(func(_ hierarchy.NodeID, p hierarchy.Path, v hierarchy.Value) {
+		if ssid, ok := v.(string); ok && strings.HasPrefix(string(p), "network.") && strings.HasSuffix(string(p), ".ssid") {
+			f.SSIDs[ssid] = true
+		}
+	})
+	return f
+}
+
 // alertsOf is what needs attention on one AP now (0099).
-func (s *Server) alertsOf(state *change.State, id hierarchy.NodeID, now time.Time) ([]alerts.Alert, error) {
+func (s *Server) alertsOf(state *change.State, id hierarchy.NodeID, now time.Time, fleet *alerts.Fleet) ([]alerts.Alert, error) {
 	n, _ := state.Org.Locations.Node(id)
 	version, _ := s.log.Version(id)
 	res, err := s.compose(state, id, s.reveal)
@@ -41,7 +69,7 @@ func (s *Server) alertsOf(state *change.State, id hierarchy.NodeID, now time.Tim
 	}
 	return alerts.For(alerts.Input{
 		AP: id, Name: n.Name, Now: now, Poll: poll, Unassigned: res.Unassigned,
-		Version: version, Since: s.log.VersionSince(id), WantsAgent: wants, Problems: res.Problems, Latest: l,
+		Version: version, Since: s.log.VersionSince(id), WantsAgent: wants, Problems: res.Problems, Latest: l, Fleet: fleet,
 	}), nil
 }
 
@@ -53,6 +81,7 @@ func (s *Server) alertsList(w http.ResponseWriter, r *http.Request, c call) erro
 	t := c.state.Org.Locations
 	under := hierarchy.NodeID(r.URL.Query().Get("under"))
 	now := time.Now()
+	fleet := s.fleetOwn(c.state)
 	out := []alerts.Alert{}
 	for _, id := range t.APs() {
 		if roleOn(c, change.Locations, t, id) < access.Viewer {
@@ -61,7 +90,7 @@ func (s *Server) alertsList(w http.ResponseWriter, r *http.Request, c call) erro
 		if under != "" && under != id && !slices.Contains(t.Ancestry(id), under) {
 			continue
 		}
-		as, err := s.alertsOf(c.state, id, now)
+		as, err := s.alertsOf(c.state, id, now, fleet)
 		if err != nil {
 			return err
 		}
@@ -125,8 +154,9 @@ func (s *Server) Notify(ctx context.Context, every time.Duration) {
 		state := s.log.Snapshot()
 		var all []alerts.Alert
 		targets := map[hierarchy.NodeID]alerts.Target{}
+		fleet := s.fleetOwn(state)
 		for _, id := range state.Org.Locations.APs() {
-			as, err := s.alertsOf(state, id, now)
+			as, err := s.alertsOf(state, id, now, fleet)
 			if err != nil {
 				slog.Warn("alerts: cannot work out an AP's", "ap", id, "err", err)
 				continue
