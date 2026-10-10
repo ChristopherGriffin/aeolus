@@ -286,6 +286,32 @@ func (s *Store) RecordState(ap hierarchy.NodeID, version int64, report json.RawM
 	return err
 }
 
+// StatesWith calls fn with every state report since since that holds text,
+// oldest first, such as a client's MAC (0103): the reports are searched in
+// the database, so only those are read.
+func (s *Store) StatesWith(since time.Time, text string, fn func(ap hierarchy.NodeID, st State) error) error {
+	rows, err := s.db.Query(`SELECT ap, at, version, report FROM states WHERE at >= ? AND instr(report, ?) > 0 ORDER BY at`, stamp(since), text)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ap, at, report string
+		var st State
+		if err := rows.Scan(&ap, &at, &st.Version, &report); err != nil {
+			return err
+		}
+		if st.At, err = time.Parse(time.RFC3339Nano, at); err != nil {
+			return err
+		}
+		st.Report = json.RawMessage(report)
+		if err := fn(hierarchy.NodeID(ap), st); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
 // TrimStates deletes state reports older than keep, and returns how many.
 func (s *Store) TrimStates(keep time.Duration) (int64, error) {
 	res, err := s.db.Exec(`DELETE FROM states WHERE at < ?`, stamp(s.now().Add(-keep)))

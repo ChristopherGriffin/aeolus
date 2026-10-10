@@ -442,3 +442,5 @@ a.tile:hover { border-color: var(--accent); }
 .tile.warn { border-left: 4px solid var(--warn); }
 .tile.bad { border-left: 4px solid var(--bad); }
 .chanlist { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A client's journey (0103). */
+.journey .issues { list-style: none; padding: 0; margin: 8px 0 12px; display: flex; flex-direction: column; gap: 6px; }

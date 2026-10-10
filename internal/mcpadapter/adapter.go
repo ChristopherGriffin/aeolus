@@ -122,6 +122,11 @@ type Op struct {
 	Key     string `json:"key,omitempty" jsonschema:"for the key kinds: the key's ID; add-key makes one if it is left out"`
 }
 
+type journeyIn struct {
+	MAC   string `json:"mac" jsonschema:"the client's MAC, such as aa:bb:cc:00:11:22"`
+	Hours int    `json:"hours,omitempty" jsonschema:"optional: how many hours back, 24 unless set, at most 720"`
+}
+
 type alertsIn struct {
 	Under string `json:"under,omitempty" jsonschema:"optional: a Locations folder or AP; only the APs below it"`
 }
@@ -212,6 +217,15 @@ func server(c client, version string) *mcp.Server {
 			path := "/v1/alerts"
 			if in.Under != "" {
 				path += "?under=" + url.QueryEscape(in.Under)
+			}
+			out, err := c.call(ctx, "GET", path, nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_client_journey", Description: "One Wi-Fi client's history across the APs you can view (0103), by its MAC, over the last hours (24 unless set, at most 720): its sessions, each on one AP, band and network, from and to, with its signal (min, max, mean), mean rate, retries, address and DHCP verdict; how often it roamed; and issues: a weak signal, many retries, a slow rate, no DHCP or a static address, or moving back and forth between two APs. Built from the APs' state reports, every few minutes, so a session's edges are to within a report.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in journeyIn) (*mcp.CallToolResult, any, error) {
+			path := "/v1/clients/" + url.PathEscape(in.MAC)
+			if in.Hours > 0 {
+				path += "?hours=" + fmt.Sprint(in.Hours)
 			}
 			out, err := c.call(ctx, "GET", path, nil)
 			return nil, out, err
