@@ -183,10 +183,12 @@ func (s *Server) notifyTarget(state *change.State, id hierarchy.NodeID) alerts.T
 	return t
 }
 
-// Notify sends alerts where each AP's folders say (0101), looking every
-// interval until ctx ends. A send that fails is logged and not tried again.
+// Notify sends alerts where each AP's folders say (0101), and keeps the
+// alert log (0109), looking every interval until ctx ends. A send that
+// fails is logged and not tried again.
 func (s *Server) Notify(ctx context.Context, every time.Duration) {
 	n := alerts.NewNotifier()
+	rec := newAlertRecorder()
 	client := &http.Client{Timeout: 10 * time.Second}
 	look := func() {
 		now := time.Now()
@@ -203,6 +205,7 @@ func (s *Server) Notify(ctx context.Context, every time.Duration) {
 			all = append(all, as...)
 			targets[id] = s.notifyTarget(state, id)
 		}
+		s.recordAlerts(rec, now, all)
 		for _, e := range n.Step(now, all, func(a alerts.Alert) alerts.Target { return targets[a.AP] }) {
 			if err := alerts.Send(ctx, client, e); err != nil {
 				slog.Warn("alerts: not sent", "ap", e.Alert.Name, "event", e.Kind, "key", e.Alert.Key, "err", err)

@@ -232,6 +232,18 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", path, nil)
 			return nil, out, err
 		})
+	mcp.AddTool(s, &mcp.Tool{Name: "list_alert_history", Description: "The alerts that lasted on the APs you can view (0109), at some time in the last hours (24 unless set, at most 720), newest first, at most 500: each with its AP, severity, kind, key and message, when it began, and when it ended, or none while it lasts. An alert is logged once it has lasted two minutes, from when it was first seen; a shorter blip is not. With under, only the APs below that Locations node.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in usageIn) (*mcp.CallToolResult, any, error) {
+			q := url.Values{}
+			if in.Under != "" {
+				q.Set("under", in.Under)
+			}
+			if in.Hours > 0 {
+				q.Set("hours", fmt.Sprint(in.Hours))
+			}
+			out, err := c.call(ctx, "GET", "/v1/alerts/history?"+q.Encode(), nil)
+			return nil, out, err
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list_airspace", Description: "The Wi-Fi networks the APs you can view hear (0106), once each by BSSID, with its SSID, band and channel, and every AP that hears it with its signal and when it last did, the strongest first. Each is a rogue (it broadcasts one of Aeolus's SSIDs from a BSSID no AP names as its own: an evil twin, or a same-named AP Aeolus does not manage), known (such a BSSID a folder's rogues.known says is no rogue; set it with make_change to quiet one), aeolus (one of the APs' own, heard by an AP that is not its radio neighbour) or other; rogues first. Only APs with radio resource management on listen. With under, only the APs below that Locations node.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in alertsIn) (*mcp.CallToolResult, any, error) {
 			path := "/v1/airspace"
