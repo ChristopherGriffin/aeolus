@@ -294,6 +294,7 @@
             "nas_id": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[ -~]+$", "description": "The NAS-Identifier the APs give the server." }
           }
         },
+        "blocked": { "type": "array", "items": { "type": "string", "pattern": "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$" }, "uniqueItems": true, "maxItems": 1024, "description": "Clients refused on this network, on every band, by MAC (0100). A client with a private (random) MAC has one for each network, and may change it." },
         "max_clients": { "type": "integer", "minimum": 1, "maximum": 2007, "description": "The most clients at once on each of the network's Wi-Fi interfaces, one a band (0097). Unset, OpenWrt's own, which hostapd allows up to 2007." },
         "dtim": { "type": "integer", "minimum": 1, "maximum": 255, "description": "Beacons between DTIMs, when sleeping clients wake for the multicast and broadcast kept for them (0097): higher saves their batteries, and delays that traffic. Unset, OpenWrt's 2." },
         "multicast_to_unicast": { "type": "boolean", "description": "Send all multicast (ARP, IPv4, IPv6) to each client as unicast (0049). Unset: OpenWrt's default, which does so only for groups clients joined (IGMP/MLD snooping)." },

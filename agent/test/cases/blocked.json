@@ -1,0 +1,50 @@
+{
+	"about": "PumphouseAP with two clients blocked from the lab network, by MAC (0100), one written in capitals: each Wi-Fi interface of the network refuses them (macfilter deny), the list in lower case and in order.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"blocked": [
+					"AA:BB:CC:00:11:22",
+					"02:11:22:33:44:55"
+				],
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": []
+}
