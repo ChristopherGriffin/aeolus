@@ -9,6 +9,7 @@
 import { h, link } from '../dom.js';
 import { bandName, ago } from '../format.js';
 import { configs } from './sections.js';
+import { journeyPanel } from './journey.js';
 
 const DHCP = { ok: ['ok', 'DHCP'], static: ['idle', 'static'], none: ['bad', 'no address'], unknown: ['idle', 'not yet'] };
 
@@ -31,11 +32,13 @@ export async function clientsTab(ctx, page, ap) {
 			? 'No Wi-Fi clients reported here. An AP whose agent is older than v0.33.0 doesn\'t report them.'
 			: 'No APs here yet.');
 	const box = h('div');
-	const draw = () => box.replaceChildren(table(all, !ap, draw));
+	// A client's journey opens here, above the table (0103).
+	const trip = h('div', { class: 'edit' });
+	const draw = () => box.replaceChildren(table(all, !ap, draw, trip));
 	draw();
 	return h('section', { class: 'panel' },
-		h('h2', null, 'Wi-Fi clients', h('span', { class: 'note' }, 'as each AP last reported; signal, rates and data refresh every few minutes')),
-		controls(all, !ap, draw), box);
+		h('h2', null, 'Wi-Fi clients', h('span', { class: 'note' }, 'as each AP last reported; signal, rates and data refresh every few minutes; a client opens its journey')),
+		controls(all, !ap, draw), trip, box);
 }
 
 function controls(all, folder, draw) {
@@ -71,7 +74,7 @@ const COLUMNS = [
 	['dhcp', 'DHCP', (c) => c.dhcp || ''],
 ];
 
-function table(all, folder, draw) {
+function table(all, folder, draw, trip) {
 	const q = view.q.trim().toLowerCase();
 	const shown = all.filter((c) => (!view.network || c.ssid === view.network) && (!view.ap || c.ap.id === view.ap) &&
 		(!q || [c.host, c.mac, c.address, c.ssid, c.maker, c.kind, c.os].some((x) => (x || '').toLowerCase().includes(q))));
@@ -86,7 +89,8 @@ function table(all, folder, draw) {
 	return h('table', { class: 'list clients' },
 		h('tr', null, head),
 		shown.map((c) => h('tr', null,
-			h('td', null, c.host || h('span', { class: 'mono' }, c.mac), c.host && h('div', { class: 'sub mono' }, c.mac), who(c)),
+			h('td', null, h('a', { href: '#', class: 'clientlink', title: 'Its journey: sessions, roams and issues over the last day', onclick: (e) => { e.preventDefault(); trip.scrollIntoView({ block: 'nearest' }); journeyPanel(trip, c.mac); } },
+				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac), who(c)),
 			folder && h('td', null, link(`/aps/${encodeURIComponent(c.ap.id)}`, c.ap.name)),
 			h('td', null, c.ssid || '—', c.vlan && h('div', { class: 'sub', title: 'a per-user key put it in this VLAN' }, `VLAN ${c.vlan}`)),
 			h('td', null, bandName(c.band) || '—', c.signal != null && h('div', { class: 'sub' }, `${c.signal} dBm`)),
