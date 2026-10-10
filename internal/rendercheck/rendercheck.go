@@ -90,6 +90,7 @@ var Coverage = map[string]string{
 	"network.*.radius.acct_port":         "",
 	"network.*.radius.acct_secret":       "",
 	"network.*.radius.nas_id":            "",
+	"network.*.radius.mac_auth":          "",
 	"network.*.radius.vlans":             "",
 	"network.*.radius.vlan_required":     "",
 	"network.*.radius.das.client":        "",
@@ -752,16 +753,26 @@ func (k *checker) networks(doc map[string]any, radios []device) {
 }
 
 // offeredVLANs checks the VLANs a network offers its clients: its per-user
-// keys' on a PSK network (0070), named k, or the RADIUS server's on WPA
-// Enterprise (0111), named r. For each, a bridge-vlan carrying it on the
-// uplink, an interface on it, and a wifi-vlan on the network's wifi-ifaces
-// that puts a client there. It returns the wifi-vlan sections it expects.
+// keys' where it is not WPA Enterprise (0070), named k, and the RADIUS
+// server's on WPA Enterprise (0111) or with MAC authentication (0112),
+// named r. It returns the wifi-vlan sections it expects.
 func (k *checker) offeredVLANs(id string, n map[string]any, ifaces []string) []string {
 	security, _ := n["security"].(string)
-	field, letter, vlans := "keys.vlans", "k", list(obj(n, "keys")["vlans"])
-	if strings.HasSuffix(security, "-enterprise") {
-		field, letter, vlans = "radius.vlans", "r", list(obj(n, "radius")["vlans"])
+	enterprise := strings.HasSuffix(security, "-enterprise")
+	var out []string
+	if !enterprise {
+		out = append(out, k.vlansOf(id, "keys.vlans", "k", list(obj(n, "keys")["vlans"]), ifaces)...)
 	}
+	if r := obj(n, "radius"); enterprise || r["mac_auth"] == true {
+		out = append(out, k.vlansOf(id, "radius.vlans", "r", list(r["vlans"]), ifaces)...)
+	}
+	return out
+}
+
+// vlansOf checks one set of offered VLANs: for each, a bridge-vlan carrying
+// it on the uplink, an interface on it, and a wifi-vlan on the network's
+// wifi-ifaces that puts a client there.
+func (k *checker) vlansOf(id, field, letter string, vlans, ifaces []string) []string {
 	if len(vlans) == 0 {
 		return nil
 	}
@@ -901,15 +912,17 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 // with its own secret or the sign-in one; and the NAS-Identifier. Where the
 // network offers VLANs, the server's VLAN for a client is taken, and
 // required with vlan_required; where a server may disconnect clients, it,
-// its secret or the sign-in one, and its port, 3799 unless set (0111).
-// Another network has none of them.
+// its secret or the sign-in one, and its port, 3799 unless set (0111). A
+// network with MAC authentication has the servers too, and the VLANs, but
+// no disconnects (0112). Another network has none of them.
 func (k *checker) radius(where, security string, r map[string]any, s *uci.Section) {
 	opts := []string{"auth_server", "auth_port", "auth_secret", "acct_server", "acct_port", "acct_secret", "nasid",
 		"dynamic_vlan", "radius_das_client", "radius_das_secret", "radius_das_port"}
-	if !strings.HasSuffix(security, "-enterprise") {
+	enterprise := strings.HasSuffix(security, "-enterprise")
+	if !enterprise && r["mac_auth"] != true {
 		for _, o := range opts {
 			if got, ok := s.Option(o); ok {
-				k.add("%s: %s is %q, but %s is no WPA Enterprise", where, o, got, security)
+				k.add("%s: %s is %q, but %s is no WPA Enterprise, and has no MAC authentication", where, o, got, security)
 			}
 		}
 		return
@@ -932,7 +945,7 @@ func (k *checker) radius(where, security string, r map[string]any, s *uci.Sectio
 			want["dynamic_vlan"] = "2"
 		}
 	}
-	if das := obj(r, "das"); das["client"] != nil {
+	if das := obj(r, "das"); enterprise && das["client"] != nil {
 		dstr := func(key string) string { v, _ := das[key].(string); return v }
 		want["radius_das_client"] = dstr("client")
 		want["radius_das_secret"] = cmp.Or(dstr("secret"), str("auth_secret"))

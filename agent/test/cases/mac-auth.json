@@ -1,0 +1,32 @@
+{
+	"about": "MAC authentication (0112): a WPA2 network whose devices the RADIUS server at 192.168.20.106 is asked about by MAC before they are let on, with accounting there too. The server may put a device in VLAN 30, r30, beside VLAN 101 for the network's per-user keys, k101. OpenWrt asks the server by MAC for any network that is not WPA Enterprise and has one; no Disconnect options are rendered, as those are WPA Enterprise's.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		},
+		"eap": true
+	},
+	"intent": {
+		"system": { "country": "US", "poll": 60 },
+		"network": {
+			"things": {
+				"ssid": "Aeolus Things",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"radius": {
+					"mac_auth": true,
+					"auth_server": "192.168.20.106",
+					"auth_secret": "fixture-radius-secret",
+					"acct_server": "192.168.20.106",
+					"vlans": [30]
+				},
+				"keys": { "vlans": [101] },
+				"transport": { "primary": { "type": "vlan", "vlan": 20 } }
+			}
+		}
+	},
+	"errors": []
+}
