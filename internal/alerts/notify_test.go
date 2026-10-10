@@ -128,3 +128,40 @@ func TestSendWebhookAndNtfy(t *testing.T) {
 		t.Fatalf("ntfy got %q %v", ntfyBody, ntfyHead)
 	}
 }
+
+// An alert open at the first look that no target would have had is not
+// taken as sent: an endpoint added later still hears of it.
+func TestNotifierStartupOnlyMarksWhatWasDeliverable(t *testing.T) {
+	n := NewNotifier()
+	a := Alert{AP: "ap-1", Severity: Critical, Kind: "offline", Key: "offline"}
+	none := func(Alert) Target { return Target{} }
+	n.Step(now, []Alert{a}, none)
+	to := func(Alert) Target { return Target{Ntfy: "https://n/x"} }
+	n.Step(now.Add(time.Minute), []Alert{a}, to)
+	if got := events(n.Step(now.Add(4*time.Minute), []Alert{a}, to)); got != "alert:offline" {
+		t.Fatalf("after an endpoint was added: %s", got)
+	}
+}
+
+// Errors name only the target's origin, never its sealed path or query,
+// and a redirect is refused, not followed as a GET without the alert.
+func TestSendKeepsTheSecretOutOfErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/moved" {
+			http.Redirect(w, r, "/topic-secret", http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	for _, path := range []string{"/topic-secret?auth=tok", "/moved"} {
+		e := Event{Kind: "alert", Target: Target{Ntfy: srv.URL + path}, Alert: Alert{Name: "C360-AP", Severity: Critical, Message: "offline"}}
+		err := Send(context.Background(), srv.Client(), e)
+		if err == nil {
+			t.Fatalf("%s: sent", path)
+		}
+		if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "tok") || strings.Contains(err.Error(), "moved") {
+			t.Fatalf("%s: the error names the path: %v", path, err)
+		}
+	}
+}

@@ -44,6 +44,8 @@ type Input struct {
 	Poll       time.Duration // between its config polls; 60 s unless set
 	Unassigned bool          // waiting in Landing Zone
 	Version    int64         // the config version it should run
+	Since      time.Time     // when that version was made; zero if unknown
+	WantsAgent string        // the agent bundle it should run (0079); empty if unknown
 	Problems   []string      // why the manager holds its config, if it does
 	Latest     conditions.Latest
 }
@@ -93,16 +95,19 @@ func For(in Input) []Alert {
 			why = c.Problems[0]
 		}
 		add(Critical, "refused", fmt.Sprintf("version %d was refused by the render check: %s", c.Version, why), &c.At)
+		out[len(out)-1].Key = fmt.Sprintf("refused:%d", c.Version) // each version's failure its own
 	}
 	if a := l.Apply; a != nil && a.Version == in.Version && !a.OK {
 		failed = true
 		add(Critical, "apply-failed", fmt.Sprintf("version %d did not apply: %s", a.Version, a.Error), &a.At)
+		out[len(out)-1].Key = fmt.Sprintf("apply-failed:%d", a.Version)
 	}
 	// Behind, with no reason above: it has not taken up the current version
-	// for three polls.
+	// for three polls since that version was made, though it calls in.
 	if s := l.Seen; s != nil && !failed && len(in.Problems) == 0 && s.Running != nil && *s.Running != in.Version &&
-		s.RunningAt != nil && in.Now.Sub(*s.RunningAt) > Offline(in.Poll) && in.Now.Sub(s.At) <= Offline(in.Poll) {
-		add(Warning, "behind", fmt.Sprintf("runs version %d, not the current %d", *s.Running, in.Version), s.RunningAt)
+		!in.Since.IsZero() && in.Now.Sub(in.Since) > Offline(in.Poll) && in.Now.Sub(s.At) <= Offline(in.Poll) {
+		since := in.Since
+		add(Warning, "behind", fmt.Sprintf("runs version %d, not the current %d", *s.Running, in.Version), &since)
 	}
 	if st := l.State; st != nil && in.Now.Sub(st.At) <= 3*StateEvery {
 		out = append(out, fromReport(in, st)...)
@@ -116,10 +121,13 @@ func For(in Input) []Alert {
 type report struct {
 	WirelessMissing bool `json:"wireless_missing"`
 	Agent           *struct {
+		Hash   string `json:"hash"`
 		Update *struct {
 			Version string `json:"version"`
+			Hash    string `json:"hash"`
 			State   string `json:"state"`
 			Why     string `json:"why"`
+			Ago     *int   `json:"ago"`
 		} `json:"update"`
 	} `json:"agent"`
 	Transports map[string]struct {
@@ -138,6 +146,7 @@ type report struct {
 		Loops []struct {
 			Port string `json:"port"`
 			VNI  int    `json:"vni"`
+			Ago  *int   `json:"ago"`
 		} `json:"loops"`
 	} `json:"vxlan"`
 	UplinkVLANs []struct {
@@ -159,17 +168,29 @@ func fromReport(in Input, st *conditions.State) []Alert {
 		return nil
 	}
 	var out []Alert
+	// Since is when the report says the cause began, where it says, by how
+	// long before it was made; else when the report was made.
+	var ago *int
 	add := func(sev, kind, subject, msg string) {
 		key := kind
 		if subject != "" {
 			key += ":" + subject
 		}
-		out = append(out, Alert{AP: in.AP, Name: in.Name, Severity: sev, Kind: kind, Key: key, Message: msg, Since: &st.At})
+		since := st.At
+		if ago != nil && *ago >= 0 {
+			since = st.At.Add(-time.Duration(*ago) * time.Second)
+		}
+		ago = nil
+		out = append(out, Alert{AP: in.AP, Name: in.Name, Severity: sev, Kind: kind, Key: key, Message: msg, Since: &since})
 	}
 	if r.WirelessMissing {
 		add(Critical, "wireless-missing", "", "netifd lost its network.wireless object: the radios run, but nothing sees them or their clients until the network restarts")
 	}
-	if u := r.Agent; u != nil && u.Update != nil && (u.Update.State == "failed" || u.Update.State == "rolled-back") {
+	// An update that failed is news only while the bundle it was to is
+	// still the one the AP should run, and it does not run it (0079).
+	if u := r.Agent; u != nil && u.Update != nil && (u.Update.State == "failed" || u.Update.State == "rolled-back") &&
+		in.WantsAgent != "" && u.Update.Hash == in.WantsAgent && u.Hash != in.WantsAgent {
+		ago = u.Update.Ago
 		add(Warning, "agent-update", u.Update.Version, fmt.Sprintf("the agent update to %s %s: %s", u.Update.Version, u.Update.State, u.Update.Why))
 	}
 	for _, net := range sortedKeys(r.Transports) {
@@ -190,6 +211,7 @@ func fromReport(in Input, st *conditions.State) []Alert {
 			}
 		}
 		for _, l := range x.Loops {
+			ago = l.Ago
 			add(Critical, "loop", fmt.Sprintf("%s/%d", l.Port, l.VNI), fmt.Sprintf("port %s loops on VNI %d: the loop guard took it off its tunnels", l.Port, l.VNI))
 		}
 	}
