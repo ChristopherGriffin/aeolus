@@ -48,7 +48,7 @@ var (
 // secretOptions are the UCI options that hold keys and passwords (0041).
 var secretOptions = map[string]bool{
 	"key": true, "sae_password": true, "password": true,
-	"auth_secret": true, "acct_secret": true, "private_key": true, "preshared_key": true,
+	"auth_secret": true, "acct_secret": true, "radius_das_secret": true, "private_key": true, "preshared_key": true,
 	"community": true, "auth_pass": true, "privacy_pass": true,
 }
 

@@ -26,7 +26,8 @@ const BANDS = ['2g', '5g', '6g'];
 const MORE = 'More settings';
 const SECTIONS = [
 	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation', 'multicast_to_unicast']],
-	['RADIUS', ['radius.auth_server', 'radius.auth_port', 'radius.auth_secret', 'radius.acct_server', 'radius.acct_port', 'radius.acct_secret', 'radius.nas_id']],
+	['RADIUS', ['radius.auth_server', 'radius.auth_port', 'radius.auth_secret', 'radius.acct_server', 'radius.acct_port', 'radius.acct_secret', 'radius.nas_id',
+		'radius.vlans', 'radius.vlan_required', 'radius.das.client', 'radius.das.secret', 'radius.das.port']],
 	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
 	['Per-user keys', ['keys.vlans']],
 	['Traffic', [
@@ -623,7 +624,7 @@ function setOp(folder, values) {
 // shown writes a value for the preview; a secret is never shown.
 // SECRET is the network fields whose values are never shown (0027): the
 // passphrase, and a RADIUS server's secrets (0098).
-const SECRET = /\.(passphrase|radius\.(auth|acct)_secret)$/;
+const SECRET = /\.(passphrase|radius\.(auth|acct)_secret|radius\.das\.secret)$/;
 
 function shown(path, v) {
 	if (!SECRET.test(path)) return value(path, v);

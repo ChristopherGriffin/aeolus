@@ -977,21 +977,23 @@ function dhcp_scan(at) {
 			if (id)
 				nets[id] = true;
 		}
-	// A per-user key's client is on its VLAN's own Wi-Fi interface, which
-	// hostapd makes as <bss>-k<vlan> (0070): its stations are read there, and
-	// what it says of itself in DHCP too. The DHCP watch's findings stay
-	// with the network's own segment.
+	// A client a per-user key (0070) or the RADIUS server (0111) put in a
+	// VLAN is on that VLAN's own Wi-Fi interface, which hostapd makes as
+	// <bss>-k<vlan> or <bss>-r<vlan>: its stations are read there, and what
+	// it says of itself in DHCP too. The DHCP watch's findings stay with the
+	// network's own segment.
 	let names = fs.lsdir('/sys/class/net') ?? [];
-	for (let a in slice(all)) {
-		let prefix = a.ifname + '-k';
-		for (let name in names) {
-			let vlan = substr(name, 0, length(prefix)) == prefix ? int(substr(name, length(prefix))) : 0;
-			if (vlan > 0 && vlan < 4095 && name == prefix + vlan) {
-				push(all, { ifname: name, ssid: a.ssid, band: a.band, network: a.network, vlan: vlan, parent: a.ifname });
-				want[name] = null;
+	for (let a in slice(all))
+		for (let by in ['-k', '-r']) {
+			let prefix = a.ifname + by;
+			for (let name in names) {
+				let vlan = substr(name, 0, length(prefix)) == prefix ? int(substr(name, length(prefix))) : 0;
+				if (vlan > 0 && vlan < 4095 && name == prefix + vlan) {
+					push(all, { ifname: name, ssid: a.ssid, band: a.band, network: a.network, vlan: vlan, parent: a.ifname });
+					want[name] = null;
+				}
 			}
 		}
-	}
 	for (let ifn in keys(dw.ifaces))
 		if (!(ifn in want) || want[ifn] != dw.ifaces[ifn].network || ifindex(ifn) != dw.ifaces[ifn].index) {
 			close(dw.ifaces[ifn].sock);

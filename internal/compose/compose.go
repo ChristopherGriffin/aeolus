@@ -519,18 +519,28 @@ func snmpProblems(doc map[string]any) []string {
 // enterpriseProblems refuses a WPA Enterprise network the AP could not
 // render (0098): one with no RADIUS server or secret to sign in against;
 // with per-user keys, which are passphrases; or with 802.11r, whose keys
-// for 802.1X are not rendered yet.
+// for 802.1X are not rendered yet. RADIUS's VLANs and disconnects (0111)
+// are for WPA Enterprise alone: on another network, nothing would use them.
 func enterpriseProblems(doc map[string]any) []string {
 	nets, _ := doc["network"].(map[string]any)
 	var out []string
 	for _, id := range sortedKeys(nets) {
 		n, _ := nets[id].(map[string]any)
 		security, _ := n["security"].(string)
-		if !strings.HasSuffix(security, "-enterprise") || n["enabled"] == false {
-			continue
-		}
 		where := "network." + id
 		r, _ := n["radius"].(map[string]any)
+		if !strings.HasSuffix(security, "-enterprise") {
+			if n["enabled"] != false && (r["vlans"] != nil || r["das"] != nil) {
+				out = append(out, where+": the RADIUS server's VLANs and disconnects are for WPA Enterprise; "+security+" signs no client in against it")
+			}
+			continue
+		}
+		if n["enabled"] == false {
+			continue
+		}
+		if das, _ := r["das"].(map[string]any); das != nil && das["client"] == nil {
+			out = append(out, where+": radius.das needs the address its Disconnect-Requests come from: radius.das.client")
+		}
 		if r["auth_server"] == nil || r["auth_secret"] == nil {
 			out = append(out, where+": WPA Enterprise needs a RADIUS server to sign clients in against: radius.auth_server and radius.auth_secret")
 		}

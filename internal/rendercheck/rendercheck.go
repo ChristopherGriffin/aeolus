@@ -90,6 +90,11 @@ var Coverage = map[string]string{
 	"network.*.radius.acct_port":         "",
 	"network.*.radius.acct_secret":       "",
 	"network.*.radius.nas_id":            "",
+	"network.*.radius.vlans":             "",
+	"network.*.radius.vlan_required":     "",
+	"network.*.radius.das.client":        "",
+	"network.*.radius.das.secret":        "",
+	"network.*.radius.das.port":          "",
 	"network.*.keys.vlans":               "",
 	"network.*.roaming.ft":               "",
 	"network.*.roaming.rrm":              "",
@@ -730,7 +735,7 @@ func (k *checker) networks(doc map[string]any, radios []device) {
 			ifaces = append(ifaces, name)
 		}
 		k.transports(id, n, obj(doc, "concentrators"))
-		for _, name := range k.keyVLANs(id, n, ifaces) {
+		for _, name := range k.offeredVLANs(id, n, ifaces) {
 			vlanSections[name] = true
 		}
 	}
@@ -741,22 +746,22 @@ func (k *checker) networks(doc map[string]any, radios []device) {
 	}
 	for _, s := range w.OfType("wifi-vlan") {
 		if strings.HasPrefix(s.Name, "aeolus_") && !vlanSections[s.Name] {
-			k.add("wireless.%s: no network offers its VLAN to keys", s.Name)
+			k.add("wireless.%s: no network offers its VLAN", s.Name)
 		}
 	}
 }
 
-// KeyVLANInterface is the interface a network's per-user keys' VLAN is on,
-// and KeyVLANSection the wifi-vlan that puts a key's client there (0070).
-func KeyVLANInterface(network, vlan string) string { return InterfaceName(network) + "_k" + vlan }
-func KeyVLANSection(network, vlan string) string   { return InterfaceName(network) + "_kv" + vlan }
-
-// keyVLANs checks the VLANs a network offers its per-user keys (0070): for
-// each, a bridge-vlan carrying it on the uplink, an interface on it, and a
-// wifi-vlan on the network's wifi-ifaces that puts a key's client there. It
-// returns the wifi-vlan sections it expects.
-func (k *checker) keyVLANs(id string, n map[string]any, ifaces []string) []string {
-	vlans := list(obj(n, "keys")["vlans"])
+// offeredVLANs checks the VLANs a network offers its clients: its per-user
+// keys' on a PSK network (0070), named k, or the RADIUS server's on WPA
+// Enterprise (0111), named r. For each, a bridge-vlan carrying it on the
+// uplink, an interface on it, and a wifi-vlan on the network's wifi-ifaces
+// that puts a client there. It returns the wifi-vlan sections it expects.
+func (k *checker) offeredVLANs(id string, n map[string]any, ifaces []string) []string {
+	security, _ := n["security"].(string)
+	field, letter, vlans := "keys.vlans", "k", list(obj(n, "keys")["vlans"])
+	if strings.HasSuffix(security, "-enterprise") {
+		field, letter, vlans = "radius.vlans", "r", list(obj(n, "radius")["vlans"])
+	}
 	if len(vlans) == 0 {
 		return nil
 	}
@@ -770,8 +775,8 @@ func (k *checker) keyVLANs(id string, n map[string]any, ifaces []string) []strin
 	}
 	var out []string
 	for _, v := range vlans {
-		where := fmt.Sprintf("network.%s.keys.vlans: VLAN %s", id, v)
-		iface, section := KeyVLANInterface(id, v), KeyVLANSection(id, v)
+		where := fmt.Sprintf("network.%s.%s: VLAN %s", id, field, v)
+		iface, section := InterfaceName(id)+"_"+letter+v, InterfaceName(id)+"_"+letter+"v"+v
 		out = append(out, section)
 		carried := false
 		for _, bv := range net.OfType("bridge-vlan") {
@@ -791,7 +796,7 @@ func (k *checker) keyVLANs(id string, n map[string]any, ifaces []string) []strin
 			continue
 		}
 		k.option("wireless."+section, x, "vid", v)
-		k.option("wireless."+section, x, "name", "k"+v)
+		k.option("wireless."+section, x, "name", letter+v)
 		if got := x.List("network"); !sameSet(got, []string{iface}) {
 			k.add("wireless.%s: network is %v, want %s", section, got, iface)
 		}
@@ -893,10 +898,14 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 // radius checks a WPA Enterprise network's RADIUS servers on its Wi-Fi
 // interface (0098): the one clients sign in against, at its port, 1812
 // unless set, with its secret; accounting, where set, at 1813 unless set,
-// with its own secret or the sign-in one; and the NAS-Identifier. Another
-// network has none of them.
+// with its own secret or the sign-in one; and the NAS-Identifier. Where the
+// network offers VLANs, the server's VLAN for a client is taken, and
+// required with vlan_required; where a server may disconnect clients, it,
+// its secret or the sign-in one, and its port, 3799 unless set (0111).
+// Another network has none of them.
 func (k *checker) radius(where, security string, r map[string]any, s *uci.Section) {
-	opts := []string{"auth_server", "auth_port", "auth_secret", "acct_server", "acct_port", "acct_secret", "nasid"}
+	opts := []string{"auth_server", "auth_port", "auth_secret", "acct_server", "acct_port", "acct_secret", "nasid",
+		"dynamic_vlan", "radius_das_client", "radius_das_secret", "radius_das_port"}
 	if !strings.HasSuffix(security, "-enterprise") {
 		for _, o := range opts {
 			if got, ok := s.Option(o); ok {
@@ -916,6 +925,21 @@ func (k *checker) radius(where, security string, r map[string]any, s *uci.Sectio
 	if str("acct_server") != "" {
 		want["acct_server"], want["acct_port"] = str("acct_server"), port("acct_port", 1813)
 		want["acct_secret"] = cmp.Or(str("acct_secret"), str("auth_secret"))
+	}
+	if len(list(r["vlans"])) > 0 {
+		want["dynamic_vlan"] = "1"
+		if r["vlan_required"] == true {
+			want["dynamic_vlan"] = "2"
+		}
+	}
+	if das := obj(r, "das"); das["client"] != nil {
+		dstr := func(key string) string { v, _ := das[key].(string); return v }
+		want["radius_das_client"] = dstr("client")
+		want["radius_das_secret"] = cmp.Or(dstr("secret"), str("auth_secret"))
+		want["radius_das_port"] = "3799"
+		if v, ok := das["port"].(float64); ok {
+			want["radius_das_port"] = text(v)
+		}
 	}
 	for _, o := range opts {
 		got, _ := s.Option(o)

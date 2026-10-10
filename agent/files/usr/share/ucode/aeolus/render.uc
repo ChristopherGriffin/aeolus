@@ -392,6 +392,18 @@ function iface_options(net, radio, band, network, btm) {
 		}
 		if (r.nas_id)
 			o.nasid = r.nas_id;
+		// The VLAN the server names puts its client there, if the network
+		// offers it (0111): optional, or with vlan_required, the client is
+		// refused without one.
+		if (length(r.vlans ?? []))
+			o.dynamic_vlan = r.vlan_required ? '2' : '1';
+		// A Disconnect-Request from the one server named (RFC 5176), so a NAC
+		// can have a client sign in again (0111).
+		if (r.das?.client) {
+			o.radius_das_client = r.das.client;
+			o.radius_das_secret = r.das.secret ?? r.auth_secret;
+			o.radius_das_port = '' + (r.das.port ?? 3799);
+		}
 	}
 	// Every network's beacons list the AP's other networks, on every band,
 	// in a Reduced Neighbor Report, so a client hearing one band learns the
@@ -687,21 +699,26 @@ function networks(cfg, intent, facts, errors, keep) {
 		// On a radio whose driver makes none (ath11k), hostapd fails every
 		// network on the radio, and the apply is reverted (0082): refused here
 		// instead, before anything is applied.
-		if (length(net.keys?.vlans ?? []) && length(no_ap_vlan))
-			push(errors, `network.${id}.keys.vlans: ${join(', ', no_ap_vlan)} cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or give its keys no VLANs`);
-		// The VLANs the network's per-user keys may put clients in (0070):
-		// each tagged on the uplink, an interface on it, and a wifi-vlan on
-		// the network's Wi-Fi. hostapd makes the VLAN's Wi-Fi interface,
-		// <bss>-k<vlan>, and netifd puts it on that interface.
-		for (let v in net.keys?.vlans ?? []) {
-			if (!uplink())
-				break;
-			ensure_vlan(n, bridge, facts.uplinks, v, keep);
-			let vi = `${iface}_k${v}`, wv = `${iface}_kv${v}`;
-			put(n, vi, 'interface', { proto: 'none', device: `${bridge}.${v}` });
-			put(w, wv, 'wifi-vlan', { iface: names, name: `k${v}`, vid: '' + v, network: [vi] });
-			keep[vi] = keep[wv] = true;
-		}
+		// The VLANs a client may be put in: by its per-user key (0070), k, or
+		// on WPA Enterprise by the RADIUS server (0111), r.
+		let offered = ENTERPRISE[net.security] ? [['r', 'radius.vlans', net.radius?.vlans ?? [], 'take them out of radius.vlans']] : [['k', 'keys.vlans', net.keys?.vlans ?? [], 'give its keys no VLANs']];
+		for (let o in offered)
+			if (length(o[2]) && length(no_ap_vlan))
+				push(errors, `network.${id}.${o[1]}: ${join(', ', no_ap_vlan)} cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or ${o[3]}`);
+		// Each VLAN is tagged on the uplink, with an interface on it and a
+		// wifi-vlan on the network's Wi-Fi. hostapd makes the VLAN's Wi-Fi
+		// interface, <bss>-k<vlan> or <bss>-r<vlan>, and netifd puts it on
+		// that interface.
+		for (let o in offered)
+			for (let v in o[2]) {
+				if (!uplink())
+					break;
+				ensure_vlan(n, bridge, facts.uplinks, v, keep);
+				let vi = `${iface}_${o[0]}${v}`, wv = `${iface}_${o[0]}v${v}`;
+				put(n, vi, 'interface', { proto: 'none', device: `${bridge}.${v}` });
+				put(w, wv, 'wifi-vlan', { iface: names, name: `${o[0]}${v}`, vid: '' + v, network: [vi] });
+				keep[vi] = keep[wv] = true;
+			}
 	}
 }
 

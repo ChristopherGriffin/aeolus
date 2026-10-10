@@ -97,7 +97,7 @@ function table(ctx, all, folder, draw, out) {
 				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac), who(c),
 					h('div', { class: 'rowbuttons' }, reconnectButton(ctx, c, out), blockButton(ctx, c, out))),
 			folder && h('td', null, link(`/aps/${encodeURIComponent(c.ap.id)}`, c.ap.name)),
-			h('td', null, c.ssid || '—', c.vlan && h('div', { class: 'sub', title: 'a per-user key put it in this VLAN' }, `VLAN ${c.vlan}`)),
+			h('td', null, c.ssid || '—', c.vlan && h('div', { class: 'sub', title: vlanBy(c) }, `VLAN ${c.vlan}`)),
 			h('td', null, bandName(c.band) || '—', c.signal != null && h('div', { class: 'sub' }, `${c.signal} dBm`)),
 			h('td', null, rate(c)),
 			h('td', null, features(c)),
@@ -107,6 +107,13 @@ function table(ctx, all, folder, draw, out) {
 			h('td', null, `↓ ${size(c.tx_bytes)}`, h('div', { class: 'sub' }, `↑ ${size(c.rx_bytes)}`)),
 			h('td', null, c.dhcp ? h('span', { class: 'chip ' + DHCP[c.dhcp][0] }, DHCP[c.dhcp][1]) : '—'))),
 		!shown.length && h('tr', null, h('td', { colspan: folder ? 11 : 10, class: 'sub' }, 'No client matches.')));
+}
+
+// vlanBy says what put a client in its VLAN: on WPA Enterprise, the RADIUS
+// server (0111); otherwise its per-user key (0070).
+function vlanBy(c) {
+	const security = c.network && c.cfg?.networks?.[c.network]?.fields?.security?.value;
+	return String(security || '').endsWith('-enterprise') ? 'the RADIUS server put it in this VLAN' : 'a per-user key put it in this VLAN';
 }
 
 // blockButton blocks a client from its network, by MAC (0100), where Aeolus

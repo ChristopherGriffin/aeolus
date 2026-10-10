@@ -978,4 +978,20 @@ func TestEnterpriseNeedsItsServer(t *testing.T) {
 	if strings.Contains(got, "needs a RADIUS server") || !strings.Contains(got, "802.11r with WPA Enterprise is not rendered yet") {
 		t.Fatalf("problems = %s", got)
 	}
+	// Disconnects need the server's address (0111).
+	set("network.sweet.roaming.ft", false)
+	set("network.sweet.radius.das.port", 3799)
+	if got := problems(); !strings.Contains(got, "radius.das needs the address its Disconnect-Requests come from") {
+		t.Fatalf("problems = %s", got)
+	}
+	set("network.sweet.radius.das.client", "192.168.20.106")
+	set("network.sweet.radius.vlans", []int{30, 40})
+	if got := problems(); strings.Contains(got, "radius") || strings.Contains(got, "RADIUS") {
+		t.Fatalf("problems = %s", got)
+	}
+	// On a PSK network, nothing would use them.
+	set("network.sweet.security", "wpa2-psk")
+	if got := problems(); !strings.Contains(got, "the RADIUS server's VLANs and disconnects are for WPA Enterprise") {
+		t.Fatalf("problems = %s", got)
+	}
 }
