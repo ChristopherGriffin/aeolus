@@ -2,6 +2,7 @@ package conditions
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -52,5 +53,66 @@ func TestActions(t *testing.T) {
 	}
 	if list, _ := s.Actions("ap-1", 10); len(list) != 2 || list[0].ID != r.ID || list[0].State != "expired" {
 		t.Fatalf("actions = %+v", list)
+	}
+}
+
+// Asks racing the AP taking up and finishing what it is asked (0104): every
+// ask gives an action, and never are two of a kind open at once.
+func TestAddActionRacesTheAP(t *testing.T) {
+	now := time.Date(2026, 10, 10, 2, 0, 0, 0, time.UTC)
+	s, err := Open(filepath.Join(t.TempDir(), "c.db"), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	stop := make(chan struct{})
+	ap := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				ap <- nil
+				return
+			default:
+			}
+			got, err := s.ClaimActions("ap-1")
+			if err != nil {
+				ap <- err
+				return
+			}
+			for _, a := range got {
+				if _, err := s.FinishAction("ap-1", a.ID, true, ""); err != nil {
+					ap <- err
+					return
+				}
+			}
+		}
+	}()
+	var wg sync.WaitGroup
+	errs := make(chan error, 200)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 25 {
+				if a, err := s.AddAction("ap-1", "reboot", "griff"); err != nil || a.ID == 0 {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(stop)
+	if err := <-ap; err != nil {
+		t.Fatalf("the AP: %v", err)
+	}
+	close(errs)
+	for err := range errs {
+		t.Fatalf("an ask failed: %v", err)
+	}
+	var open int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM actions WHERE state IN ('pending', 'running')`).Scan(&open); err != nil || open > 1 {
+		t.Fatalf("%d open, %v", open, err)
 	}
 }
