@@ -1,0 +1,57 @@
+{
+	"about": "The C-360 with spanning tree on, before ustp is installed (0095): the kernel's own STP has no edge ports and would hold each Wi-Fi network at every start, so the bridge stays as it is, the renderer says why, and the render check refuses the config until the agent has ustp in.",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"uplink": {
+			"stp": true
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": [
+		"uplink.stp: spanning tree needs ustp, for RSTP, which the agent is installing; the bridge stays as it is until then"
+	],
+	"refused": true
+}

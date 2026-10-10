@@ -977,6 +977,37 @@ function watches(cfg, intent, facts, keep) {
 	}
 }
 
+// stp turns spanning tree on or off on the uplink's bridge (0095), as on a
+// switch: RSTP, by ustp, so a second link to the same network is blocked,
+// not looped. ustp gives every bridge the default priority, 32768, whatever
+// netifd's priority says, so the root is the switch whose priority is set
+// lower, as a network's should be. The kernel's own STP has no edge ports,
+// and would hold each Wi-Fi network for twice the root's forward delay
+// whenever it starts, so without ustp the bridge stays as it is, and the
+// agent installs ustp; the render check holds the config until then. An
+// uplink in no bridge is one port, which cannot loop: there is nothing to
+// do. Unset leaves the bridge as it is.
+function stp(n, intent, facts, errors, needs) {
+	let on = intent.uplink?.stp;
+	if (on == null)
+		return;
+	let up = filter(of_type(n, 'device'), d => d.type == 'bridge' && facts.uplink && index(list(d.ports), facts.uplink) >= 0)[0];
+	if (!up)
+		return;
+	if (!on) {
+		delete up.stp;
+		delete up.stp_proto;
+		return;
+	}
+	if (!facts.ustp) {
+		push(errors, 'uplink.stp: spanning tree needs ustp, for RSTP, which the agent is installing; the bridge stays as it is until then');
+		push(needs, 'ustp');
+		return;
+	}
+	up.stp = '1';
+	up.stp_proto = 'rstp';
+}
+
 // rrm turns radio resource management on (0073): the agent's daemon then
 // advertises this AP in its beacons, keeps neighbours with the others, and
 // moves its radios as the policy says, defaults written out. Off, there is
@@ -1222,20 +1253,23 @@ function clamp(network, aeolus) {
 	]);
 }
 
-// render returns the new packages, the names of those that changed, and
-// what it could not render. facts: { uplink, management: the interface the
+// render returns the new packages, the names of those that changed, what it
+// could not render, and the OpenWrt packages it needs for that, which the
+// agent installs (needs, 0095). facts: { uplink, management: the interface the
 // AP reaches the manager through, radios: { <radio>: { htmodes } },
 // timezone: the POSIX string for intent's time zone, vxlan: whether netifd
 // has loaded the vxlan package, nft_bridge: whether kmod-nft-bridge is
 // installed, bss_transition: whether hostapd has 802.11v, null if not known,
 // ap: the AP's ID, which its segment MACs are made from (0060), prober:
 // whether the prober can run, which a network with a fallback needs, and
-// veth: whether kmod-veth is installed, for its VLAN transports (0061) }.
+// veth: whether kmod-veth is installed, for its VLAN transports (0061),
+// ustp: whether ustp is installed, for spanning tree (0095) }.
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)
 		cfg[p] = clone(current[p] ?? {});
 	let errors = [];
+	let needs = [];   // the packages the config needs that the AP lacks (0095)
 	let keep = {};
 	radios(cfg.wireless, intent, facts ?? {});
 	networks(cfg, intent, facts ?? {}, errors, keep);
@@ -1250,6 +1284,7 @@ function render(intent, current, facts) {
 	probes(cfg, intent, facts ?? {}, keep);
 	watches(cfg, intent, facts ?? {}, keep);
 	rrm(cfg.aeolus, cfg.wireless, intent, facts ?? {}, keep);
+	stp(cfg.network, intent, facts ?? {}, errors, needs);
 	guard_interval(cfg.aeolus, cfg.wireless, intent, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
@@ -1260,7 +1295,7 @@ function render(intent, current, facts) {
 	steering(cfg.usteer, intent, errors);
 	snmp(cfg, intent, facts ?? {}, errors);
 	let changed = filter(PACKAGES, p => text(p, cfg[p]) != text(p, current[p] ?? {}));
-	return { config: cfg, changed: changed, errors: errors };
+	return { config: cfg, changed: changed, errors: errors, needs: needs };
 }
 
 // without_keys is a wireless package without the key agent's wifi-station
