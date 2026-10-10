@@ -950,3 +950,32 @@ func TestUnbondingNeedsSpanningTree(t *testing.T) {
 		t.Fatalf("with spanning tree on: %s", got)
 	}
 }
+
+// A WPA Enterprise network needs its RADIUS server, and neither per-user
+// keys nor 802.11r yet (0098).
+func TestEnterpriseNeedsItsServer(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("network.sweet.security", "wpa3-enterprise")
+	if got := problems(); !strings.Contains(got, "network.sweet: WPA Enterprise needs a RADIUS server") {
+		t.Fatalf("problems = %s", got)
+	}
+	set("network.sweet.radius.auth_server", "192.168.20.5")
+	set("network.sweet.radius.auth_secret", "radius-secret")
+	set("network.sweet.roaming.ft", true)
+	got := problems()
+	if strings.Contains(got, "needs a RADIUS server") || !strings.Contains(got, "802.11r with WPA Enterprise is not rendered yet") {
+		t.Fatalf("problems = %s", got)
+	}
+}

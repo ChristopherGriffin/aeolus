@@ -1,0 +1,57 @@
+{
+	"about": "The C-360 with a WPA2/WPA3-Enterprise network (0098): each client signs in by 802.1X against the RADIUS server at 192.168.20.5, port 1812, and accounting goes there too, at 1813, with the same secret, as no accounting secret is set. On 2.4 and 5 GHz it is WPA2/WPA3 (wpa3-mixed); on 6 GHz, WPA3-Enterprise alone (wpa3), as 6 GHz takes WPA3 only (0086).",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		},
+		"eap": true
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"corp": {
+				"ssid": "Aeolus Corp",
+				"security": "wpa2-wpa3-enterprise",
+				"radius": {
+					"auth_server": "192.168.20.5",
+					"auth_secret": "fixture-radius-secret",
+					"acct_server": "192.168.20.5",
+					"nas_id": "aeolus-c360"
+				},
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": []
+}

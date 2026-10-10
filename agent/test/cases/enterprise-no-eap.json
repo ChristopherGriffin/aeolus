@@ -1,0 +1,59 @@
+{
+	"about": "The same WPA Enterprise network on an AP whose hostapd lacks EAP, as wpad-basic does (0098): the renderer says so, and the render check refuses nothing it could see, so the agent's error is what holds it.",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		},
+		"eap": false
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"corp": {
+				"ssid": "Aeolus Corp",
+				"security": "wpa2-wpa3-enterprise",
+				"radius": {
+					"auth_server": "192.168.20.5",
+					"auth_secret": "fixture-radius-secret",
+					"acct_server": "192.168.20.5",
+					"nas_id": "aeolus-c360"
+				},
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": [
+		"network.corp: WPA Enterprise needs hostapd with EAP, which this AP's wpad lacks; the full wpad has it"
+	]
+}

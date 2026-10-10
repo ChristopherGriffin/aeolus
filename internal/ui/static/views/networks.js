@@ -26,6 +26,7 @@ const BANDS = ['2g', '5g', '6g'];
 const MORE = 'More settings';
 const SECTIONS = [
 	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation', 'multicast_to_unicast']],
+	['RADIUS', ['radius.auth_server', 'radius.auth_port', 'radius.auth_secret', 'radius.acct_server', 'radius.acct_port', 'radius.acct_secret', 'radius.nas_id']],
 	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
 	['Per-user keys', ['keys.vlans']],
 	['Traffic', [
@@ -181,7 +182,7 @@ const ssidOf = (n) => n.fields.ssid?.value || n.id;
 
 // The security modes 6 GHz takes (0086): WPA3, alone or in transition, and
 // OWE. A WPA2 or open network is not offered there.
-const SIX_GHZ = new Set(['wpa3-sae', 'wpa2-wpa3', 'owe']);
+const SIX_GHZ = new Set(['wpa3-sae', 'wpa2-wpa3', 'owe', 'wpa3-enterprise', 'wpa2-wpa3-enterprise']);
 
 // tunnelName names a tunnel with its far end, where it is set here.
 export function tunnelName(lib, id) {
@@ -589,6 +590,23 @@ function form(d, net, fields, folder, lib) {
 		};
 		security.addEventListener('change', legal);
 		legal();
+	}
+	// A passphrase for the PSK modes; a RADIUS server for the enterprise ones
+	// (0098). Each shows only where it is used.
+	if (security) {
+		const kinds = () => {
+			const enterprise = security.value.endsWith('-enterprise');
+			const psk = ['wpa2-psk', 'wpa3-sae', 'wpa2-wpa3'].includes(security.value);
+			for (const [path, r] of rows) {
+				if (path.startsWith(`${prefix}radius.`)) r.row.hidden = !enterprise;
+				if (path === `${prefix}passphrase`) r.row.hidden = !psk && security.value !== '';
+			}
+			// body is the form's sections, each its heading and fields.
+			const nodes = [body].flat(Infinity).flatMap((el) => (el?.querySelectorAll ? [el, ...el.querySelectorAll('h3')] : []));
+			for (const el of nodes) if (el.tagName === 'H3' && el.textContent === 'RADIUS') el.hidden = !enterprise;
+		};
+		security.addEventListener('change', kinds);
+		kinds();
 	}
 	sync();
 	guard();

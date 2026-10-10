@@ -32,11 +32,14 @@ const CLAMP = '/etc/aeolus/clamp.nft';
 
 const ENCRYPTION = {
 	'open': 'none', 'owe': 'owe', 'wpa2-psk': 'psk2', 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae-mixed',
+	'wpa2-enterprise': 'wpa2', 'wpa3-enterprise': 'wpa3', 'wpa2-wpa3-enterprise': 'wpa3-mixed',
 };
 const NEEDS_KEY = { 'wpa2-psk': true, 'wpa3-sae': true, 'wpa2-wpa3': true };
+// 802.1X, against a RADIUS server (0098).
+const ENTERPRISE = { 'wpa2-enterprise': true, 'wpa3-enterprise': true, 'wpa2-wpa3-enterprise': true };
 // 6 GHz takes WPA3 and OWE only (0086): a network in WPA2/WPA3 transition is
 // WPA3 alone there, and one that is WPA2 or open is not offered there.
-const SIX_GHZ = { 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae', 'owe': 'owe' };
+const SIX_GHZ = { 'wpa3-sae': 'sae', 'wpa2-wpa3': 'sae', 'owe': 'owe', 'wpa3-enterprise': 'wpa3', 'wpa2-wpa3-enterprise': 'wpa3' };
 
 // The htmode families each band can use, best first.
 const FAMILIES = { '2g': ['EHT', 'HE', 'HT'], '5g': ['EHT', 'HE', 'VHT', 'HT'], '6g': ['EHT', 'HE'] };
@@ -375,6 +378,21 @@ function iface_options(net, radio, band, network, btm) {
 	};
 	if (NEEDS_KEY[net.security])
 		o.key = net.passphrase;
+	// WPA Enterprise: each client signs in against the RADIUS server, which
+	// accounting goes to as well where one is set (0098).
+	if (ENTERPRISE[net.security]) {
+		let r = net.radius ?? {};
+		o.auth_server = r.auth_server;
+		o.auth_port = '' + (r.auth_port ?? 1812);
+		o.auth_secret = r.auth_secret;
+		if (r.acct_server) {
+			o.acct_server = r.acct_server;
+			o.acct_port = '' + (r.acct_port ?? 1813);
+			o.acct_secret = r.acct_secret ?? r.auth_secret;
+		}
+		if (r.nas_id)
+			o.nasid = r.nas_id;
+	}
 	// Every network's beacons list the AP's other networks, on every band,
 	// in a Reduced Neighbor Report, so a client hearing one band learns the
 	// others: a phone on 5 GHz finds 6 GHz this way (0087).
@@ -607,6 +625,10 @@ function networks(cfg, intent, facts, errors, keep) {
 		let net = nets[id];
 		if (net.enabled === false)
 			continue;
+		// WPA Enterprise needs hostapd built with EAP, which the full wpad
+		// is and wpad-basic is not (0088, 0098).
+		if (ENTERPRISE[net.security] && facts.eap === false)
+			push(errors, `network.${id}: WPA Enterprise needs hostapd with EAP, which this AP's wpad lacks; the full wpad has it`);
 		let iface = interface_name(id);
 		// The device the network's interface is on: its primary's, or with a
 		// fallback, its own bridge (0061).

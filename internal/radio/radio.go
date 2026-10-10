@@ -224,6 +224,8 @@ func SixGHzEncryption(security string) (string, bool) {
 		return "sae", true
 	case "owe":
 		return "owe", true
+	case "wpa3-enterprise", "wpa2-wpa3-enterprise":
+		return "wpa3", true // WPA3-Enterprise alone (0098)
 	}
 	return "", false
 }

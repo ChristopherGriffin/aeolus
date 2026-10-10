@@ -179,6 +179,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, snmpProblems(doc)...)
 	problems = append(problems, portProblems(doc)...)
 	problems = append(problems, uplinkProblems(doc)...)
+	problems = append(problems, enterpriseProblems(doc)...)
 	problems = append(problems, tunnelProblems(doc)...)
 	problems = append(problems, farEndProblems(doc)...)
 	if problems == nil {
@@ -511,6 +512,34 @@ func snmpProblems(doc map[string]any) []string {
 	}
 	if v3["user"] != nil && (v3["auth"] == nil || v3["privacy"] == nil) {
 		out = append(out, "system.snmp.v3: a v3 user needs both an auth and a privacy passphrase")
+	}
+	return out
+}
+
+// enterpriseProblems refuses a WPA Enterprise network the AP could not
+// render (0098): one with no RADIUS server or secret to sign in against;
+// with per-user keys, which are passphrases; or with 802.11r, whose keys
+// for 802.1X are not rendered yet.
+func enterpriseProblems(doc map[string]any) []string {
+	nets, _ := doc["network"].(map[string]any)
+	var out []string
+	for _, id := range sortedKeys(nets) {
+		n, _ := nets[id].(map[string]any)
+		security, _ := n["security"].(string)
+		if !strings.HasSuffix(security, "-enterprise") || n["enabled"] == false {
+			continue
+		}
+		where := "network." + id
+		r, _ := n["radius"].(map[string]any)
+		if r["auth_server"] == nil || r["auth_secret"] == nil {
+			out = append(out, where+": WPA Enterprise needs a RADIUS server to sign clients in against: radius.auth_server and radius.auth_secret")
+		}
+		if keys, _ := n["keys"].(map[string]any); len(keys) > 0 {
+			out = append(out, where+": per-user keys are passphrases, for a WPA2 network; WPA Enterprise signs each client in as itself already")
+		}
+		if roaming, _ := n["roaming"].(map[string]any); roaming["ft"] == true {
+			out = append(out, where+": 802.11r with WPA Enterprise is not rendered yet; turn roaming.ft off for it")
+		}
 	}
 	return out
 }
