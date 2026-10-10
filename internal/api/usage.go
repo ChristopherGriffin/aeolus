@@ -23,6 +23,16 @@ import (
 // that joined in the last report interval count: what the others moved in
 // the gap would all fall in this report's bucket, a spike that never was.
 func usageOf(prev *conditions.State, now time.Time, clients []wifiClient) (down, up int64) {
+	for _, c := range clientsMoved(prev, now, clients) {
+		down += c.Down
+		up += c.Up
+	}
+	return down, up
+}
+
+// clientsMoved is what each client moved, as usageOf counts it, each that
+// moved anything once (0110).
+func clientsMoved(prev *conditions.State, now time.Time, clients []wifiClient) []conditions.ClientUse {
 	type counters struct{ rx, tx, connected int64 }
 	before := map[string]counters{}
 	since := float64(stateEvery / time.Second)
@@ -37,18 +47,70 @@ func usageOf(prev *conditions.State, now time.Time, clients []wifiClient) (down,
 			}
 		}
 	}
+	var out []conditions.ClientUse
 	for _, c := range clients {
 		b, ok := before[c.MAC]
+		var down, up int64
 		switch {
 		case ok && c.Connected >= b.connected && c.RxBytes >= b.rx && c.TxBytes >= b.tx:
-			down += c.TxBytes - b.tx
-			up += c.RxBytes - b.rx
+			down, up = c.TxBytes-b.tx, c.RxBytes-b.rx
 		case (!ok || c.Connected < b.connected) && float64(c.Connected) <= since+60:
-			down += c.TxBytes
-			up += c.RxBytes
+			down, up = c.TxBytes, c.RxBytes
+		}
+		if down+up > 0 {
+			out = append(out, conditions.ClientUse{MAC: c.MAC, Host: c.Host, Down: down, Up: up})
 		}
 	}
-	return down, up
+	return out
+}
+
+// usageClient is one client's part of an AP's usage (0110): what it moved
+// over the span, on the APs the caller may view, and which those were.
+type usageClient struct {
+	MAC  string   `json:"mac"`
+	Host string   `json:"host,omitempty"`
+	Down int64    `json:"down"`
+	Up   int64    `json:"up"`
+	APs  []string `json:"aps"`
+}
+
+// topClients is the clients that moved the most over the span on the APs
+// in mine, at most 10, the most first.
+func (s *Server) topClients(since time.Time, mine map[hierarchy.NodeID]*usageAP) ([]usageClient, error) {
+	totals, err := s.conds.ClientTotals(since)
+	if err != nil {
+		return nil, err
+	}
+	by := map[string]*usageClient{}
+	for _, t := range totals {
+		a := mine[t.AP]
+		if a == nil {
+			continue
+		}
+		c := by[t.MAC]
+		if c == nil {
+			c = &usageClient{MAC: t.MAC, APs: []string{}}
+			by[t.MAC] = c
+		}
+		if t.Host != "" {
+			c.Host = t.Host
+		}
+		c.Down += t.Down
+		c.Up += t.Up
+		c.APs = append(c.APs, a.Name)
+	}
+	out := make([]usageClient, 0, len(by))
+	for _, c := range by {
+		sort.Strings(c.APs)
+		out = append(out, *c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if x, y := out[i].Down+out[i].Up, out[j].Down+out[j].Up; x != y {
+			return x > y
+		}
+		return out[i].MAC < out[j].MAC
+	})
+	return out[:min(len(out), 10)], nil
 }
 
 // stateEvery is how often an agent reports its state (0040); usageGap is
@@ -82,7 +144,8 @@ type usageAP struct {
 // last ?hours= (24 unless set, at most 720): GET /v1/usage. It is in at
 // most 48 buckets of whole minutes, each the clients the APs had at most in
 // it, summed over the APs, and the bytes they moved; with each AP's peak and
-// totals, the busiest first.
+// totals, the busiest first; and the ten clients that moved the most
+// (0110).
 func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error {
 	hours := 24
 	if q := r.URL.Query().Get("hours"); q != "" {
@@ -149,6 +212,10 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 		down += buckets[i].Down
 		up += buckets[i].Up
 	}
+	top, err := s.topClients(start, mine)
+	if err != nil {
+		return err
+	}
 	aps := make([]*usageAP, 0, len(mine))
 	for _, a := range mine {
 		aps = append(aps, a)
@@ -161,7 +228,7 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"from": start, "to": end, "bucket": int(bucket / time.Second), "buckets": buckets,
-		"down": down, "up": up, "peak": peak, "aps": aps,
+		"down": down, "up": up, "peak": peak, "aps": aps, "clients": top,
 	})
 	return nil
 }

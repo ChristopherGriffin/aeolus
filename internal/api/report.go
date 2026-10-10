@@ -1311,11 +1311,11 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err != nil {
 		return err
 	}
-	down, up := usageOf(prev, time.Now(), req.Clients)
+	moved := clientsMoved(prev, time.Now(), req.Clients)
 	if err := s.conds.RecordState(c.ap, req.Version, report); err != nil {
 		return err
 	}
-	if err := s.conds.RecordUse(c.ap, len(req.Clients), down, up); err != nil {
+	if err := s.conds.RecordUse(c.ap, len(req.Clients), moved); err != nil {
 		return err
 	}
 	if err := s.conds.Running(c.ap, req.Version); err != nil {
