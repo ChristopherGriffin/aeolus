@@ -101,7 +101,19 @@ func (s *Server) alertHistory(w http.ResponseWriter, r *http.Request, c call) er
 	}
 	t := c.state.Org.Locations
 	under := hierarchy.NodeID(r.URL.Query().Get("under"))
-	logged, err := s.conds.AlertLog(time.Now().Add(-time.Duration(hours)*time.Hour), 2000)
+	// The APs it may read, picked before the log is, so that alerts of
+	// APs it may not see never crowd out its own.
+	var ids []hierarchy.NodeID
+	for _, id := range t.APs() {
+		if roleOn(c, change.Locations, t, id) < access.Viewer {
+			continue
+		}
+		if under != "" && under != id && !slices.Contains(t.Ancestry(id), under) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	logged, err := s.conds.AlertLog(time.Now().Add(-time.Duration(hours)*time.Hour), ids, 500)
 	if err != nil {
 		return err
 	}
@@ -111,17 +123,8 @@ func (s *Server) alertHistory(w http.ResponseWriter, r *http.Request, c call) er
 	}
 	out := []entry{}
 	for _, a := range logged {
-		n, ok := t.Node(a.AP)
-		if !ok || roleOn(c, change.Locations, t, a.AP) < access.Viewer {
-			continue
-		}
-		if under != "" && under != a.AP && !slices.Contains(t.Ancestry(a.AP), under) {
-			continue
-		}
+		n, _ := t.Node(a.AP)
 		out = append(out, entry{a, n.Name})
-		if len(out) == 500 {
-			break
-		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"alerts": out})
 	return nil

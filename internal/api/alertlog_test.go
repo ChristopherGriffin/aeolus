@@ -1,10 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/alerts"
+	"github.com/ChristopherGriffin/aeolus/internal/conditions"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
 
@@ -38,9 +40,16 @@ func TestAlertHistory(t *testing.T) {
 	}
 	// The manager starts again; held went while it was down.
 	f.api.recordAlerts(newAlertRecorder(), at(12), nil)
+	// Another AP's alerts, newer and more than the limit, crowd out none of
+	// this one's.
+	for i := 0; i < 2100; i++ {
+		if _, err := f.conds.BeginAlert(conditions.LoggedAlert{AP: "office-ap", Key: fmt.Sprintf("loop:%d", i), Kind: "loop", Severity: alerts.Critical, Message: "a loop", Began: at(20)}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	history := func(who string) []any {
 		t.Helper()
-		code, body := f.do("GET", "/v1/alerts/history?under=office", who, nil)
+		code, body := f.do("GET", "/v1/alerts/history?under="+ap, who, nil)
 		if code != 200 {
 			t.Fatalf("%d %v", code, body)
 		}
