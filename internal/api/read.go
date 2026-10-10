@@ -82,8 +82,10 @@ var originNames = map[hierarchy.Origin]string{
 // templateView says which AP template an AP takes (0085) and whether it
 // follows it: the template's fields that something set closer to the AP,
 // or locked, replaces, each with where. An AP with no template has none.
+// It also says the AP's board and model, which its kind of AP's own
+// settings are by (0092).
 func templateView(state *change.State, ap hierarchy.NodeID, use *hierarchy.TemplateUse) map[string]any {
-	out := map[string]any{"board": state.Board(ap), "id": nil}
+	out := map[string]any{"board": state.Board(ap), "model": state.Model(ap), "id": nil}
 	if use == nil {
 		return out
 	}

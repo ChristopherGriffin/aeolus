@@ -52,6 +52,11 @@ const PORT_VNI = { tunnel: 'tunnel', vni: 'VNI', probe: 'probe address' };
 // group says which panel a field belongs in, and its label there.
 export function group(path) {
 	const p = path.split('.');
+	// A kind of AP's own (0092): its field's, for that board.
+	if (p[0] === 'boards' && p.length > 2) {
+		const g = group(p.slice(2).join('.'));
+		return { ...g, key: `boards.${p[1]}.${g.key}`, title: `${g.title} (${p[1]})` };
+	}
 	if (p[0] === 'radio') return { key: 'radio.' + p[1], title: (BANDS[p[1]] || p[1]) + ' radio', order: 1 + Object.keys(BANDS).indexOf(p[1]) / 10, label: RADIO[p[2]] || p[2] };
 	if (p[0] === 'system' && p[1] === 'snmp') return { key: 'snmp', title: 'SNMP', order: 2.5, label: SNMP[p.slice(2).join('.')] || p.slice(2).join('.') };
 	if (p[0] === 'system' && p[1] === 'management') return { key: 'management', title: 'Management', order: 3, label: SYSTEM[p.slice(1).join('.')] || p[2] };

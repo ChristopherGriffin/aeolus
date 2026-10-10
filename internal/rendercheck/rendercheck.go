@@ -23,6 +23,10 @@ import (
 	"github.com/ChristopherGriffin/aeolus/internal/uci"
 )
 
+// folded says why a kind of AP's own settings (0092) are not checked as
+// they are: the manager folds them into the AP's plain ones, which are.
+const folded = "not sent to APs as it is: the manager folds a kind of AP's settings into its APs' plain ones (0092)"
+
 // Coverage says how the render check covers every field of the v1 schema:
 // "" means it is checked; anything else says why not yet. "*" stands for any
 // one name. A test holds it to the schema, so no field is left out unnoticed.
@@ -96,9 +100,18 @@ var Coverage = map[string]string{
 	"network.*.transport.failback":       "",
 	"network.*.transport.holddown":       "",
 
-	"concentrators.*.address": "",
-	"concentrators.*.port":    "",
-	"templates.*":             "not sent to APs: the manager applies the AP's template (0085)",
+	"concentrators.*.address":         "",
+	"concentrators.*.port":            "",
+	"templates.*":                     "not sent to APs: the manager applies the AP's template (0085)",
+	"boards.*.ports.*.enabled":        folded,
+	"boards.*.ports.*.uplink":         folded,
+	"boards.*.ports.*.mode":           folded,
+	"boards.*.ports.*.untagged":       folded,
+	"boards.*.ports.*.tagged":         folded,
+	"boards.*.ports.*.bond":           folded,
+	"boards.*.ports.*.vxlan.*.tunnel": folded,
+	"boards.*.ports.*.vxlan.*.vni":    folded,
+	"boards.*.ports.*.vxlan.*.probe":  folded,
 
 	"concentrators.*.mtu":            "",
 	"concentrators.*.probe_interval": "",

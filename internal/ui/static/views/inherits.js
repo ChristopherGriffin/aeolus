@@ -9,14 +9,14 @@
 import { h } from '../dom.js';
 import { followButton } from './follow.js';
 
-// inheritsBar builds the bar for the fields starting with prefix, linking
-// to tab (such as interfaces/radios) on the folder above. onToggle(open) is
+// inheritsBar builds the bar for the fields starting with prefix, or also,
+// linking to tab (such as interfaces/radios) on the folder above. onToggle(open) is
 // called when Customize is pressed, or pressed again to cancel. It returns
 // the bar, null on the Org, and whether the settings start open.
-export function inheritsBar(ctx, node, page, { prefix, tab, box, onToggle }) {
+export function inheritsBar(ctx, node, page, { prefix, also, tab, box, onToggle }) {
 	const may = page.role === 'operator' || page.role === 'admin';
 	const above = (page.ancestry || []).filter((a) => a !== node);
-	const setHere = Object.entries(page.fields || {}).filter(([p, r]) => p.startsWith(prefix) && r.from === node).map(([p]) => p);
+	const setHere = Object.entries(page.fields || {}).filter(([p, r]) => (p.startsWith(prefix) || (also && p.startsWith(also))) && r.from === node).map(([p]) => p);
 	if (!above.length) return { bar: null, open: true };
 	const parent = above[above.length - 1];
 	const parentName = ctx.name('locations', parent);
