@@ -1,0 +1,30 @@
+{
+	"about": "WPA2/WPA3-Enterprise whose RADIUS server puts clients in VLANs (0111): VLANs 30 and 40 are offered, each tagged on the uplink with an interface and a wifi-vlan, r30 and r40; a client the server names no VLAN for is refused (vlan_required, dynamic_vlan 2); and 192.168.20.106, a NAC, may disconnect clients on port 3799 with the sign-in secret, as no Disconnect secret is set.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		},
+		"eap": true
+	},
+	"intent": {
+		"system": { "country": "US", "poll": 60 },
+		"network": {
+			"corp": {
+				"ssid": "Aeolus Corp",
+				"security": "wpa2-wpa3-enterprise",
+				"radius": {
+					"auth_server": "192.168.20.106",
+					"auth_secret": "fixture-radius-secret",
+					"vlans": [30, 40],
+					"vlan_required": true,
+					"das": { "client": "192.168.20.106" }
+				},
+				"transport": { "primary": { "type": "vlan", "vlan": 20 } }
+			}
+		}
+	},
+	"errors": []
+}

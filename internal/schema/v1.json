@@ -300,7 +300,19 @@
             "acct_server": { "$ref": "#/$defs/host", "description": "Where accounting goes, where it is wanted." },
             "acct_port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 1813 },
             "acct_secret": { "type": "string", "minLength": 1, "maxLength": 128, "writeOnly": true, "description": "Unset, the sign-in secret." },
-            "nas_id": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[ -~]+$", "description": "The NAS-Identifier the APs give the server." }
+            "nas_id": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[ -~]+$", "description": "The NAS-Identifier the APs give the server." },
+            "vlans": { "type": "array", "items": { "$ref": "#/$defs/vlan" }, "uniqueItems": true, "maxItems": 64, "description": "The VLANs the server may put a client in, by its Tunnel-Private-Group-ID (0111). Each is carried tagged on the uplink. A VLAN the server names that is not here is refused." },
+            "vlan_required": { "type": "boolean", "default": false, "description": "Refuse a client the server puts in no VLAN. Unset, such a client is on the network's own transport." },
+            "das": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Lets one server, such as a NAC, disconnect a client by an RFC 5176 Disconnect-Request (0111), so it signs in again: into another VLAN, or refused. Unset, nothing may.",
+              "properties": {
+                "client": { "$ref": "#/$defs/ip", "description": "The address the Disconnect-Requests come from." },
+                "secret": { "type": "string", "minLength": 1, "maxLength": 128, "writeOnly": true, "description": "Unset, the sign-in secret." },
+                "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 3799, "description": "Where the AP listens for them." }
+              }
+            }
           }
         },
         "blocked": { "type": "array", "items": { "type": "string", "pattern": "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$" }, "uniqueItems": true, "maxItems": 1024, "description": "Clients refused on this network, on every band, by MAC (0100). A client with a private (random) MAC has one for each network, and may change it." },

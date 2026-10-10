@@ -41,6 +41,8 @@ const NETWORK = {
 	'bands': 'Bands', 'isolation': 'Client isolation', 'enabled': 'Broadcast', 'max_clients': 'Most clients a band', 'dtim': 'DTIM period', 'blocked': 'Blocked clients',
 	'radius.auth_server': 'RADIUS server', 'radius.auth_port': 'RADIUS port', 'radius.auth_secret': 'RADIUS secret',
 	'radius.acct_server': 'Accounting server', 'radius.acct_port': 'Accounting port', 'radius.acct_secret': 'Accounting secret', 'radius.nas_id': 'NAS-Identifier',
+	'radius.vlans': 'VLANs RADIUS may assign', 'radius.vlan_required': 'Require a VLAN from RADIUS',
+	'radius.das.client': 'Disconnects from (NAC)', 'radius.das.secret': 'Disconnect secret', 'radius.das.port': 'Disconnect port',
 	'multicast_to_unicast': 'Multicast to unicast', 'band_steering': 'Band steering',
 	'roaming.ft': 'Fast roaming (11r)', 'roaming.rrm': 'Neighbor reports (11k)', 'roaming.btm': 'Steering (11v)',
 	'rate_limit.down_kbps': 'Download limit', 'rate_limit.up_kbps': 'Upload limit',
