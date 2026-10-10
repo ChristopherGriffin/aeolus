@@ -79,6 +79,18 @@
     "templates": { "x-aeolus-tree": "locations", "description": "AP templates, by board as OpenWrt names it (arista,c360): the template the board's APs below take (0085). Not sent to APs: the manager applies the template.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/templateId" } },
     "boards": { "x-aeolus-tree": "locations", "description": "Settings for one kind of AP, by board as OpenWrt names it (arista,c360) (0092): its APs take them in place of the plain ones set on the same folder or above it, so one kind's ports don't reach another's of the same name. Not sent to APs as they are: the manager folds them into each AP's own. Ports and the uplink, for now.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/boardSettings" } },
     "uplink": { "x-aeolus-tree": "locations", "$ref": "#/$defs/uplink" },
+    "notify": {
+      "x-aeolus-tree": "locations",
+      "description": "Where the manager sends alerts for the APs here (0101): the manager's own, never sent to APs. An alert is sent once it has lasted two minutes, and its end when its cause is gone.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ntfy": { "type": "string", "pattern": "^https?://[^ ]+$", "maxLength": 512, "writeOnly": true, "description": "An ntfy topic's URL, such as https://ntfy.sh/your-own-topic: each alert a push notification, its priority by severity. Sealed, as a topic is as good as a password." },
+        "webhook": { "type": "string", "pattern": "^https?://[^ ]+$", "maxLength": 512, "writeOnly": true, "description": "A URL each alert is POSTed to as JSON: {event: alert or resolved, alert: {ap, name, severity, kind, key, message, since}, at}. Sealed, as such a URL often holds a token." },
+        "severity": { "enum": ["critical", "warning", "info"], "default": "critical", "description": "The least severe alert sent: critical unless set." },
+        "resolved": { "type": "boolean", "default": true, "description": "Also send when an alert's cause is gone." }
+      }
+    },
     "concentrators": {
       "x-aeolus-tree": "locations",
       "description": "Tunnels, by name: the far end a VXLAN transport reaches (0055). A network picks one by name.",
