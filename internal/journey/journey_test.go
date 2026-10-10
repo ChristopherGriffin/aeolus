@@ -77,3 +77,40 @@ func TestEmpty(t *testing.T) {
 		t.Fatalf("journey = %+v", j)
 	}
 }
+
+// From the review of #133: the AP's own SSIDs are kept apart; retries are
+// counted as the Clients tab counts them; a session without a band is not
+// slow on 5 GHz; and three roams are not yet back and forth.
+func TestReviewFixes(t *testing.T) {
+	own := func(ssid string, min int) Sample {
+		s := sample("office", min, "5g", -60, Client{TxRate: 300})
+		s.C.Network, s.C.SSID = "", ssid
+		return s
+	}
+	if j := Build("aa:bb:cc:00:11:22", []Sample{own("home", 0), own("guest", 5)}); len(j.Sessions) != 2 {
+		t.Fatalf("two of the AP's own SSIDs: %+v", j.Sessions)
+	}
+	j := Build("aa:bb:cc:00:11:22", []Sample{sample("office", 0, "5g", -60, Client{TxRate: 300, TxPackets: 100, TxRetries: 25})})
+	if j.Sessions[0].Retries == nil || *j.Sessions[0].Retries != 0.25 {
+		t.Fatalf("retries = %v", j.Sessions[0].Retries)
+	}
+	j = Build("aa:bb:cc:00:11:22", []Sample{sample("office", 0, "", -60, Client{TxRate: 10}), sample("office", 5, "", -60, Client{TxRate: 10})})
+	for _, is := range j.Issues {
+		if is.Kind == "slow" {
+			t.Fatalf("a session with no band is slow: %+v", is)
+		}
+	}
+	var three []Sample
+	for i, ap := range []string{"a", "b", "a", "b", "c"} {
+		at := i * 5
+		if ap == "c" {
+			at = 300
+		}
+		three = append(three, sample(ap, at, "5g", -60, Client{TxRate: 300}))
+	}
+	for _, is := range Build("aa:bb:cc:00:11:22", three).Issues {
+		if is.Kind == "ping-pong" {
+			t.Fatalf("three roams called back and forth: %+v", is)
+		}
+	}
+}
