@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -163,4 +165,27 @@ func keysOf(t *testing.T, f *fixture) []string {
 		out = append(out, k.(map[string]any)["id"].(string))
 	}
 	return out
+}
+
+// A held keys request cut off, as when the manager stops, answers
+// unchanged, as the protocol says, not with an empty success the agent
+// takes for a failure (0070).
+func TestHeldKeysCutOff(t *testing.T) {
+	f := newFixture(t)
+	_, token, _ := f.adopted()
+	code, _, got := f.apDo("GET", "/v1/ap/keys", token, nil, nil)
+	version, _ := got["version"].(string)
+	if code != 200 || version == "" {
+		t.Fatalf("keys: %d %v", code, got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest("GET", "/v1/ap/keys?wait=20", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("If-None-Match", `"`+version+`"`)
+	rec := httptest.NewRecorder()
+	time.AfterFunc(1500*time.Millisecond, cancel)
+	f.api.Handler().ServeHTTP(rec, req)
+	if rec.Code != 304 || rec.Header().Get("ETag") != `"`+version+`"` {
+		t.Fatalf("cut off: %d, ETag %q", rec.Code, rec.Header().Get("ETag"))
+	}
 }
