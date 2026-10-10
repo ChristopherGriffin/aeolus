@@ -12,7 +12,7 @@ const KINDS = [
 	['restart-wifi', 'Restart Wi-Fi', 'Restart its Wi-Fi: every client on it drops, and joins again in a few seconds.', 'Its clients drop for a few seconds.'],
 	['reboot', 'Reboot', 'Reboot it: it is off the air, and its wired clients cut off, for about two minutes.', 'It is off the air for about two minutes.'],
 ];
-const STATE = { pending: ['', 'waiting for the AP'], done: ['ok', 'done'], failed: ['bad', 'failed'], expired: ['warn', 'expired: the AP did not take it up'] };
+const STATE = { pending: ['', 'waiting for the AP'], running: ['', 'taken up by the AP'], done: ['ok', 'done'], failed: ['bad', 'failed'], expired: ['warn', 'expired: the AP did not take it up'] };
 
 export async function actionsPanel(id, name, canAct) {
 	let list = [];

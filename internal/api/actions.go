@@ -64,9 +64,11 @@ func (s *Server) actionList(w http.ResponseWriter, r *http.Request, c call) erro
 	return nil
 }
 
-// apActions is what the AP has to do: GET /v1/ap/actions.
+// apActions is what the AP has to do: GET /v1/ap/actions. Each is handed
+// it once: it is running from here, so a lost report of it never has the
+// AP do it again.
 func (s *Server) apActions(w http.ResponseWriter, _ *http.Request, c apCall) error {
-	list, err := s.conds.PendingActions(c.ap)
+	list, err := s.conds.ClaimActions(c.ap)
 	if err != nil {
 		return err
 	}
