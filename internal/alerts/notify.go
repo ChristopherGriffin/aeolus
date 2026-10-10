@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 )
 
@@ -68,7 +69,10 @@ func (n *Notifier) Step(now time.Time, current []Alert, target func(Alert) Targe
 	for _, a := range current {
 		k := eventKey(a)
 		seen[k] = true
-		if !n.started {
+		// At the first look, what its target would have had counts as sent;
+		// what nothing would have had waits, so an endpoint added later, or
+		// a severity lowered, still hears of it.
+		if !n.started && target(a).Wants(a.Severity) {
 			n.sent[k] = a
 			continue
 		}
@@ -146,23 +150,42 @@ func Text(e Event) (title, msg string) {
 	return fmt.Sprintf("%s (%s)", title, e.Alert.Severity), e.Alert.Message
 }
 
-func post(ctx context.Context, c *http.Client, url, kind string, body []byte, headers map[string]string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+// origin is a target URL as it may be logged: its scheme and host, without
+// the path or query, which may hold the topic or token it is sealed for.
+func origin(target string) string {
+	u, err := url.Parse(target)
+	if err != nil || u.Host == "" {
+		return "the alert target"
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// post sends one alert. A redirect is refused rather than followed: Go
+// would follow it as a GET, without the alert, and call it sent. Errors
+// name only the target's origin.
+func post(ctx context.Context, c *http.Client, target, kind string, body []byte, headers map[string]string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: the URL does not parse", origin(target))
 	}
 	req.Header.Set("Content-Type", kind)
 	req.Header.Set("User-Agent", "aeolus-alerts")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	res, err := c.Do(req)
+	nr := *c
+	nr.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	res, err := nr.Do(req)
 	if err != nil {
-		return err
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return fmt.Errorf("%s: %w", origin(target), err)
 	}
 	res.Body.Close()
 	if res.StatusCode/100 != 2 {
-		return fmt.Errorf("%s answered %s", strings.SplitN(url, "?", 2)[0], res.Status)
+		return fmt.Errorf("%s answered %s", origin(target), res.Status)
 	}
 	return nil
 }

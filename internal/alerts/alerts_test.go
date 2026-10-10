@@ -73,20 +73,25 @@ func TestHeldRefusedAndFailed(t *testing.T) {
 }
 
 func TestBehindOnlyWhenNothingExplainsIt(t *testing.T) {
-	in := Input{AP: "ap-1", Name: "C360-AP", Now: now, Poll: time.Minute, Version: 9}
-	s := seen(20*time.Second, 8)
-	old := now.Add(-20 * time.Minute)
-	s.RunningAt = &old
-	in.Latest.Seen = s
-	if got := kinds(For(in)); got != "warning:behind" {
+	// It reports every few minutes, which refreshes when it said what it
+	// runs; behind is measured from when the current version was made.
+	in := Input{AP: "ap-1", Name: "C360-AP", Now: now, Poll: time.Minute, Version: 9, Since: now.Add(-20 * time.Minute)}
+	in.Latest.Seen = seen(20*time.Second, 8)
+	as := For(in)
+	if got := kinds(as); got != "warning:behind" || !as[0].Since.Equal(in.Since) {
 		t.Fatalf("alerts = %s", got)
+	}
+	// A version made a minute ago is still on its way.
+	in.Since = now.Add(-time.Minute)
+	if got := kinds(For(in)); got != "" {
+		t.Fatalf("new version: %s", got)
 	}
 }
 
 func TestFromTheReport(t *testing.T) {
 	report := map[string]any{
 		"wireless_missing": true,
-		"agent":            map[string]any{"update": map[string]any{"version": "v0.57.0", "state": "rolled-back", "why": "it did not confirm itself within 300 s"}},
+		"agent":            map[string]any{"hash": "aaaa", "update": map[string]any{"version": "v0.57.0", "hash": "bbbb", "state": "rolled-back", "why": "it did not confirm itself within 300 s", "ago": 3600}},
 		"transports": map[string]any{
 			"aeolus-50": map[string]any{"active": "none"},
 			"lab":       map[string]any{"active": "fallback"},
@@ -96,20 +101,41 @@ func TestFromTheReport(t *testing.T) {
 				map[string]any{"vni": 50, "peer": "1.1.1.2", "probe": map[string]any{"verdict": "down"}},
 				map[string]any{"vni": 60, "peer": "1.1.1.2", "standby": true, "probe": map[string]any{"verdict": "down"}},
 			},
-			"loops": []any{map[string]any{"port": "lan3", "vni": 30}},
+			"loops": []any{map[string]any{"port": "lan3", "vni": 30, "ago": 600}},
 		},
 		"uplink_vlans": []any{map[string]any{"vlan": 30, "verdict": "silent"}, map[string]any{"vlan": 20, "verdict": "present"}},
 		"dhcp":         map[string]any{"guest": map[string]any{"answered": 0, "unanswered": 4}},
 		"time":         map[string]any{"synced": false},
 	}
 	raw, _ := json.Marshal(report)
-	in := Input{AP: "ap-1", Name: "C360-AP", Now: now, Poll: time.Minute, Version: 7}
+	in := Input{AP: "ap-1", Name: "C360-AP", Now: now, Poll: time.Minute, Version: 7, WantsAgent: "bbbb"}
 	in.Latest.Seen = seen(10*time.Second, 7)
 	in.Latest.State = &conditions.State{At: now.Add(-2 * time.Minute), Version: 7, Report: raw}
 	want := "critical:wireless-missing critical:no-transport critical:loop warning:agent-update warning:on-fallback warning:tunnel-down warning:vlan-silent warning:dhcp-silent info:clock"
-	if got := kinds(For(in)); got != want {
+	as := For(in)
+	if got := kinds(as); got != want {
 		t.Fatalf("alerts =\n%s\nwant\n%s", got, want)
 	}
+	// Since, from the report's own ago where it has one: the rollback an
+	// hour before the report, the loop ten minutes before it.
+	for _, a := range as {
+		want := in.Latest.State.At
+		switch a.Kind {
+		case "agent-update":
+			want = want.Add(-time.Hour)
+		case "loop":
+			want = want.Add(-10 * time.Minute)
+		}
+		if !a.Since.Equal(want) {
+			t.Errorf("%s since %v, want %v", a.Kind, a.Since, want)
+		}
+	}
+	// A failed update to a bundle the AP no longer should run is history.
+	in.WantsAgent = "aaaa"
+	if got := kinds(For(in)); strings.Contains(got, "agent-update") {
+		t.Fatalf("an update no longer wanted: %s", got)
+	}
+	in.WantsAgent = "bbbb"
 	// A report too old to speak for the AP now says nothing.
 	in.Latest.State.At = now.Add(-time.Hour)
 	if got := kinds(For(in)); got != "" {
