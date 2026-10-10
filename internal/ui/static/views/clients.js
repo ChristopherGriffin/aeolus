@@ -135,7 +135,7 @@ function blockButton(ctx, c, out) {
 // mayEdit says whether the person signed in may change a node: an operator
 // or admin grant on it or above it (0030). The manager decides; this only
 // keeps a button that would be refused off the page.
-function mayEdit(ctx, tree, node) {
+export function mayEdit(ctx, tree, node) {
 	const up = new Set();
 	for (let n = ctx.trees[tree]?.nodes.get(node); n; n = ctx.trees[tree].nodes.get(n.parent)) up.add(n.id);
 	return (ctx.who?.grants || []).some((g) => g.tree === tree && up.has(g.node) && (g.role === 'operator' || g.role === 'admin'));

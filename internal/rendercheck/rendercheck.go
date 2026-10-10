@@ -122,6 +122,7 @@ var Coverage = map[string]string{
 	"notify.webhook":                  "not sent to APs: the manager sends alerts (0101)",
 	"notify.severity":                 "not sent to APs: the manager sends alerts (0101)",
 	"notify.resolved":                 "not sent to APs: the manager sends alerts (0101)",
+	"rogues.known":                    "not sent to APs: the manager tells rogues (0106)",
 	"boards.*.ports.*.enabled":        folded,
 	"boards.*.ports.*.speed":          folded,
 	"boards.*.uplink.stp":             folded,

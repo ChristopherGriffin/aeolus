@@ -21,6 +21,21 @@ import (
 // as an AP hears it (alerts.Heard).
 func (s *Server) fleetOwn(state *change.State) *alerts.Fleet {
 	f := &alerts.Fleet{BSSIDs: map[string]bool{}, SSIDs: map[string]bool{}}
+	for b := range s.fleetBSSIDs(state) {
+		f.BSSIDs[b] = true
+	}
+	state.Org.Services.EachSet(func(_ hierarchy.NodeID, p hierarchy.Path, v hierarchy.Value) {
+		if ssid, ok := v.(string); ok && strings.HasPrefix(string(p), "network.") && strings.HasSuffix(string(p), ".ssid") {
+			f.SSIDs[alerts.Heard(ssid)] = true
+		}
+	})
+	return f
+}
+
+// fleetBSSIDs is every BSSID an AP's latest report names as its own, and
+// the AP's.
+func (s *Server) fleetBSSIDs(state *change.State) map[string]hierarchy.NodeID {
+	out := map[string]hierarchy.NodeID{}
 	for _, id := range state.Org.Locations.APs() {
 		st, err := s.conds.LatestState(id)
 		if err != nil || st == nil {
@@ -31,16 +46,38 @@ func (s *Server) fleetOwn(state *change.State) *alerts.Fleet {
 		}
 		if json.Unmarshal(st.Report, &r) == nil {
 			for _, b := range r.BSSIDs {
-				f.BSSIDs[b] = true
+				out[b] = id
 			}
 		}
 	}
-	state.Org.Services.EachSet(func(_ hierarchy.NodeID, p hierarchy.Path, v hierarchy.Value) {
-		if ssid, ok := v.(string); ok && strings.HasPrefix(string(p), "network.") && strings.HasSuffix(string(p), ".ssid") {
-			f.SSIDs[alerts.Heard(ssid)] = true
+	return out
+}
+
+// knownRogues is the BSSIDs an AP's folders say are no rogues, by
+// rogues.known (0106), in lower case as the APs report them.
+func knownRogues(state *change.State, id hierarchy.NodeID) map[string]bool {
+	out := map[string]bool{}
+	cfg, err := state.Org.ResolveAP(id)
+	if err != nil {
+		return out
+	}
+	r, ok := cfg.Location["rogues.known"]
+	if !ok {
+		return out
+	}
+	switch v := r.Value.(type) {
+	case []any:
+		for _, b := range v {
+			if s, ok := b.(string); ok {
+				out[strings.ToLower(s)] = true
+			}
 		}
-	})
-	return f
+	case []string:
+		for _, b := range v {
+			out[strings.ToLower(b)] = true
+		}
+	}
+	return out
 }
 
 // alertsOf is what needs attention on one AP now (0099).
@@ -71,6 +108,7 @@ func (s *Server) alertsOf(state *change.State, id hierarchy.NodeID, now time.Tim
 	return alerts.For(alerts.Input{
 		AP: id, Name: n.Name, Now: now, Poll: poll, Unassigned: res.Unassigned,
 		Version: version, Since: s.log.VersionSince(id), WantsAgent: wants, Problems: res.Problems, Latest: l, Fleet: fleet,
+		Known: knownRogues(state, id),
 	}), nil
 }
 

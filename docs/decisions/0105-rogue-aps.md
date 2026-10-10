@@ -31,4 +31,4 @@
 
 - An AP whose own report has not come since this release may have its networks taken for strangers' until it does, within five minutes.
 - A network on a channel the scanning radio does not visit goes unseen. So does one on a band no AP scans, as a radio on a DFS channel cannot scan (0073).
-- Telling an evil twin from a neighbour's AP of the same name needs more than the name: whether it is on our wire (Griff's ARP probe per VLAN, airscan's), its security, its vendor. That is for later. A list of BSSIDs known to be friendly would quiet a neighbour's.
+- Telling an evil twin from a neighbour's AP of the same name needs more than the name: whether it is on our wire (Griff's ARP probe per VLAN, airscan's), its security, its vendor. That is for later. A neighbour's can be marked known (0106).
