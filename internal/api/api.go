@@ -76,6 +76,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/trees/{tree}", s.auth(s.tree))
 	mux.Handle("GET /v1/trees/{tree}/nodes/{node}", s.auth(s.node))
 	mux.Handle("GET /v1/aps", s.auth(s.aps))
+	mux.Handle("GET /v1/alerts", s.auth(s.alertsList))
 	mux.Handle("GET /v1/aps/{ap}/config", s.auth(s.apConfig))
 	mux.Handle("GET /v1/aps/{ap}/history", s.auth(s.apHistory))
 	mux.Handle("GET /v1/changes", s.auth(s.changes))

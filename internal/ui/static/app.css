@@ -425,3 +425,9 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .nmaplegend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 6px 20px 14px; font-size: 12px; color: var(--muted); }
 .nmaplegend .key::before { content: ''; display: inline-block; width: 18px; height: 4px; border-radius: 2px; background: var(--c); margin-right: 6px; vertical-align: middle; }
 .nmaplegend .key.heard::before { background: repeating-linear-gradient(90deg, var(--faint) 0 2px, transparent 2px 6px); }
+/* Alerts (0099). */
+.alertsum { display: flex; gap: 8px; margin-bottom: 12px; }
+table.alerts { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.alerts th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.alerts td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.alerts td:first-child { width: 1%; white-space: nowrap; }
