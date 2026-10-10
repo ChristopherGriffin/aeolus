@@ -530,9 +530,10 @@ function kindFields(fields, kind, ancestry) {
 		return at(plain.from) > at(own.from) ? plain : own;
 	};
 	const paths = new Set();
+	const kinds = (p) => p.startsWith('ports.') || p.startsWith('uplink.');
 	for (const p of Object.keys(fields)) {
-		if (p.startsWith('ports.')) paths.add(p);
-		else if (p.startsWith(kind.base + 'ports.')) paths.add(p.slice(kind.base.length));
+		if (kinds(p)) paths.add(p);
+		else if (p.startsWith(kind.base) && kinds(p.slice(kind.base.length))) paths.add(p.slice(kind.base.length));
 	}
 	for (const p of paths) {
 		const r = pick(fields[p], fields[kind.base + p]);
@@ -610,8 +611,10 @@ function jackIcon() {
 // set, the uplink and a bond's members included; grey where it is not, or
 // is off. On an AP: green where it has a link, white where it is set but has
 // none, grey where it is not set, or is off.
-function jackState(folder, { off, set, carrier }) {
+function jackState(folder, { off, set, carrier, blocked }) {
 	if (off) return 'off';
+	// Amber where spanning tree blocks it: a link, but a second path (0095).
+	if (!folder && carrier && blocked) return 'blocked';
 	if (!folder && carrier) return 'on';
 	return set ? 'set' : 'unset';
 }
@@ -705,12 +708,92 @@ function kindPanel(ctx, d, here, page, kind, fields, canEdit, edit, folder, only
 		box.replaceChildren(make());
 	};
 	const ctxPort = { ctx, d, here, nodeName: page.node.name, kf, kind, canEdit, edit, folder, box };
+	body.insertBefore(stpLine(ctxPort), box);
 	strip.replaceChildren(
 		...names.map((n) => portJack(ctxPort, n, kind.ports.get(n) || [], pick)),
 		canEdit && h('button', { type: 'button', class: 'jack add', title: `A port no ${folder && kind.board ? kind.name : 'AP'} here has reported yet`,
 			onclick: () => addPort(ctx, d, here, page.node.name, kf, box, edit, kind) }, h('span', { class: 'icon plus' }, '+'), h('span', { class: 'jname' }, 'Add a port')));
 	set(isOpen());
 	return h('section', { class: 'panel kind' }, head, body);
+}
+
+const STP_WARN = "Check the switch ports these APs are on for BPDU guard first: a port with it shuts itself at the AP's first BPDU, and the AP is cut off until someone opens the port again. An AP without ustp, the RSTP daemon, installs it first, and keeps what it runs until it has. Applying restarts the AP's bridge: its wired and Wi-Fi clients drop briefly.";
+const STP_ROOT = 'ustp gives every AP the default bridge priority, 32768: the core switch should have a lower one, as it should anyway, so no AP is the root.';
+
+// stpOf is what a kind's APs say of spanning tree on their uplink's bridge
+// (0095): how many run it, and the ports it blocks, by AP.
+function stpOf(aps) {
+	const running = [];
+	const blocked = [];
+	for (const r of aps) {
+		const ports = r.cfg?.condition?.state?.report?.ports || [];
+		if (!ports.some((p) => p.stp)) continue;
+		running.push(r);
+		for (const p of ports) if (p.stp === 'blocking') blocked.push({ ap: r.ap, port: p.name });
+	}
+	return { running, blocked };
+}
+
+// stpLine is spanning tree for a kind of AP, under its jacks (0095): on, off
+// or not set, where that comes from, with Edit; on an AP, what it says. A
+// folder is a template, and says nothing of its APs' state (Griff,
+// 2026-10-09).
+function stpLine(c) {
+	const { ctx, here, kf, kind, canEdit, folder, box } = c;
+	const r = kf[`${kind.base}uplink.stp`];
+	const said = r == null ? h('span', { class: 'sub' }, folder ? 'not set: each AP keeps its own' : 'not set: as the AP has it') : r.value ? 'On, RSTP' : 'Off';
+	const whence = r && r.from !== here && h('span', { class: 'whence' }, `${r.origin === 'locked' ? 'locked by' : 'from'} ${ctx.name('locations', r.from)}`);
+	let live = null;
+	const { running, blocked } = folder ? { running: [], blocked: [] } : stpOf(kind.aps);
+	if (running.length) {
+		live = blocked.length ? h('span', { class: 'chip warn', title: 'a second path to the network, held back so it cannot loop' }, `${blocked.map((b) => b.port).join(', ')} blocked`)
+			: h('span', { class: 'chip ok' }, 'every port forwarding');
+	} else if (!folder && r?.value) {
+		live = h('span', { class: 'sub' }, 'not running yet');
+	}
+	return h('div', { class: 'kindstp' }, h('span', { class: 'label' }, 'Spanning tree'), said, whence, live,
+		canEdit && h('button', { type: 'button', class: 'button small', onclick: () => box.replaceChildren(stpForm(c, () => box.replaceChildren())) }, 'Edit'));
+}
+
+// stpForm turns spanning tree on or off for a kind here, in one change, or
+// has it follow the folder above (0095).
+function stpForm(c, close) {
+	const { ctx, here, nodeName, kf, kind, edit, folder, box } = c;
+	const path = `${kind.base}uplink.stp`;
+	const r = kf[path];
+	const sel = h('select', null,
+		r == null && h('option', { value: '' }, '—'),
+		h('option', { value: 'on', selected: r?.value === true }, 'On, RSTP'),
+		h('option', { value: 'off', selected: r?.value === false }, 'Off'));
+	const out = h('div', { class: 'edit flush' });
+	const msg = h('div', { class: 'error' });
+	const who = kind.base ? `every ${kind.name}` : folder ? 'every AP' : nodeName;
+	const review = async () => {
+		msg.replaceChildren();
+		if (sel.value === '' || (sel.value === 'on') === r?.value) {
+			msg.replaceChildren('Nothing has changed.');
+			return;
+		}
+		const on = sel.value === 'on';
+		const op = { kind: 'set', tree: 'locations', node: here, path, value: on };
+		const p = await ask(out, op);
+		if (!p) return;
+		confirm(ctx, out, op, p, [
+			h('div', null, h('strong', null, `Spanning tree on ${nodeName}${kind.base ? `, every ${kind.name}` : ''}`)),
+			h('ul', { class: 'becomes' }, h('li', null, `Spanning tree: ${r ? (r.value ? 'on' : 'off') : 'not set'} → ${on ? 'on, RSTP' : 'off'}`)),
+			h('div', { class: 'sub' }, folder ? `${who[0].toUpperCase()}${who.slice(1)} here runs it on the bridge its uplink is in; folders below and APs that set their own keep theirs.` : 'The AP runs it on the bridge its uplink is in.'),
+		], [on ? [h('div', { class: 'sub warn' }, STP_WARN), h('div', { class: 'sub' }, STP_ROOT)] : h('div', { class: 'sub warn' }, 'Applying restarts the AP\'s bridge: its wired and Wi-Fi clients drop briefly. With a second cable to the same network, the AP loops it.')]);
+	};
+	const mine = r && r.from === here && r.origin === 'self' && !r.plain;
+	return h('div', { class: 'fieldform', 'data-editing': true },
+		h('div', { class: 'row' }, h('div', { class: 'label' }, 'Spanning tree'), h('div', { class: 'value' }, sel,
+			h('div', { class: 'sub' }, 'RSTP on the bridge the uplink is in, as a switch runs it: a second cable to the same network is blocked rather than looped.'))),
+		msg,
+		h('div', { class: 'actions' },
+			h('button', { type: 'button', class: 'button primary', onclick: review }, 'Review changes'),
+			h('button', { type: 'button', class: 'button', onclick: close }, 'Cancel')),
+		mine && h('div', { class: 'below' }, followButton(ctx, 'locations', here, nodeName, edit?.parentName, [path], box, `Follow ${edit?.parentName ?? 'above'} for spanning tree`)),
+		out);
 }
 
 // summary is a kind's ports in a few words: the uplink first, then the
@@ -743,6 +826,9 @@ function portJack(c, name, reps, pick) {
 	// one kind.
 	const capOf = reps.map((r) => r.p.max).find(Boolean);
 	const power = allUplink && !folder ? poe(report) : null;
+	// Where spanning tree runs, the port's state in it, as its AP says (0095).
+	const stp = !folder ? reps[0]?.p.stp : null;
+	const blocked = stp === 'blocking';
 	const what = allUplink
 		? [h('span', { class: 'sub' }, `The AP's management${bond ? `, over a bond of ${bond.members.length}` : ''}; Aeolus leaves it alone.`),
 			!folder && hasUplinkNews(report) && uplinkCell(report)]
@@ -771,6 +857,7 @@ function portJack(c, name, reps, pick) {
 			(folder || (f('speed')?.value ?? 'auto') !== 'auto') && row('Speed', speedSet(kf, base, name)),
 			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ', folder ? (m.max ? `${gbe(m.max)} port` : '') : sync(m),
 				!folder && m.aggregator != null && bond.aggregator != null && m.aggregator !== bond.aggregator && h('span', { class: 'chip warn' }, 'outside the aggregate')))),
+			row('Spanning tree', stp && (blocked ? h('span', { class: 'chip warn' }, 'blocking: a second path to the network') : stp)),
 			row('Mode', mode ?? h('span', { class: 'sub' }, 'not set')),
 			row('Carries', [what ?? h('span', { class: 'sub' }, 'not set'), from.length > 0 && h('span', { class: 'whence' }, from.join(', '))]),
 			row('Power', power)].filter(Boolean));
@@ -778,6 +865,7 @@ function portJack(c, name, reps, pick) {
 	};
 	const marks = [uplinkOn.length > 0 && h('span', { class: 'up', title: allUplink ? 'the uplink' : `the uplink on ${uplinkOn.map((r) => r.ap.name).join(', ')}` }, '↑'),
 		power && h('span', { class: 'poe', title: power }, '⚡'),
+		blocked && h('span', { class: 'stpblock', title: 'blocked by spanning tree: a second path to the network' }, '⊘'),
 		reps.some((r) => r.cfg?.condition?.state?.report?.vxlan?.loops?.some((l) => l.port === name)) && h('span', { class: 'loop', title: 'off its tunnels: a loop' }, '!')];
 	const choose = (e) => {
 		pick(name, detail);
@@ -790,14 +878,14 @@ function portJack(c, name, reps, pick) {
 		// each member by what it can go, on an AP by its link.
 		const group = h('button', { type: 'button', class: 'bond', title: `${name}: ${bond.members.map((m) => m.name).join(' + ')}`, onclick: choose },
 			h('span', { class: 'bondname mono' }, name, marks, h('span', { class: 'sub' }, ` ${lacp}${!folder && reps[0]?.p.carrier ? ` · ${gbit(mbit(reps[0].p.speed))}` : ''}`)),
-			h('span', { class: 'members' }, bond.members.map((m) => h('span', { class: `jack ${jackState(folder, { off, set: true, carrier: m.carrier })}` },
+			h('span', { class: 'members' }, bond.members.map((m) => h('span', { class: `jack ${jackState(folder, { off, set: true, carrier: m.carrier, blocked })}` },
 				jackIcon(), h('span', { class: 'jname mono' }, m.name),
 				h('span', { class: 'jsub' }, folder ? 'Auto' : m.carrier ? gbit(mbit(m.speed)) : 'no link')))));
 		return group;
 	}
 	const p0 = reps[0]?.p;
 	const under = folder ? [speedSet(kf, base, name), mode].filter(Boolean).join(' · ') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
-	return jack(name, jackState(folder, { off, set: configured, carrier: !!p0?.carrier }), under,
+	return jack(name, jackState(folder, { off, set: configured, carrier: !!p0?.carrier, blocked }), blocked ? 'blocked' : under,
 		[name, mode, what && text(what)].filter(Boolean).join(' · '), choose, marks);
 }
 

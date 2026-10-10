@@ -924,7 +924,13 @@ type portState struct {
 	Max        *int       `json:"max,omitempty"`
 	PartnerMax *int       `json:"partner_max,omitempty"`
 	Bond       *bondState `json:"bond,omitempty"`
+	// Where the bridge runs spanning tree, the port's state in it (0095):
+	// forwarding, blocking, learning, listening or disabled.
+	STP string `json:"stp,omitempty"`
 }
+
+// stpStates are the bridge port states a port reports (0095).
+var stpStates = map[string]bool{"": true, "disabled": true, "listening": true, "learning": true, "forwarding": true, "blocking": true}
 
 // mbitOK says whether a speed a port can go is one a port could: absent,
 // or 1 Mbit/s to a terabit.
@@ -1079,6 +1085,9 @@ func (st *stateReport) check() error {
 			return badRequest("ports: each has its own name (such as lan1), a speed such as 1000F, or none, and speeds it can go of 1 to 1000000 Mbit/s")
 		}
 		names[p.Name] = true
+		if !stpStates[p.STP] {
+			return badRequest("ports: a port's spanning tree state is forwarding, blocking, learning, listening or disabled")
+		}
 		if b := p.Bond; b != nil {
 			if len(b.Members) > 8 || len(b.Mode) > 32 {
 				return badRequest("ports: a bond has at most 8 members, and a mode of at most 32 characters")

@@ -77,7 +77,8 @@
       "additionalProperties": { "$ref": "#/$defs/network" }
     },
     "templates": { "x-aeolus-tree": "locations", "description": "AP templates, by board as OpenWrt names it (arista,c360): the template the board's APs below take (0085). Not sent to APs: the manager applies the template.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/templateId" } },
-    "boards": { "x-aeolus-tree": "locations", "description": "Settings for one kind of AP, by board as OpenWrt names it (arista,c360) (0092): its APs take them in place of the plain ones set on the same folder or above it, so one kind's ports don't reach another's of the same name. Not sent to APs as they are: the manager folds them into each AP's own. Ports only, for now.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/boardSettings" } },
+    "boards": { "x-aeolus-tree": "locations", "description": "Settings for one kind of AP, by board as OpenWrt names it (arista,c360) (0092): its APs take them in place of the plain ones set on the same folder or above it, so one kind's ports don't reach another's of the same name. Not sent to APs as they are: the manager folds them into each AP's own. Ports and the uplink, for now.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/boardSettings" } },
+    "uplink": { "x-aeolus-tree": "locations", "$ref": "#/$defs/uplink" },
     "concentrators": {
       "x-aeolus-tree": "locations",
       "description": "Tunnels, by name: the far end a VXLAN transport reaches (0055). A network picks one by name.",
@@ -160,11 +161,20 @@
       "oneOf": [{ "const": "auto" }, { "enum": [800, 1600, 3200] }]
     },
     "boardSettings": {
-      "description": "One kind of AP's own settings (0092): ports, as the plain ones.",
+      "description": "One kind of AP's own settings (0092): ports and the uplink, as the plain ones.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "ports": { "type": "object", "propertyNames": { "pattern": "^[a-z][a-z0-9._-]{0,15}$" }, "additionalProperties": { "$ref": "#/$defs/port" } }
+        "ports": { "type": "object", "propertyNames": { "pattern": "^[a-z][a-z0-9._-]{0,15}$" }, "additionalProperties": { "$ref": "#/$defs/port" } },
+        "uplink": { "$ref": "#/$defs/uplink" }
+      }
+    },
+    "uplink": {
+      "description": "The bridge the AP's uplink is in, as a switch's (0095).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stp": { "type": "boolean", "description": "Spanning tree on the uplink's bridge, RSTP by ustp, which the agent installs (0095): the AP takes part as a switch does, and a second link to the same network is blocked rather than looped. ustp gives the AP the default bridge priority, 32768, so set the core switch's lower, as it should be, or an AP may be the root. Check the switch ports for BPDU guard first: one that has it shuts the port when the AP's first BPDU comes. Unset, the AP leaves it as it is." }
       }
     },
     "radio2g": {

@@ -28,7 +28,7 @@ func TemplatePath(board string) hierarchy.Path { return hierarchy.Path(Templates
 // templateFields are what a template may set: Locations settings, but not
 // tunnels (0055), names, the service folders, templates, or the agent's
 // release (0079).
-var templateFields = []string{"radio.", "ports.", "system.", "rrm.", "apc."}
+var templateFields = []string{"radio.", "ports.", "uplink.", "system.", "rrm.", "apc."}
 
 // TemplateFieldOK says whether a template may set p.
 func TemplateFieldOK(p hierarchy.Path) bool {
@@ -47,7 +47,7 @@ func TemplateFieldOK(p hierarchy.Path) bool {
 var (
 	ErrNoTemplateID    = errors.New("change needs a template")
 	ErrTemplateLevel   = errors.New("a template is made at the Org or a Locations folder, outside Landing Zone")
-	ErrTemplateField   = errors.New("a template sets radios, ports, system settings, radio resource management and power control, not tunnels, names, service folders, templates or the agent's release")
+	ErrTemplateField   = errors.New("a template sets radios, ports, the uplink, system settings, radio resource management and power control, not tunnels, names, service folders, templates or the agent's release")
 	ErrTemplateName    = errors.New("a template's name is 1 to 64 characters, none of them control characters")
 	ErrDefaultTemplate = errors.New("the manager makes a template only for a kind of AP no template is for, at the Org, picked there")
 )

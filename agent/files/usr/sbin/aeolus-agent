@@ -235,6 +235,32 @@ function has_veth() {
 	return installed('kmod-veth');
 }
 
+// has_ustp says whether ustp, the RSTP daemon, is installed, which spanning
+// tree needs (0095).
+function has_ustp() {
+	return !!fs.stat('/sbin/ustpd');
+}
+
+// needed is the packages the config needs that the AP lacks (0095), as the
+// renderer last found them, and asked when the agent last tried to have
+// each installed, so one that will not install is tried hourly.
+let needed = [];
+let asked = {};
+
+// want installs those, in the background; once one is in, the packages tool
+// starts the agent again, to render with it.
+function want() {
+	if (!fs.access(PACKAGES_TOOL))
+		return;
+	for (let pkg in needed) {
+		if (time() - (asked[pkg] ?? -RESTORE_EVERY) < RESTORE_EVERY)
+			continue;
+		asked[pkg] = time();
+		log('installing %s, which the config asks for', pkg);
+		system('setsid ' + PACKAGES_TOOL + ' add ' + pkg + ' </dev/null >/dev/null 2>&1 &');
+	}
+}
+
 // write_clamp makes the MSS clamp's file from the network config (0054) and
 // says whether it changed, so the caller can have fw4 load it. With no
 // tunnel to clamp, the table it loaded before is removed too.
@@ -351,6 +377,7 @@ function render_facts(intent, ap) {
 		uplink: settings().uplink, management: mgmt_interface(), radios: radios,
 		timezone: posix_tz(intent.system?.tz), vxlan: vxlan_loaded(), nft_bridge: has_nft_bridge(),
 		bss_transition: has_bss_transition(), ap: ap, prober: has_prober(), veth: has_veth(),
+		ustp: has_ustp(),
 	};
 }
 
@@ -561,6 +588,8 @@ function converge(poll, token) {
 	let out = render(intent, current(), render_facts(intent, poll.ap));
 	for (let e in out.errors)
 		fail('render: %s', e);
+	needed = out.needs ?? [];
+	want();
 	// After a start the whole config comes again, even unchanged. Where it
 	// renders to what runs already, there is nothing to check or apply; where
 	// a newer agent renders more, that is checked and applied as any change.
@@ -674,9 +703,14 @@ function bond_state(p, devs) {
 	};
 }
 
+// STP_STATES are the kernel's bridge port states, as a port's brif/state
+// file numbers them; ustp puts RSTP's discarding as blocking (0095).
+const STP_STATES = ['disabled', 'listening', 'learning', 'forwarding', 'blocking'];
+
 // ports_state lists the Ethernet ports of the bridge the uplink is in
 // (0053), in the bridge's order: each port's state (port_state), which is
-// the uplink, and for a bond its members (0093). The ports are those
+// the uplink, for a bond its members (0093), and where the bridge runs
+// spanning tree, each port's state in it (0095). The ports are those
 // the bridge's config lists, as the renderer reads them; the running bridge
 // holds the Wi-Fi interfaces too. A tunnel port has left that bridge for its
 // tunnels' (0058), on its own or by an 802.1Q device Aeolus made of it, and
@@ -685,12 +719,15 @@ function bond_state(p, devs) {
 function ports_state() {
 	let uplink = settings().uplink;
 	let members = [];
+	let br = null;
 	let bridges = [];
 	let vlans = {};   // an 802.1Q device Aeolus made -> the port under it
 	cursor().foreach('network', 'device', d => {
 		let ports = type(d.ports) == 'array' ? d.ports : d.ports ? [d.ports] : [];
-		if (d.type == 'bridge' && index(ports, uplink) >= 0)
+		if (d.type == 'bridge' && index(ports, uplink) >= 0) {
 			members = filter(ports, e => !match(e, VLAN_END));
+			br = d.name;
+		}
 		else if (d.type == 'bridge' && match(d['.name'], /^aeolus_[0-9]+_br$/))
 			push(bridges, ports);
 		else if (d.type == '8021q' && match(d['.name'], /^aeolus_port_/) && d.name && d.ifname)
@@ -705,12 +742,16 @@ function ports_state() {
 		}
 	members = [...members, ...sort(tunnel_ports)];
 	let devs = bus.call('network.device', 'status') ?? {};
+	let stp = br && match(br, /^[A-Za-z0-9._-]+$/) && (read(`/sys/class/net/${br}/bridge/stp_state`) ?? '0') != '0';
 	let out = [];
 	for (let p in members) {
 		let o = port_state(devs[p] ?? {});
 		o.name = p;
 		o.uplink = p == uplink;
 		o.bond = bond_state(p, devs);
+		let s = stp ? read(`/sys/class/net/${br}/brif/${p}/state`) : null;
+		if (s != null && match(s, /^[0-4]$/))
+			o.stp = STP_STATES[int(s)];
 		push(out, o);
 	}
 	return slice(out, 0, 32);
@@ -1442,6 +1483,7 @@ function main() {
 		}
 		if (time() >= next_packages && !fs.access(PACKAGES_DONE))
 			next_packages = packages(time());
+		want();
 		// On trial, often, to confirm in good time.
 		let poll = trial ? 10 : settings().poll;
 		sleep(poll * 1000 * (90 + math.rand() % 21) / 100);

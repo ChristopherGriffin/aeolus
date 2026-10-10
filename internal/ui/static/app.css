@@ -339,6 +339,11 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .jack.set .icon .body { fill: #FFFFFF; }
 .jack.unset .icon .body, .jack.off .icon .body { fill: #C9CDD2; stroke: #8A9099; }
 .jack.off .icon .pin { stroke: #A3A9B0; }
+.jack.blocked .icon .body { fill: #E8B04B; stroke: #8A5A00; }
+.jack.blocked .icon .pin { stroke: #FBF1DF; }
+.jack .stpblock { color: var(--warn); font-weight: 700; }
+.kindstp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 12px; font-size: 13px; }
+.kindstp .label { color: var(--muted); }
 .jack .jname { font-size: 12px; display: inline-flex; gap: 3px; align-items: center; }
 .jack .jsub { font-size: 11px; color: var(--muted); }
 .jack .up { color: var(--accent); font-weight: 600; }

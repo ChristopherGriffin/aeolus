@@ -7,6 +7,7 @@
 #	aeolus-packages install   install them, when the agent is installed
 #	aeolus-packages restore   after a sysupgrade, install again those that were
 #	aeolus-packages required  install the modules the agent cannot start without
+#	aeolus-packages add PKG   install one that a setting asks for, when it does
 #
 # The packages: usteer, for band steering (0050); snmpd-ssl, for SNMP (0052);
 # vxlan and kmod-nft-bridge, for VXLAN tunnels and their MSS clamp (0054);
@@ -32,9 +33,15 @@
 # init script starts restore itself. required installs only those, for
 # aeolus-setup on an AP that never had the agent (0083).
 #
+# add installs one that only some APs need, when a setting asks for it: ustp,
+# for spanning tree (0095). The agent asks for it, and once it is installed,
+# starts again, to render with it. It goes in the list like the others, so a
+# sysupgrade brings it back.
+#
 # apk on OpenWrt 25.12 and later, opkg before (0083).
 
 PACKAGES="usteer snmpd-ssl vxlan kmod-nft-bridge ucode-mod-socket kmod-veth ucode-mod-nl80211 ucode-mod-digest"
+ON_DEMAND="ustp"
 REQUIRED="ucode-mod-fs ucode-mod-uci ucode-mod-ubus ucode-mod-uloop ucode-mod-uclient ucode-mod-math ucode-mod-log ucode-mod-digest"
 LIST=/etc/aeolus/packages      # what was installed; kept over a sysupgrade
 DONE=/usr/lib/aeolus/packages  # not kept: present until the next sysupgrade
@@ -103,6 +110,10 @@ configure() {
 		uci commit snmpd
 		/etc/init.d/snmpd restart
 		;;
+	ustp)
+		/etc/init.d/ustpd enable
+		/etc/init.d/ustpd start
+		;;
 	esac
 }
 
@@ -114,6 +125,7 @@ why() {
 	ucode-mod-socket) echo "the tunnels go unprobed, and tunnel ports unguarded" ;;
 	kmod-veth) echo "a network with a VLAN transport and a fallback will be refused on this AP" ;;
 	ucode-mod-nl80211 | ucode-mod-digest) echo "radio resource management stays off on this AP" ;;
+	ustp) echo "spanning tree stays off on this AP" ;;
 	esac
 }
 
@@ -164,6 +176,8 @@ install_all() {
 			say "$p could not be installed: $(why $p) until it is ($ADD $p)"
 		fi
 	done
+	# Those a setting asked for stay on the list.
+	for p in $ON_DEMAND; do has $p && echo $p >>$LIST.new; done
 	mv $LIST.new $LIST
 	mkdir -p ${DONE%/*} && touch $DONE
 	return $rc
@@ -199,6 +213,7 @@ restore() {
 	fi
 	say "after a sysupgrade, installed again:$missing"
 	mkdir -p ${DONE%/*} && touch $DONE
+	case " $missing " in *" ustp "*) configure ustp ;; esac
 	case " $missing " in *" vxlan "*)
 		say "restarting the network so netifd loads vxlan"
 		/etc/init.d/network restart
@@ -232,13 +247,34 @@ required() {
 	say "installed what the agent needs:$missing"
 }
 
+# add installs one of ON_DEMAND, and starts the agent again to render with it.
+add() {
+	case " $ON_DEMAND " in *" $1 "*) ;; *)
+		say "$1 is not one a setting can ask for"
+		return 2
+		;;
+	esac
+	has $1 && return 0
+	feeds
+	pm_update >/dev/null 2>&1 || say "the package index could not be read through the manager"
+	if ! pm_add $1 >/dev/null 2>&1 || ! has $1; then
+		say "$1 could not be installed: $(why $1) until it is ($ADD $1); the agent tries again in an hour"
+		return 1
+	fi
+	grep -qx "$1" $LIST 2>/dev/null || echo $1 >>$LIST
+	configure $1
+	say "installed $1, which a setting asks for"
+	/etc/init.d/aeolus restart
+}
+
 case $1 in
 feeds) feeds ;;
+add) add "$2" ;;
 install) install_all ;;
 restore) restore ;;
 required) required ;;
 *)
-	sed -n '6,9p' "$0" >&2
+	sed -n '6,10p' "$0" >&2
 	exit 2
 	;;
 esac

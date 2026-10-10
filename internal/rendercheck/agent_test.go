@@ -37,7 +37,10 @@ type agentCase struct {
 	// "errors" in a case, exactly these, in order; without, they are not
 	// checked.
 	Errors *[]string `json:"errors"`
-	golden string
+	// Refused: the renderer held back what the AP cannot run yet, and the
+	// check must refuse what it renders, so the AP keeps what runs (0095).
+	Refused bool `json:"refused"`
+	golden  string
 }
 
 func agentCases(t *testing.T) []agentCase {
@@ -72,7 +75,11 @@ func TestAgentOutputPassesTheCheck(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		if p := CheckAP(c.Intent, cfg, c.Facts.AP); len(p) > 0 {
+		p := CheckAP(c.Intent, cfg, c.Facts.AP)
+		if c.Refused && len(p) == 0 {
+			t.Errorf("%s: the check passes what the agent held back", c.name)
+		}
+		if !c.Refused && len(p) > 0 {
 			t.Errorf("%s: the check refuses the agent's output:\n%s", c.name, strings.Join(p, "\n"))
 		}
 		untouched(t, c, cfg)

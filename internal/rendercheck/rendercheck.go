@@ -59,6 +59,7 @@ var Coverage = map[string]string{
 
 	"ports.*.enabled":  "",
 	"ports.*.speed":    "",
+	"uplink.stp":       "",
 	"ports.*.uplink":   "the agent's own setting (0040), not the intent's",
 	"ports.*.mode":     "",
 	"ports.*.untagged": "",
@@ -106,6 +107,7 @@ var Coverage = map[string]string{
 	"templates.*":                     "not sent to APs: the manager applies the AP's template (0085)",
 	"boards.*.ports.*.enabled":        folded,
 	"boards.*.ports.*.speed":          folded,
+	"boards.*.uplink.stp":             folded,
 	"boards.*.ports.*.uplink":         folded,
 	"boards.*.ports.*.mode":           folded,
 	"boards.*.ports.*.untagged":       folded,
@@ -226,6 +228,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.ports(obj(doc, "ports"), obj(doc, "concentrators"))
 	k.probes(doc)
 	k.rrm(obj(doc, "rrm"), obj(doc, "apc"))
+	k.stp(obj(doc, "uplink"))
 	k.guardInterval(obj(doc, "radio"), radios)
 	sort.Strings(k.problems)
 	if k.problems == nil {
@@ -527,6 +530,26 @@ func (k *checker) rrm(set, apc map[string]any) {
 				k.add("%s: power control is not on, but %s is %q", where, o, v)
 			}
 		}
+	}
+}
+
+// stp checks spanning tree on the uplink's bridge (0095): on, RSTP; off,
+// none. An uplink in no bridge cannot loop, and has none to check.
+func (k *checker) stp(up map[string]any) {
+	on, ok := up["stp"].(bool)
+	if !ok {
+		return
+	}
+	_, bridge := k.uplinkBridge()
+	if bridge == nil {
+		return
+	}
+	where := "network bridge " + value(bridge, "name")
+	if bridge.Flag("stp") != on {
+		k.add("%s: stp is %q, want it %s for uplink.stp", where, value(bridge, "stp"), onOff(on))
+	}
+	if on {
+		k.option(where, bridge, "stp_proto", "rstp")
 	}
 }
 

@@ -29,6 +29,7 @@ const SNMP = {
 
 const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power' };
 
+const UPLINK = { stp: 'Spanning tree' };
 const PORT = { enabled: 'Port on', speed: 'Speed', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
 
 const MODE = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' };
@@ -64,6 +65,7 @@ export function group(path) {
 	// A tunnel port's VNI, by how it is carried: "VLAN 50 tunnel" (0058).
 	if (p[0] === 'ports' && p[2] === 'vxlan') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: `${p[3] === 'untagged' ? 'Untagged' : 'VLAN ' + p[3]} ${PORT_VNI[p[4]] || p[4]}` };
 	if (p[0] === 'ports') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: PORT[p[2]] || p[2] };
+	if (p[0] === 'uplink') return { key: 'uplink', title: 'Uplink', order: 3.9, label: UPLINK[p[1]] || p[1] };
 	if (p[0] === 'concentrators') return { key: 'concentrators.' + p[1], title: 'Tunnel ' + p[1], order: 4.5, label: TUNNEL[p[2]] || p[2] };
 	if (p[0] === 'services') return { key: 'services', title: 'Services', order: 5, label: 'Service folders' };
 	if (p[0] === 'rrm') return { key: 'rrm', title: 'Radio resource management', order: 6, label: RRM[p[1]] || p[1] };
@@ -81,6 +83,7 @@ export function group(path) {
 // (0027); the API sends them as {sealed: true}.
 export function value(path, v, names) {
 	if (v && typeof v === 'object' && v.sealed === true) return h('span', { class: 'sealed' }, 'sealed');
+	if (/(^|\.)uplink\.stp$/.test(path) && typeof v === 'boolean') return v ? 'on, RSTP' : 'off';
 	if (typeof v === 'boolean') return v ? 'on' : 'off';
 	const last = path.split('.').pop();
 	if (path === 'services' && Array.isArray(v)) return v.map((id) => names(id)).join(' + ') || 'none';
