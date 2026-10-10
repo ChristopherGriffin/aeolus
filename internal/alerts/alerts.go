@@ -31,6 +31,7 @@ type Alert struct {
 	Name     string           `json:"name"`
 	Severity string           `json:"severity"`
 	Kind     string           `json:"kind"`
+	Key      string           `json:"key"` // the kind, and what of the AP it is about: the same while the cause lasts
 	Message  string           `json:"message"`
 	Since    *time.Time       `json:"since,omitempty"`
 }
@@ -65,7 +66,7 @@ func Offline(poll time.Duration) time.Duration {
 func For(in Input) []Alert {
 	var out []Alert
 	add := func(sev, kind, msg string, since *time.Time) {
-		out = append(out, Alert{AP: in.AP, Name: in.Name, Severity: sev, Kind: kind, Message: msg, Since: since})
+		out = append(out, Alert{AP: in.AP, Name: in.Name, Severity: sev, Kind: kind, Key: kind, Message: msg, Since: since})
 	}
 	l := in.Latest
 	if in.Unassigned {
@@ -158,48 +159,52 @@ func fromReport(in Input, st *conditions.State) []Alert {
 		return nil
 	}
 	var out []Alert
-	add := func(sev, kind, msg string) {
-		out = append(out, Alert{AP: in.AP, Name: in.Name, Severity: sev, Kind: kind, Message: msg, Since: &st.At})
+	add := func(sev, kind, subject, msg string) {
+		key := kind
+		if subject != "" {
+			key += ":" + subject
+		}
+		out = append(out, Alert{AP: in.AP, Name: in.Name, Severity: sev, Kind: kind, Key: key, Message: msg, Since: &st.At})
 	}
 	if r.WirelessMissing {
-		add(Critical, "wireless-missing", "netifd lost its network.wireless object: the radios run, but nothing sees them or their clients until the network restarts")
+		add(Critical, "wireless-missing", "", "netifd lost its network.wireless object: the radios run, but nothing sees them or their clients until the network restarts")
 	}
 	if u := r.Agent; u != nil && u.Update != nil && (u.Update.State == "failed" || u.Update.State == "rolled-back") {
-		add(Warning, "agent-update", fmt.Sprintf("the agent update to %s %s: %s", u.Update.Version, u.Update.State, u.Update.Why))
+		add(Warning, "agent-update", u.Update.Version, fmt.Sprintf("the agent update to %s %s: %s", u.Update.Version, u.Update.State, u.Update.Why))
 	}
 	for _, net := range sortedKeys(r.Transports) {
 		t := r.Transports[net]
 		switch {
 		case t.Active == "none":
-			add(Critical, "no-transport", fmt.Sprintf("network %s has no transport in its bridge: its clients reach nothing", net))
+			add(Critical, "no-transport", net, fmt.Sprintf("network %s has no transport in its bridge: its clients reach nothing", net))
 		case t.CannotSwitch != "":
-			add(Warning, "cannot-switch", fmt.Sprintf("network %s cannot switch: %s", net, t.CannotSwitch))
+			add(Warning, "cannot-switch", net, fmt.Sprintf("network %s cannot switch: %s", net, t.CannotSwitch))
 		case t.Active == "fallback":
-			add(Warning, "on-fallback", fmt.Sprintf("network %s runs on its fallback: its primary is down", net))
+			add(Warning, "on-fallback", net, fmt.Sprintf("network %s runs on its fallback: its primary is down", net))
 		}
 	}
 	if x := r.VXLAN; x != nil {
 		for _, t := range x.Tunnels {
 			if !t.Standby && t.Probe != nil && t.Probe.Verdict == "down" {
-				add(Warning, "tunnel-down", fmt.Sprintf("tunnel VNI %d to %s is down", t.VNI, t.Peer))
+				add(Warning, "tunnel-down", fmt.Sprint(t.VNI), fmt.Sprintf("tunnel VNI %d to %s is down", t.VNI, t.Peer))
 			}
 		}
 		for _, l := range x.Loops {
-			add(Critical, "loop", fmt.Sprintf("port %s loops on VNI %d: the loop guard took it off its tunnels", l.Port, l.VNI))
+			add(Critical, "loop", fmt.Sprintf("%s/%d", l.Port, l.VNI), fmt.Sprintf("port %s loops on VNI %d: the loop guard took it off its tunnels", l.Port, l.VNI))
 		}
 	}
 	for _, v := range r.UplinkVLANs {
 		if v.Verdict == "silent" {
-			add(Warning, "vlan-silent", fmt.Sprintf("VLAN %d is silent on the uplink: the switch port may not carry it", v.VLAN))
+			add(Warning, "vlan-silent", fmt.Sprint(v.VLAN), fmt.Sprintf("VLAN %d is silent on the uplink: the switch port may not carry it", v.VLAN))
 		}
 	}
 	for _, net := range sortedKeys(r.DHCP) {
 		if d := r.DHCP[net]; d.Unanswered > 0 && d.Answered == 0 {
-			add(Warning, "dhcp-silent", fmt.Sprintf("DHCP on network %s: %d requests in the last 10 minutes, and nothing answered", net, d.Unanswered))
+			add(Warning, "dhcp-silent", net, fmt.Sprintf("DHCP on network %s: %d requests in the last 10 minutes, and nothing answered", net, d.Unanswered))
 		}
 	}
 	if t := r.Time; t != nil && t.Synced != nil && !*t.Synced {
-		add(Info, "clock", "the clock is not synced: logs and key expiry may be off")
+		add(Info, "clock", "", "the clock is not synced: logs and key expiry may be off")
 	}
 	return out
 }

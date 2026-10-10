@@ -47,3 +47,33 @@ func TestAlerts(t *testing.T) {
 		t.Fatalf("office sees %v", got)
 	}
 }
+
+// Where an AP's alerts go (0101): the folders' notify.* fields, nearest
+// first, the URLs sealed in the log and opened only to send, and never in
+// an AP's config.
+func TestNotifyTarget(t *testing.T) {
+	f := newFixture(t)
+	for _, op := range []map[string]any{
+		{"kind": "set", "tree": "locations", "node": "symtus", "path": "notify.ntfy", "value": "https://ntfy.example/symtus-alerts"},
+		{"kind": "set", "tree": "locations", "node": "house", "path": "notify.severity", "value": "warning"},
+		{"kind": "set", "tree": "locations", "node": "house", "path": "notify.resolved", "value": false},
+	} {
+		if code, body := f.change("griff", op); code != 200 {
+			t.Fatalf("%v: %d %v", op, code, body)
+		}
+	}
+	got := f.api.notifyTarget(f.log.Snapshot(), "office-ap")
+	if got.Ntfy != "https://ntfy.example/symtus-alerts" || got.Webhook != "" || got.Least != "warning" || got.Resolved {
+		t.Fatalf("target = %+v", got)
+	}
+	// Sealed as it is kept, and shown so.
+	_, page := f.do("GET", "/v1/trees/locations/nodes/symtus", "griff", nil)
+	if v, _ := page["fields"].(map[string]any)["notify.ntfy"].(map[string]any)["value"].(map[string]any); v["sealed"] != true {
+		t.Fatalf("notify.ntfy shows %v", page["fields"].(map[string]any)["notify.ntfy"])
+	}
+	// Not in the AP's config.
+	_, cfg := f.do("GET", "/v1/aps/office-ap/config", "griff", nil)
+	if doc, _ := cfg["document"].(map[string]any); doc["notify"] != nil {
+		t.Fatalf("the AP's document has notify: %v", doc["notify"])
+	}
+}

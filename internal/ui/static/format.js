@@ -30,6 +30,7 @@ const SNMP = {
 
 const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power', min_signal: 'Minimum signal to join', beacon_interval: 'Beacon interval' };
 
+const NOTIFY = { ntfy: 'ntfy topic', webhook: 'Webhook', severity: 'Least severe sent', resolved: 'Say when resolved' };
 const UPLINK = { stp: 'Spanning tree', bond: 'Uplink bond' };
 const PORT = { enabled: 'Port on', speed: 'Speed', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
 
@@ -68,6 +69,7 @@ export function group(path) {
 	// A tunnel port's VNI, by how it is carried: "VLAN 50 tunnel" (0058).
 	if (p[0] === 'ports' && p[2] === 'vxlan') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: `${p[3] === 'untagged' ? 'Untagged' : 'VLAN ' + p[3]} ${PORT_VNI[p[4]] || p[4]}` };
 	if (p[0] === 'ports') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: PORT[p[2]] || p[2] };
+	if (p[0] === 'notify') return { key: 'notify', title: 'Alerts', order: 2.9, label: NOTIFY[p[1]] || p[1] };
 	if (p[0] === 'uplink') return { key: 'uplink', title: 'Uplink', order: 3.9, label: UPLINK[p[1]] || p[1] };
 	if (p[0] === 'concentrators') return { key: 'concentrators.' + p[1], title: 'Tunnel ' + p[1], order: 4.5, label: TUNNEL[p[2]] || p[2] };
 	if (p[0] === 'services') return { key: 'services', title: 'Services', order: 5, label: 'Service folders' };
