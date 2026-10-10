@@ -159,6 +159,11 @@ Each milestone ends in something checkable before the next starts.
 | [0103](docs/decisions/0103-client-journey.md) | A client's journey, first part |
 | [0104](docs/decisions/0104-ap-actions.md) | Asking an AP to act once: Locate, Restart Wi-Fi, Reboot |
 | [0105](docs/decisions/0105-rogue-aps.md) | A network that takes one of Aeolus's SSIDs |
+| [0106](docs/decisions/0106-networks-heard.md) | The networks the APs hear, and rogues marked known |
+| [0107](docs/decisions/0107-reconnect-a-client.md) | Reconnecting one client |
+| [0108](docs/decisions/0108-usage.md) | Usage over the last day |
+| [0109](docs/decisions/0109-alert-history.md) | What alerted, and for how long |
+| [0110](docs/decisions/0110-top-clients.md) | The clients that moved the most |
 
 ## Open questions
 
