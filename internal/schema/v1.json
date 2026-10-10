@@ -91,6 +91,15 @@
         "resolved": { "type": "boolean", "default": true, "description": "Also send when an alert's cause is gone." }
       }
     },
+    "rogues": {
+      "x-aeolus-tree": "locations",
+      "description": "What the manager makes of the networks the APs here hear that broadcast one of Aeolus's SSIDs (0105, 0106): the manager's own, never sent to APs.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "known": { "type": "array", "items": { "type": "string", "pattern": "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$" }, "uniqueItems": true, "maxItems": 256, "description": "BSSIDs known not to be rogues, such as a neighbour's AP of the same name: heard here broadcasting one of Aeolus's SSIDs, they raise no alert." }
+      }
+    },
     "concentrators": {
       "x-aeolus-tree": "locations",
       "description": "Tunnels, by name: the far end a VXLAN transport reaches (0055). A network picks one by name.",
