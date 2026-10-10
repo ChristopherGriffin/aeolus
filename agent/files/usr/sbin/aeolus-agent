@@ -21,6 +21,7 @@ import { cursor } from 'uci';
 import { connect } from 'ubus';
 import { render, clamp, PACKAGES, CLAMP, VLAN_END, iface_name, without_keys } from 'aeolus.render';
 import { text, file } from 'aeolus.uciexport';
+import * as uplink from 'aeolus.uplink';
 
 const AGENT = 'aeolus-agent/1';
 const DIR = '/etc/aeolus';
@@ -675,10 +676,23 @@ function port_state(d) {
 	};
 }
 
+// probes reads what the prober found (0059), if it is recent: by VNI, how
+// each tunnel is doing, and the ports the loop guard took off their tunnels.
+function probes() {
+	let p = null;
+	try {
+		p = json(read(PROBES) ?? 'null');
+	} catch (e) {
+	}
+	if (type(p?.at) != 'int' || time() - p.at > PROBES_STALE)
+		return null;
+	return p;
+}
+
 // bond_state is a bond's mode and its member ports, each with its link and
 // the LACP aggregator it is in (0093), or null for a port that is not a
 // bond: the C-360's uplink is bond0, of eth0 and eth1, made by its image.
-function bond_state(p, devs) {
+function bond_state(p, devs, on) {
 	let slaves = read(`/sys/class/net/${p}/bonding/slaves`);
 	if (slaves == null)
 		return null;
@@ -694,6 +708,7 @@ function bond_state(p, devs) {
 		m.name = s;
 		m.mii = read(`/sys/class/net/${s}/bonding_slave/mii_status`);
 		m.aggregator = num(`/sys/class/net/${s}/bonding_slave/ad_aggregator_id`);
+		m.neighbor = on[s];
 		push(members, m);
 	}
 	return {
@@ -710,7 +725,10 @@ const STP_STATES = ['disabled', 'listening', 'learning', 'forwarding', 'blocking
 // ports_state lists the Ethernet ports of the bridge the uplink is in
 // (0053), in the bridge's order: each port's state (port_state), which is
 // the uplink, for a bond its members (0093), and where the bridge runs
-// spanning tree, each port's state in it (0095). The ports are those
+// spanning tree, each port's state in it (0095). Where the uplink is two
+// ports, its bond taken apart, both are the uplink, and the one the AP's
+// traffic takes is the path out; each Ethernet port under the uplink says
+// the switch port its LLDP names (0096). The ports are those
 // the bridge's config lists, as the renderer reads them; the running bridge
 // holds the Wi-Fi interfaces too. A tunnel port has left that bridge for its
 // tunnels' (0058), on its own or by an 802.1Q device Aeolus made of it, and
@@ -743,31 +761,27 @@ function ports_state() {
 	members = [...members, ...sort(tunnel_ports)];
 	let devs = bus.call('network.device', 'status') ?? {};
 	let stp = br && match(br, /^[A-Za-z0-9._-]+$/) && (read(`/sys/class/net/${br}/bridge/stp_state`) ?? '0') != '0';
+	let ups = uplink.ports(cursor());
+	let path = length(ups) > 1 ? uplink.path_out(ups) : null;
+	let on = {};
+	for (let port, n in probes()?.uplink?.ports ?? {})
+		if (type(n) == 'object')
+			on[port] = { system: n.system, port: n.port };
 	let out = [];
 	for (let p in members) {
 		let o = port_state(devs[p] ?? {});
 		o.name = p;
-		o.uplink = p == uplink;
-		o.bond = bond_state(p, devs);
+		o.uplink = index(ups, p) >= 0;
+		if (path && p == path)
+			o.path = true;
+		o.neighbor = on[p];
+		o.bond = bond_state(p, devs, on);
 		let s = stp ? read(`/sys/class/net/${br}/brif/${p}/state`) : null;
 		if (s != null && match(s, /^[0-4]$/))
 			o.stp = STP_STATES[int(s)];
 		push(out, o);
 	}
 	return slice(out, 0, 32);
-}
-
-// probes reads what the prober found (0059), if it is recent: by VNI, how
-// each tunnel is doing, and the ports the loop guard took off their tunnels.
-function probes() {
-	let p = null;
-	try {
-		p = json(read(PROBES) ?? 'null');
-	} catch (e) {
-	}
-	if (type(p?.at) != 'int' || time() - p.at > PROBES_STALE)
-		return null;
-	return p;
 }
 
 // neighbour says whether the AP has lately heard from an address on a
@@ -912,8 +926,10 @@ function uplink_state() {
 // MAC and MTU; how often its link has come and gone; the VLANs it carries
 // as the network config has them, Aeolus's and the AP's own, tagged or not,
 // and which is the management VLAN; and its counters since it came up.
+// Where the uplink is two ports, its bond taken apart, it is the one that is
+// the path out (0096).
 function uplink_port() {
-	let up = settings().uplink;
+	let up = uplink.path_out(uplink.ports(cursor()));
 	if (!up || read(`/sys/class/net/${up}/address`) == null)
 		return null;
 	let num = (k) => int(read(`/sys/class/net/${up}/${k}`) ?? '0');

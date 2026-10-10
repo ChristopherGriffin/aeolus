@@ -1,0 +1,58 @@
+{
+	"about": "The C-360 with its bond put back (0096): it ran with the bond taken apart, eth0 and eth1 each in br-lan with spanning tree on, and uplink.bond is unset again. The bond's section comes back as it was, from aeolus_unbond, which goes, and bond0 takes eth0's and eth1's place in br-lan and in VLAN 20; the AP's uplink is bond0 again. Spanning tree stays as it is: unset leaves it.",
+	"current": "c360-unbonded-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		},
+		"ustp": true
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"kept": [
+		"network.c360bond"
+	],
+	"gone": [
+		"aeolus.aeolus_unbond"
+	],
+	"errors": []
+}

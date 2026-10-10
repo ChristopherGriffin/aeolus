@@ -1,0 +1,70 @@
+{
+	"about": "The C-360 with its LACP bond taken apart (0096), as its image makes it: bond0, of eth0 and eth1, the only port of br-lan, carrying VLAN 20, the AP's management, tagged. Each member joins br-lan where the bond was, and carries VLAN 20 and the network on VLAN 50 as the bond did; spanning tree runs on the bridge, so the second cable to one network is blocked. The bond's section is kept as it was in aeolus_unbond, and the AP's uplink is eth0, the primary.",
+	"current": "c360-bond-current.json",
+	"facts": {
+		"uplink": "bond0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		},
+		"ustp": true
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"uplink": {
+			"stp": true,
+			"bond": false
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			},
+			"iot": {
+				"ssid": "Aeolus IoT",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-2",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 50
+					}
+				}
+			}
+		}
+	},
+	"gone": [
+		"network.c360bond"
+	],
+	"errors": []
+}

@@ -29,7 +29,7 @@ const SNMP = {
 
 const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power' };
 
-const UPLINK = { stp: 'Spanning tree' };
+const UPLINK = { stp: 'Spanning tree', bond: 'Uplink bond' };
 const PORT = { enabled: 'Port on', speed: 'Speed', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
 
 const MODE = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' };
@@ -84,6 +84,7 @@ export function group(path) {
 export function value(path, v, names) {
 	if (v && typeof v === 'object' && v.sealed === true) return h('span', { class: 'sealed' }, 'sealed');
 	if (/(^|\.)uplink\.stp$/.test(path) && typeof v === 'boolean') return v ? 'on, RSTP' : 'off';
+	if (/(^|\.)uplink\.bond$/.test(path) && typeof v === 'boolean') return v ? 'LACP bond' : 'two ports, apart';
 	if (typeof v === 'boolean') return v ? 'on' : 'off';
 	const last = path.split('.').pop();
 	if (path === 'services' && Array.isArray(v)) return v.map((id) => names(id)).join(' + ') || 'none';

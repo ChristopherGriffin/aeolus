@@ -520,7 +520,16 @@ function kindsOf(rows, fields, folder) {
 // shown under the kind's path is marked plain: nothing is set at that path
 // to unset.
 function kindFields(fields, kind, ancestry) {
-	if (!kind.base) return fields;
+	// On an AP's page, what is set for its board above it is the AP's own, as
+	// the manager folds it, under the plain path.
+	if (!kind.base) {
+		if (!kind.board) return fields;
+		const base = `boards.${kind.board}.`;
+		const out = { ...fields };
+		for (const [p, r] of Object.entries(kindFields(fields, { ...kind, base }, ancestry)))
+			if (p.startsWith(base) && r && !r.plain) out[p.slice(base.length)] = r;
+		return out;
+	}
 	const at = (id) => ancestry.indexOf(id);
 	const out = { ...fields };
 	const pick = (plain, own) => {
@@ -709,6 +718,8 @@ function kindPanel(ctx, d, here, page, kind, fields, canEdit, edit, folder, only
 	};
 	const ctxPort = { ctx, d, here, nodeName: page.node.name, kf, kind, canEdit, edit, folder, box };
 	body.insertBefore(stpLine(ctxPort), box);
+	const bl = bondLine(ctxPort);
+	if (bl) body.insertBefore(bl, box);
 	strip.replaceChildren(
 		...names.map((n) => portJack(ctxPort, n, kind.ports.get(n) || [], pick)),
 		canEdit && h('button', { type: 'button', class: 'jack add', title: `A port no ${folder && kind.board ? kind.name : 'AP'} here has reported yet`,
@@ -796,6 +807,82 @@ function stpForm(c, close) {
 		out);
 }
 
+const UNBOND_WARN = "The switch ports these APs are on must work without LACP before this is applied: plain trunks, or a port-channel with LACP fallback to individual ports and a fallback timeout well under 90 seconds. Otherwise the AP cannot reach Aeolus, and puts its bond back after 90 seconds. Check them for BPDU guard too. Applying restarts the AP's network: its wired and Wi-Fi clients drop briefly.";
+const REBOND_WARN = "The switch ports these APs are on must do LACP again, as a port-channel, or the bond comes up without its partner. Applying restarts the AP's network: its wired and Wi-Fi clients drop briefly.";
+
+// bondable says whether a kind's uplink is a bond, as its APs report it, or
+// one Aeolus took apart, two uplink ports, or one set either way here (0096).
+function bondable(kind, kf) {
+	const reps = [...kind.ports.values()].flat();
+	return reps.some((r) => r.p.bond?.members?.length) ||
+		new Set(reps.filter((r) => r.p.uplink).map((r) => r.p.name)).size > 1 ||
+		kf[`${kind.base}uplink.bond`] != null;
+}
+
+// bondLine is a kind's uplink bond, under its jacks (0096): the image's LACP
+// bond, or its ports apart, where that comes from, with Edit.
+function bondLine(c) {
+	const { ctx, here, kf, kind, canEdit, box } = c;
+	if (!bondable(kind, kf)) return null;
+	const r = kf[`${kind.base}uplink.bond`];
+	const said = r?.value === false ? 'Two ports, apart, with spanning tree' : r?.value === true ? 'LACP bond' : h('span', { class: 'sub' }, 'not set: the bond the AP\'s image makes');
+	const whence = r && r.from !== here && h('span', { class: 'whence' }, `${r.origin === 'locked' ? 'locked by' : 'from'} ${ctx.name('locations', r.from)}`);
+	return h('div', { class: 'kindstp' }, h('span', { class: 'label' }, 'Uplink'), said, whence,
+		canEdit && h('button', { type: 'button', class: 'button small', onclick: () => box.replaceChildren(bondForm(c, () => box.replaceChildren())) }, 'Edit'));
+}
+
+// bondForm keeps the uplink's bond or takes it apart for a kind here, in one
+// change, or has it follow the folder above (0096). Apart, the ports need
+// spanning tree, so the change turns it on with it where it is not on.
+function bondForm(c, close) {
+	const { ctx, here, nodeName, kf, kind, edit, folder, box } = c;
+	const path = `${kind.base}uplink.bond`;
+	const stpPath = `${kind.base}uplink.stp`;
+	const r = kf[path];
+	const sel = h('select', null,
+		r == null && h('option', { value: '' }, '—'),
+		h('option', { value: 'bond', selected: r?.value === true }, 'LACP bond'),
+		h('option', { value: 'apart', selected: r?.value === false }, 'Two ports, apart, with spanning tree'));
+	const out = h('div', { class: 'edit flush' });
+	const msg = h('div', { class: 'error' });
+	const review = async () => {
+		msg.replaceChildren();
+		const bond = sel.value === 'bond';
+		if (sel.value === '' || bond === r?.value) {
+			msg.replaceChildren('Nothing has changed.');
+			return;
+		}
+		const values = { [path]: bond };
+		const stpOn = kf[stpPath]?.value === true;
+		if (!bond && !stpOn) values[stpPath] = true;
+		const paths = Object.keys(values);
+		const op = paths.length === 1
+			? { kind: 'set', tree: 'locations', node: here, path, value: bond }
+			: { kind: 'set', tree: 'locations', node: here, values };
+		const p = await ask(out, op);
+		if (!p) return;
+		confirm(ctx, out, op, p, [
+			h('div', null, h('strong', null, `The uplink on ${nodeName}${kind.base ? `, every ${kind.name}` : ''}`)),
+			h('ul', { class: 'becomes' },
+				h('li', null, `Uplink: ${r ? (r.value ? 'LACP bond' : 'two ports, apart') : 'the image\'s bond'} → ${bond ? 'LACP bond' : 'two ports, apart'}`),
+				values[stpPath] && h('li', null, 'Spanning tree: → on, RSTP, which two ports apart need')),
+			h('div', { class: 'sub' }, bond
+				? 'Each port goes back into the bond as the AP\'s image made it, and the bond is the uplink again.'
+				: 'Each port joins the uplink\'s bridge on its own, carrying every VLAN the bond did. The first, eth0 on a C-360, is the uplink, until another is the path out: a cable moved to the other port still reaches Aeolus.'),
+		], [h('div', { class: 'sub warn' }, bond ? REBOND_WARN : UNBOND_WARN), !bond && !stpOn && h('div', { class: 'sub warn' }, STP_WARN)]);
+	};
+	const mine = r && r.from === here && r.origin === 'self' && !r.plain;
+	return h('div', { class: 'fieldform', 'data-editing': true },
+		h('div', { class: 'row' }, h('div', { class: 'label' }, 'Uplink'), h('div', { class: 'value' }, sel,
+			h('div', { class: 'sub' }, `The AP's LACP bond, or its ports apart, each a port of the bridge, as a switch's, with spanning tree blocking the second cable to one network.`))),
+		msg,
+		h('div', { class: 'actions' },
+			h('button', { type: 'button', class: 'button primary', onclick: review }, 'Review changes'),
+			h('button', { type: 'button', class: 'button', onclick: close }, 'Cancel')),
+		mine && h('div', { class: 'below' }, followButton(ctx, 'locations', here, nodeName, edit?.parentName, [path], box, `Follow ${edit?.parentName ?? 'above'} for the uplink`)),
+		out);
+}
+
 // summary is a kind's ports in a few words: the uplink first, then the
 // others, and how many of them something sets.
 function summary(names, uplink, kf, base) {
@@ -829,6 +916,12 @@ function portJack(c, name, reps, pick) {
 	// Where spanning tree runs, the port's state in it, as its AP says (0095).
 	const stp = !folder ? reps[0]?.p.stp : null;
 	const blocked = stp === 'blocking';
+	// Where the uplink is two ports, its bond taken apart (0096): which is the
+	// path out, the AP's traffic's, and the switch port each port is on.
+	const twoUp = !folder && allUplink && new Set([...kind.ports.values()].flat().filter((r) => r.p.uplink).map((r) => r.p.name)).size > 1;
+	const path = twoUp && reps[0]?.p.path === true;
+	const onSwitch = (n) => (n && (n.system || n.port) ? [n.system, n.port && `port ${n.port}`].filter(Boolean).join(', ') : null);
+	const nb = !folder ? onSwitch(reps[0]?.p.neighbor) : null;
 	const what = allUplink
 		? [h('span', { class: 'sub' }, `The AP's management${bond ? `, over a bond of ${bond.members.length}` : ''}; Aeolus leaves it alone.`),
 			!folder && hasUplinkNews(report) && uplinkCell(report)]
@@ -856,14 +949,17 @@ function portJack(c, name, reps, pick) {
 			folder ? row('Port', capOf && `${gbe(capOf)} port`) : row('Link', reps[0]?.p.max ? sync(reps[0].p) : linkCell(reps, folder)),
 			(folder || (f('speed')?.value ?? 'auto') !== 'auto') && row('Speed', speedSet(kf, base, name)),
 			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ', folder ? (m.max ? `${gbe(m.max)} port` : '') : sync(m),
+				!folder && m.neighbor && h('span', { class: 'sub' }, ` · on ${onSwitch(m.neighbor)}`),
 				!folder && m.aggregator != null && bond.aggregator != null && m.aggregator !== bond.aggregator && h('span', { class: 'chip warn' }, 'outside the aggregate')))),
+			twoUp && row('Uplink', path ? "the path out, which the AP's traffic takes" : 'standby: the AP takes it if the path out goes'),
+			row('Switch port', nb),
 			row('Spanning tree', stp && (blocked ? h('span', { class: 'chip warn' }, 'blocking: a second path to the network') : stp)),
 			row('Mode', mode ?? h('span', { class: 'sub' }, 'not set')),
 			row('Carries', [what ?? h('span', { class: 'sub' }, 'not set'), from.length > 0 && h('span', { class: 'whence' }, from.join(', '))]),
 			row('Power', power)].filter(Boolean));
 		return panel;
 	};
-	const marks = [uplinkOn.length > 0 && h('span', { class: 'up', title: allUplink ? 'the uplink' : `the uplink on ${uplinkOn.map((r) => r.ap.name).join(', ')}` }, '↑'),
+	const marks = [uplinkOn.length > 0 && (!twoUp || path) && h('span', { class: 'up', title: path ? 'the path out' : allUplink ? 'the uplink' : `the uplink on ${uplinkOn.map((r) => r.ap.name).join(', ')}` }, '↑'),
 		power && h('span', { class: 'poe', title: power }, '⚡'),
 		blocked && h('span', { class: 'stpblock', title: 'blocked by spanning tree: a second path to the network' }, '⊘'),
 		reps.some((r) => r.cfg?.condition?.state?.report?.vxlan?.loops?.some((l) => l.port === name)) && h('span', { class: 'loop', title: 'off its tunnels: a loop' }, '!')];
@@ -884,7 +980,8 @@ function portJack(c, name, reps, pick) {
 		return group;
 	}
 	const p0 = reps[0]?.p;
-	const under = folder ? [speedSet(kf, base, name), mode].filter(Boolean).join(' · ') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
+	let under = folder ? [speedSet(kf, base, name), mode].filter(Boolean).join(' · ') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
+	if (twoUp) under = path ? `${under} · path out` : blocked ? 'blocked' : p0?.carrier ? 'standby' : under;
 	return jack(name, jackState(folder, { off, set: configured, carrier: !!p0?.carrier, blocked }), blocked ? 'blocked' : under,
 		[name, mode, what && text(what)].filter(Boolean).join(' · '), choose, marks);
 }

@@ -178,6 +178,7 @@ func AP(s *change.State, sch *schema.Schema, ap hierarchy.NodeID, reveal Reveal)
 	problems = append(problems, apcProblems(doc)...)
 	problems = append(problems, snmpProblems(doc)...)
 	problems = append(problems, portProblems(doc)...)
+	problems = append(problems, uplinkProblems(doc)...)
 	problems = append(problems, tunnelProblems(doc)...)
 	problems = append(problems, farEndProblems(doc)...)
 	if problems == nil {
@@ -512,6 +513,16 @@ func snmpProblems(doc map[string]any) []string {
 		out = append(out, "system.snmp.v3: a v3 user needs both an auth and a privacy passphrase")
 	}
 	return out
+}
+
+// uplinkProblems refuses a bond taken apart without spanning tree (0096):
+// its ports, apart in one bridge to one network, would loop.
+func uplinkProblems(doc map[string]any) []string {
+	up, _ := doc["uplink"].(map[string]any)
+	if up["bond"] == false && up["stp"] != true {
+		return []string{"uplink.bond: taking the bond apart needs spanning tree on (uplink.stp), or its two ports to one network loop"}
+	}
+	return nil
 }
 
 // portProblems refuses port VLANs the AP could not render as asked

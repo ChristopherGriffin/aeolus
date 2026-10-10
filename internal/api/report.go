@@ -927,6 +927,25 @@ type portState struct {
 	// Where the bridge runs spanning tree, the port's state in it (0095):
 	// forwarding, blocking, learning, listening or disabled.
 	STP string `json:"stp,omitempty"`
+	// Where the uplink is two ports, its bond taken apart (0096): both are
+	// the uplink, and this one the path out, which the AP's traffic takes.
+	Path bool `json:"path,omitempty"`
+	// The switch port its LLDP names, where more than one Ethernet port is
+	// under the uplink (0096).
+	Neighbor *portNeighbor `json:"neighbor,omitempty"`
+}
+
+// portNeighbor is the switch and switch port one Ethernet port under the
+// uplink is on, as LLDP names them (0096).
+type portNeighbor struct {
+	System string `json:"system,omitempty"`
+	Port   string `json:"port,omitempty"`
+}
+
+// ok says the names are printable, as the prober keeps them, and at most 255
+// characters.
+func (n *portNeighbor) ok() bool {
+	return n == nil || len(n.System) <= 255 && len(n.Port) <= 255 && printable(n.System) && printable(n.Port)
 }
 
 // stpStates are the bridge port states a port reports (0095).
@@ -946,14 +965,15 @@ type bondState struct {
 }
 
 type bondMember struct {
-	Name       string `json:"name"`
-	Up         bool   `json:"up"`
-	Carrier    bool   `json:"carrier"`
-	Speed      string `json:"speed,omitempty"`
-	Max        *int   `json:"max,omitempty"`
-	PartnerMax *int   `json:"partner_max,omitempty"`
-	MII        string `json:"mii,omitempty"`
-	Aggregator *int   `json:"aggregator,omitempty"`
+	Name       string        `json:"name"`
+	Up         bool          `json:"up"`
+	Carrier    bool          `json:"carrier"`
+	Speed      string        `json:"speed,omitempty"`
+	Max        *int          `json:"max,omitempty"`
+	PartnerMax *int          `json:"partner_max,omitempty"`
+	MII        string        `json:"mii,omitempty"`
+	Aggregator *int          `json:"aggregator,omitempty"`
+	Neighbor   *portNeighbor `json:"neighbor,omitempty"`
 }
 
 // steeringState is what usteer is doing on the AP (0050, 0051), so a person
@@ -1088,12 +1108,15 @@ func (st *stateReport) check() error {
 		if !stpStates[p.STP] {
 			return badRequest("ports: a port's spanning tree state is forwarding, blocking, learning, listening or disabled")
 		}
+		if !p.Neighbor.ok() {
+			return badRequest("ports: the switch and switch port a port is on are printable, of at most 255 characters")
+		}
 		if b := p.Bond; b != nil {
 			if len(b.Members) > 8 || len(b.Mode) > 32 {
 				return badRequest("ports: a bond has at most 8 members, and a mode of at most 32 characters")
 			}
 			for _, m := range b.Members {
-				if !portNameRE.MatchString(m.Name) || !speedRE.MatchString(m.Speed) || !mbitOK(m.Max) || !mbitOK(m.PartnerMax) || len(m.MII) > 16 {
+				if !portNameRE.MatchString(m.Name) || !speedRE.MatchString(m.Speed) || !mbitOK(m.Max) || !mbitOK(m.PartnerMax) || len(m.MII) > 16 || !m.Neighbor.ok() {
 					return badRequest("ports: a bond's member has a name (such as eth0), a speed such as 2500F, or none, and speeds it can go of 1 to 1000000 Mbit/s")
 				}
 			}

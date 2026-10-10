@@ -169,17 +169,43 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 	}
 	kept := map[string]bool{"wifi-iface": true, "interface": true, "bridge-vlan": true}
 	ports, _ := c.Intent["ports"].(map[string]any)
+	// A bond's members, which take its place when Aeolus takes it apart, and
+	// give it back (0096): the bond the AP has, or the one Aeolus keeps.
+	bondOf := map[string]string{}
+	for _, s := range current["network"] {
+		if s["type"] == "bonding" {
+			for _, m := range anyList(s["ports"]) {
+				bondOf[m] = s["name"].(string)
+			}
+		}
+	}
+	if s := current["aeolus"][Unbond]; s != nil {
+		for _, m := range anyList(s["ports"]) {
+			bondOf[m] = s["name"].(string)
+		}
+	}
 	others := func(entries any) any {
 		list, ok := entries.([]any)
 		if !ok {
 			return entries
 		}
 		out := []any{}
+		seen := map[string]bool{}
 		for _, e := range list {
-			port, _, _ := strings.Cut(e.(string), ":")
+			port, flags, has := strings.Cut(e.(string), ":")
 			if VLANEnd.MatchString(port) {
 				continue // a network's veth, which Aeolus puts in the bridge (0061)
 			}
+			if b, ok := bondOf[port]; ok {
+				port, e = b, b
+				if has {
+					e = b + ":" + flags
+				}
+			}
+			if seen[e.(string)] {
+				continue
+			}
+			seen[e.(string)] = true
 			if set, _ := ports[port].(map[string]any); set["mode"] != "access" && set["mode"] != "trunk" && set["mode"] != "tunnel" {
 				out = append(out, e)
 			}
@@ -222,6 +248,23 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 			}
 		}
 	}
+}
+
+// anyList is a UCI list as JSON has it, or one value as a list of one.
+func anyList(v any) []string {
+	switch x := v.(type) {
+	case string:
+		return []string{x}
+	case []any:
+		out := []string{}
+		for _, e := range x {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // In ucode, a function can only name a top-level function declared above it:
@@ -375,4 +418,29 @@ func TestAgentRRM(t *testing.T) {
 	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
 		t.Errorf("radio resource management works out other than rrm.out says:\n%s", out)
 	}
+}
+
+// The check catches a bond taken apart badly (0096): a VLAN the second port
+// does not carry, which the AP would lose when that port is the path out,
+// and a bridge without spanning tree.
+func TestUnbondCheckCatchesALostVLAN(t *testing.T) {
+	for _, c := range agentCases(t) {
+		if c.name != "unbond" {
+			continue
+		}
+		for bad, want := range map[string]string{
+			strings.Replace(c.golden, "\tlist ports 'eth0:t'\n\tlist ports 'eth1:t'\n", "\tlist ports 'eth0:t'\n", 1): "VLAN 20 is not on eth1 as on eth0",
+			strings.Replace(c.golden, "\toption stp '1'\n", "", 1):                                                    "spanning tree is off",
+		} {
+			cfg, err := uci.Parse(bad)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p := strings.Join(CheckAP(c.Intent, cfg, c.Facts.AP), "\n"); !strings.Contains(p, want) {
+				t.Errorf("the check missed %q:\n%s", want, p)
+			}
+		}
+		return
+	}
+	t.Fatal("no unbond case")
 }

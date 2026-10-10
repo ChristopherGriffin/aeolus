@@ -925,3 +925,28 @@ func TestModes(t *testing.T) {
 		t.Errorf("802.11ax required on 24.10: %q", got)
 	}
 }
+
+// A bond taken apart needs spanning tree, or its ports loop (0096).
+func TestUnbondingNeedsSpanningTree(t *testing.T) {
+	s, sch := site(t)
+	set := func(node, path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: hierarchy.NodeID(node), Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("gate", "uplink.bond", false)
+	if got := problems(); !strings.Contains(got, "uplink.bond: taking the bond apart needs spanning tree on") {
+		t.Fatalf("problems = %s", got)
+	}
+	set("gate-ap", "uplink.stp", true)
+	if got := problems(); strings.Contains(got, "uplink.") {
+		t.Fatalf("with spanning tree on: %s", got)
+	}
+}
