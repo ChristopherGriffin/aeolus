@@ -985,6 +985,11 @@ func TestEnterpriseNeedsItsServer(t *testing.T) {
 		t.Fatalf("problems = %s", got)
 	}
 	set("network.sweet.radius.das.client", "192.168.20.106")
+	// A VLAN required, with none offered, would let every client in.
+	set("network.sweet.radius.vlan_required", true)
+	if got := problems(); !strings.Contains(got, "radius.vlan_required needs the VLANs the server may put clients in") {
+		t.Fatalf("problems = %s", got)
+	}
 	set("network.sweet.radius.vlans", []int{30, 40})
 	if got := problems(); strings.Contains(got, "radius") || strings.Contains(got, "RADIUS") {
 		t.Fatalf("problems = %s", got)
