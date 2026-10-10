@@ -1437,6 +1437,64 @@ function packages(now) {
 	return now + RESTORE_EVERY;
 }
 
+// The actions a person may ask of the AP, once each (0104). Each returns
+// { ok, result }, said back to the manager before it takes effect where it
+// would cut the AP off.
+const LOCATE = '/tmp/aeolus-locate.sh';
+
+// locate blinks every LED the AP has for a minute, so a person can find it,
+// then puts each back as it was and has OpenWrt set its own LEDs again, in
+// the background.
+function locate() {
+	let leds = fs.lsdir('/sys/class/leds') ?? [];
+	if (!length(leds))
+		return { ok: false, result: 'this AP has no LEDs Linux can drive' };
+	fs.writefile(LOCATE,
+		'cd /sys/class/leds || exit 0\n' +
+		'for l in *; do printf "%s %s %s\\n" "$l" "$(sed -n "s/.*\\[\\(.*\\)\\].*/\\1/p" "$l/trigger")" "$(cat "$l/brightness")"; done > /tmp/aeolus-leds\n' +
+		'for l in *; do echo timer > "$l/trigger"; echo 150 > "$l/delay_on"; echo 150 > "$l/delay_off"; done 2>/dev/null\n' +
+		'sleep 60\n' +
+		'while read l t b; do echo "$t" > "$l/trigger"; [ "$t" = none ] && echo "$b" > "$l/brightness"; done < /tmp/aeolus-leds 2>/dev/null\n' +
+		'[ -x /etc/init.d/led ] && /etc/init.d/led restart >/dev/null 2>&1\n' +
+		'rm -f /tmp/aeolus-leds ' + LOCATE + '\n');
+	system('setsid sh ' + LOCATE + ' </dev/null >/dev/null 2>&1 &');
+	return { ok: true, result: sprintf('blinking its %d LEDs for 60 s', length(leds)) };
+}
+
+// restart_wifi restarts the Wi-Fi, as OpenWrt's wifi does: every client
+// drops, and joins again.
+function restart_wifi() {
+	system('setsid wifi </dev/null >/dev/null 2>&1 &');
+	return { ok: true, result: 'the Wi-Fi restarts; its clients join again in a few seconds' };
+}
+
+// reboot_ap reboots the AP five seconds on, so the manager hears first;
+// never during an apply, whose revert would then not run.
+function reboot_ap() {
+	if (fs.access(PENDING))
+		return { ok: false, result: 'an apply is in progress; ask again once it is done' };
+	system('setsid sh -c "sleep 5; reboot" </dev/null >/dev/null 2>&1 &');
+	return { ok: true, result: 'rebooting in 5 s' };
+}
+
+// do_actions fetches the actions that wait for this AP, does each, and says
+// what came of it (0104).
+function do_actions(token) {
+	let r = http('GET', '/v1/ap/actions', null, token);
+	if (r.status != 200) {
+		fail('actions: %s', describe(r));
+		return;
+	}
+	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap };
+	for (let a in r.json?.actions ?? []) {
+		let out = kinds[a.kind] ? kinds[a.kind]() : { ok: false, result: 'this agent cannot ' + a.kind };
+		log('action %s: %s', a.kind, out.result);
+		let d = http('POST', `/v1/ap/actions/${a.id}`, out, token);
+		if (d.status != 200)
+			fail('action %s: %s', a.kind, describe(d));
+	}
+}
+
 function main() {
 	uloop.init();
 	// uloop's own handlers only act inside uloop.run(), and the agent spends
@@ -1517,6 +1575,9 @@ function main() {
 			trial = null;
 			last_state = 0;
 		}
+		// Actions a person asked of this AP, once each (0104).
+		if (reached && int(header(r, 'Aeolus-Actions') ?? '0') > 0)
+			do_actions(token);
 		// The bundle the manager names, where it isn't the one this AP runs.
 		let wanted = header(r, 'Aeolus-Agent');
 		if (reached && !trial && match(wanted ?? '', /^[0-9a-f]{64}$/) &&
