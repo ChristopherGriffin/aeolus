@@ -29,7 +29,7 @@ const SNMP = {
 
 const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power' };
 
-const PORT = { enabled: 'Port on', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
+const PORT = { enabled: 'Port on', speed: 'Speed', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
 
 const MODE = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' };
 
@@ -98,6 +98,8 @@ export function value(path, v, names) {
 	if (last.endsWith('_kbps')) return v === 0 ? 'no limit' : v + ' kbps';
 	if (last === 'type' && path.includes('.transport.')) return v === 'vxlan' ? 'VXLAN' : 'VLAN';
 	if (path.startsWith('ports.') && last === 'mode') return MODE[v] || v;
+	// A port's speed (0094): Auto, or as people say it, 1G.
+	if (/(^|\.)ports\.[^.]+\.speed$/.test(path)) return v === 'auto' ? 'Auto' : v >= 1000 ? `${v / 1000}G` : `${v}M`;
 	if (path.startsWith('ports.') && last === 'untagged' && v === 0) return 'none';
 	// Where a tunnel starts on the AP (0063): 0 is the management VLAN.
 	if (last === 'underlay_vlan' && typeof v === 'number') return v ? 'VLAN ' + v : 'the management VLAN';

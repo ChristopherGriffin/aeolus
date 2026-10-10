@@ -1449,3 +1449,34 @@ func matches(pattern, leaf string) bool {
 	}
 	return true
 }
+
+// A port's speed (0094) is on its device section, that speed with full
+// duplex; auto is none at all.
+func TestPortSpeed(t *testing.T) {
+	check := func(ports, devices string) string {
+		t.Helper()
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(`{"ports": `+ports+`}`), &doc); err != nil {
+			t.Fatal(err)
+		}
+		c, err := uci.Parse("package network\nconfig device\n\toption name 'br-lan'\n\toption type 'bridge'\n\tlist ports 'lan1'\n\tlist ports 'lan2'\n\tlist ports 'wan'\n" + devices +
+			"package aeolus\nconfig agent 'agent'\n\toption uplink 'wan'\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(Check(doc, c), "\n")
+	}
+	want := `{"lan1": {"speed": 1000}, "lan2": {"speed": "auto"}}`
+	if got := check(want, "config device 'aeolus_port_lan1'\n\toption name 'lan1'\n\toption speed '1000'\n\toption duplex '1'\n"); strings.Contains(got, "speed") {
+		t.Errorf("1000 full on lan1, none on lan2: %s", got)
+	}
+	got := check(want, "config device 'aeolus_port_lan1'\n\toption name 'lan1'\n\toption speed '100'\nconfig device\n\toption name 'lan2'\n\toption speed '1000'\n")
+	for _, w := range []string{`ports.lan1: the speed is [100], want 1000`, `ports.lan1: speed 100 is set without full duplex`, `ports.lan2: the speed is [1000], want auto`} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in: %s", w, got)
+		}
+	}
+	if got := check(want, ""); !strings.Contains(got, "ports.lan1: the speed is [], want 1000") {
+		t.Errorf("no section for lan1: %s", got)
+	}
+}

@@ -20,7 +20,7 @@ import { tabBar, pick } from '../layout.js';
 import { configs } from './sections.js';
 import { bandsSection } from './bands.js';
 import { neighboursSection, ratingsSection } from './neighbours.js';
-import { fieldsForm, changedValues } from './edit.js';
+import { fieldsForm, changedValues, speedName } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
 import { inheritsBar } from './inherits.js';
@@ -34,9 +34,10 @@ const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 
 // link to Channels lands there.
 const RADIOS = [['bands', 'Bands'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings']];
 
-// The port fields offered, in order. LACP and its bond are not applied yet,
-// and the uplink is the agent's own setting.
-const FIELDS = ['enabled', 'mode', 'untagged', 'tagged'];
+// The port fields offered, in order: on or off, its speed (0094), its mode
+// and VLANs. LACP and its bond are not applied yet, and the uplink is the
+// agent's own setting.
+const FIELDS = ['enabled', 'speed', 'mode', 'untagged', 'tagged'];
 
 const RELOAD = "Applying reloads each AP's network: wired clients on this port drop briefly. An AP that can no longer reach Aeolus puts its old settings back within 90 seconds.";
 
@@ -626,10 +627,13 @@ function jack(name, state, under, title, onclick, marks = []) {
 const mbit = (speed) => Number(/^(\d+)/.exec(speed || '')?.[1] || 0);
 const gbit = (m) => (m >= 1000 ? `${m / 1000} Gbit/s` : `${m} Mbit/s`);
 
-// SPEED_SET is the speed a folder's port is set to, as its template says:
-// Auto, the port and the far end agreeing it, until a port's speed can be
-// set (Griff, 2026-10-09).
-const SPEED_SET = 'Auto';
+// speedSet is the speed a port is set to (0094), as a template says it:
+// Auto, the port and the far end agreeing it, unless it is set, as 1GbE or
+// 5GbE (Griff, 2026-10-09). A bond's members are the uplink's, never set.
+function speedSet(kf, base, name) {
+	const v = kf[`${base}ports.${name}.speed`]?.value;
+	return v === undefined || v === 'auto' ? 'Auto' : gbe(v);
+}
 
 // short writes a speed the short way, 2.5G or 100M; gbe a port's, 10GbE.
 const short = (m) => (m >= 1000 ? `${m / 1000}G` : `${m}M`);
@@ -764,7 +768,7 @@ function portJack(c, name, reps, pick) {
 		// 2026-10-09).
 		panel.append(...[head(),
 			folder ? row('Port', capOf && `${gbe(capOf)} port`) : row('Link', reps[0]?.p.max ? sync(reps[0].p) : linkCell(reps, folder)),
-			folder && row('Speed', SPEED_SET),
+			(folder || (f('speed')?.value ?? 'auto') !== 'auto') && row('Speed', speedSet(kf, base, name)),
 			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ', folder ? (m.max ? `${gbe(m.max)} port` : '') : sync(m),
 				!folder && m.aggregator != null && bond.aggregator != null && m.aggregator !== bond.aggregator && h('span', { class: 'chip warn' }, 'outside the aggregate')))),
 			row('Mode', mode ?? h('span', { class: 'sub' }, 'not set')),
@@ -788,11 +792,11 @@ function portJack(c, name, reps, pick) {
 			h('span', { class: 'bondname mono' }, name, marks, h('span', { class: 'sub' }, ` ${lacp}${!folder && reps[0]?.p.carrier ? ` · ${gbit(mbit(reps[0].p.speed))}` : ''}`)),
 			h('span', { class: 'members' }, bond.members.map((m) => h('span', { class: `jack ${jackState(folder, { off, set: true, carrier: m.carrier })}` },
 				jackIcon(), h('span', { class: 'jname mono' }, m.name),
-				h('span', { class: 'jsub' }, folder ? SPEED_SET : m.carrier ? gbit(mbit(m.speed)) : 'no link')))));
+				h('span', { class: 'jsub' }, folder ? 'Auto' : m.carrier ? gbit(mbit(m.speed)) : 'no link')))));
 		return group;
 	}
 	const p0 = reps[0]?.p;
-	const under = folder ? [SPEED_SET, mode].filter(Boolean).join(' · ') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
+	const under = folder ? [speedSet(kf, base, name), mode].filter(Boolean).join(' · ') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
 	return jack(name, jackState(folder, { off, set: configured, carrier: !!p0?.carrier }), under,
 		[name, mode, what && text(what)].filter(Boolean).join(' · '), choose, marks);
 }
@@ -843,6 +847,16 @@ function portForm(ctx, d, here, nodeName, name, fields, close, edit, kind = { ba
 	const base = kind.base;
 	const prefix = `${base}ports.${name}.`;
 	const { body, inputs, rows } = fieldsForm(d, [[null, FIELDS.map((k) => prefix + k)]], fields, here);
+	// A speed the port can't go is not offered (0094): what its APs say it
+	// can, where they say.
+	const cap = (kind.ports?.get(name) || []).map((r) => r.p.max).find(Boolean);
+	const speedSel = rows.get(prefix + 'speed')?.it.el;
+	if (speedSel && cap)
+		for (const o of speedSel.options)
+			if (/^\d+$/.test(o.value) && Number(o.value) > cap) {
+				o.disabled = true;
+				o.textContent = `${speedName(Number(o.value))} (the port goes to ${speedName(cap)})`;
+			}
 	const mode = rows.get(prefix + 'mode')?.it.el;
 	// LACP is in the schema, but not applied yet (0053).
 	if (mode && mode.value !== 'lacp') mode.querySelector('option[value="lacp"]')?.remove();

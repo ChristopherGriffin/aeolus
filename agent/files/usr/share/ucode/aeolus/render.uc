@@ -745,17 +745,39 @@ function ports(cfg, intent, facts, errors, keep) {
 			push(errors, `ports.${p}: the uplink carries the AP's management; Aeolus leaves it alone`);
 			continue;
 		}
-		// On or off goes on the port's own device section, or on one Aeolus
-		// adds to turn it off; a port with neither is on.
-		if (set.enabled != null) {
+		// On or off, and its speed (0094), go on the port's own device
+		// section, or on one Aeolus adds to turn it off or set its speed; a
+		// port with neither is on, at every speed it can. A speed is offered
+		// alone, full duplex, and still negotiated: netifd advertises only
+		// it.
+		if (set.enabled != null || set.speed != null) {
 			let own = 'aeolus_port_' + replace(p, /[^a-z0-9_]/g, '_');
 			let d = filter(of_type(n, 'device'), x => x.name == p && x.type == null && x['.name'] != own)[0];
-			if (d)
-				d.enabled = set.enabled ? '1' : '0';
-			if (d || set.enabled)
+			let fixed = set.speed != null && set.speed != 'auto';
+			if (d) {
 				delete n[own];
-			else
-				put(n, own, 'device', { name: p, enabled: 0 });
+				if (set.enabled != null)
+					d.enabled = set.enabled ? '1' : '0';
+				if (fixed) {
+					d.speed = '' + set.speed;
+					d.duplex = '1';
+				}
+				else if (set.speed == 'auto') {
+					delete d.speed;
+					delete d.duplex;
+				}
+			}
+			else {
+				// Aeolus's own section holds what it sets, and what it set
+				// before that this change leaves alone.
+				let was = n[own];
+				let off = set.enabled != null ? !set.enabled : was?.enabled == '0';
+				let speed = set.speed != null ? (fixed ? set.speed : null) : was?.speed;
+				if (off || speed != null)
+					put(n, own, 'device', { name: p, enabled: off ? 0 : null, speed: speed, duplex: speed != null ? 1 : null });
+				else
+					delete n[own];
+			}
 		}
 		if (set.mode == 'tunnel') {
 			tunnel_port(cfg, p, set, bridge, up, intent, facts, errors, keep);
