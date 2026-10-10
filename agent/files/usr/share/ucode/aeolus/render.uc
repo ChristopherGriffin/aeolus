@@ -323,12 +323,13 @@ function radios(w, intent, facts) {
 
 // uplink_bridge finds the VLAN-filtering bridge the uplink port is in.
 function uplink_bridge(n, uplink, errors) {
-	if (!uplink) {
+	let ups = filter(list(uplink), u => u);
+	if (!length(ups)) {
 		push(errors, 'no uplink port is set (aeolus.agent.uplink)');
 		return null;
 	}
 	for (let d in of_type(n, 'device')) {
-		if (d.type != 'bridge' || index(list(d.ports), uplink) < 0)
+		if (d.type != 'bridge' || !length(filter(ups, u => index(list(d.ports), u) >= 0)))
 			continue;
 		if (!length(filter(of_type(n, 'bridge-vlan'), v => v.device == d.name))) {
 			push(errors, `bridge ${d.name} does not filter VLANs; 802.1Q devices on the uplink are not rendered yet`);
@@ -336,21 +337,23 @@ function uplink_bridge(n, uplink, errors) {
 		}
 		return d.name;
 	}
-	push(errors, `the uplink ${uplink} is in no bridge`);
+	push(errors, `the uplink ${join(' and ', ups)} is in no bridge`);
 	return null;
 }
 
-// ensure_vlan makes sure the bridge carries a VLAN on the uplink, reusing a
-// bridge-vlan that already exists so a VLAN is never defined twice (0040),
-// and returns that section.
+// ensure_vlan makes sure the bridge carries a VLAN on the uplink, on each of
+// its ports where its bond is taken apart (0096), reusing a bridge-vlan that
+// already exists so a VLAN is never defined twice (0040), and returns that
+// section.
 function ensure_vlan(n, bridge, uplink, vlan, keep) {
 	let name = 'aeolus_vlan' + vlan;
+	let ups = list(uplink);
 	for (let v in of_type(n, 'bridge-vlan'))
 		if (v.device == bridge && v.vlan == '' + vlan && v['.name'] != name)
 			return v;
 	// Kept as it is, but for the uplink: ports() sets the ports' entries.
-	let ports = filter(list(n[name]?.ports), e => split(e, ':')[0] != uplink);
-	put(n, name, 'bridge-vlan', { device: bridge, vlan: vlan, ports: [uplink + ':t', ...ports] });
+	let ports = filter(list(n[name]?.ports), e => index(ups, split(e, ':')[0]) < 0);
+	put(n, name, 'bridge-vlan', { device: bridge, vlan: vlan, ports: [...map(ups, u => u + ':t'), ...ports] });
 	keep[name] = true;
 	return n[name];
 }
@@ -398,11 +401,11 @@ const START_ZONE = 'aeolus_ul';
 // that also carries clients gives them no way into the AP.
 function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
 	let n = cfg.network, fw = cfg.firewall;
-	let bridge = uplink_bridge(n, facts.uplink, errors);
+	let bridge = uplink_bridge(n, facts.uplinks, errors);
 	if (!bridge)
 		return null;
 	let device = `${bridge}.${vlan}`;
-	ensure_vlan(n, bridge, facts.uplink, vlan, keep);
+	ensure_vlan(n, bridge, facts.uplinks, vlan, keep);
 	let name = `aeolus_vlan${vlan}_tunnels`;
 	put(n, name, 'interface', { proto: 'dhcp', device: device, ip4table: START_TABLE + vlan, peerdns: 0 });
 	keep[name] = true;
@@ -417,7 +420,7 @@ function start_on_vlan(cfg, where, vlan, facts, errors, keep) {
 // managed_on says whether the AP is managed on VLAN vlan of the uplink: its
 // management interface is that VLAN of the uplink's bridge.
 function managed_on(n, vlan, facts) {
-	let bridge = uplink_bridge(n, facts.uplink, []);
+	let bridge = uplink_bridge(n, facts.uplinks, []);
 	return bridge != null && n[facts.management]?.device == `${bridge}.${vlan}`;
 }
 
@@ -550,7 +553,7 @@ function switching(cfg, id, net, intent, facts, errors, keep, uplink) {
 				continue;
 			if (!facts.veth)
 				push(errors, `${where}: a VLAN transport of a network with a fallback needs kmod-veth, which is not installed on this AP (apk add kmod-veth)`);
-			ensure_vlan(n, bridge, facts.uplink, t.vlan, keep);
+			ensure_vlan(n, bridge, facts.uplinks, t.vlan, keep);
 			let s = substr(slot, 0, 1), name = `${sect}_${s}`;
 			put(n, name, 'device', { type: 'veth', name: `av${s}${h}`, peer_name: `an${s}${h}` });
 			keep[name] = true;
@@ -578,7 +581,7 @@ function networks(cfg, intent, facts, errors, keep) {
 	let bridge = null, looked = false;
 	let uplink = () => {
 		if (!looked)
-			bridge = uplink_bridge(n, facts.uplink, errors);
+			bridge = uplink_bridge(n, facts.uplinks, errors);
 		looked = true;
 		return bridge;
 	};
@@ -599,7 +602,7 @@ function networks(cfg, intent, facts, errors, keep) {
 			if (t?.type == 'vlan') {
 				if (!uplink())
 					continue;
-				ensure_vlan(n, bridge, facts.uplink, t.vlan, keep);
+				ensure_vlan(n, bridge, facts.uplinks, t.vlan, keep);
 				device = `${bridge}.${t.vlan}`;
 			} else if (t?.type == 'vxlan')
 				device = tunnel(cfg, where, slot != 'primary', t, intent.concentrators?.[t.concentrator], facts, errors, keep);
@@ -649,7 +652,7 @@ function networks(cfg, intent, facts, errors, keep) {
 		for (let v in net.keys?.vlans ?? []) {
 			if (!uplink())
 				break;
-			ensure_vlan(n, bridge, facts.uplink, v, keep);
+			ensure_vlan(n, bridge, facts.uplinks, v, keep);
 			let vi = `${iface}_k${v}`, wv = `${iface}_kv${v}`;
 			put(n, vi, 'interface', { proto: 'none', device: `${bridge}.${v}` });
 			put(w, wv, 'wifi-vlan', { iface: names, name: `k${v}`, vid: '' + v, network: [vi] });
@@ -730,7 +733,7 @@ function hold_bridges(n, keep) {
 function ports(cfg, intent, facts, errors, keep) {
 	let n = cfg.network;
 	let want = intent.ports ?? {};
-	let bridge = length(keys(want)) ? uplink_bridge(n, facts.uplink, errors) : null;
+	let bridge = length(keys(want)) ? uplink_bridge(n, facts.uplinks, errors) : null;
 	let up = filter(of_type(n, 'device'), d => d.name == bridge)[0];
 	// A port is on this AP if it is in the uplink's bridge, or on a tunnel's
 	// bridge or an 802.1Q device Aeolus made (0058).
@@ -741,7 +744,7 @@ function ports(cfg, intent, facts, errors, keep) {
 		let set = want[p];
 		if (!on_ap(p))
 			continue;   // not on this AP
-		if (p == facts.uplink) {
+		if (index(facts.uplinks, p) >= 0) {
 			push(errors, `ports.${p}: the uplink carries the AP's management; Aeolus leaves it alone`);
 			continue;
 		}
@@ -794,18 +797,18 @@ function ports(cfg, intent, facts, errors, keep) {
 				v.ports = filter(list(v.ports), e => split(e, ':')[0] != p);
 		let untagged = set.untagged ?? 0;
 		if (untagged) {
-			let v = ensure_vlan(n, bridge, facts.uplink, untagged, keep);
+			let v = ensure_vlan(n, bridge, facts.uplinks, untagged, keep);
 			v.ports = [...list(v.ports), p + ':u*'];
 		}
 		for (let vlan in (set.mode == 'trunk' ? set.tagged ?? [] : [])) {
-			let v = ensure_vlan(n, bridge, facts.uplink, vlan, keep);
+			let v = ensure_vlan(n, bridge, facts.uplinks, vlan, keep);
 			v.ports = [...list(v.ports), p + ':t'];
 		}
 	}
 	// What Aeolus added that a port is still on stays, and so does a port
 	// Aeolus turned off.
 	for (let v in of_type(n, 'bridge-vlan'))
-		if (owned(v['.name']) && length(filter(list(v.ports), e => split(e, ':')[0] != facts.uplink)))
+		if (owned(v['.name']) && length(filter(list(v.ports), e => index(facts.uplinks, split(e, ':')[0]) < 0)))
 			keep[v['.name']] = true;
 	for (let d in of_type(n, 'device'))
 		if (substr(d['.name'], 0, 12) == 'aeolus_port_' && d.type != '8021q')
@@ -948,7 +951,7 @@ function watches(cfg, intent, facts, keep) {
 	}
 	for (let p in keys(intent.ports ?? {})) {
 		let set = intent.ports[p];
-		if (!(set.mode in { access: 1, trunk: 1 }) || p == facts.uplink || index(list(up.ports), p) < 0)
+		if (!(set.mode in { access: 1, trunk: 1 }) || index(facts.uplinks, p) >= 0 || index(list(up.ports), p) < 0)
 			continue;   // not on this AP, or not on VLANs
 		if (set.untagged)
 			need['' + set.untagged] = true;
@@ -1253,6 +1256,103 @@ function clamp(network, aeolus) {
 	]);
 }
 
+// UNBOND is where a bond Aeolus took apart is kept, as it was (0096).
+const UNBOND = 'aeolus_unbond';
+
+// swap_ports puts, in every bridge's ports and every bridge-vlan's entries,
+// the ports to in place of the ports from, where the first of them was, each
+// entry with the first one's flags ("bond0:t" becomes "eth0:t" and
+// "eth1:t", and back).
+function swap_ports(n, from, to) {
+	let swap = (entries) => {
+		let out = [], seen = {}, done = false;
+		let add = (p, e) => {
+			if (!seen[p]) {
+				seen[p] = true;
+				push(out, e);
+			}
+		};
+		for (let e in entries) {
+			let i = index(e, ':');
+			let p = i < 0 ? e : substr(e, 0, i), flags = i < 0 ? '' : substr(e, i);
+			if (index(from, p) < 0)
+				add(p, e);
+			else if (!done) {
+				done = true;
+				for (let t in to)
+					add(t, t + flags);
+			}
+		}
+		return out;
+	};
+	for (let d in of_type(n, 'device'))
+		if (d.type == 'bridge' && length(filter(list(d.ports), p => index(from, p) >= 0)))
+			d.ports = swap(list(d.ports));
+	for (let v in of_type(n, 'bridge-vlan'))
+		if (length(filter(list(v.ports), e => index(from, split(e, ':')[0]) >= 0)))
+			v.ports = swap(list(v.ports));
+}
+
+// bonding takes the uplink's LACP bond apart, or puts it back (0096), and
+// returns the uplink's ports, the primary first. With uplink.bond false, the
+// bond's members each join the bridge on their own, where the bond was, and
+// carry every VLAN it carried, as it did; the bond's section is kept as it
+// was, in the agent's package, and the AP's uplink is its first member, the
+// primary: the agent and its prober take whichever member is the path out.
+// Two ports in one bridge to the same network loop without spanning tree, so
+// the bond stays until it runs. Otherwise a bond Aeolus took apart is put
+// back as it was. An uplink that is no bond is left alone, and so is a bond
+// something but its bridge uses.
+function bonding(cfg, intent, facts, errors, keep) {
+	let n = cfg.network, a = cfg.aeolus;
+	let kept = a[UNBOND];
+	if (intent.uplink?.bond === false) {
+		if (kept) {
+			keep[UNBOND] = true;
+			return list(kept.ports);
+		}
+		let bond = filter(of_type(n, 'device'), d => d.type == 'bonding' && d.name && d.name == facts.uplink)[0];
+		if (!bond)
+			return [facts.uplink];
+		let members = list(bond.ports);
+		let bridges = filter(of_type(n, 'device'), d => d.type == 'bridge' && index(list(d.ports), bond.name) >= 0);
+		let others = filter(of_type(n, 'interface'), s => s.device == bond.name || substr(s.device ?? '', 0, length(bond.name) + 1) == bond.name + '.');
+		if (length(members) < 2 || length(bridges) != 1 || length(others)) {
+			push(errors, `uplink.bond: ${bond.name} is not one bridge's port alone, so Aeolus does not take it apart`);
+			return [facts.uplink];
+		}
+		if (intent.uplink?.stp !== true || !facts.ustp) {
+			push(errors, `uplink.bond: ${bond.name}'s ports, apart in one bridge, loop without spanning tree, so the bond stays until it runs (uplink.stp)`);
+			return [facts.uplink];
+		}
+		let s = { bond_section: bond['.name'], bond_index: bond['.index'] };
+		for (let k, v in bond)
+			if (substr(k, 0, 1) != '.')
+				s[k] = v;
+		put(a, UNBOND, 'unbond', s);
+		keep[UNBOND] = true;
+		delete n[bond['.name']];
+		swap_ports(n, [bond.name], members);
+		if (a.agent)
+			a.agent.uplink = members[0];
+		return members;
+	}
+	if (!kept)
+		return [facts.uplink];
+	// Put back as it was, in its place.
+	let name = kept.bond_section;
+	let s = { '.anonymous': false, '.type': 'device', '.name': name, '.index': int(kept.bond_index ?? '0') };
+	for (let k, v in kept)
+		if (substr(k, 0, 1) != '.' && substr(k, 0, 5) != 'bond_')
+			s[k] = v;
+	n[name] = s;
+	swap_ports(n, list(kept.ports), [s.name]);
+	if (a.agent)
+		a.agent.uplink = s.name;
+	delete a[UNBOND];
+	return [s.name];
+}
+
 // render returns the new packages, the names of those that changed, what it
 // could not render, and the OpenWrt packages it needs for that, which the
 // agent installs (needs, 0095). facts: { uplink, management: the interface the
@@ -1263,7 +1363,8 @@ function clamp(network, aeolus) {
 // ap: the AP's ID, which its segment MACs are made from (0060), prober:
 // whether the prober can run, which a network with a fallback needs, and
 // veth: whether kmod-veth is installed, for its VLAN transports (0061),
-// ustp: whether ustp is installed, for spanning tree (0095) }.
+// ustp: whether ustp is installed, for spanning tree (0095) }. The renderer
+// adds uplinks, the uplink's ports (0096).
 function render(intent, current, facts) {
 	let cfg = {};
 	for (let p in PACKAGES)
@@ -1271,6 +1372,10 @@ function render(intent, current, facts) {
 	let errors = [];
 	let needs = [];   // the packages the config needs that the AP lacks (0095)
 	let keep = {};
+	// The uplink's ports, its bond's members where it is taken apart (0096).
+	facts = clone(facts ?? {});
+	facts.uplinks = bonding(cfg, intent, facts, errors, keep);
+	facts.uplink = facts.uplinks[0];
 	radios(cfg.wireless, intent, facts ?? {});
 	networks(cfg, intent, facts ?? {}, errors, keep);
 	ports(cfg, intent, facts ?? {}, errors, keep);

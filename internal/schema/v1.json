@@ -170,11 +170,12 @@
       }
     },
     "uplink": {
-      "description": "The bridge the AP's uplink is in, as a switch's (0095).",
+      "description": "The AP's uplink: the bridge it is in, as a switch's (0095), and its bond (0096).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "stp": { "type": "boolean", "description": "Spanning tree on the uplink's bridge, RSTP by ustp, which the agent installs (0095): the AP takes part as a switch does, and a second link to the same network is blocked rather than looped. ustp gives the AP the default bridge priority, 32768, so set the core switch's lower, as it should be, or an AP may be the root. Check the switch ports for BPDU guard first: one that has it shuts the port when the AP's first BPDU comes. Unset, the AP leaves it as it is." }
+        "stp": { "type": "boolean", "description": "Spanning tree on the uplink's bridge, RSTP by ustp, which the agent installs (0095): the AP takes part as a switch does, and a second link to the same network is blocked rather than looped. ustp gives the AP the default bridge priority, 32768, so set the core switch's lower, as it should be, or an AP may be the root. Check the switch ports for BPDU guard first: one that has it shuts the port when the AP's first BPDU comes. Unset, the AP leaves it as it is." },
+        "bond": { "type": "boolean", "description": "The uplink's LACP bond, where the AP's image makes one, as the C-360's bond0 of eth0 and eth1 (0096). false takes it apart: each port joins the uplink's bridge on its own, carrying every VLAN the bond did, and the AP's uplink is whichever port is the path out, the first by default. Two ports in one bridge to the same network loop, so it needs spanning tree on (uplink.stp). The switch's ports must work without LACP: as plain trunks, or with LACP fallback to individual ports, its timeout well under 90 seconds, or the AP cannot reach the manager and puts the bond back. true, or unset, keeps the image's bond, and puts back one Aeolus took apart." }
       }
     },
     "radio2g": {

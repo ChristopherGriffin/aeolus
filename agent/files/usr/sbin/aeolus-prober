@@ -22,7 +22,9 @@
 //
 // It tells which of the VLANs the AP carries reach it from the switch (0064):
 // once a minute it listens on the uplink until a frame has come in on each,
-// and nudges one that stays quiet. It reads the switch's LLDP too.
+// and nudges one that stays quiet. It reads the switch's LLDP too, on each
+// Ethernet port under the uplink. Where the uplink is two ports, its bond
+// taken apart (0096), it does all that on the one that is the path out.
 //
 // On the Wi-Fi interfaces of Aeolus's networks it watches the clients' DHCP
 // (0065): a client that doesn't use it, requests nothing answers, and
@@ -47,6 +49,7 @@ import { cursor } from 'uci';
 import { connect } from 'ubus';
 import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING, LOG_ERR } from 'log';
 import * as probe from 'aeolus.probe';
+import * as uplink from 'aeolus.uplink';
 
 // nl80211 says when each Wi-Fi client joined (0065). OpenWrt installs it; an
 // AP without it watches DHCP without judging which clients don't use it.
@@ -174,12 +177,16 @@ function linklocal(dev) {
 function plan() {
 	let c = confdir ? cursor(confdir) : cursor();
 	let tunnels = {}, guards = {}, vni_of = {};
+	// The uplink's ports, and the one the AP's traffic takes now (0096): a
+	// probe or watch on the uplink is made there.
+	let ups = uplink.ports(c), out = uplink.path_out(ups);
+	let on_uplink = d => index(ups, d) >= 0 ? out : d;
 	c.foreach('aeolus', 'probe', s => {
 		// A VLAN transport of a network with a fallback (0061), probed on the
 		// uplink, tagged as the uplink carries the VLAN.
 		if (s.vlan) {
 			tunnels['vlan' + s.vlan] = {
-				device: s.device, vlan: +s.vlan, tagged: s.tagged == '1',
+				device: on_uplink(s.device), vlan: +s.vlan, tagged: s.tagged == '1',
 				interval: max(5, min(300, int(s.interval ?? '30') || 30)),
 				address: sort(list(s.address)),
 				mac: s.mac,
@@ -231,7 +238,7 @@ function plan() {
 	let watches = {};
 	c.foreach('aeolus', 'watch', s => {
 		if (s.vlan && s.device)
-			watches['' + s.vlan] = { vlan: +s.vlan, device: s.device, tagged: s.tagged == '1', mac: s.mac };
+			watches['' + s.vlan] = { vlan: +s.vlan, device: on_uplink(s.device), tagged: s.tagged == '1', mac: s.mac };
 	});
 	// The interfaces tunnels start from on a VLAN (0063), whose routes it
 	// keeps.
@@ -240,9 +247,16 @@ function plan() {
 		if (match(s['.name'], /^aeolus_vlan[0-9]+_tunnels$/))
 			push(starts, s['.name']);
 	});
+	// The Ethernet ports the switch's LLDP comes in on: a bond's members each
+	// say their own switch port.
+	let lldp = [];
+	for (let u in ups)
+		for (let p in uplink.physical(u))
+			if (index(lldp, p) < 0)
+				push(lldp, p);
 	return {
 		tunnels: tunnels, guards: guards, switches: switches, watches: watches, starts: sort(starts),
-		uplink: c.get('aeolus', 'agent', 'uplink'),
+		uplink: out, lldp: lldp,
 	};
 }
 
@@ -256,9 +270,9 @@ let raws = {};     // "4" or "6", and the device it is bound to -> { sock, six, 
 let guard_rx = null;
 // The uplink (0064): the VLANs watched there -> { plan, started, heard,
 // heard_now, quiet, gateway, xid, seq, said }; the socket of a spell of
-// listening and when it ends; when the next is due; the LLDP socket, and
-// what the switch last said.
-let watch = { uplink: null, vlans: {}, sock: null, until: 0, next: 0, lldp: null, neighbor: null };
+// listening and when it ends; when the next is due; the LLDP socket on each
+// Ethernet port under the uplink, and what the switch last said on each.
+let watch = { uplink: null, vlans: {}, sock: null, until: 0, next: 0, lldp: {}, lldp_ports: [], neighbors: {} };
 
 // The clients' DHCP on the Wi-Fi interfaces of Aeolus's networks (0065): by
 // interface, its socket, network and when the watch began there; by network,
@@ -437,11 +451,17 @@ function apply_plan(p) {
 		watch.vlans[v] ??= { plan: w, started: now(), heard: null, heard_now: false, quiet: false, gateway: null, xid: xid(), seq: 0, said: null };
 	if (p.uplink != watch.uplink) {
 		close(watch.sock);
-		close(watch.lldp);
-		watch.sock = watch.lldp = watch.neighbor = null;
+		watch.sock = null;
 		watch.uplink = p.uplink;
 		watch.next = 0;
 	}
+	for (let port in keys(watch.lldp))
+		if (index(p.lldp ?? [], port) < 0) {
+			close(watch.lldp[port]);
+			delete watch.lldp[port];
+			delete watch.neighbors[port];
+		}
+	watch.lldp_ports = p.lldp ?? [];
 	if (length(guards) && !guard_rx)
 		guard_rx = packet(null, probe.GUARD_FILTER);
 	else if (!length(guards) && guard_rx) {
@@ -892,27 +912,29 @@ function on_watch(at) {
 		spell_end();
 }
 
-// open_lldp opens the socket the switch's LLDP comes in on (0064). It is
-// tried again at each look at the plan.
+// open_lldp opens the sockets the switch's LLDP comes in on (0064), one on
+// each Ethernet port under the uplink (0096). Each is tried again at each
+// look at the plan.
 function open_lldp() {
-	if (watch.uplink && !watch.lldp)
-		watch.lldp = packet(watch.uplink, probe.LLDP_FILTER);
+	for (let port in watch.lldp_ports)
+		watch.lldp[port] ??= packet(port, probe.LLDP_FILTER);
 }
 
-// on_lldp keeps what the switch's LLDP says of itself and of the uplink's
-// port (0064), and logs a new switch, port or list of VLANs.
-function on_lldp(at) {
+// on_lldp keeps what the switch's LLDP says of itself and of the switch port
+// an Ethernet port under the uplink is on (0064), and logs a new switch, port
+// or list of VLANs for it.
+function on_lldp(port, at) {
 	let f;
-	while ((f = watch.lldp.recv(2048, socket.MSG_DONTWAIT)) != null) {
+	while ((f = watch.lldp[port].recv(2048, socket.MSG_DONTWAIT)) != null) {
 		let l = probe.lldp(f);
 		if (!l)
 			continue;
-		let was = watch.neighbor;
+		let was = watch.neighbors[port];
 		if (was?.system != l.system || was?.port != l.port || join(' ', was?.vlans ?? []) != join(' ', l.vlans))
-			log('the uplink %s is on %s, port %s%s', watch.uplink, l.system ?? l.chassis ?? '?', l.port ?? '?',
-				length(l.vlans) ? `, which carries VLANs ${join(' ', l.vlans)}` : '');
+			log('%s is on %s, port %s%s', length(watch.lldp_ports) > 1 ? `${port}, of the uplink,` : `the uplink ${port}`,
+				l.system ?? l.chassis ?? '?', l.port ?? '?', length(l.vlans) ? `, which carries VLANs ${join(' ', l.vlans)}` : '');
 		l.at = at;
-		watch.neighbor = l;
+		watch.neighbors[port] = l;
 	}
 }
 
@@ -1278,17 +1300,29 @@ function results(at) {
 		w.said = verdict;
 		uv[v] = { tagged: w.plan.tagged, verdict: verdict, heard_ago: w.heard != null ? int(at - w.heard) : null };
 	}
-	if (watch.neighbor && at - watch.neighbor.at > (watch.neighbor.ttl ?? 120))
-		watch.neighbor = null;
+	for (let port in keys(watch.neighbors))
+		if (at - watch.neighbors[port].at > (watch.neighbors[port].ttl ?? 120))
+			delete watch.neighbors[port];
+	// The switch the uplink is on, as the path out hears it, or the first of
+	// the ports under it that hears one, a bond's (0096).
+	let heard = filter([watch.uplink, ...watch.lldp_ports], port => watch.neighbors[port])[0];
 	let nb = null;
-	if (watch.neighbor) {
+	if (heard) {
 		nb = {};
-		for (let k, v in watch.neighbor)
+		for (let k, v in watch.neighbors[heard])
 			if (k != 'at')
 				nb[k] = v;
-		nb.ago = int(at - watch.neighbor.at);
+		nb.ago = int(at - watch.neighbors[heard].at);
 	}
-	let uplink = { vlans: uv, neighbor: nb };
+	// Where more than one Ethernet port is under the uplink, the switch port
+	// each is on.
+	let on = {};
+	if (length(watch.lldp_ports) > 1)
+		for (let port in sort(keys(watch.neighbors))) {
+			let l = watch.neighbors[port];
+			on[port] = { system: l.system ?? l.chassis, port: l.port, ago: int(at - l.at) };
+		}
+	let uplink = { vlans: uv, neighbor: nb, ports: on };
 	// The interfaces tunnels start from on a VLAN whose routes it put back
 	// (0063): when it last did, and whether some can't be.
 	let st = {};
@@ -1396,9 +1430,14 @@ function main() {
 		}
 		if (guard_rx)
 			push(polls, [guard_rx, socket.POLLIN]);
-		for (let s in [watch.sock, watch.lldp])
-			if (s)
+		if (watch.sock)
+			push(polls, [watch.sock, socket.POLLIN]);
+		let by_lldp = {};
+		for (let port, s in watch.lldp)
+			if (s) {
+				by_lldp[s.fileno()] = port;
 				push(polls, [s, socket.POLLIN]);
+			}
 		let by_wifi = {};
 		for (let ifn, w in dw.ifaces) {
 			by_wifi[w.sock.fileno()] = ifn;
@@ -1437,13 +1476,14 @@ function main() {
 					delete dw.ifaces[by_wifi[fd]];
 				}
 			}
-			else if (watch.lldp && fd == watch.lldp.fileno()) {
-				on_lldp(now());
-				// The uplink went away or down: the socket is opened again at
+			else if (by_lldp[fd] != null) {
+				let port = by_lldp[fd];
+				on_lldp(port, now());
+				// The port went away or down: its socket is opened again at
 				// the next look at the plan.
 				if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
-					close(watch.lldp);
-					watch.lldp = null;
+					close(watch.lldp[port]);
+					watch.lldp[port] = null;
 				}
 			}
 		}

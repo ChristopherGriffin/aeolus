@@ -60,6 +60,7 @@ var Coverage = map[string]string{
 	"ports.*.enabled":  "",
 	"ports.*.speed":    "",
 	"uplink.stp":       "",
+	"uplink.bond":      "",
 	"ports.*.uplink":   "the agent's own setting (0040), not the intent's",
 	"ports.*.mode":     "",
 	"ports.*.untagged": "",
@@ -108,6 +109,7 @@ var Coverage = map[string]string{
 	"boards.*.ports.*.enabled":        folded,
 	"boards.*.ports.*.speed":          folded,
 	"boards.*.uplink.stp":             folded,
+	"boards.*.uplink.bond":            folded,
 	"boards.*.ports.*.uplink":         folded,
 	"boards.*.ports.*.mode":           folded,
 	"boards.*.ports.*.untagged":       folded,
@@ -229,6 +231,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.probes(doc)
 	k.rrm(obj(doc, "rrm"), obj(doc, "apc"))
 	k.stp(obj(doc, "uplink"))
+	k.bond(obj(doc, "uplink"))
 	k.guardInterval(obj(doc, "radio"), radios)
 	sort.Strings(k.problems)
 	if k.problems == nil {
@@ -550,6 +553,92 @@ func (k *checker) stp(up map[string]any) {
 	}
 	if on {
 		k.option(where, bridge, "stp_proto", "rstp")
+	}
+}
+
+// Unbond is the agent's section that keeps a bond Aeolus took apart, as it
+// was (0096).
+const Unbond = "aeolus_unbond"
+
+// bond checks the uplink's LACP bond (0096). With uplink.bond false, a bond
+// that was the uplink is taken apart: its section kept in aeolus_unbond and
+// gone from the network; each member in the uplink's bridge where it was, the
+// first the AP's uplink; every VLAN the bridge carries on one carried on all
+// alike; and spanning tree on, or two ports to one network loop. An uplink
+// that was never a bond has nothing to take apart. Otherwise none is kept: a
+// bond taken apart is put back.
+func (k *checker) bond(up map[string]any) {
+	var kept *uci.Section
+	if a := k.c.Package("aeolus"); a != nil {
+		kept = a.Named(Unbond)
+	}
+	if up["bond"] != false {
+		if kept != nil {
+			k.add("aeolus.%s: %s is still taken apart; uplink.bond wants it put back", Unbond, value(kept, "name"))
+		}
+		return
+	}
+	link, bridge := k.uplinkBridge()
+	n := k.c.Package("network")
+	if kept == nil {
+		for _, d := range n.OfType("device") {
+			if value(d, "type") == "bonding" && value(d, "name") == link {
+				k.add("uplink.bond: the uplink %s is still a bond", link)
+			}
+		}
+		return
+	}
+	name, members := value(kept, "name"), kept.List("ports")
+	if len(members) < 2 {
+		k.add("aeolus.%s: %s had %d ports; a bond taken apart has two or more", Unbond, name, len(members))
+		return
+	}
+	if link != members[0] {
+		k.add("aeolus.agent: the uplink is %q, want %s, the first of %s's ports, for uplink.bond", link, members[0], name)
+	}
+	for _, d := range n.OfType("device") {
+		if value(d, "name") == name {
+			k.add("network.%s: %s is still there, though uplink.bond takes it apart", d.Name, name)
+		}
+	}
+	if bridge == nil {
+		k.add("uplink.bond: %s's ports are in no bridge", name)
+		return
+	}
+	where := "network bridge " + value(bridge, "name")
+	for _, m := range members {
+		if !slices.Contains(bridge.List("ports"), m) {
+			k.add("%s: %s is not among its ports, for uplink.bond", where, m)
+		}
+	}
+	if slices.Contains(bridge.List("ports"), name) {
+		k.add("%s: %s is still among its ports, for uplink.bond", where, name)
+	}
+	if !bridge.Flag("stp") {
+		k.add("%s: spanning tree is off; %s's ports apart in it loop without it", where, name)
+	}
+	for _, v := range n.OfType("bridge-vlan") {
+		if value(v, "device") != value(bridge, "name") {
+			continue
+		}
+		flags := map[string]string{}
+		for _, e := range v.List("ports") {
+			p, f, _ := strings.Cut(e, ":")
+			if p == name {
+				k.add("network.%s: VLAN %s is still on %s", v.Name, value(v, "vlan"), name)
+			}
+			if slices.Contains(members, p) {
+				flags[p] = f
+			}
+		}
+		if len(flags) == 0 {
+			continue
+		}
+		for _, m := range members {
+			if f, ok := flags[m]; !ok || f != flags[members[0]] {
+				k.add("network.%s: VLAN %s is not on %s as on %s, so it would be lost when %s is the path out", v.Name, value(v, "vlan"), m, members[0], m)
+			}
+		}
 	}
 }
 
@@ -1690,6 +1779,7 @@ func (k *checker) probes(doc map[string]any) {
 	}
 	expected["aeolus_rrm"] = true // radio resource management's, which k.rrm judges (0073)
 	expected["aeolus_gi"] = true  // the 802.11ax guard interval's, which k.guardInterval judges (0089)
+	expected[Unbond] = true       // a bond taken apart, which k.bond judges (0096)
 	if a != nil {
 		for _, s := range a.Sections {
 			if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {

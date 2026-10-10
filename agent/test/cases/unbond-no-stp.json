@@ -1,0 +1,72 @@
+{
+	"about": "The C-360's bond with uplink.bond false, but spanning tree off (0096): eth0 and eth1 apart in one bridge to one switch would loop, so the bond stays and the renderer says why. The rest renders, and the check refuses it, so the AP keeps what it runs.",
+	"current": "c360-bond-current.json",
+	"facts": {
+		"uplink": "bond0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		},
+		"ustp": true
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"uplink": {
+			"bond": false
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			},
+			"iot": {
+				"ssid": "Aeolus IoT",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-2",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 50
+					}
+				}
+			}
+		}
+	},
+	"kept": [
+		"network.c360bond"
+	],
+	"errors": [
+		"uplink.bond: bond0's ports, apart in one bridge, loop without spanning tree, so the bond stays until it runs (uplink.stp)"
+	],
+	"refused": true
+}

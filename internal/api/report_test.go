@@ -271,7 +271,8 @@ func TestStateReports(t *testing.T) {
 			// A bond, as the C-360's uplink is (0093): its members, each
 			// faster than the switch port it is on.
 			map[string]any{"name": "wan", "up": true, "carrier": true, "speed": "5000F", "uplink": true, "stp": "forwarding", "bond": map[string]any{"mode": "802.3ad", "aggregator": 1, "members": []any{
-				map[string]any{"name": "eth0", "up": true, "carrier": true, "speed": "2500F", "max": 10000, "partner_max": 2500, "mii": "up", "aggregator": 1},
+				map[string]any{"name": "eth0", "up": true, "carrier": true, "speed": "2500F", "max": 10000, "partner_max": 2500, "mii": "up", "aggregator": 1,
+					"neighbor": map[string]any{"system": "homelab.symtus.com", "port": "Ethernet13"}},
 				map[string]any{"name": "eth1", "up": true, "carrier": false, "max": 10000, "mii": "down", "aggregator": 2}}}}},
 		"vxlan": map[string]any{"installed": true, "clamp": true, "prober": true, "tunnels": []any{
 			// What the prober found (0059); what it does not know yet is null.
@@ -305,6 +306,7 @@ func TestStateReports(t *testing.T) {
 		"other hex":     {"version": 1, "uplink_neighbor": map[string]any{"other": []any{map[string]any{"type": 9, "data": "xyz"}}}},
 		"port max":      {"version": 1, "ports": []any{map[string]any{"name": "lan1", "up": true, "carrier": false, "max": -1}}},
 		"port stp":      {"version": 1, "ports": []any{map[string]any{"name": "lan1", "up": true, "carrier": false, "stp": "discarding"}}},
+		"port switch":   {"version": 1, "ports": []any{map[string]any{"name": "eth1", "up": true, "carrier": true, "uplink": true, "neighbor": map[string]any{"system": "home\nlab"}}}},
 		"bond member":   {"version": 1, "ports": []any{map[string]any{"name": "bond0", "up": true, "carrier": true, "bond": map[string]any{"mode": "802.3ad", "members": []any{map[string]any{"name": "eth 0"}}}}}},
 		"policy":        {"version": 1, "uplink_neighbor": map[string]any{"med": map[string]any{"policies": []any{map[string]any{"application": "voice", "dscp": 64}}}}},
 		"port mac":      {"version": 1, "uplink_port": map[string]any{"name": "wan", "mac": "A0-04-60-21-36-5E"}},
@@ -415,6 +417,9 @@ func TestStateReports(t *testing.T) {
 	}
 	if ports[0].(map[string]any)["stp"] != "blocking" || ports[1].(map[string]any)["stp"] != "forwarding" {
 		t.Fatalf("spanning tree as stored: %v", ports)
+	}
+	if m := ports[1].(map[string]any)["bond"].(map[string]any)["members"].([]any)[0].(map[string]any); m["neighbor"].(map[string]any)["port"] != "Ethernet13" {
+		t.Fatalf("a member's switch port as stored: %v", m)
 	}
 	if p, _ := tunnels[0].(map[string]any)["probe"].(map[string]any); p["verdict"] != "up" || p["from"] != "192.168.50.1" || p["rtt_ms"] != 0.8 ||
 		p["lease"].(map[string]any)["address"] != "192.168.50.6" {
