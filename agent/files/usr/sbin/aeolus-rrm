@@ -1132,10 +1132,13 @@ function write(at) {
 			push(advertised, r.band);
 	let rated = sort(table(at), (a, b) => a.band < b.band ? -1 : a.band > b.band ? 1 : a.channel - b.channel);
 	// The radios that can't scan: their band, channel, why (dfs or
-	// refused) and for how long.
+	// refused) and for how long. One whose channel isn't known just now, as
+	// while its Wi-Fi restarts or it waits out a radar check, is left out
+	// until it is: the manager refuses a whole report over a channel 0
+	// (OfficeOpenWrt, 2026-10-10, after a Wi-Fi change).
 	let deaf = [];
 	for (let name, r in radios)
-		if (r.deaf)
+		if (r.deaf && r.channel >= 1 && r.channel <= 233)
 			push(deaf, { band: r.band, channel: r.channel, why: r.deaf.why, ago: max(0, int(at - r.deaf.since)) });
 	store(out, sprintf('%J', {
 		at: time(), on: true, address: address ?? '', advertised: slice(uniq(sort(advertised)), 0, 3),
