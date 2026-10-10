@@ -1,8 +1,8 @@
 // Usage (0108): the Wi-Fi clients and traffic of the APs below a node over
 // the last day, from their state reports. Traffic is drawn in bars, what
 // the APs sent their clients and what they received stacked, and the most
-// clients they had at once as a line; with the totals, and on a folder its
-// busiest APs by traffic.
+// clients they had at once as a line; with the totals, the clients that
+// moved the most (0110), and on a folder its busiest APs by traffic.
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
@@ -51,6 +51,7 @@ export async function usagePanel(id, folder) {
 		svg('text', { x: W / 2, y: H - 4, class: 'axis', 'text-anchor': 'middle' }, clock(u.buckets[Math.floor(n / 2)].at)),
 		svg('text', { x: W, y: H - 4, class: 'axis', 'text-anchor': 'end' }, 'now'));
 	const busy = folder ? u.aps.filter((a) => a.down + a.up > 0).slice(0, 6) : [];
+	const top = (u.clients || []).slice(0, folder ? 10 : 5);
 	return h('section', { class: 'panel' },
 		h('h2', null, 'Usage', h('span', { class: 'note' }, "the last 24 hours, from the APs' reports; a bar shows its numbers on hover")),
 		h('div', { class: 'sub' },
@@ -58,6 +59,12 @@ export async function usagePanel(id, folder) {
 			h('span', { class: 'swatch up' }), ` ↑ ${size(u.up)} from them · `,
 			h('span', { class: 'swatch clients' }), ` at most ${plural(u.peak, 'client')} at once`),
 		chart,
+		top.length > 0 && h('table', { class: 'list' },
+			h('tr', null, ['Top clients', '↓ To it', '↑ From it', folder ? 'On' : null].filter(Boolean).map((t) => h('th', null, t))),
+			top.map((c) => h('tr', null,
+				h('td', null, c.host || h('span', { class: 'mono' }, c.mac), c.host && h('div', { class: 'sub mono' }, c.mac)),
+				h('td', null, size(c.down)), h('td', null, size(c.up)),
+				folder && h('td', { class: 'sub' }, c.aps.join(', '))))),
 		busy.length > 0 && h('table', { class: 'list' },
 			h('tr', null, ['AP', '↓ To clients', '↑ From them', 'Most clients'].map((t) => h('th', null, t))),
 			busy.map((a) => h('tr', null,
