@@ -86,8 +86,13 @@ export function input(path, f, current) {
 	} else if (f.type === 'array') {
 		// A list of words, such as NTP servers or SSH keys: one a line.
 		el = h('textarea', { rows: Math.max(2, (current ?? []).length + 1) }, (current ?? []).join('\n'));
+		// Emptied, a list that had something is set empty, so its last line
+		// can be taken out, such as the last client blocked (0100); one that
+		// must keep some stays as it is.
+		const had = (current ?? []).length > 0;
 		read = () => {
 			const list = el.value.split('\n').map((x) => x.trim()).filter(Boolean);
+			if (!list.length && had && !f.minItems) return [];
 			return list.length ? list : undefined;
 		};
 	} else if (f.type === 'integer') {

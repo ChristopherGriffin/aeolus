@@ -110,6 +110,8 @@ function blockButton(ctx, c, out) {
 	if (!net || !c.mac) return null;
 	const f = net.fields?.blocked;
 	const node = f?.from ?? net.from;
+	// Only for someone who may change the network there (0030).
+	if (!mayEdit(ctx, 'services', node)) return null;
 	const now = f?.value ?? [];
 	if (now.map((m) => m.toLowerCase()).includes(c.mac.toLowerCase())) return h('span', { class: 'chip bad' }, 'blocked');
 	const block = async () => {
@@ -124,6 +126,15 @@ function blockButton(ctx, c, out) {
 		], [h('div', { class: 'sub warn' }, 'Applying reloads the Wi-Fi of each AP listed: its clients drop for a moment.')]);
 	};
 	return h('div', null, h('button', { type: 'button', class: 'button small', title: `Refuse ${c.mac} on ${c.ssid || c.network}`, onclick: block }, 'Block'));
+}
+
+// mayEdit says whether the person signed in may change a node: an operator
+// or admin grant on it or above it (0030). The manager decides; this only
+// keeps a button that would be refused off the page.
+function mayEdit(ctx, tree, node) {
+	const up = new Set();
+	for (let n = ctx.trees[tree]?.nodes.get(node); n; n = ctx.trees[tree].nodes.get(n.parent)) up.add(n.id);
+	return (ctx.who?.grants || []).some((g) => g.tree === tree && up.has(g.node) && (g.role === 'operator' || g.role === 'admin'));
 }
 
 // who says what a client is (0067): its maker by OUI, or that its MAC is
