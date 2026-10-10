@@ -18,7 +18,7 @@
   - A client that joined since counts all it moved: it is not in the report before, or has been connected for less time than then, and joined within the interval.
   - A client whose counters went back without its joining again, as a 32-bit counter does when it wraps, counts nothing that time.
   - The rows are kept as long as the state reports are (`--keep-state-days`, 30 unless set).
-- **`GET /v1/usage?under=&hours=` gives the APs the caller may view, over the last 24 hours unless set (at most 720).** It comes in at most 48 buckets of whole minutes, the last ending after now.
+- **`GET /v1/usage?under=&hours=` gives the APs the caller may view, over the last 24 hours unless set (at most 720).** It comes in at most 48 buckets of whole minutes, rounded up and at least five, the last ending after now.
   - Each bucket has the most clients each AP had at once, summed over the APs, and the bytes they moved.
   - With it come the totals, the most clients at once, and each AP's most clients and traffic, the busiest first.
   - The MCP adapter offers `get_usage`.
@@ -31,7 +31,7 @@
 
 ## Consequences
 
-- An AP's first report after the manager starts, or after a gap, counts only the clients that joined since its report before. Any other client's bytes from the gap are not counted.
+- After a gap, a report more than three intervals (15 minutes) after the AP's last, as after an outage, only the clients that joined in the last interval count. The others' bytes from the gap are not counted, as they would all fall in one bucket, a spike that never was.
 - Only the 256 clients each report holds count. A larger AP's usage is short.
 - A bucket shows the busiest moment of each AP within it, not the network's: clients that moved between APs within the bucket may be counted on both.
 - Usage by client, or by network, would need more than one row a report. That is for later.
