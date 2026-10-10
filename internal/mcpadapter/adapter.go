@@ -122,6 +122,10 @@ type Op struct {
 	Key     string `json:"key,omitempty" jsonschema:"for the key kinds: the key's ID; add-key makes one if it is left out"`
 }
 
+type alertsIn struct {
+	Under string `json:"under,omitempty" jsonschema:"optional: a Locations folder or AP; only the APs below it"`
+}
+
 type libraryIn struct {
 	At string `json:"at,omitempty" jsonschema:"a Locations node: list the templates offered there"`
 }
@@ -201,6 +205,15 @@ func server(c client, version string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "get_relayed_dhcp", Description: "What the manager hears from DHCP relays that copy it clients' requests (0068): for each subnet, by the relay's address on it, the relay, the requests of the last 10 minutes, the clients new in that time, a burst of new ones (a sign of DHCP starvation), and its clients newest first, each with its host name, vendor class, parameter list, address, option 82 IDs, maker and the manager's guess at what it is. Relays copy only requests, not servers' answers.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, any, error) {
 			out, err := c.call(ctx, "GET", "/v1/dhcp/relayed", nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "list_alerts", Description: "What needs attention on the APs you can view (0099), most urgent first, with counts by severity: critical (clients are or will be without service: an AP offline, a config refused or put back, a network with no transport, a loop, netifd's lost wireless object), warning (a config held, an agent update rolled back, a tunnel down, a network on its fallback, a VLAN silent on the uplink, DHCP that does not answer, an AP behind its version) and info (waiting in Landing Zone, a clock not synced). With under, only the APs below that Locations node. Worked out from what the manager has on each call, so an alert ends when its cause does.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in alertsIn) (*mcp.CallToolResult, any, error) {
+			path := "/v1/alerts"
+			if in.Under != "" {
+				path += "?under=" + url.QueryEscape(in.Under)
+			}
+			out, err := c.call(ctx, "GET", path, nil)
 			return nil, out, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list_detected", Description: "Devices that may be unconfigured OpenWiFi APs (0034, 0068): possible when a relayed DHCP request asks for options 138 and 224, confirmed when the device knocked on the manager's option 224 listener; and the knocks no device could be matched to by address.", Annotations: readOnly},

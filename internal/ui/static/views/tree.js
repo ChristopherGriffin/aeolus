@@ -18,8 +18,9 @@ import { keysSection } from './keys.js';
 import { interfacesTab, interfacesLive } from './interfaces.js';
 import { clientsTab } from './clients.js';
 import { templatesTab } from './templates.js';
+import { alertsTab } from './alerts.js';
 
-const TABS = [['interfaces', 'Interfaces'], ['aps', 'APs'], ['networks', 'Networks'], ['clients', 'Clients'], ['templates', 'Templates'], ['system', 'System']];
+const TABS = [['interfaces', 'Interfaces'], ['aps', 'APs'], ['alerts', 'Alerts'], ['networks', 'Networks'], ['clients', 'Clients'], ['templates', 'Templates'], ['system', 'System']];
 
 export async function treePage(ctx, tree, id, tab, sub, view) {
 	const t = ctx.trees[tree];
@@ -74,9 +75,10 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		else if (tab === 'aps') main.push(channelsSection(ctx, await configs([...(page.hardware?.aps || []), ...(page.hardware?.unknown || [])]), status, !!editing(ctx, tree, page)));
 		else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 		else if (tab === 'clients') main.push(await clientsTab(ctx, page, null));
+		else if (tab === 'alerts') main.push(await alertsTab(ctx, id));
 		else if (tab === 'templates') main.push(await templatesTab(ctx, id, page, editing(ctx, tree, page)));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
-		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients' || tab === 'aps') refresh = 30; // live
+		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients' || tab === 'aps' || tab === 'alerts') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
 		// A Services folder's networks' per-user keys (0070).
