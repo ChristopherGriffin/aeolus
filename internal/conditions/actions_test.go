@@ -24,6 +24,20 @@ func TestActions(t *testing.T) {
 	if p, _ := s.PendingActions("ap-1"); len(p) != 1 {
 		t.Fatalf("pending = %+v", p)
 	}
+	// Taken up, it is running, and never handed out again: a lost report
+	// of it does not have the AP do it twice.
+	if c, _ := s.ClaimActions("ap-1"); len(c) != 1 || c[0].State != "running" {
+		t.Fatalf("claim = %+v", c)
+	}
+	if c, _ := s.ClaimActions("ap-1"); len(c) != 0 {
+		t.Fatalf("claimed again = %+v", c)
+	}
+	// While it runs, another locate is a new one.
+	if b, _ := s.AddAction("ap-1", "locate", "griff"); b.ID == a.ID || b.State != "pending" {
+		t.Fatalf("a locate while one runs = %+v", b)
+	} else if _, err := s.FinishAction("ap-1", b.ID, true, ""); err != nil {
+		t.Fatal(err)
+	}
 	// Another AP cannot finish it.
 	if _, err := s.FinishAction("ap-2", a.ID, true, ""); err != ErrNoAction {
 		t.Fatalf("another AP: %v", err)
@@ -38,7 +52,7 @@ func TestActions(t *testing.T) {
 	if p, _ := s.PendingActions("ap-1"); len(p) != 0 {
 		t.Fatalf("pending after the wait = %+v", p)
 	}
-	if list, _ := s.Actions("ap-1", 10); len(list) != 2 || list[0].ID != r.ID || list[0].State != "expired" {
+	if list, _ := s.Actions("ap-1", 10); len(list) != 3 || list[0].ID != r.ID || list[0].State != "expired" {
 		t.Fatalf("actions = %+v", list)
 	}
 }

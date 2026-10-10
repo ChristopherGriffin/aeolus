@@ -9,15 +9,17 @@ import (
 )
 
 // Action is one thing a person asked an AP to do once (0104): locate,
-// restart-wifi or reboot. It is pending until the AP says it did it, or
-// could not; one the AP has not taken up within ActionWait expires.
+// restart-wifi or reboot. It is pending until the AP takes it up, running
+// once it has, which hands it to the AP only once, so a report of it that
+// is lost never has it done again; then done or failed, as the AP says.
+// One not finished within ActionWait expires.
 type Action struct {
 	ID     int64      `json:"id"`
 	AP     string     `json:"ap"`
 	Kind   string     `json:"kind"`
 	Actor  string     `json:"actor"`
 	At     time.Time  `json:"at"`
-	State  string     `json:"state"` // pending, done, failed or expired
+	State  string     `json:"state"` // pending, running, done, failed or expired
 	DoneAt *time.Time `json:"done_at,omitempty"`
 	Result string     `json:"result,omitempty"`
 }
@@ -42,24 +44,25 @@ CREATE TABLE actions (
 );
 CREATE INDEX actions_ap ON actions (ap, id);`
 
+// actionsOnce makes one pending action of a kind for an AP the database's
+// own rule, so two asks at once cannot make two.
+// Two pending already, made before the rule, keep the first; the others
+// expire.
+const actionsOnce = `
+UPDATE actions SET state = 'expired' WHERE state = 'pending' AND id NOT IN (SELECT MIN(id) FROM actions WHERE state = 'pending' GROUP BY ap, kind);
+CREATE UNIQUE INDEX actions_pending ON actions (ap, kind) WHERE state = 'pending';`
+
 // AddAction records an action for an AP, pending. One of the same kind
 // already pending is returned instead, so a second click does not reboot an
 // AP twice.
 func (s *Store) AddAction(ap hierarchy.NodeID, kind, actor string) (Action, error) {
 	s.expire(ap)
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO actions (ap, kind, actor, at, state) VALUES (?, ?, ?, ?, 'pending')`,
+		string(ap), kind, actor, stamp(s.now())); err != nil {
+		return Action{}, err
+	}
 	var id int64
-	err := s.db.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND state = 'pending'`, string(ap), kind).Scan(&id)
-	if err == nil {
-		return s.action(id)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return Action{}, err
-	}
-	res, err := s.db.Exec(`INSERT INTO actions (ap, kind, actor, at, state) VALUES (?, ?, ?, ?, 'pending')`, string(ap), kind, actor, stamp(s.now()))
-	if err != nil {
-		return Action{}, err
-	}
-	if id, err = res.LastInsertId(); err != nil {
+	if err := s.db.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND state = 'pending'`, string(ap), kind).Scan(&id); err != nil {
 		return Action{}, err
 	}
 	return s.action(id)
@@ -67,14 +70,56 @@ func (s *Store) AddAction(ap hierarchy.NodeID, kind, actor string) (Action, erro
 
 // expire marks an AP's actions that waited too long.
 func (s *Store) expire(ap hierarchy.NodeID) {
-	s.db.Exec(`UPDATE actions SET state = 'expired', done_at = ? WHERE ap = ? AND state = 'pending' AND at < ?`,
+	s.db.Exec(`UPDATE actions SET state = 'expired', done_at = ? WHERE ap = ? AND state IN ('pending', 'running') AND at < ?`,
 		stamp(s.now()), string(ap), stamp(s.now().Add(-ActionWait)))
 }
 
-// PendingActions is what an AP has to do, oldest first.
+// PendingActions is what waits for an AP, not yet taken up, oldest first.
 func (s *Store) PendingActions(ap hierarchy.NodeID) ([]Action, error) {
 	s.expire(ap)
 	return s.actions(`SELECT id, ap, kind, actor, at, state, done_at, result FROM actions WHERE ap = ? AND state = 'pending' ORDER BY id`, string(ap))
+}
+
+// ClaimActions hands an AP what waits for it, and marks each running, in
+// one transaction: what it takes up is never handed it again.
+func (s *Store) ClaimActions(ap hierarchy.NodeID) ([]Action, error) {
+	s.expire(ap)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT id FROM actions WHERE ap = ? AND state = 'pending' ORDER BY id`, string(ap))
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := tx.Exec(`UPDATE actions SET state = 'running' WHERE id = ? AND state = 'pending'`, id); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	out := []Action{}
+	for _, id := range ids {
+		a, err := s.action(id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 // FinishAction records what came of an AP's pending action.
@@ -83,7 +128,7 @@ func (s *Store) FinishAction(ap hierarchy.NodeID, id int64, ok bool, result stri
 	if !ok {
 		state = "failed"
 	}
-	res, err := s.db.Exec(`UPDATE actions SET state = ?, done_at = ?, result = ? WHERE id = ? AND ap = ? AND state = 'pending'`,
+	res, err := s.db.Exec(`UPDATE actions SET state = ?, done_at = ?, result = ? WHERE id = ? AND ap = ? AND state IN ('pending', 'running')`,
 		state, stamp(s.now()), result, id, string(ap))
 	if err != nil {
 		return Action{}, err
