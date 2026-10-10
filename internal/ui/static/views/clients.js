@@ -9,6 +9,7 @@
 import { h, link } from '../dom.js';
 import { bandName, ago } from '../format.js';
 import { configs } from './sections.js';
+import { ask, confirm } from './confirm.js';
 
 const DHCP = { ok: ['ok', 'DHCP'], static: ['idle', 'static'], none: ['bad', 'no address'], unknown: ['idle', 'not yet'] };
 
@@ -24,18 +25,19 @@ export async function clientsTab(ctx, page, ap) {
 		const st = cfg?.condition?.state;
 		const since = st ? Math.max(0, now - new Date(st.at).getTime() / 1000) : 0;
 		// Connected for as long as it was at the report, and since.
-		return (st?.report?.clients || []).map((c) => ({ ...c, ap: a, at: st.at, connected: c.connected + since }));
+		return (st?.report?.clients || []).map((c) => ({ ...c, ap: a, cfg, at: st.at, connected: c.connected + since }));
 	});
 	if (!all.length)
 		return h('div', { class: 'banner info' }, rows.length
 			? 'No Wi-Fi clients reported here. An AP whose agent is older than v0.33.0 doesn\'t report them.'
 			: 'No APs here yet.');
 	const box = h('div');
-	const draw = () => box.replaceChildren(table(all, !ap, draw));
+	const out = h('div', { class: 'edit' });
+	const draw = () => box.replaceChildren(table(ctx, all, !ap, draw, out));
 	draw();
 	return h('section', { class: 'panel' },
 		h('h2', null, 'Wi-Fi clients', h('span', { class: 'note' }, 'as each AP last reported; signal, rates and data refresh every few minutes')),
-		controls(all, !ap, draw), box);
+		controls(all, !ap, draw), out, box);
 }
 
 function controls(all, folder, draw) {
@@ -71,7 +73,7 @@ const COLUMNS = [
 	['dhcp', 'DHCP', (c) => c.dhcp || ''],
 ];
 
-function table(all, folder, draw) {
+function table(ctx, all, folder, draw, out) {
 	const q = view.q.trim().toLowerCase();
 	const shown = all.filter((c) => (!view.network || c.ssid === view.network) && (!view.ap || c.ap.id === view.ap) &&
 		(!q || [c.host, c.mac, c.address, c.ssid, c.maker, c.kind, c.os].some((x) => (x || '').toLowerCase().includes(q))));
@@ -86,7 +88,7 @@ function table(all, folder, draw) {
 	return h('table', { class: 'list clients' },
 		h('tr', null, head),
 		shown.map((c) => h('tr', null,
-			h('td', null, c.host || h('span', { class: 'mono' }, c.mac), c.host && h('div', { class: 'sub mono' }, c.mac), who(c)),
+			h('td', null, c.host || h('span', { class: 'mono' }, c.mac), c.host && h('div', { class: 'sub mono' }, c.mac), who(c), blockButton(ctx, c, out)),
 			folder && h('td', null, link(`/aps/${encodeURIComponent(c.ap.id)}`, c.ap.name)),
 			h('td', null, c.ssid || '—', c.vlan && h('div', { class: 'sub', title: 'a per-user key put it in this VLAN' }, `VLAN ${c.vlan}`)),
 			h('td', null, bandName(c.band) || '—', c.signal != null && h('div', { class: 'sub' }, `${c.signal} dBm`)),
@@ -98,6 +100,30 @@ function table(all, folder, draw) {
 			h('td', null, `↓ ${size(c.tx_bytes)}`, h('div', { class: 'sub' }, `↑ ${size(c.rx_bytes)}`)),
 			h('td', null, c.dhcp ? h('span', { class: 'chip ' + DHCP[c.dhcp][0] }, DHCP[c.dhcp][1]) : '—'))),
 		!shown.length && h('tr', null, h('td', { colspan: folder ? 11 : 10, class: 'sub' }, 'No client matches.')));
+}
+
+// blockButton blocks a client from its network, by MAC (0100), where Aeolus
+// gives the network: it joins the network's blocked list where that is set,
+// else where the network is, in one change previewed first.
+function blockButton(ctx, c, out) {
+	const net = c.network && c.cfg?.networks?.[c.network];
+	if (!net || !c.mac) return null;
+	const f = net.fields?.blocked;
+	const node = f?.from ?? net.from;
+	const now = f?.value ?? [];
+	if (now.map((m) => m.toLowerCase()).includes(c.mac.toLowerCase())) return h('span', { class: 'chip bad' }, 'blocked');
+	const block = async () => {
+		const op = { kind: 'set', tree: 'services', node, path: `network.${c.network}.blocked`, value: [...now, c.mac.toLowerCase()] };
+		out.scrollIntoView({ block: 'nearest' });
+		const p = await ask(out, op);
+		if (!p) return;
+		confirm(ctx, out, op, p, [
+			h('div', null, h('strong', null, `Block ${c.host || c.mac} from ${c.ssid || c.network}`)),
+			h('div', { class: 'sub' }, `Every AP that offers ${c.ssid || c.network} refuses ${c.mac}, on every band. It is set on ${ctx.name('services', node)}, and takes it off the air within about a minute.`),
+			c.private && h('div', { class: 'sub warn' }, 'Its MAC is private: the device may pick a new one, and join again.'),
+		], [h('div', { class: 'sub warn' }, 'Applying reloads the Wi-Fi of each AP listed: its clients drop for a moment.')]);
+	};
+	return h('div', null, h('button', { type: 'button', class: 'button small', title: `Refuse ${c.mac} on ${c.ssid || c.network}`, onclick: block }, 'Block'));
 }
 
 // who says what a client is (0067): its maker by OUI, or that its MAC is

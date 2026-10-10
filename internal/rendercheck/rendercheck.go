@@ -81,6 +81,7 @@ var Coverage = map[string]string{
 	"network.*.passphrase":               "",
 	"network.*.isolation":                "",
 	"network.*.max_clients":              "",
+	"network.*.blocked":                  "",
 	"network.*.dtim":                     "",
 	"network.*.radius.auth_server":       "",
 	"network.*.radius.auth_port":         "",
@@ -837,6 +838,20 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 		if s.Flag(opt) != want {
 			k.add("%s: %s is %q, want %s", where, opt, value(s, opt), onOff(want))
 		}
+	}
+	// The clients it refuses, by MAC (0100): none, no MAC filter.
+	var blocked []string
+	for _, m := range list(n["blocked"]) {
+		blocked = append(blocked, strings.ToLower(m))
+	}
+	sort.Strings(blocked)
+	if len(blocked) > 0 {
+		k.option(where, s, "macfilter", "deny")
+	} else if got, ok := s.Option("macfilter"); ok {
+		k.add("%s: macfilter is %q, but no client is blocked", where, got)
+	}
+	if got := s.List("maclist"); !slices.Equal(got, blocked) && (len(got) > 0 || len(blocked) > 0) {
+		k.add("%s: maclist is %q, want %q", where, got, blocked)
 	}
 	// The most clients, and the DTIM period (0097): unset, left out, so
 	// OpenWrt's own hold.

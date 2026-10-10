@@ -403,6 +403,12 @@ function iface_options(net, radio, band, network, btm) {
 		o.isolate = '1';
 	// The most clients on each of the network's Wi-Fi interfaces, one a
 	// band, and the beacons between DTIMs (0097). Unset, OpenWrt's own.
+	// Clients blocked from the network, by MAC (0100): hostapd refuses
+	// them on every band.
+	if (length(net.blocked ?? [])) {
+		o.macfilter = 'deny';
+		o.maclist = sort(map(net.blocked, m => lc(m)));
+	}
 	if (net.max_clients != null)
 		o.maxassoc = '' + net.max_clients;
 	if (net.dtim != null)
