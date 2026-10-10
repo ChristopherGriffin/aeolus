@@ -25,6 +25,7 @@
   ↑ marks the uplink, ⚡ PoE where the switch says it powers the AP, and ! a loop.
 - **A bond is its members' jacks together,** under its name, its mode (LACP) and its speed. Its details list each member as its port and the speed it synced at, "10GbE port/2.5G sync" (Griff, 2026-10-09), with what the far end offers on hover, and mark a member outside the aggregate.
 - **A jack selects its port.** Its details open under the jacks: link, as port and sync where the AP says how fast the port can go, mode, what it carries and where from, and on an AP's uplink the switch's power ("powered by homelab.symtus.com Ethernet13 · class 4 · 40 W allocated · 40 W asked · signal pair"), with Edit, or Info on the uplink. The last jack, "+", adds a port.
+- **A folder's jacks are a template, not one AP's state** (Griff, 2026-10-09). They can apply to many APs, so a folder shows what each port can go, "10GbE", and what is set, "1GbE · Access" or "bond0 · LACP". It shows no AP's link, sync or power; those are on an AP's page.
 - **The jacks are built as SVG elements:** the UI never sets `innerHTML`.
 
 ## Consequences

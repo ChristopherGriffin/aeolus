@@ -730,6 +730,9 @@ function portJack(c, name, reps, pick) {
 	const mode = allUplink ? 'Uplink' : off ? 'Off' : MODES[f('mode')?.value];
 	const report = uplinkOn[0]?.cfg?.condition?.state?.report;
 	const bond = reps.find((r) => r.p.bond?.members?.length)?.p.bond;
+	// What the port can go, as the kind's APs say: the same for every AP of
+	// one kind.
+	const capOf = reps.map((r) => r.p.max).find(Boolean);
 	const power = allUplink && !folder ? poe(report) : null;
 	const what = allUplink
 		? [h('span', { class: 'sub' }, `The AP's management${bond ? `, over a bond of ${bond.members.length}` : ''}; Aeolus leaves it alone.`),
@@ -751,10 +754,12 @@ function portJack(c, name, reps, pick) {
 				allUplink ? h('button', { type: 'button', class: 'button small', onclick: () => show(info) }, 'Info')
 					: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => show(editForm) }, 'Edit'),
 				h('button', { type: 'button', class: 'button small', onclick: () => pick(name, () => null) }, 'Close')));
+		// On a folder, the kind's ports as they are for every AP of it: what
+		// each can go, not one AP's link (Griff, 2026-10-09).
 		panel.append(...[head(),
-			row('Link', !folder && reps[0]?.p.max ? sync(reps[0].p) : linkCell(reps, folder)),
-			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ', sync(m),
-				m.aggregator != null && bond.aggregator != null && m.aggregator !== bond.aggregator && h('span', { class: 'chip warn' }, 'outside the aggregate')))),
+			folder ? row('Port', capOf && gbe(capOf)) : row('Link', reps[0]?.p.max ? sync(reps[0].p) : linkCell(reps, folder)),
+			bond && row('Members', bond.members.map((m) => h('div', null, h('span', { class: 'mono' }, m.name), ' ', folder ? (m.max ? gbe(m.max) : '') : sync(m),
+				!folder && m.aggregator != null && bond.aggregator != null && m.aggregator !== bond.aggregator && h('span', { class: 'chip warn' }, 'outside the aggregate')))),
 			row('Mode', mode ?? h('span', { class: 'sub' }, 'not set')),
 			row('Carries', [what ?? h('span', { class: 'sub' }, 'not set'), from.length > 0 && h('span', { class: 'whence' }, from.join(', '))]),
 			row('Power', power)].filter(Boolean));
@@ -768,16 +773,19 @@ function portJack(c, name, reps, pick) {
 		e.currentTarget.classList.toggle('chosen', box.childElementCount > 0);
 	};
 	const configured = allUplink || Boolean(mode && mode !== 'Off');
+	const lacp = bond && (bond.mode === '802.3ad' ? 'LACP' : bond.mode);
 	if (bond) {
-		// A bond: its members' jacks, together, under its name.
+		// A bond: its members' jacks, together, under its name; on a folder,
+		// each member by what it can go, on an AP by its link.
 		const group = h('button', { type: 'button', class: 'bond', title: `${name}: ${bond.members.map((m) => m.name).join(' + ')}`, onclick: choose },
-			h('span', { class: 'bondname mono' }, name, marks, h('span', { class: 'sub' }, ` ${bond.mode === '802.3ad' ? 'LACP' : bond.mode}${reps[0]?.p.carrier ? ` · ${gbit(mbit(reps[0].p.speed))}` : ''}`)),
+			h('span', { class: 'bondname mono' }, name, marks, h('span', { class: 'sub' }, ` ${lacp}${!folder && reps[0]?.p.carrier ? ` · ${gbit(mbit(reps[0].p.speed))}` : ''}`)),
 			h('span', { class: 'members' }, bond.members.map((m) => h('span', { class: `jack ${jackState(folder, { off, set: true, carrier: m.carrier })}` },
-				jackIcon(), h('span', { class: 'jname mono' }, m.name), h('span', { class: 'jsub' }, m.carrier ? gbit(mbit(m.speed)) : 'no link')))));
+				jackIcon(), h('span', { class: 'jname mono' }, m.name),
+				h('span', { class: 'jsub' }, folder ? (m.max ? gbe(m.max) : '') : m.carrier ? gbit(mbit(m.speed)) : 'no link')))));
 		return group;
 	}
 	const p0 = reps[0]?.p;
-	const under = folder ? (mode ?? '') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
+	const under = folder ? [capOf && gbe(capOf), mode].filter(Boolean).join(' · ') : p0 ? (p0.carrier ? gbit(mbit(p0.speed)) : p0.up ? 'no link' : 'down') : '';
 	return jack(name, jackState(folder, { off, set: configured, carrier: !!p0?.carrier }), under,
 		[name, mode, what && text(what)].filter(Boolean).join(' · '), choose, marks);
 }
