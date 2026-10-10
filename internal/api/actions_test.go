@@ -29,6 +29,14 @@ func TestActions(t *testing.T) {
 	if len(list) != 1 || list[0].(map[string]any)["kind"] != "locate" {
 		t.Fatalf("pending = %v", got)
 	}
+	// Taken up: the next poll does not hand it out again.
+	_, hdr, _ = f.apDo("GET", "/v1/ap/config", token, nil, nil)
+	if hdr.Get("Aeolus-Actions") != "" {
+		t.Fatalf("poll header once taken up = %q", hdr.Get("Aeolus-Actions"))
+	}
+	if _, _, again := f.apDo("GET", "/v1/ap/actions", token, nil, nil); len(again["actions"].([]any)) != 0 {
+		t.Fatalf("handed out again: %v", again)
+	}
 	if code, _, body := f.apDo("POST", "/v1/ap/actions/"+strconv.FormatInt(int64(id), 10), token, map[string]any{"ok": true, "result": "blinking for 60 s"}, nil); code != 200 {
 		t.Fatalf("done: %d %v", code, body)
 	}
