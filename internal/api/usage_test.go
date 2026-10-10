@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -47,6 +48,33 @@ func TestUsage(t *testing.T) {
 	// office has no role in Locations: no APs, nothing moved.
 	if _, body := f.do("GET", "/v1/usage", "office", nil); len(body["aps"].([]any)) != 0 || body["down"] != 0.0 {
 		t.Fatalf("office = %v", body)
+	}
+}
+
+// After a gap longer than usageGap, a client that was there before counts
+// nothing, as the gap's bytes would all fall in one bucket; one that joined
+// in the last interval counts all it moved.
+func TestUsageOfAGap(t *testing.T) {
+	now := time.Now()
+	prev, _ := json.Marshal(map[string]any{"clients": []map[string]any{{"mac": "7e:2a:ea:9b:2b:8f", "connected": 1000, "rx_bytes": 1000, "tx_bytes": 1000}}})
+	down, up := usageOf(&conditions.State{At: now.Add(-2 * time.Hour), Report: prev}, now, []wifiClient{
+		{MAC: "7e:2a:ea:9b:2b:8f", Connected: 8200, RxBytes: 9e9, TxBytes: 9e9},
+		{MAC: "84:0d:8e:5a:df:f7", Connected: 120, RxBytes: 300, TxBytes: 700},
+	})
+	if down != 700 || up != 300 {
+		t.Fatalf("down %d, up %d", down, up)
+	}
+}
+
+// Never more than 48 buckets, for any span.
+func TestUsageBuckets(t *testing.T) {
+	f := newFixture(t)
+	for _, hours := range []int{1, 5, 6, 7, 13, 24, 25, 168, 719, 720} {
+		_, body := f.do("GET", "/v1/usage?hours="+fmt.Sprint(hours), "griff", nil)
+		n, b := len(body["buckets"].([]any)), body["bucket"].(float64)
+		if n > 48 || float64(n)*b < float64(hours*3600) || int(b)%60 != 0 {
+			t.Fatalf("hours=%d: %d buckets of %v s", hours, n, b)
+		}
 	}
 }
 
