@@ -119,8 +119,9 @@ func Build(mac string, samples []Sample) Journey {
 		for _, r := range cur.rates {
 			s.TxRate += r / float64(len(cur.rates))
 		}
-		if p := cur.last.TxPackets; p > 50 {
-			r := float64(cur.last.TxRetries) / float64(p+cur.last.TxRetries)
+		// As the Clients tab counts them: retries over what was sent.
+		if sent := cur.last.TxPackets + cur.last.TxFailed; sent > 50 {
+			r := float64(cur.last.TxRetries) / float64(sent)
 			s.Retries = &r
 		}
 		s.Address, s.DHCP, s.Gen = cur.last.Address, cur.last.DHCP, cur.last.Gen
@@ -131,7 +132,9 @@ func Build(mac string, samples []Sample) Journey {
 		if x.C.Host != "" {
 			j.Host = x.C.Host
 		}
-		same := cur != nil && cur.s.AP == x.AP && cur.s.Band == x.C.Band && cur.s.Network == x.C.Network && x.At.Sub(cur.s.To) <= Gap
+		// The AP's own networks have no network ID: by SSID, then.
+		sameNet := cur != nil && cur.s.Network == x.C.Network && (x.C.Network != "" || cur.s.SSID == x.C.SSID)
+		same := sameNet && cur.s.AP == x.AP && cur.s.Band == x.C.Band && x.At.Sub(cur.s.To) <= Gap
 		if !same {
 			flush()
 			cur = &acc{s: Session{AP: x.AP, Name: x.APName, Network: x.C.Network, SSID: x.C.SSID, Band: x.C.Band, From: x.At.Add(-time.Duration(x.C.Connected) * time.Second), To: x.At}}
@@ -174,7 +177,7 @@ func issues(j Journey) []Issue {
 		if s.Retries != nil && *s.Retries > 0.2 {
 			add("warning", "retries", fmt.Sprintf("%.0f%% of frames to it on %s were sent again: interference, or a signal too weak for its rate", *s.Retries*100, s.Name), s.From)
 		}
-		if s.Band != "2g" && s.TxRate > 0 && s.TxRate < 30 && s.Reports >= 2 {
+		if (s.Band == "5g" || s.Band == "6g") && s.TxRate > 0 && s.TxRate < 30 && s.Reports >= 2 {
 			add("info", "slow", fmt.Sprintf("on %s (%s) it ran at %.0f Mbit/s on average", s.Name, bandName(s.Band), s.TxRate), s.From)
 		}
 		switch s.DHCP {
@@ -184,25 +187,25 @@ func issues(j Journey) []Issue {
 			add("info", "static", fmt.Sprintf("on %s it uses %s without asking DHCP: a static address", s.Name, s.Address), s.From)
 		}
 	}
-	// Back and forth: four roams or more between the same two APs within
-	// half an hour.
+	// Back and forth: four roams or more between the same two APs, A B A B
+	// A, within half an hour.
 	for i := 0; i+4 < len(j.Sessions); i++ {
 		a, b := j.Sessions[i].AP, j.Sessions[i+1].AP
 		if a == b {
 			continue
 		}
-		n := 1
-		for k := i + 1; k < len(j.Sessions) && n < 4; k++ {
+		roams := 0
+		for k := i + 1; k < len(j.Sessions) && roams < 4; k++ {
 			want := b
-			if n%2 == 0 {
+			if roams%2 == 1 {
 				want = a
 			}
 			if j.Sessions[k].AP != want || j.Sessions[k].From.Sub(j.Sessions[i].To) > 30*time.Minute {
 				break
 			}
-			n++
+			roams++
 		}
-		if n >= 4 {
+		if roams >= 4 {
 			add("warning", "ping-pong", fmt.Sprintf("it moved back and forth between %s and %s: their coverage overlaps where it sits; a lower power or a minimum signal settles it", j.Sessions[i].Name, j.Sessions[i+1].Name), j.Sessions[i].To)
 			break
 		}
