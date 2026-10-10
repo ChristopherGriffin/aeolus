@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
@@ -393,7 +394,7 @@ func (r *rrmState) check() error {
 	}
 	for _, o := range r.Others {
 		if !macRE.MatchString(o.BSSID) || o.SSID == "" || len(o.SSID) > 32 || !printable(o.SSID) || !bands[o.Band] ||
-			o.Channel < 1 || o.Channel > 233 || o.Signal < -120 || o.Signal > 0 || o.Ago < 0 {
+			o.Channel < 1 || o.Channel > 233 || o.Signal < -127 || o.Signal > 0 || o.Ago < 0 {
 			return badRequest("rrm: another network is a BSSID, a printable SSID of at most 32 characters, a band, a channel from 1 to 233, a signal in dBm and seconds since")
 		}
 	}
@@ -1304,7 +1305,17 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err != nil {
 		return err
 	}
+	// What its clients moved since its last report (0108), before this one
+	// is the last.
+	prev, err := s.conds.LatestState(c.ap)
+	if err != nil {
+		return err
+	}
+	down, up := usageOf(prev, time.Now(), req.Clients)
 	if err := s.conds.RecordState(c.ap, req.Version, report); err != nil {
+		return err
+	}
+	if err := s.conds.RecordUse(c.ap, len(req.Clients), down, up); err != nil {
 		return err
 	}
 	if err := s.conds.Running(c.ap, req.Version); err != nil {

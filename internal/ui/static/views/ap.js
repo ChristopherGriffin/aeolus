@@ -14,6 +14,7 @@ import { clientsTab } from './clients.js';
 import { renameButton } from './rename.js';
 import { moveButton } from './move.js';
 import { actionsPanel } from './actions.js';
+import { usagePanel } from './usage.js';
 
 const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['system', 'System']];
 
@@ -65,7 +66,7 @@ export async function apPage(ctx, id, tab, sub, view) {
 	if (tab === 'overview') {
 		main.push(h('div', { class: 'grid2' },
 			h('div', { class: 'col' }, latest(cond), await actionsPanel(id, page.node.name, !!edit)),
-			h('div', { class: 'col' }, enrollment(facts))), history(hist));
+			h('div', { class: 'col' }, enrollment(facts))), await usagePanel(id, false), history(hist));
 	} else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, thisAP, edit));
 	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 	else if (tab === 'clients') main.push(await clientsTab(ctx, page, thisAP));

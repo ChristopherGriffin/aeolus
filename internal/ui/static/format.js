@@ -240,6 +240,13 @@ export function ago(t) {
 	return Math.round(s / 86400) + ' d ago';
 }
 
+// size writes bytes the short way: 812 B, 1.9 MB, 83.7 GB.
+export function size(n) {
+	for (const [d, unit] of [[1e12, 'TB'], [1e9, 'GB'], [1e6, 'MB'], [1e3, 'kB']])
+		if (n >= d) return `${(n / d).toFixed(1)} ${unit}`;
+	return `${n} B`;
+}
+
 export function bandName(b) {
 	return BANDS[b] || b;
 }

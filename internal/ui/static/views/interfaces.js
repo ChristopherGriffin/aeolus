@@ -20,6 +20,7 @@ import { tabBar, pick } from '../layout.js';
 import { configs } from './sections.js';
 import { bandsSection } from './bands.js';
 import { neighboursSection, ratingsSection } from './neighbours.js';
+import { airspaceSection } from './airspace.js';
 import { fieldsForm, changedValues, speedName } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
@@ -29,10 +30,11 @@ import { vxlanPath, probed } from './path.js';
 
 const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
 // Radios' views: the band cards, the channel map (0075), the other Aeolus
-// APs each hears, and how it rates each channel (0073).
+// APs each hears, how it rates each channel (0073), and the other networks
+// heard (0106).
 // Bands and their channel maps are one view (Griff, 2026-10-09); an old
 // link to Channels lands there.
-const RADIOS = [['bands', 'Bands'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings']];
+const RADIOS = [['bands', 'Bands'], ['neighbours', 'Neighbours'], ['ratings', 'Ratings'], ['airspace', 'Networks heard']];
 
 // The port fields offered, in order: on or off, its speed (0094), its mode
 // and VLANs. LACP and its bond are not applied yet, and the uplink is the
@@ -69,6 +71,7 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 			parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null };
 		if (view === 'ratings') body = ratingsSection(ctx, await rows());
 		else if (view === 'neighbours') body = neighboursSection(ctx, at, await rows());
+		else if (view === 'airspace') body = await airspaceSection(ctx, at);
 		else body = bandsSection(ctx, id, page, ap?.cfg?.condition?.state, await rows());
 		return [bar, tabBar(`${base}/interfaces/radios`, RADIOS, view, 'minor'), body];
 	}

@@ -7,7 +7,9 @@
 // the page refreshes.
 
 import { h, link } from '../dom.js';
-import { bandName, ago } from '../format.js';
+import { post } from '../api.js';
+import { flash } from '../refresh.js';
+import { bandName, ago, size } from '../format.js';
 import { configs } from './sections.js';
 import { ask, confirm } from './confirm.js';
 import { journeyPanel } from './journey.js';
@@ -92,7 +94,8 @@ function table(ctx, all, folder, draw, out) {
 		h('tr', null, head),
 		shown.map((c) => h('tr', null,
 			h('td', null, h('a', { href: '#', class: 'clientlink', title: 'Its journey: sessions, roams and issues over the last day', onclick: (e) => { e.preventDefault(); out.scrollIntoView({ block: 'nearest' }); journeyPanel(out, c.mac); } },
-				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac), who(c), blockButton(ctx, c, out)),
+				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac), who(c),
+					h('div', { class: 'rowbuttons' }, reconnectButton(ctx, c, out), blockButton(ctx, c, out))),
 			folder && h('td', null, link(`/aps/${encodeURIComponent(c.ap.id)}`, c.ap.name)),
 			h('td', null, c.ssid || '—', c.vlan && h('div', { class: 'sub', title: 'a per-user key put it in this VLAN' }, `VLAN ${c.vlan}`)),
 			h('td', null, bandName(c.band) || '—', c.signal != null && h('div', { class: 'sub' }, `${c.signal} dBm`)),
@@ -129,13 +132,31 @@ function blockButton(ctx, c, out) {
 			c.private && h('div', { class: 'sub warn' }, 'Its MAC is private: the device may pick a new one, and join again.'),
 		], [h('div', { class: 'sub warn' }, 'Applying reloads the Wi-Fi of each AP listed: its clients drop for a moment.')]);
 	};
-	return h('div', null, h('button', { type: 'button', class: 'button small', title: `Refuse ${c.mac} on ${c.ssid || c.network}`, onclick: block }, 'Block'));
+	return h('button', { type: 'button', class: 'button small', title: `Refuse ${c.mac} on ${c.ssid || c.network}`, onclick: block }, 'Block');
+}
+
+// reconnectButton asks the client's AP to disconnect it, once (0107): it
+// drops off every network it is on there, and may join again at once,
+// usually within seconds. For someone with operator on the AP (0104).
+function reconnectButton(ctx, c, out) {
+	if (!c.mac || !mayEdit(ctx, 'locations', c.ap.id)) return null;
+	const who = c.host || c.mac;
+	const go = async (e) => {
+		e.currentTarget.disabled = true;
+		try {
+			await post(`/v1/aps/${encodeURIComponent(c.ap.id)}/actions`, { kind: 'disconnect', target: c.mac });
+			flash(`Reconnect: asked of ${c.ap.name}. ${who} drops on its next poll, within about a minute, and joins again.`);
+		} catch (err) {
+			out.replaceChildren(h('div', { class: 'error' }, err.message));
+		}
+	};
+	return h('button', { type: 'button', class: 'button small', title: `Have ${c.ap.name} disconnect ${who}, so it joins again`, onclick: go }, 'Reconnect');
 }
 
 // mayEdit says whether the person signed in may change a node: an operator
 // or admin grant on it or above it (0030). The manager decides; this only
 // keeps a button that would be refused off the page.
-function mayEdit(ctx, tree, node) {
+export function mayEdit(ctx, tree, node) {
 	const up = new Set();
 	for (let n = ctx.trees[tree]?.nodes.get(node); n; n = ctx.trees[tree].nodes.get(n.parent)) up.add(n.id);
 	return (ctx.who?.grants || []).some((g) => g.tree === tree && up.has(g.node) && (g.role === 'operator' || g.role === 'admin'));
@@ -202,9 +223,3 @@ function duration(s) {
 	return `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h`;
 }
 
-// size writes bytes the short way: 812 B, 1.9 MB, 83.7 GB.
-function size(n) {
-	for (const [d, unit] of [[1e12, 'TB'], [1e9, 'GB'], [1e6, 'MB'], [1e3, 'kB']])
-		if (n >= d) return `${(n / d).toFixed(1)} ${unit}`;
-	return `${n} B`;
-}

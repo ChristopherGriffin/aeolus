@@ -9,7 +9,7 @@ import (
 )
 
 // Action is one thing a person asked an AP to do once (0104): locate,
-// restart-wifi or reboot. It is pending until the AP takes it up, running
+// restart-wifi or reboot; or disconnect, of one client, its target (0107). It is pending until the AP takes it up, running
 // once it has, which hands it to the AP only once, so a report of it that
 // is lost never has it done again; then done or failed, as the AP says.
 // One not finished within ActionWait expires.
@@ -17,6 +17,7 @@ type Action struct {
 	ID     int64      `json:"id"`
 	AP     string     `json:"ap"`
 	Kind   string     `json:"kind"`
+	Target string     `json:"target,omitempty"` // what of the AP it is for: the client's MAC, for disconnect
 	Actor  string     `json:"actor"`
 	At     time.Time  `json:"at"`
 	State  string     `json:"state"` // pending, running, done, failed or expired
@@ -52,17 +53,50 @@ const actionsOnce = `
 UPDATE actions SET state = 'expired' WHERE state = 'pending' AND id NOT IN (SELECT MIN(id) FROM actions WHERE state = 'pending' GROUP BY ap, kind);
 CREATE UNIQUE INDEX actions_pending ON actions (ap, kind) WHERE state = 'pending';`
 
-// AddAction records an action for an AP, pending. One of the same kind
-// already pending is returned instead, so a second click does not reboot an
-// AP twice.
-func (s *Store) AddAction(ap hierarchy.NodeID, kind, actor string) (Action, error) {
+// actionsOpen widens it to one open, pending or running, so asking for
+// what the AP is doing already gives that action, not another: a reboot
+// pressed twice, or a read-back that raced the AP taking it up, never
+// reboots it twice. Two open already, a pending asked while one ran, keep
+// the first, the one the AP is doing.
+const actionsOpen = `
+DROP INDEX actions_pending;
+UPDATE actions SET state = 'expired' WHERE state IN ('pending', 'running') AND id NOT IN (SELECT MIN(id) FROM actions WHERE state IN ('pending', 'running') GROUP BY ap, kind);
+CREATE UNIQUE INDEX actions_open ON actions (ap, kind) WHERE state IN ('pending', 'running');`
+
+// actionsTarget gives an action what of the AP it is for (0107), the client
+// a disconnect is of, and makes the rule one open action of a kind for each
+// target: two clients may be disconnected at once, one client not twice.
+const actionsTarget = `
+ALTER TABLE actions ADD COLUMN target TEXT NOT NULL DEFAULT '';
+DROP INDEX actions_open;
+CREATE UNIQUE INDEX actions_open ON actions (ap, kind, target) WHERE state IN ('pending', 'running');`
+
+// AddAction records an action for an AP, pending, for target where it acts
+// on one thing of the AP's, else for "". One of the same kind and target
+// already open, pending or running, is returned instead, so a second click
+// does not reboot an AP twice. It looks and adds in one transaction, which
+// the database opens immediate, so the AP taking up or finishing the open
+// one cannot come between them.
+func (s *Store) AddAction(ap hierarchy.NodeID, kind, target, actor string) (Action, error) {
 	s.expire(ap)
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO actions (ap, kind, actor, at, state) VALUES (?, ?, ?, ?, 'pending')`,
-		string(ap), kind, actor, stamp(s.now())); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
 		return Action{}, err
 	}
+	defer tx.Rollback()
 	var id int64
-	if err := s.db.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND state = 'pending'`, string(ap), kind).Scan(&id); err != nil {
+	err = tx.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND target = ? AND state IN ('pending', 'running')`, string(ap), kind, target).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		var res sql.Result
+		if res, err = tx.Exec(`INSERT INTO actions (ap, kind, target, actor, at, state) VALUES (?, ?, ?, ?, ?, 'pending')`,
+			string(ap), kind, target, actor, stamp(s.now())); err == nil {
+			id, err = res.LastInsertId()
+		}
+	}
+	if err != nil {
+		return Action{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Action{}, err
 	}
 	return s.action(id)
@@ -77,7 +111,7 @@ func (s *Store) expire(ap hierarchy.NodeID) {
 // PendingActions is what waits for an AP, not yet taken up, oldest first.
 func (s *Store) PendingActions(ap hierarchy.NodeID) ([]Action, error) {
 	s.expire(ap)
-	return s.actions(`SELECT id, ap, kind, actor, at, state, done_at, result FROM actions WHERE ap = ? AND state = 'pending' ORDER BY id`, string(ap))
+	return s.actions(`SELECT id, ap, kind, target, actor, at, state, done_at, result FROM actions WHERE ap = ? AND state = 'pending' ORDER BY id`, string(ap))
 }
 
 // ClaimActions hands an AP what waits for it, and marks each running, in
@@ -142,11 +176,11 @@ func (s *Store) FinishAction(ap hierarchy.NodeID, id int64, ok bool, result stri
 // Actions is an AP's latest actions, newest first.
 func (s *Store) Actions(ap hierarchy.NodeID, limit int) ([]Action, error) {
 	s.expire(ap)
-	return s.actions(`SELECT id, ap, kind, actor, at, state, done_at, result FROM actions WHERE ap = ? ORDER BY id DESC LIMIT ?`, string(ap), limit)
+	return s.actions(`SELECT id, ap, kind, target, actor, at, state, done_at, result FROM actions WHERE ap = ? ORDER BY id DESC LIMIT ?`, string(ap), limit)
 }
 
 func (s *Store) action(id int64) (Action, error) {
-	out, err := s.actions(`SELECT id, ap, kind, actor, at, state, done_at, result FROM actions WHERE id = ?`, id)
+	out, err := s.actions(`SELECT id, ap, kind, target, actor, at, state, done_at, result FROM actions WHERE id = ?`, id)
 	if err != nil || len(out) == 0 {
 		return Action{}, errors.Join(err, ErrNoAction)
 	}
@@ -164,7 +198,7 @@ func (s *Store) actions(q string, args ...any) ([]Action, error) {
 		var a Action
 		var at string
 		var done sql.NullString
-		if err := rows.Scan(&a.ID, &a.AP, &a.Kind, &a.Actor, &at, &a.State, &done, &a.Result); err != nil {
+		if err := rows.Scan(&a.ID, &a.AP, &a.Kind, &a.Target, &a.Actor, &at, &a.State, &done, &a.Result); err != nil {
 			return nil, err
 		}
 		if a.At, err = time.Parse(time.RFC3339Nano, at); err != nil {

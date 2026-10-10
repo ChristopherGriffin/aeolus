@@ -519,23 +519,33 @@ function rate(r, sc, networks, at) {
 }
 
 // printable is an SSID as the manager takes it: printable ASCII, anything
-// else a ?, at most 32 bytes; null for a hidden network.
+// else a ?, at most 32 bytes; null for a hidden network, whose SSID is
+// empty or all zero bytes. An SSID of question marks is one, not hidden.
 function printable(d) {
-	let s = '';
+	let s = '', hidden = true;
 	for (let i = 0; i < length(d ?? '') && i < 32; i++) {
 		let c = ord(d, i);
+		if (c != 0)
+			hidden = false;
 		s += c >= 32 && c < 127 ? chr(c) : '?';
 	}
-	return length(replace(s, /\?/g, '')) ? s : null;
+	return hidden ? null : s;
 }
 
-// channel_of is a frequency's channel.
+// channel_of is a frequency's channel, as Linux numbers it: 6 GHz's
+// channel 2 sits below its channel 1, and 4.9 GHz counts from 4 GHz.
 function channel_of(f) {
 	if (f == 2484)
 		return 14;
-	if (f < 3000)
+	if (f < 2484)
 		return int((f - 2407) / 5);
-	return int((f - (f > 5925 ? 5950 : 5000)) / 5);
+	if (f >= 4910 && f <= 4980)
+		return int((f - 4000) / 5);
+	if (f < 5925)
+		return int((f - 5000) / 5);
+	if (f == 5935)
+		return 2;
+	return int((f - 5950) / 5);
 }
 
 // other keeps a network heard that carries no Aeolus advert (0105): its
@@ -550,8 +560,11 @@ function other(b, band, at) {
 			ssid = printable(e.data);
 			break;
 		}
-	if (ssid)
-		others[b.bssid] = { ssid: ssid, band: band, channel: channel_of(b.frequency), signal: b.signal_mbm / 100, at: at };
+	// What the manager would refuse, it never hears: one network it can't
+	// take would cost the AP its whole report.
+	let channel = channel_of(b.frequency), signal = dbm(b.signal_mbm / 100);
+	if (ssid && channel >= 1 && channel <= 233 && signal != null)
+		others[b.bssid] = { ssid: ssid, band: band, channel: channel, signal: signal, at: at };
 }
 
 // aeolus_radio says whether a BSSID is another of the networks of a radio

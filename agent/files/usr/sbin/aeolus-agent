@@ -1485,6 +1485,26 @@ function reboot_ap() {
 	return { ok: true, result: 'rebooting in 5 s' };
 }
 
+// disconnect has one client leave every network it is on here, so that it
+// joins again (0107): hostapd deauthenticates it and lets it straight back.
+// It goes by hostapd's own objects, not netifd's network.wireless, which
+// may be lost (0105).
+function disconnect(a) {
+	let mac = lc(a.target ?? '');
+	if (!match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/))
+		return { ok: false, result: 'no client was named' };
+	let on = [];
+	for (let o in bus.list() ?? []) {
+		if (substr(o, 0, 8) != 'hostapd.' || !bus.call(o, 'get_clients')?.clients?.[mac])
+			continue;
+		bus.call(o, 'del_client', { addr: mac, reason: 1, deauth: true, ban_time: 0 });
+		push(on, substr(o, 8));
+	}
+	return length(on)
+		? { ok: true, result: sprintf('disconnected it from %s; it may join again at once', join(', ', on)) }
+		: { ok: false, result: 'it is not connected to this AP' };
+}
+
 // do_actions fetches the actions that wait for this AP, does each, and says
 // what came of it (0104).
 function do_actions(token) {
@@ -1493,10 +1513,10 @@ function do_actions(token) {
 		fail('actions: %s', describe(r));
 		return;
 	}
-	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap };
+	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap, disconnect: disconnect };
 	for (let a in r.json?.actions ?? []) {
-		let out = kinds[a.kind] ? kinds[a.kind]() : { ok: false, result: 'this agent cannot ' + a.kind };
-		log('action %s: %s', a.kind, out.result);
+		let out = kinds[a.kind] ? kinds[a.kind](a) : { ok: false, result: 'this agent cannot ' + a.kind };
+		log('action %s%s: %s', a.kind, a.target ? ' ' + a.target : '', out.result);
 		let d = http('POST', `/v1/ap/actions/${a.id}`, out, token);
 		if (d.status != 200)
 			fail('action %s: %s', a.kind, describe(d));
