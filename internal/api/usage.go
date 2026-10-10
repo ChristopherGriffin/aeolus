@@ -82,6 +82,7 @@ func (s *Server) topClients(since time.Time, mine map[hierarchy.NodeID]*usageAP)
 		return nil, err
 	}
 	by := map[string]*usageClient{}
+	named := map[string]time.Time{} // when each client's host name was given
 	for _, t := range totals {
 		a := mine[t.AP]
 		if a == nil {
@@ -92,8 +93,9 @@ func (s *Server) topClients(since time.Time, mine map[hierarchy.NodeID]*usageAP)
 			c = &usageClient{MAC: t.MAC, APs: []string{}}
 			by[t.MAC] = c
 		}
-		if t.Host != "" {
-			c.Host = t.Host
+		// The name it gave last, on whichever AP.
+		if t.Host != "" && !t.HostAt.Before(named[t.MAC]) {
+			c.Host, named[t.MAC] = t.Host, t.HostAt
 		}
 		c.Down += t.Down
 		c.Up += t.Up

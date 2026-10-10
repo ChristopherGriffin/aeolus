@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
+	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
 
 // GET /v1/usage (0108): what the APs' clients moved, worked out from each
@@ -94,5 +95,25 @@ func TestUsageOfAWrap(t *testing.T) {
 		[]wifiClient{{MAC: "7e:2a:ea:9b:2b:8f", Connected: 1300, RxBytes: 200, TxBytes: 50}})
 	if down != 0 || up != 0 {
 		t.Fatalf("down %d, up %d", down, up)
+	}
+}
+
+// A client that roamed between APs goes by the host name it gave last, on
+// whichever AP (0110).
+func TestTopClientsNameLast(t *testing.T) {
+	f := newFixture(t)
+	ap, _, _ := f.adopted()
+	mac := "7e:2a:ea:9b:2b:8f"
+	if err := f.conds.RecordUse("office-ap", 1, []conditions.ClientUse{{MAC: mac, Host: "old-name", Down: 10, Up: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.conds.RecordUse(hierarchy.NodeID(ap), 1, []conditions.ClientUse{{MAC: mac, Host: "new-name", Down: 20, Up: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	top, err := f.api.topClients(time.Now().Add(-time.Hour), map[hierarchy.NodeID]*usageAP{
+		hierarchy.NodeID(ap): {AP: hierarchy.NodeID(ap), Name: "PumphouseAP"}, "office-ap": {AP: "office-ap", Name: "OfficeOpenWrt"},
+	})
+	if err != nil || len(top) != 1 || top[0].Host != "new-name" || top[0].Down != 30 || len(top[0].APs) != 2 {
+		t.Fatalf("top = %+v, %v", top, err)
 	}
 }

@@ -23,7 +23,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 10
+const schemaVersion = 11
 
 const schema = `
 CREATE TABLE aps (
@@ -122,6 +122,8 @@ CREATE INDEX knocks_last ON knocks (last_at);`,
 	8: alertLogTable,
 	// 0110: what each client moved at each report.
 	9: clientUsageTable,
+	// 0110: a client's last host name on an AP, found by index.
+	10: clientUsageByClient,
 }
 
 // Results of a render check (0039).
