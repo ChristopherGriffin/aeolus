@@ -19,13 +19,14 @@ import (
 // in both reports, how much its counters grew; for one that joined since,
 // all it moved. A client whose counters went back without its joining
 // again, as a 32-bit counter does when it wraps, counts nothing this time.
-// With no previous report, only the clients that joined in the last report
-// interval count.
+// With no previous report, or one older than usageGap, only the clients
+// that joined in the last report interval count: what the others moved in
+// the gap would all fall in this report's bucket, a spike that never was.
 func usageOf(prev *conditions.State, now time.Time, clients []wifiClient) (down, up int64) {
 	type counters struct{ rx, tx, connected int64 }
 	before := map[string]counters{}
 	since := float64(stateEvery / time.Second)
-	if prev != nil {
+	if prev != nil && now.Sub(prev.At) <= usageGap {
 		since = now.Sub(prev.At).Seconds()
 		var r struct {
 			Clients []wifiClient `json:"clients"`
@@ -50,8 +51,13 @@ func usageOf(prev *conditions.State, now time.Time, clients []wifiClient) (down,
 	return down, up
 }
 
-// stateEvery is how often an agent reports its state (0040).
-const stateEvery = 5 * time.Minute
+// stateEvery is how often an agent reports its state (0040); usageGap is
+// how long since its last report a report's counters still count from it:
+// three intervals, as an alert takes a report to be too old (0099).
+const (
+	stateEvery = 5 * time.Minute
+	usageGap   = 3 * stateEvery
+)
 
 // usageBucket is one stretch of a usage chart: the clients the APs had at
 // most in it, summed over the APs, and what they moved in it.
@@ -100,7 +106,8 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 		mine[id] = &usageAP{AP: id, Name: n.Name}
 	}
 	span := time.Duration(hours) * time.Hour
-	bucket := max(stateEvery, (span / 48).Truncate(time.Minute))
+	// Whole minutes, rounded up, so there are never more than 48.
+	bucket := max(stateEvery, ((span+47)/48 + time.Minute - 1).Truncate(time.Minute))
 	end := time.Now().UTC().Truncate(bucket).Add(bucket)
 	count := int((span + bucket - 1) / bucket)
 	start := end.Add(-time.Duration(count) * bucket)
