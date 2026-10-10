@@ -19,7 +19,7 @@ function tile(label, big, sub, cls, href) {
 
 export async function overviewTab(ctx, id, page, fleet) {
 	const below = page.hardware?.aps || [];
-	if (!below.length) return h('div', { class: 'banner info' }, 'No APs here yet.');
+	if (!below.length) return [h('div', { class: 'banner info' }, 'No APs here yet.')];
 	const ids = new Set(below.map((a) => a.id));
 	const aps = (fleet?.aps || []).filter((a) => ids.has(a.id));
 	const [rows, al] = await Promise.all([configs(below), get(`/v1/alerts?under=${encodeURIComponent(id)}`)]);
@@ -79,11 +79,12 @@ export async function overviewTab(ctx, id, page, fleet) {
 	// marked, as their clients share its airtime.
 	const chans = h('section', { class: 'panel' }, h('h2', null, 'Channels in use'),
 		BANDS.map((b) => {
+			// Each AP once a channel, though it may have two radios on it.
 			const on = new Map();
 			for (const { ap, r } of reports)
 				for (const x of (r?.radios || []).filter((x) => x.band === b && x.channel)) {
 					if (!on.has(x.channel)) on.set(x.channel, []);
-					on.get(x.channel).push(ap.name);
+					if (!on.get(x.channel).includes(ap.name)) on.get(x.channel).push(ap.name);
 				}
 			if (!on.size) return null;
 			return h('div', { class: 'row' }, h('div', { class: 'label' }, bandName(b)),
