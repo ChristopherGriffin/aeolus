@@ -189,7 +189,9 @@
         "power": { "$ref": "#/$defs/power" },
         "modes": { "type": "array", "items": { "enum": ["b", "g", "n", "ax", "be"] }, "uniqueItems": true, "minItems": 1, "description": "The 802.11 generations clients may use, one unbroken run (0089): the oldest is the least a client must support (OpenWrt's require_mode), the newest caps the mode the radio runs. 802.11b is its 1–11 Mbit/s rates (legacy_rates). Unset, every one the radio can do but 802.11b, which OpenWrt leaves off." },
         "short_gi": { "$ref": "#/$defs/shortGI" },
-        "he_gi": { "$ref": "#/$defs/heGI" }
+        "he_gi": { "$ref": "#/$defs/heGI" },
+        "min_signal": { "oneOf": [{ "const": "off" }, { "type": "integer", "minimum": -95, "maximum": -50 }], "description": "The weakest signal, in dBm, a client may be heard at and still join (0097): one further off is refused, so it keeps to a nearer AP rather than hold this radio at its slowest rates. -75 suits most offices; -80 a house. off takes it away. Unset, the AP keeps what it has." },
+        "beacon_interval": { "type": "integer", "minimum": 40, "maximum": 1000, "description": "Time between beacons, in TU of 1.024 ms (0097). 100, OpenWrt's default, suits nearly everything: longer saves a little airtime with many SSIDs, and makes clients slower to find the AP. Unset, the AP keeps what it has." }
       }
     },
     "radio5g": {
@@ -204,7 +206,9 @@
         "dfs": { "enum": ["allow", "avoid"], "default": "allow", "description": "avoid keeps an automatic channel off the DFS channels, 52–144, which are shared with radar; a channel or width that needs them is refused (0071). allow (the default) lets the AP pick any." },
         "modes": { "type": "array", "items": { "enum": ["a", "n", "ac", "ax", "be"] }, "uniqueItems": true, "minItems": 1, "description": "The 802.11 generations clients may use, one unbroken run (0089): the oldest is the least a client must support (OpenWrt's require_mode), the newest caps the mode the radio runs. Unset, every one the radio can do." },
         "short_gi": { "$ref": "#/$defs/shortGI" },
-        "he_gi": { "$ref": "#/$defs/heGI" }
+        "he_gi": { "$ref": "#/$defs/heGI" },
+        "min_signal": { "oneOf": [{ "const": "off" }, { "type": "integer", "minimum": -95, "maximum": -50 }], "description": "The weakest signal, in dBm, a client may be heard at and still join (0097): one further off is refused, so it keeps to a nearer AP rather than hold this radio at its slowest rates. -75 suits most offices; -80 a house. off takes it away. Unset, the AP keeps what it has." },
+        "beacon_interval": { "type": "integer", "minimum": 40, "maximum": 1000, "description": "Time between beacons, in TU of 1.024 ms (0097). 100, OpenWrt's default, suits nearly everything: longer saves a little airtime with many SSIDs, and makes clients slower to find the AP. Unset, the AP keeps what it has." }
       }
     },
     "radio6g": {
@@ -216,7 +220,9 @@
         "channels": { "type": "array", "items": { "enum": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221, 225, 229, 233] }, "uniqueItems": true, "minItems": 1, "maxItems": 59, "description": "The channels an automatic channel may be, chosen in whole blocks of the width (0075, 0087). Unset, any." }, "non_overlapping": { "type": "boolean", "default": false, "description": "One channel to a block: an automatic channel is the first usable channel of each whole block of the width, the blocks apart (one 320 MHz family), so radios that pick different channels never share a block (0087). With psc, each block's first preferred scanning channel." }, "psc": { "type": "boolean", "default": false, "description": "Preferred scanning channels only: an automatic channel is one of 5, 21, 37 and every 16th to 229, which clients look for 6 GHz networks on by themselves (0087). Off (the default), any channel of the set." }, "width": { "enum": [20, 40, 80, 160, 320], "description": "MHz." },
         "power": { "$ref": "#/$defs/power" },
         "modes": { "type": "array", "items": { "enum": ["ax", "be"] }, "uniqueItems": true, "minItems": 1, "description": "The 802.11 generations clients may use, one unbroken run (0089): the oldest is the least a client must support (OpenWrt's require_mode), the newest caps the mode the radio runs. 6 GHz is 802.11ax and newer. Unset, every one the radio can do." },
-        "he_gi": { "$ref": "#/$defs/heGI" }
+        "he_gi": { "$ref": "#/$defs/heGI" },
+        "min_signal": { "oneOf": [{ "const": "off" }, { "type": "integer", "minimum": -95, "maximum": -50 }], "description": "The weakest signal, in dBm, a client may be heard at and still join (0097): one further off is refused, so it keeps to a nearer AP rather than hold this radio at its slowest rates. -75 suits most offices; -80 a house. off takes it away. Unset, the AP keeps what it has." },
+        "beacon_interval": { "type": "integer", "minimum": 40, "maximum": 1000, "description": "Time between beacons, in TU of 1.024 ms (0097). 100, OpenWrt's default, suits nearly everything: longer saves a little airtime with many SSIDs, and makes clients slower to find the AP. Unset, the AP keeps what it has." }
       }
     },
     "port": {
@@ -262,6 +268,8 @@
         "security": { "enum": ["open", "owe", "wpa2-psk", "wpa3-sae", "wpa2-wpa3"] },
         "passphrase": { "type": "string", "minLength": 8, "maxLength": 63, "writeOnly": true },
         "isolation": { "type": "boolean", "description": "Client isolation." },
+        "max_clients": { "type": "integer", "minimum": 1, "maximum": 2007, "description": "The most clients at once on each of the network's Wi-Fi interfaces, one a band (0097). Unset, OpenWrt's own, which hostapd allows up to 2007." },
+        "dtim": { "type": "integer", "minimum": 1, "maximum": 255, "description": "Beacons between DTIMs, when sleeping clients wake for the multicast and broadcast kept for them (0097): higher saves their batteries, and delays that traffic. Unset, OpenWrt's 2." },
         "multicast_to_unicast": { "type": "boolean", "description": "Send all multicast (ARP, IPv4, IPv6) to each client as unicast (0049). Unset: OpenWrt's default, which does so only for groups clients joined (IGMP/MLD snooping)." },
         "band_steering": { "type": "boolean", "description": "Steer clients that can use a higher band onto it, through usteer, which the agent's installer adds (0050). Turns on 802.11k and 802.11v for this network, which steering uses." },
         "roaming": {

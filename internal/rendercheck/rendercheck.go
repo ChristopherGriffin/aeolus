@@ -43,6 +43,8 @@ var Coverage = map[string]string{
 	"radio.*.modes":           "",
 	"radio.*.short_gi":        "",
 	"radio.*.he_gi":           "",
+	"radio.*.min_signal":      "",
+	"radio.*.beacon_interval": "",
 
 	"system.country":               "",
 	"system.tz":                    "",
@@ -78,6 +80,8 @@ var Coverage = map[string]string{
 	"network.*.security":                 "",
 	"network.*.passphrase":               "",
 	"network.*.isolation":                "",
+	"network.*.max_clients":              "",
+	"network.*.dtim":                     "",
 	"network.*.keys.vlans":               "",
 	"network.*.roaming.ft":               "",
 	"network.*.roaming.rrm":              "",
@@ -373,6 +377,18 @@ func (k *checker) radioSettings(doc map[string]any, radios []device) {
 			}
 		case float64:
 			k.option(where, r.s, "txpower", text(v))
+		}
+		// Admission and beacons (0097).
+		switch v := set["min_signal"].(type) {
+		case string: // off
+			if got, ok := r.s.Option("rssi_reject_assoc_rssi"); ok && got != "0" {
+				k.add("%s: rssi_reject_assoc_rssi is %q, want none for radio.%s.min_signal off", where, got, r.band)
+			}
+		case float64:
+			k.option(where, r.s, "rssi_reject_assoc_rssi", text(v))
+		}
+		if v, ok := set["beacon_interval"].(float64); ok {
+			k.option(where, r.s, "beacon_int", text(v))
 		}
 		if r.band == "5g" {
 			if msg := bonding(value(r.s, "channel"), value(r.s, "htmode")); msg != "" {
@@ -808,6 +824,15 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 		want, _ := v.(bool)
 		if s.Flag(opt) != want {
 			k.add("%s: %s is %q, want %s", where, opt, value(s, opt), onOff(want))
+		}
+	}
+	// The most clients, and the DTIM period (0097): unset, left out, so
+	// OpenWrt's own hold.
+	for opt, field := range map[string]string{"maxassoc": "max_clients", "dtim_period": "dtim"} {
+		if v, ok := n[field].(float64); ok {
+			k.option(where, s, opt, text(v))
+		} else if got, ok := s.Option(opt); ok {
+			k.add("%s: %s is %q, want none for network.%s.%s unset", where, opt, got, id, field)
 		}
 	}
 	// Unset, it is left out, so OpenWrt's default holds (0049).
