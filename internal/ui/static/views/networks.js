@@ -621,8 +621,13 @@ function setOp(folder, values) {
 }
 
 // shown writes a value for the preview; a secret is never shown.
+// SECRET is the network fields whose values are never shown (0027): the
+// passphrase, and a RADIUS server's secrets (0098).
+const SECRET = /\.(passphrase|radius\.(auth|acct)_secret)$/;
+
 function shown(path, v) {
-	return path.endsWith('.passphrase') ? 'a new passphrase' : value(path, v);
+	if (!SECRET.test(path)) return value(path, v);
+	return path.endsWith('.passphrase') ? 'a new passphrase' : 'a new secret';
 }
 
 function editForm(ctx, d, n, close, lib) {
@@ -653,7 +658,7 @@ function editForm(ctx, d, n, close, lib) {
 		confirm(ctx, box, op, p, [
 			h('div', null, h('strong', null, `${n.fields.ssid?.value || n.id} in Services › ${folderName}`)),
 			h('ul', { class: 'becomes' }, Object.entries(values).map(([path, v]) => h('li', null,
-				`${group(path).label}: `, n.fields[path.split('.').slice(2).join('.')] && !path.endsWith('.passphrase')
+				`${group(path).label}: `, n.fields[path.split('.').slice(2).join('.')] && !SECRET.test(path)
 					? [value(path, n.fields[path.split('.').slice(2).join('.')].value), ' → '] : '', shown(path, v)))),
 			h('div', { class: 'sub' }, `This changes the network in Services › ${folderName}, for every location that uses it.`),
 		], [
