@@ -393,7 +393,7 @@ func (r *rrmState) check() error {
 	}
 	for _, o := range r.Others {
 		if !macRE.MatchString(o.BSSID) || o.SSID == "" || len(o.SSID) > 32 || !printable(o.SSID) || !bands[o.Band] ||
-			o.Channel < 1 || o.Channel > 233 || o.Signal < -120 || o.Signal > 0 || o.Ago < 0 {
+			o.Channel < 1 || o.Channel > 233 || o.Signal < -127 || o.Signal > 0 || o.Ago < 0 {
 			return badRequest("rrm: another network is a BSSID, a printable SSID of at most 32 characters, a band, a channel from 1 to 233, a signal in dBm and seconds since")
 		}
 	}

@@ -16,11 +16,11 @@
 
 ## Decision
 
-- **The RRM daemon keeps each network it hears that carries no advert,** on the channel it visits: its BSSID, its SSID (printable ASCII, anything else a `?`; hidden ones not kept), band, channel and signal.
+- **The RRM daemon keeps each network it hears that carries no advert,** on the channel it visits: its BSSID, its SSID (printable ASCII, anything else a `?`; hidden ones, empty or all zero bytes, not kept), band, channel and signal. What the manager would refuse, a channel it can't number or a signal outside -127 to 0 dBm, it leaves out, as one network the manager refused would cost the AP its whole report.
   - It keeps them for an hour, and the strongest 64 go in the AP's report as `rrm.others`.
   - A BSSID that shares its last five bytes with one that carried an advert is that radio's other network, and is left out. A radio makes its BSSIDs from one MAC, changing only the first byte.
 - **Each AP reports its own BSSIDs (`bssids`),** its Wi-Fi interfaces' MACs, whether or not RRM runs on it.
-- **A warning alert, `rogue`, comes from a network another AP heard** when it broadcasts the SSID of one of Aeolus's networks from a BSSID no AP named as its own. It is keyed by BSSID and says:
+- **A warning alert, `rogue`, comes from a network another AP heard** when it broadcasts the SSID of one of Aeolus's networks from a BSSID no AP named as its own. Aeolus's SSIDs are matched as an AP hears them, each byte not printable ASCII a `?`, so a stranger's `Café` is caught as `Caf??`. It is keyed by BSSID and says:
   - the network's BSSID and SSID;
   - its band and channel;
   - how strongly it was heard;

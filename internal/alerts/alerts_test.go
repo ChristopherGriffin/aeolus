@@ -171,3 +171,13 @@ func TestRogue(t *testing.T) {
 		t.Fatalf("since = %v", as[0].Since)
 	}
 }
+
+// An SSID is matched as an AP hears it: a stranger's Café, heard as
+// Caf??, is a rogue of Aeolus's Café.
+func TestHeard(t *testing.T) {
+	for in, want := range map[string]string{"Café": "Caf??", "Aeolus Lab": "Aeolus Lab", "???": "???", "abcdefghijklmnopqrstuvwxyz0123456789": "abcdefghijklmnopqrstuvwxyz012345"} {
+		if got := Heard(in); got != want {
+			t.Errorf("Heard(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
