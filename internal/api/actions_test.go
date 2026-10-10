@@ -53,3 +53,32 @@ func TestActions(t *testing.T) {
 		t.Fatalf("office: %d", code)
 	}
 }
+
+// Disconnect (0107) is of one client, by MAC: two clients at once are two
+// actions, one client asked twice is one, and the AP is handed its target.
+func TestDisconnect(t *testing.T) {
+	f := newFixture(t)
+	ap, token, _ := f.adopted()
+	for _, b := range []map[string]any{{"kind": "disconnect"}, {"kind": "disconnect", "target": "not-a-mac"}, {"kind": "locate", "target": "7e:2a:ea:9b:2b:8f"}} {
+		if code, body := f.do("POST", "/v1/aps/"+ap+"/actions", "griff", b); code != 400 {
+			t.Fatalf("%v: %d %v", b, code, body)
+		}
+	}
+	ask := func(mac string) float64 {
+		t.Helper()
+		code, body := f.do("POST", "/v1/aps/"+ap+"/actions", "griff", map[string]any{"kind": "disconnect", "target": mac})
+		if code != 200 {
+			t.Fatalf("disconnect %s: %d %v", mac, code, body)
+		}
+		return body["action"].(map[string]any)["id"].(float64)
+	}
+	a, b := ask("7E:2A:EA:9B:2B:8F"), ask("84:0d:8e:5a:df:f7")
+	if a == b || ask("7e:2a:ea:9b:2b:8f") != a {
+		t.Fatalf("ids %v %v", a, b)
+	}
+	_, _, got := f.apDo("GET", "/v1/ap/actions", token, nil, nil)
+	list, _ := got["actions"].([]any)
+	if len(list) != 2 || list[0].(map[string]any)["target"] != "7e:2a:ea:9b:2b:8f" || list[1].(map[string]any)["target"] != "84:0d:8e:5a:df:f7" {
+		t.Fatalf("handed out = %v", got)
+	}
+}

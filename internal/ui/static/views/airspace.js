@@ -67,8 +67,11 @@ function knownButton(ctx, at, n, out) {
 	if (!mayEdit(ctx, 'locations', node)) return null;
 	const now = (f?.value ?? []).map((b) => b.toLowerCase());
 	const known = now.includes(n.bssid);
-	// Known by another folder of an AP that hears it, not by this one's list.
-	if (n.kind === 'known' && !known) return null;
+	// The button follows what the network is: Mark known for a rogue this
+	// list leaves out, Forget for a known one it names. A rogue it names is a
+	// rogue to an AP below whose own list leaves it out, and a known one it
+	// leaves out is known by another list: changing this one helps neither.
+	if ((n.kind === 'rogue') === known) return null;
 	const where = ctx.name('locations', node);
 	const there = ctx.trees.locations?.nodes.get(node)?.kind === 'ap' ? 'it' : 'the APs there';
 	const go = async () => {

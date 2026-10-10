@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
@@ -16,11 +17,13 @@ import (
 // for it (0104), so it asks for them only when there are some.
 const ActionsHeader = "Aeolus-Actions"
 
-// actionKinds are what a person may ask an AP to do once (0104).
-var actionKinds = map[string]bool{"locate": true, "restart-wifi": true, "reboot": true}
+// actionKinds are what a person may ask an AP to do once (0104), and
+// whether each is of a client, by MAC, its target (0107).
+var actionKinds = map[string]bool{"locate": false, "restart-wifi": false, "reboot": false, "disconnect": true}
 
 // addAction asks an AP to do something once (0104): POST /v1/aps/{ap}/actions
-// {kind}. It needs operator on the AP, as changing it does (0030).
+// {kind, target?}, target being the client's MAC for disconnect (0107). It
+// needs operator on the AP, as changing it does (0030).
 func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error {
 	id := hierarchy.NodeID(r.PathValue("ap"))
 	t := c.state.Org.Locations
@@ -31,19 +34,25 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		return &apiError{http.StatusForbidden, "asking an AP to act needs operator on it"}
 	}
 	var body struct {
-		Kind string `json:"kind"`
+		Kind   string `json:"kind"`
+		Target string `json:"target"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		return err
 	}
-	if !actionKinds[body.Kind] {
-		return badRequest("an action is locate, restart-wifi or reboot")
+	ofClient, ok := actionKinds[body.Kind]
+	if !ok {
+		return badRequest("an action is locate, restart-wifi, reboot or disconnect")
 	}
-	a, err := s.conds.AddAction(id, body.Kind, string(c.actor))
+	body.Target = strings.ToLower(body.Target)
+	if ofClient != macRE.MatchString(body.Target) {
+		return badRequest("disconnect is of a client, its MAC the target; the others take none")
+	}
+	a, err := s.conds.AddAction(id, body.Kind, body.Target, string(c.actor))
 	if err != nil {
 		return err
 	}
-	slog.Info("action asked", "ap", id, "kind", a.Kind, "by", c.actor, "id", a.ID)
+	slog.Info("action asked", "ap", id, "kind", a.Kind, "target", a.Target, "by", c.actor, "id", a.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"action": a})
 	return nil
 }
@@ -74,7 +83,11 @@ func (s *Server) apActions(w http.ResponseWriter, _ *http.Request, c apCall) err
 	}
 	out := []map[string]any{}
 	for _, a := range list {
-		out = append(out, map[string]any{"id": a.ID, "kind": a.Kind})
+		x := map[string]any{"id": a.ID, "kind": a.Kind}
+		if a.Target != "" {
+			x["target"] = a.Target
+		}
+		out = append(out, x)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"actions": out})
 	return nil

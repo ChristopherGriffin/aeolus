@@ -254,6 +254,9 @@ button.switch:disabled { opacity: 0.5; cursor: default; }
 .segmented button.on { background: var(--accent-bg); color: var(--ink); font-weight: 600; }
 .segmented button:disabled:not(.on) { opacity: 0.45; cursor: default; }
 .button.small { padding: 4px 10px; font-size: 13px; }
+/* A row's own buttons, such as a client's Reconnect and Block. */
+.rowbuttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.rowbuttons:empty { display: none; }
 .edit.flush { padding: 0; }
 .preview ul.becomes { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .button.primary { background: var(--accent); border-color: var(--accent); color: #FFFFFF; font-weight: 600; }
