@@ -284,6 +284,39 @@ function wake_prober() {
 		bus.call('service', 'signal', { name: 'aeolus', instance: i, signal: 1 });
 }
 
+// heal_tunnels restarts the network where a reload left a VXLAN tunnel up
+// as netifd has it but gone from the kernel (C-360, 2026-10-10). Rebuilding
+// a bridge, as taking its uplink's bond apart did (0096), makes its VLAN
+// devices again, and the kernel deletes the tunnels on the old ones with
+// them; netifd keeps its own record of each, so neither the reload nor an
+// ifup makes them again, and a network on such a tunnel has no transport.
+// A restart makes everything again, in order. A tunnel netifd is still
+// setting up is given 15 seconds first. It says whether it restarted.
+function heal_tunnels() {
+	let tunnels = [];
+	cursor().foreach('network', 'interface', s => {
+		if (s.proto == 'vxlan' && s.disabled != '1')
+			push(tunnels, s['.name']);
+	});
+	let gone = () => filter(tunnels, name => {
+		let st = bus.call('network.interface.' + name, 'status');
+		return st?.up && st.l3_device && match(st.l3_device, /^[A-Za-z0-9._-]+$/) && !fs.stat(`/sys/class/net/${st.l3_device}`);
+	});
+	let missing = [];
+	for (let i = 0; i < 6 && length(tunnels); i++) {
+		sleep(i ? 3000 : 1000);
+		missing = gone();
+		if (!length(missing))
+			return false;
+	}
+	if (!length(missing))
+		return false;
+	note('the reload left tunnel %s up in netifd but gone from the kernel; restarting the network to make it again', join(', ', missing));
+	system('/etc/init.d/network restart >/dev/null 2>&1');
+	wake_prober();
+	return true;
+}
+
 // hold_gi sets the 802.11ax guard interval of each network that is up, in
 // the background (0089). An interface hostapd makes anew gets it from the
 // net hotplug, once its network is up.
@@ -432,6 +465,8 @@ function revert(pending) {
 	if (write_clamp(cursor().get_all('network'), cursor().get_all('aeolus')))
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
 	wake_prober();
+	if (index(pending.packages ?? [], 'network') >= 0)
+		heal_tunnels();
 	hold_gi();
 	fs.unlink(PENDING);
 	fail('reverted to the config before version %s', pending.version);
@@ -529,6 +564,8 @@ function apply(out, version, hash) {
 	if (clamped && index(out.changed, 'firewall') < 0)
 		system('/etc/init.d/firewall reload >/dev/null 2>&1');
 	wake_prober();
+	if (index(out.changed, 'network') >= 0)
+		heal_tunnels();
 	hold_gi();
 	if (!confirm()) {
 		revert(pending);

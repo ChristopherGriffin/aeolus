@@ -55,3 +55,12 @@
 - **The switch must be ready first.** A port-channel that waits for LACP keeps both ports down. The AP then cannot reach the manager, and puts the bond back after 90 seconds, its apply's revert (0008). On Arista, `port-channel lacp fallback individual`, with `port-channel lacp fallback timeout` well under 90, lets each port come up on its own, on its own interface's switchport settings. Those must then carry the same VLANs as the port-channel.
 - **Two ports apart carry no more than one.** Spanning tree blocks the second cable to one switch, which is the point: it is a standby, not more bandwidth. LACP stays the way to use both.
 - **Taking the bond apart, or putting it back, changes the AP's uplink,** which Aeolus otherwise never touches. It is set only by a person, and the revert covers a mistake.
+
+## Found in the first live test (2026-10-10)
+
+The C-360 took its bond apart cleanly: ustp installed in 3 seconds, and the change applied in 18. Spanning tree forwarded on eth1, which is on Ethernet13 since the cables are crossed, and blocked eth0. The switch's LLDP showed both ports out of Port-Channel2.
+
+But rebuilding br-lan made br-lan.20 again, and the kernel deleted VXLAN aeolus_50 with the old one, since its tunlink is the management VLAN. netifd kept its own record of the tunnel, so neither the reload nor an ifup made it again. The network with that tunnel as its primary was left with no transport. Automatic mode did not fail over to its VLAN fallback either, since a primary whose device is gone reads "off", not "down".
+
+- **After every network apply or revert,** the agent looks for a VXLAN tunnel netifd has up but the kernel has not. It gives netifd 15 seconds, then restarts the network, which makes everything again in order. Restarting the network is what put the C-360 right.
+- **The prober takes a primary off for three of its intervals as down,** so a network fails over to its fallback rather than wait on a tunnel that will not come back by itself.
