@@ -44,6 +44,22 @@ func TestUsage(t *testing.T) {
 	if a := aps[0].(map[string]any); a["ap"] != ap || a["peak"] != 2.0 || a["down"] != 9200.0 {
 		t.Fatalf("aps = %v", aps)
 	}
+	// It reported in the last bucket, and in no other; office-ap never did.
+	heard := func(a any) (n int, last bool) {
+		h := a.(map[string]any)["heard"].([]any)
+		for _, x := range h {
+			if x == true {
+				n++
+			}
+		}
+		return n, h[len(h)-1] == true
+	}
+	if n, last := heard(aps[0]); n != 1 || !last {
+		t.Fatalf("heard = %v", aps[0])
+	}
+	if n, _ := heard(aps[1]); n != 0 {
+		t.Fatalf("office-ap heard = %v", aps[1])
+	}
 	// The client that moved it all is the top one (0110), by its host name;
 	// the one that moved nothing is not there.
 	top := body["clients"].([]any)

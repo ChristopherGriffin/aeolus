@@ -21,13 +21,15 @@
 - **`GET /v1/usage?under=&hours=` gives the APs the caller may view, over the last 24 hours unless set (at most 720).** It comes in at most 48 buckets of whole minutes, rounded up and at least five, the last ending after now.
   - Each bucket has the most clients each AP had at once, summed over the APs, and the bytes they moved.
   - With it come the totals, the most clients at once, and each AP's most clients and traffic, the busiest first.
+  - Each AP also says, for each bucket, whether it reported in it (`heard`): its connectivity over the span. `recorded_from` is when the oldest row kept was recorded; before it, a bucket says nothing.
   - The MCP adapter offers `get_usage`.
 - **A Usage panel on a folder's Overview, and on an AP's,** draws the day:
   - traffic in bars, down and up stacked;
   - the most clients at once as a line;
   - each bar's numbers on hover;
   - the totals;
-  - on a folder, its busiest APs by traffic.
+  - on a folder, its busiest APs by traffic;
+  - for each AP, its connectivity as a strip, a cell a bucket: green where it reported, red where it did not, pale for the bucket not over yet and for those before the manager kept usage.
 
 ## Consequences
 
