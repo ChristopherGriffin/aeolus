@@ -9,7 +9,7 @@
 import { h, link } from '../dom.js';
 import { post } from '../api.js';
 import { flash } from '../refresh.js';
-import { bandName, ago } from '../format.js';
+import { bandName, ago, size } from '../format.js';
 import { configs } from './sections.js';
 import { ask, confirm } from './confirm.js';
 import { journeyPanel } from './journey.js';
@@ -223,9 +223,3 @@ function duration(s) {
 	return `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h`;
 }
 
-// size writes bytes the short way: 812 B, 1.9 MB, 83.7 GB.
-function size(n) {
-	for (const [d, unit] of [[1e12, 'TB'], [1e9, 'GB'], [1e6, 'MB'], [1e3, 'kB']])
-		if (n >= d) return `${(n / d).toFixed(1)} ${unit}`;
-	return `${n} B`;
-}

@@ -23,7 +23,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 const schema = `
 CREATE TABLE aps (
@@ -116,6 +116,8 @@ CREATE INDEX knocks_last ON knocks (last_at);`,
 	5: actionsOpen,
 	// 0107: an action's target, the client a disconnect is of.
 	6: actionsTarget,
+	// 0108: each AP's clients and traffic, a row a report.
+	7: usageTable,
 }
 
 // Results of a render check (0039).
@@ -321,9 +323,14 @@ func (s *Store) StatesWith(since time.Time, text string, fn func(ap hierarchy.No
 	return rows.Err()
 }
 
-// TrimStates deletes state reports older than keep, and returns how many.
+// TrimStates deletes state reports older than keep, and what was worked out
+// from them (0108), and returns how many reports.
 func (s *Store) TrimStates(keep time.Duration) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM states WHERE at < ?`, stamp(s.now().Add(-keep)))
+	cut := stamp(s.now().Add(-keep))
+	if _, err := s.db.Exec(`DELETE FROM usage WHERE at < ?`, cut); err != nil {
+		return 0, err
+	}
+	res, err := s.db.Exec(`DELETE FROM states WHERE at < ?`, cut)
 	if err != nil {
 		return 0, err
 	}
