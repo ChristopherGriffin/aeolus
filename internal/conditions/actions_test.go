@@ -32,11 +32,9 @@ func TestActions(t *testing.T) {
 	if c, _ := s.ClaimActions("ap-1"); len(c) != 0 {
 		t.Fatalf("claimed again = %+v", c)
 	}
-	// While it runs, another locate is a new one.
-	if b, _ := s.AddAction("ap-1", "locate", "griff"); b.ID == a.ID || b.State != "pending" {
+	// While it runs, asking again gives the one running, not another.
+	if b, _ := s.AddAction("ap-1", "locate", "griff"); b.ID != a.ID || b.State != "running" {
 		t.Fatalf("a locate while one runs = %+v", b)
-	} else if _, err := s.FinishAction("ap-1", b.ID, true, ""); err != nil {
-		t.Fatal(err)
 	}
 	// Another AP cannot finish it.
 	if _, err := s.FinishAction("ap-2", a.ID, true, ""); err != ErrNoAction {
@@ -52,7 +50,7 @@ func TestActions(t *testing.T) {
 	if p, _ := s.PendingActions("ap-1"); len(p) != 0 {
 		t.Fatalf("pending after the wait = %+v", p)
 	}
-	if list, _ := s.Actions("ap-1", 10); len(list) != 3 || list[0].ID != r.ID || list[0].State != "expired" {
+	if list, _ := s.Actions("ap-1", 10); len(list) != 2 || list[0].ID != r.ID || list[0].State != "expired" {
 		t.Fatalf("actions = %+v", list)
 	}
 }

@@ -23,7 +23,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 const schema = `
 CREATE TABLE aps (
@@ -111,6 +111,9 @@ CREATE INDEX knocks_last ON knocks (last_at);`,
 	3: actionsTable,
 	// 0104: one pending action of a kind for an AP, by the database's rule.
 	4: actionsOnce,
+	// 0104: one open, pending or running, so a read-back that raced the
+	// AP taking it up finds it.
+	5: actionsOpen,
 }
 
 // Results of a render check (0039).

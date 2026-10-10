@@ -19,7 +19,7 @@
 - **An action is `locate`, `restart-wifi` or `reboot`,** asked of one AP by someone with operator on it, as changing it needs (0030). The manager keeps each in its conditions database: who asked, when, and what came of it.
   - It is pending until the AP says it did it or could not.
   - One the AP has not taken up within 10 minutes expires, so an AP that comes back later does not reboot because someone asked an hour ago.
-  - A second ask of the same kind while one waits is the same action.
+  - A second ask of the same kind while one waits, or while the AP does it, is the same action: a reboot pressed twice reboots the AP once. The database holds that rule, one open action of a kind for an AP, so two asks at once cannot make two.
 - **The AP hears of it on its next poll.** Every config poll's answer, a 304 included, says in `Aeolus-Actions` how many wait. The AP then fetches them (`GET /v1/ap/actions`), does each, and says what came of it (`POST /v1/ap/actions/{id}`).
   - **locate:** blinks every LED for a minute, then puts each back as it was, and has OpenWrt set its own LEDs again. It was run on PumphouseAP: all 11 LEDs blinked, and every trigger came back.
   - **restart-wifi:** runs OpenWrt's `wifi`.

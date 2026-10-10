@@ -52,9 +52,19 @@ const actionsOnce = `
 UPDATE actions SET state = 'expired' WHERE state = 'pending' AND id NOT IN (SELECT MIN(id) FROM actions WHERE state = 'pending' GROUP BY ap, kind);
 CREATE UNIQUE INDEX actions_pending ON actions (ap, kind) WHERE state = 'pending';`
 
+// actionsOpen widens it to one open, pending or running, so asking for
+// what the AP is doing already gives that action, not another: a reboot
+// pressed twice, or a read-back that raced the AP taking it up, never
+// reboots it twice. Two open already, a pending asked while one ran, keep
+// the first, the one the AP is doing.
+const actionsOpen = `
+DROP INDEX actions_pending;
+UPDATE actions SET state = 'expired' WHERE state IN ('pending', 'running') AND id NOT IN (SELECT MIN(id) FROM actions WHERE state IN ('pending', 'running') GROUP BY ap, kind);
+CREATE UNIQUE INDEX actions_open ON actions (ap, kind) WHERE state IN ('pending', 'running');`
+
 // AddAction records an action for an AP, pending. One of the same kind
-// already pending is returned instead, so a second click does not reboot an
-// AP twice.
+// already open, pending or running, is returned instead, so a second click
+// does not reboot an AP twice.
 func (s *Store) AddAction(ap hierarchy.NodeID, kind, actor string) (Action, error) {
 	s.expire(ap)
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO actions (ap, kind, actor, at, state) VALUES (?, ?, ?, ?, 'pending')`,
@@ -62,7 +72,7 @@ func (s *Store) AddAction(ap hierarchy.NodeID, kind, actor string) (Action, erro
 		return Action{}, err
 	}
 	var id int64
-	if err := s.db.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND state = 'pending'`, string(ap), kind).Scan(&id); err != nil {
+	if err := s.db.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND state IN ('pending', 'running')`, string(ap), kind).Scan(&id); err != nil {
 		return Action{}, err
 	}
 	return s.action(id)
