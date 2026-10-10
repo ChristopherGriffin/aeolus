@@ -309,6 +309,16 @@ function radios(w, intent, facts) {
 			delete s.txpower;
 		else if (set.power != null)
 			s.txpower = '' + set.power;
+		// The weakest a client may be heard at and still join (0097): one
+		// further off is refused, and keeps to a nearer AP rather than hold
+		// this radio at its slowest rates. off takes it away.
+		if (set.min_signal == 'off')
+			delete s.rssi_reject_assoc_rssi;
+		else if (set.min_signal != null)
+			s.rssi_reject_assoc_rssi = '' + set.min_signal;
+		// Time between beacons, in TU of 1.024 ms (0097).
+		if (set.beacon_interval != null)
+			s.beacon_int = '' + set.beacon_interval;
 		// With DFS avoided, an automatic channel is picked outside the
 		// channels shared with radar (0071). A set channel needs nothing:
 		// the config check refuses one that is DFS.
@@ -373,6 +383,12 @@ function iface_options(net, radio, band, network, btm) {
 		o.hidden = '1';
 	if (net.isolation)
 		o.isolate = '1';
+	// The most clients on each of the network's Wi-Fi interfaces, one a
+	// band, and the beacons between DTIMs (0097). Unset, OpenWrt's own.
+	if (net.max_clients != null)
+		o.maxassoc = '' + net.max_clients;
+	if (net.dtim != null)
+		o.dtim_period = '' + net.dtim;
 	if (net.roaming?.ft) {
 		o.ieee80211r = '1';
 		o.ft_over_ds = '0';

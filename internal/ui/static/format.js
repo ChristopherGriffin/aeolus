@@ -27,7 +27,7 @@ const SNMP = {
 	'location': 'Location (sysLocation)', 'contact': 'Contact (sysContact)',
 };
 
-const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power' };
+const RADIO = { enabled: 'Radio on', channel: 'Channel', width: 'Width', power: 'Power', min_signal: 'Minimum signal to join', beacon_interval: 'Beacon interval' };
 
 const UPLINK = { stp: 'Spanning tree', bond: 'Uplink bond' };
 const PORT = { enabled: 'Port on', speed: 'Speed', uplink: 'Uplink', mode: 'Mode', untagged: 'Untagged VLAN', tagged: 'Tagged VLANs', bond: 'LACP bond' };
@@ -36,7 +36,7 @@ const MODE = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' 
 
 const NETWORK = {
 	'ssid': 'SSID', 'security': 'Security', 'passphrase': 'Passphrase', 'hidden': 'Hidden',
-	'bands': 'Bands', 'isolation': 'Client isolation', 'enabled': 'Broadcast',
+	'bands': 'Bands', 'isolation': 'Client isolation', 'enabled': 'Broadcast', 'max_clients': 'Most clients a band', 'dtim': 'DTIM period',
 	'multicast_to_unicast': 'Multicast to unicast', 'band_steering': 'Band steering',
 	'roaming.ft': 'Fast roaming (11r)', 'roaming.rrm': 'Neighbor reports (11k)', 'roaming.btm': 'Steering (11v)',
 	'rate_limit.down_kbps': 'Download limit', 'rate_limit.up_kbps': 'Upload limit',
@@ -93,6 +93,9 @@ export function value(path, v, names) {
 	if (last === 'width' && typeof v === 'number') return v + ' MHz';
 	if (last === 'channel' && v === 'auto') return 'automatic'; // within the band's channel set (0075)
 	if (last === 'power' && typeof v === 'number') return v + ' dBm';
+	if (last === 'min_signal') return v === 'off' ? 'off' : v + ' dBm';
+	if (last === 'beacon_interval') return v + ' TU';
+	if (last === 'dtim') return `every ${v} beacon${v === 1 ? '' : 's'}`;
 	if (last === 'dfs') return v === 'avoid' ? 'avoided' : 'allowed';
 	if (path === 'system.agent') return v === 'current' ? "current: the manager's own" : String(v);
 	if (path === 'rrm.window') return `${String(v).replace('-', '–')}, the AP's local time`;

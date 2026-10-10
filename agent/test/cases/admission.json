@@ -1,0 +1,83 @@
+{
+	"about": "PumphouseAP with admission and beacon settings (0097). On 5 GHz, a client heard below -75 dBm is refused, and beacons go every 200 TU. On 2.4 GHz, min_signal off takes away the -80 the radio had. The lab network takes 50 clients at most on each of its Wi-Fi interfaces, with a DTIM every 3 beacons.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				]
+			}
+		}
+	},
+	"extra": {
+		"wireless": {
+			"radio1": {
+				".anonymous": false,
+				".type": "wifi-device",
+				".name": "radio1",
+				".index": 1,
+				"type": "mac80211",
+				"path": "soc/1b700000.pcie/pci0001:00/0001:00:00.0/0001:01:00.0",
+				"band": "2g",
+				"channel": "6",
+				"htmode": "HT20",
+				"disabled": "0",
+				"ucentral_path": "/radios/0",
+				"txantenna": "15",
+				"rxantenna": "15",
+				"noscan": "1",
+				"country": "US",
+				"legacy_rates": "0",
+				"maxassoc_ignore_probe": "0",
+				"reconf": "1",
+				"acs_exclude_dfs": "0",
+				"rssi_reject_assoc_rssi": "-80"
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"radio": {
+			"5g": {
+				"min_signal": -75,
+				"beacon_interval": 200
+			},
+			"2g": {
+				"min_signal": "off"
+			}
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"max_clients": 50,
+				"dtim": 3,
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": []
+}

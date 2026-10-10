@@ -27,6 +27,9 @@ const BANDS = ['2g', '5g', '6g'];
 const GENERATIONS = { '2g': ['b', 'g', 'n', 'ax', 'be'], '5g': ['a', 'n', 'ac', 'ax', 'be'], '6g': ['ax', 'be'] };
 const FAMILY_WIDTH = { b: 20, g: 20, a: 20, n: 40, ac: 160, ax: 160, be: 320 };
 const HE_GI = [800, 1600, 3200];
+// The minimum signals offered, in dBm, and beacon intervals, in TU (0097).
+const MIN_SIGNALS = [-65, -70, -75, -80, -85, -90];
+const BEACONS = [50, 100, 150, 200, 300, 500];
 
 // run is a band's generations from the oldest to the newest of a list.
 function run(band, list) {
@@ -194,6 +197,8 @@ function bandPanel(at, band, b) {
 		modes: f('modes')?.value,
 		short_gi: f('short_gi')?.value,
 		he_gi: f('he_gi')?.value,
+		min_signal: f('min_signal')?.value,
+		beacon_interval: f('beacon_interval')?.value,
 	};
 	let d = { ...saved, channels: new Set(saved.channels) };
 	const width = () => d.width ?? apsWidth;
@@ -332,6 +337,19 @@ function bandPanel(at, band, b) {
 	const setHE = () => { heSel.value = d.he_gi === undefined ? '' : String(d.he_gi); };
 	setHE();
 	heSel.addEventListener('change', () => { d.he_gi = heSel.value === '' ? undefined : heSel.value === 'auto' ? 'auto' : Number(heSel.value); draw(); });
+	// Who may join, by signal, and how often the radio beacons (0097).
+	const withOwn = (list, v) => (typeof v === 'number' && !list.includes(v) ? [...list, v].sort((x, y) => x - y) : list);
+	const minSel = h('select', { 'aria-label': `${bandName(band)} minimum signal`, disabled: !editable('min_signal') },
+		saved.min_signal === undefined && h('option', { value: '' }, unset),
+		h('option', { value: 'off' }, 'Off: any client may join'),
+		withOwn(MIN_SIGNALS, saved.min_signal).sort((x, y) => y - x).map((v) => h('option', { value: String(v) }, `${v} dBm`)));
+	const setMin = () => { minSel.value = d.min_signal === undefined ? '' : String(d.min_signal); };
+	minSel.addEventListener('change', () => { d.min_signal = minSel.value === '' ? undefined : minSel.value === 'off' ? 'off' : Number(minSel.value); draw(); });
+	const beaconSel = h('select', { 'aria-label': `${bandName(band)} beacon interval`, disabled: !editable('beacon_interval') },
+		saved.beacon_interval === undefined && h('option', { value: '' }, unset),
+		withOwn(BEACONS, saved.beacon_interval).map((v) => h('option', { value: String(v) }, `${v} TU${v === 100 ? ' (default)' : ''}`)));
+	const setBeacon = () => { beaconSel.value = d.beacon_interval === undefined ? '' : String(d.beacon_interval); };
+	beaconSel.addEventListener('change', () => { d.beacon_interval = beaconSel.value === '' ? undefined : Number(beaconSel.value); draw(); });
 	const sgiPart = sgiSel && h('span', { class: 'gi' }, h('span', { class: 'sub' }, `${htKind} `), sgiSel);
 	const hePart = h('span', { class: 'gi' }, h('span', { class: 'sub' }, '802.11ax '), heSel);
 
@@ -355,6 +373,8 @@ function bandPanel(at, band, b) {
 		if (d.modes !== undefined && (d.modes || []).join() !== (saved.modes || []).join()) out[p('modes')] = d.modes;
 		if (d.short_gi !== saved.short_gi && d.short_gi !== undefined) out[p('short_gi')] = d.short_gi;
 		if (d.he_gi !== saved.he_gi && d.he_gi !== undefined) out[p('he_gi')] = d.he_gi;
+		if (d.min_signal !== saved.min_signal && d.min_signal !== undefined) out[p('min_signal')] = d.min_signal;
+		if (d.beacon_interval !== saved.beacon_interval && d.beacon_interval !== undefined) out[p('beacon_interval')] = d.beacon_interval;
 		return out;
 	};
 
@@ -444,6 +464,8 @@ function bandPanel(at, band, b) {
 		hePart.hidden = !now.includes('ax') && !now.includes('be');
 		setHE();
 		if (sgiSel) setSGI();
+		setMin();
+		setBeacon();
 		const dirty = Object.keys(changes()).length > 0;
 		save.disabled = !dirty || bad || cannot;
 		undo.disabled = !dirty;
@@ -470,8 +492,9 @@ function bandPanel(at, band, b) {
 			const show = (k, v) => (k === 'channels' ? v.join(', ') : k === 'width' ? `${v} MHz` : k === 'power' ? (v === 'auto' ? 'automatic' : `${v} dBm`)
 			: k === 'channel' ? (v === 'auto' ? 'automatic' : String(v)) : k === 'modes' ? v.map((m) => `802.11${m}`).join(', ')
 				: k === 'short_gi' ? (v ? 'short, 400 ns' : 'long, 800 ns') : k === 'he_gi' ? (v === 'auto' ? 'automatic' : `${v / 1000} µs`)
+					: k === 'min_signal' ? (v === 'off' ? 'off: any client may join' : `${v} dBm`) : k === 'beacon_interval' ? `${v} TU`
 					: typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v));
-		const names = { enabled: 'Radio on', width: 'Width', channel: 'Channel', channels: 'Channels it may be', dfs: 'DFS channels', psc: 'Preferred scanning channels only', non_overlapping: 'One channel a block', power: 'Power', modes: 'Protocols', short_gi: `Guard interval, ${htKind}`, he_gi: 'Guard interval, 802.11ax' };
+		const names = { enabled: 'Radio on', width: 'Width', channel: 'Channel', channels: 'Channels it may be', dfs: 'DFS channels', psc: 'Preferred scanning channels only', non_overlapping: 'One channel a block', power: 'Power', modes: 'Protocols', short_gi: `Guard interval, ${htKind}`, he_gi: 'Guard interval, 802.11ax', min_signal: 'Minimum signal to join', beacon_interval: 'Beacon interval' };
 		const radarNow = paths.some((x) => x.endsWith('.dfs')) && values[`radio.${band}.dfs`] === 'allow';
 		confirm(ctx, box, op, p, [
 			h('div', null, h('strong', null, `${bandName(band)} on ${nodeName}`)),
@@ -489,7 +512,7 @@ function bandPanel(at, band, b) {
 		]);
 	});
 
-	const own = ['enabled', 'width', 'channel', 'channels', 'dfs', 'psc', 'non_overlapping', 'power', 'modes', 'short_gi', 'he_gi']
+	const own = ['enabled', 'width', 'channel', 'channels', 'dfs', 'psc', 'non_overlapping', 'power', 'modes', 'short_gi', 'he_gi', 'min_signal', 'beacon_interval']
 		.filter((k) => f(k)?.from === node && f(k)?.origin === 'self').map((k) => `radio.${band}.${k}`);
 	const label = (text, k) => h('div', { class: 'label' }, text, whence(k) && h('span', { class: 'whence' }, whence(k)));
 
@@ -507,6 +530,9 @@ function bandPanel(at, band, b) {
 		h('div', { class: 'row' }, label('Protocols', 'modes'), h('div', { class: 'value' }, modeBoxes, modesNote)),
 		h('div', { class: 'row' }, label('Guard interval', band === '6g' ? 'he_gi' : 'short_gi'),
 			h('div', { class: 'value gis' }, sgiPart, hePart)),
+		h('div', { class: 'row' }, label('Minimum signal', 'min_signal'),
+			h('div', { class: 'value' }, minSel, h('span', { class: 'sub' }, ' a client heard weaker is refused, and joins a nearer AP'))),
+		h('div', { class: 'row' }, label('Beacon interval', 'beacon_interval'), h('div', { class: 'value' }, beaconSel)),
 		canEdit && h('div', { class: 'row actions' },
 			own.length > 0 && followButton(ctx, 'locations', node, nodeName, parentName, own, box,
 				`Follow ${parentName ?? 'above'} (${own.length} set here)`),
