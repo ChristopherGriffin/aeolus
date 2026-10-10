@@ -21,7 +21,7 @@ import { cursor } from 'uci';
 import { connect } from 'ubus';
 import { render, clamp, PACKAGES, CLAMP, VLAN_END, iface_name, without_keys } from 'aeolus.render';
 import { text, file } from 'aeolus.uciexport';
-import * as uplink from 'aeolus.uplink';
+import * as uplinks from 'aeolus.uplink';   // not uplink: a local of that name would hide it
 
 const AGENT = 'aeolus-agent/1';
 const DIR = '/etc/aeolus';
@@ -761,8 +761,8 @@ function ports_state() {
 	members = [...members, ...sort(tunnel_ports)];
 	let devs = bus.call('network.device', 'status') ?? {};
 	let stp = br && match(br, /^[A-Za-z0-9._-]+$/) && (read(`/sys/class/net/${br}/bridge/stp_state`) ?? '0') != '0';
-	let ups = uplink.ports(cursor());
-	let path = length(ups) > 1 ? uplink.path_out(ups) : null;
+	let ups = uplinks.ports(cursor());
+	let path = length(ups) > 1 ? uplinks.path_out(ups) : null;
 	let on = {};
 	for (let port, n in probes()?.uplink?.ports ?? {})
 		if (type(n) == 'object')
@@ -929,7 +929,7 @@ function uplink_state() {
 // Where the uplink is two ports, its bond taken apart, it is the one that is
 // the path out (0096).
 function uplink_port() {
-	let up = uplink.path_out(uplink.ports(cursor()));
+	let up = uplinks.path_out(uplinks.ports(cursor()));
 	if (!up || read(`/sys/class/net/${up}/address`) == null)
 		return null;
 	let num = (k) => int(read(`/sys/class/net/${up}/${k}`) ?? '0');

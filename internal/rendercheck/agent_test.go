@@ -444,3 +444,36 @@ func TestUnbondCheckCatchesALostVLAN(t *testing.T) {
 	}
 	t.Fatal("no unbond case")
 }
+
+// A module imported whole (import * as name) is hidden, in a function, by a
+// local of the same name: a call through it compiles, and fails only when it
+// runs, with "left-hand side expression is not an array or object" (v0.57.0's
+// agent, on every state report, where ports_state had a local uplink).
+func TestAgentHidesNoModule(t *testing.T) {
+	imp := regexp.MustCompile(`^import \* as ([A-Za-z_][A-Za-z0-9_]*) from`)
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/libexec/aeolus-gi"}
+	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
+	for _, m := range mods {
+		rel, _ := filepath.Rel(agentDir, m)
+		files = append(files, filepath.ToSlash(rel))
+	}
+	for _, f := range files {
+		raw, err := os.ReadFile(filepath.Join(agentDir, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(string(raw), "\n")
+		for _, l := range lines {
+			m := imp.FindStringSubmatch(l)
+			if m == nil {
+				continue
+			}
+			local := regexp.MustCompile(`(?:\blet|\bconst|\bfor\s*\(\s*let)\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*,\s*)?` + m[1] + `\b|function\s*[A-Za-z0-9_]*\s*\([^)]*\b` + m[1] + `\b[^)]*\)|\(\s*` + m[1] + `\s*\)\s*=>|\b` + m[1] + `\s*=>`)
+			for i, l := range lines {
+				if code, _, _ := strings.Cut(l, "//"); local.MatchString(code) {
+					t.Errorf("%s:%d: a local %s hides the module imported as %s", f, i+1, m[1], m[1])
+				}
+			}
+		}
+	}
+}
