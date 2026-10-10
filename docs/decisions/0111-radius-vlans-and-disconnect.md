@@ -27,7 +27,10 @@
   - The wifi-vlan is named `r<vlan>`, so hostapd makes `<bss>-r<vlan>`. The prober reads a client's VLAN from that interface, as it does from `<bss>-k<vlan>`, and the Clients tab says the RADIUS server put it there.
   - A VLAN the server names that the network does not offer is refused.
   - `radius.vlan_required` refuses a client the server names no VLAN for (`dynamic_vlan=2`). Unset, such a client is on the network's own transport (`dynamic_vlan=1`).
-  - A radio whose driver has no AP/VLAN interfaces is refused, as for keys (0082).
+  - A radio whose driver has no AP/VLAN interfaces is refused, as for keys (0082): compose holds the config for that AP, by what it reported of its radios.
+    - This rule was missing at first. On 2026-10-10 the C-360, whose ath11k radios make no AP/VLAN interfaces, was sent `radius.vlans` and applied it. hostapd failed its 2.4 and 5 GHz networks, for about 18 minutes.
+    - The agent's check of the Wi-Fi after the apply did not run, because netifd's `network.wireless` object was gone at that moment, so nothing reverted.
+    - Since then the agent also applies nothing its own renderer refuses, and tells the manager why.
 - **A WPA Enterprise network may let one server disconnect its clients: `radius.das`.**
   - `client` is the address the Disconnect-Requests come from. `secret` is that server's; unset, it is the sign-in one. `port` is where the AP listens, 3799 unless set.
   - The secret is sealed, as the others are (0027), and blanked in the UCI the AP sends back (0041).

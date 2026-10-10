@@ -437,6 +437,51 @@ func TestKeyVLANsNeedAPVLANInterfaces(t *testing.T) {
 	}
 }
 
+// The RADIUS server's VLANs (0111, 0112) are AP/VLAN interfaces too: on a
+// radio whose driver makes none, the config is refused, as for keys (0082).
+// Unrefused, it took the C-360's 2.4 and 5 GHz networks down (2026-10-10).
+func TestRADIUSVLANsNeedAPVLANInterfaces(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	s.Facts["gate-ap"] = json.RawMessage(`{"radios":[
+		{"radio":"radio0","band":"5g","htmodes":["HE80"],"ap_vlan":false},
+		{"radio":"radio1","band":"2g","htmodes":["HE20"],"ap_vlan":false}],"eap":true}`)
+	want := "network.sweet.radius.vlans: radio0, radio1 cannot put clients in VLANs of their own (the driver has no AP/VLAN interfaces); offer the network on other bands, or take them out of radius.vlans"
+	// On WPA Enterprise.
+	set("network.sweet.security", "wpa2-enterprise")
+	set("network.sweet.radius.auth_server", "192.168.20.106")
+	set("network.sweet.radius.auth_secret", "radius-secret")
+	set("network.sweet.radius.vlans", []int{30})
+	if got := problems(); !strings.Contains(got, want) {
+		t.Fatalf("enterprise: %s", got)
+	}
+	// With MAC authentication on a passphrase network.
+	set("network.sweet.security", "wpa2-psk")
+	set("network.sweet.passphrase", "a passphrase for sweet")
+	set("network.sweet.radius.mac_auth", true)
+	if got := problems(); !strings.Contains(got, want) {
+		t.Fatalf("mac auth: %s", got)
+	}
+	// Radios that can, are no problem.
+	s.Facts["gate-ap"] = json.RawMessage(`{"radios":[
+		{"radio":"radio0","band":"5g","htmodes":["HE80"],"ap_vlan":true},
+		{"radio":"radio1","band":"2g","htmodes":["HE20"],"ap_vlan":true}],"eap":true}`)
+	if got := problems(); strings.Contains(got, "AP/VLAN") {
+		t.Fatalf("radios that can: %s", got)
+	}
+}
+
 func TestSNMPNeedsAWayIn(t *testing.T) {
 	s, sch := site(t)
 	set := func(path string, v any) {
