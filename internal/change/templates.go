@@ -273,6 +273,18 @@ func checkTemplates(s *State) error {
 	return errs[0]
 }
 
+// Model is the model an AP said it is when it enrolled (0033), such as
+// "Arista C-360", or "".
+func (s *State) Model(ap hierarchy.NodeID) string {
+	var f struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(s.Facts[ap], &f) != nil {
+		return ""
+	}
+	return f.Model
+}
+
 // Board is the board an AP said it is when it enrolled (0033), or "".
 func (s *State) Board(ap hierarchy.NodeID) string {
 	var f struct {
@@ -315,11 +327,12 @@ func (s *State) ResolveAP(ap hierarchy.NodeID) (hierarchy.APConfig, error) {
 			delete(cfg.Location, p)
 		}
 	}
+	chain := s.Org.Locations.Chain(ap)
 	tm, at, ok := s.TemplateFor(ap)
 	if !ok {
+		foldBoards(&cfg, s.Board(ap), chain)
 		return cfg, nil
 	}
-	chain := s.Org.Locations.Chain(ap)
 	pos := slices.Index(chain, at)
 	use := &hierarchy.TemplateUse{ID: tm.ID, Name: tm.Name, At: at, Replaced: []hierarchy.Override{}}
 	paths := make([]hierarchy.Path, 0, len(tm.Values))
@@ -337,6 +350,10 @@ func (s *State) ResolveAP(ap hierarchy.NodeID) (hierarchy.APConfig, error) {
 		cfg.Location[p] = hierarchy.Resolved{Value: tm.Values[p], From: at, Origin: hierarchy.OriginTemplate}
 	}
 	cfg.Template = use
+	// A kind of AP's own settings, set on the folders (0092), go after its
+	// template, which they replace where set on the node that picks it or
+	// below.
+	foldBoards(&cfg, s.Board(ap), chain)
 	return cfg, nil
 }
 

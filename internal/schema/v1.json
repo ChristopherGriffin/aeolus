@@ -77,6 +77,7 @@
       "additionalProperties": { "$ref": "#/$defs/network" }
     },
     "templates": { "x-aeolus-tree": "locations", "description": "AP templates, by board as OpenWrt names it (arista,c360): the template the board's APs below take (0085). Not sent to APs: the manager applies the template.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/templateId" } },
+    "boards": { "x-aeolus-tree": "locations", "description": "Settings for one kind of AP, by board as OpenWrt names it (arista,c360) (0092): its APs take them in place of the plain ones set on the same folder or above it, so one kind's ports don't reach another's of the same name. Not sent to APs as they are: the manager folds them into each AP's own. Ports only, for now.", "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9,_+-]{0,63}$" }, "additionalProperties": { "$ref": "#/$defs/boardSettings" } },
     "concentrators": {
       "x-aeolus-tree": "locations",
       "description": "Tunnels, by name: the far end a VXLAN transport reaches (0055). A network picks one by name.",
@@ -157,6 +158,14 @@
     "heGI": {
       "description": "The guard interval the AP sends 802.11ax with, in ns (0089): 800, 1600 or 3200, longer coping better with echoes; auto (the default) leaves it to the radio, which picks per frame. OpenWrt has no option for it: the agent sets it with iw on each network, and again whenever hostapd makes one anew.",
       "oneOf": [{ "const": "auto" }, { "enum": [800, 1600, 3200] }]
+    },
+    "boardSettings": {
+      "description": "One kind of AP's own settings (0092): ports, as the plain ones.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ports": { "type": "object", "propertyNames": { "pattern": "^[a-z][a-z0-9._-]{0,15}$" }, "additionalProperties": { "$ref": "#/$defs/port" } }
+      }
     },
     "radio2g": {
       "type": "object",

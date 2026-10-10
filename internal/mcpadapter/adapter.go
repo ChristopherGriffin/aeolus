@@ -102,7 +102,7 @@ type Op struct {
 	Node     string         `json:"node,omitempty" jsonschema:"the folder or AP the change targets; for add-folder and add-ap, the new node's ID"`
 	Parent   string         `json:"parent,omitempty" jsonschema:"parent folder, for add-folder, add-ap and move; for add-template, the Locations folder (or the Org) it is made at, offered there and below"`
 	Name     string         `json:"name,omitempty" jsonschema:"display name, for add-folder, add-ap, add-account, add-template and edit-template"`
-	Path     string         `json:"path,omitempty" jsonschema:"field path, e.g. radio.5g.width or network.sweet.transport.primary.vlan"`
+	Path     string         `json:"path,omitempty" jsonschema:"field path, e.g. radio.5g.width or network.sweet.transport.primary.vlan; a kind of AP's own port setting is boards.<board>.ports.<name>.<field>, such as boards.netgear,r7800.ports.lan2.mode (0092)"`
 	Value    any            `json:"value,omitempty" jsonschema:"the field's new value, for set; for set-concentrator the definition {name, address, port, mtu, scope}; for add-key and set-key the key {name, passphrase, vlan, macs, expires}, its passphrase in plain text, which the manager seals (set-key may leave it out to keep it)"`
 	Values   map[string]any `json:"values,omitempty" jsonschema:"several fields of one node to set together, for set, in place of path and value: {path: value}; all or none are set"`
 	Paths    []string       `json:"paths,omitempty" jsonschema:"several fields of one node to unset together, for unset, in place of path; all or none are unset"`

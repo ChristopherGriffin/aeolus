@@ -440,47 +440,32 @@ function tunnelState(report, t) {
 	return [h('span', { class: 'chip warn' }, 'down'), from];
 }
 
-// ethernet is Interfaces › Ethernet (Griff, 2026-10-09). The bar says where
-// the node's ports come from, as on Bands. Below it, one table, a row a
-// port: its link, as each AP here last reported it; its mode; what it
-// carries, and where that is set when not here; and Edit, which opens the
-// port's form under its row. The uplink carries the AP's management, so
-// Aeolus leaves it alone: its row comes first, with Info, all the AP knows
-// of it, in place of Edit. The last row adds a port no AP here has
-// reported yet. A node that sets no port itself shows them greyed out,
+// ethernet is Interfaces › Ethernet (Griff, 2026-10-09; 0092). The bar
+// says where the node's ports come from, as on Bands. Below it, a line for
+// each kind of AP here, by board: its name, how many there are, and its
+// ports; its arrow opens a card for each port: its link, as each AP of the
+// kind last reported it; its mode; what it carries, and where that is set
+// when not here; and Edit, whose form opens under the cards. On a folder,
+// a kind's ports are set as that kind's own (boards.<board>.ports...), so
+// one kind's settings never reach another's ports of the same name; on an
+// AP's page, as the AP's own. The uplink carries the AP's management, so
+// Aeolus leaves it alone: its card has Info, all the AP knows of it, in
+// place of Edit. A node that sets no port itself shows them greyed out,
 // without Edit, until Customize is pressed.
 async function ethernet(ctx, here, page, ap, edit) {
 	const [d, rows] = await Promise.all([schema(), ap ? [ap] : configs(page.hardware?.aps || [])]);
-	// Each port by name: what each AP here last reported of it.
-	const seen = new Map();
-	for (const r of rows)
-		for (const p of r.cfg?.condition?.state?.report?.ports || []) {
-			if (!seen.has(p.name)) seen.set(p.name, []);
-			seen.get(p.name).push({ ap: r.ap, cfg: r.cfg, p });
-		}
 	const fields = page.fields || {};
-	const named = Object.keys(fields).filter((p) => p.startsWith('ports.')).map((p) => p.split('.')[1]);
-	const uplink = (name) => (seen.get(name) || []).some((s) => s.p.uplink);
-	const names = [...new Set([...seen.keys(), ...named])]
-		.sort((a, b) => Number(uplink(b)) - Number(uplink(a)) || byPort(a, b));
+	const kinds = kindsOf(rows, fields, !ap);
 	const report = ap?.cfg?.condition?.state;
 	const box = h('div', { class: 'edit flush' });
-	const panel = h('section', { class: 'panel ports' });
+	const panel = h('div', { class: 'ports' });
 	const draw = (open) => {
-		const canEdit = !!edit && open;
 		panel.classList.toggle('inherited', !open);
-		const addBox = h('div', { class: 'edit flush' });
-		panel.replaceChildren(
-			names.length === 0 && h('div', { class: 'sub' }, 'No AP here has reported its ports yet, and no port is set here.'),
-			names.length > 0 && h('table', { class: 'list portlist' },
-				h('tr', null, ['Port', 'Link', 'Mode', 'Carries', ''].map((c) => h('th', null, c))),
-				names.map((name) => portRows(ctx, d, here, page.node.name, name, fields, seen.get(name) || [], rows, canEdit, edit, !ap))),
-			canEdit && h('div', { class: 'below' },
-				h('button', { type: 'button', class: 'button small', onclick: () => addPort(ctx, d, here, page.node.name, fields, addBox, edit) }, '+ Add a port'),
-				h('span', { class: 'sub' }, ' for a port no AP here has reported yet')),
-			addBox);
+		panel.replaceChildren(...(kinds.length
+			? kinds.map((k) => kindPanel(ctx, d, here, page, k, fields, !!edit && open, edit, !ap, kinds.length === 1))
+			: [h('div', { class: 'banner info' }, 'No AP here has reported its ports yet, and no port is set here.')]));
 	};
-	const bar = inheritsBar(ctx, here, page, { prefix: 'ports.', tab: 'interfaces/ethernet', box, onToggle: (open) => {
+	const bar = inheritsBar(ctx, here, page, { prefix: 'ports.', also: 'boards.', tab: 'interfaces/ethernet', box, onToggle: (open) => {
 		// Customizing pauses the page's redraw, as an open form does.
 		if (open) panel.setAttribute('data-editing', 'true');
 		else panel.removeAttribute('data-editing');
@@ -494,6 +479,65 @@ async function ethernet(ctx, here, page, ap, edit) {
 		loopBanner(rows),
 		panel,
 	];
+}
+
+// kindsOf groups the APs here by board (0092), each kind with its name, its
+// APs, and its ports: those its APs reported, and those set for it. On an
+// AP's page, its one kind is set as the AP's own; elsewhere a kind is set
+// under boards.<board>., and APs that never said their board as plain ports.
+function kindsOf(rows, fields, folder) {
+	const out = new Map();
+	const kind = (board, name) => {
+		const key = board || '';
+		if (!out.has(key)) out.set(key, { board: key, name: name || board || 'APs that said no board', base: folder && key ? `boards.${key}.` : '', aps: [], ports: new Map() });
+		return out.get(key);
+	};
+	for (const r of rows) {
+		const t = r.cfg?.template;
+		const k = kind(t?.board, t?.model || (t?.id ? t.name : ''));
+		k.aps.push(r);
+		for (const p of r.cfg?.condition?.state?.report?.ports || []) {
+			if (!k.ports.has(p.name)) k.ports.set(p.name, []);
+			k.ports.get(p.name).push({ ap: r.ap, cfg: r.cfg, p });
+		}
+	}
+	// Kinds set here or above with no AP here yet, and ports set for a kind
+	// that none of its APs reported.
+	for (const path of Object.keys(fields)) {
+		const m = /^boards\.([^.]+)\.ports\.([^.]+)\./.exec(path);
+		if (!m || !folder) continue;
+		const k = kind(m[1]);
+		if (!k.ports.has(m[2])) k.ports.set(m[2], []);
+	}
+	if (!folder && out.size === 0) kind('', 'This AP');
+	return [...out.values()].sort((a, b) => (a.board === '') - (b.board === '') || a.name.localeCompare(b.name));
+}
+
+// kindFields is what applies to a kind's ports here, by the paths its form
+// sets: its own settings, or the plain ones where those are set closer, or
+// locked above, as the manager folds them for its APs (0092). A plain one
+// shown under the kind's path is marked plain: nothing is set at that path
+// to unset.
+function kindFields(fields, kind, ancestry) {
+	if (!kind.base) return fields;
+	const at = (id) => ancestry.indexOf(id);
+	const out = { ...fields };
+	const pick = (plain, own) => {
+		if (!own) return plain;
+		if (!plain) return own;
+		if (plain.origin === 'locked' && plain.from !== own.from) return plain;
+		return at(plain.from) > at(own.from) ? plain : own;
+	};
+	const paths = new Set();
+	for (const p of Object.keys(fields)) {
+		if (p.startsWith('ports.')) paths.add(p);
+		else if (p.startsWith(kind.base + 'ports.')) paths.add(p.slice(kind.base.length));
+	}
+	for (const p of paths) {
+		const r = pick(fields[p], fields[kind.base + p]);
+		out[kind.base + p] = r && r === fields[p] ? { ...r, plain: true } : r;
+	}
+	return out;
 }
 
 // byPort orders port names as people count: lan2 before lan10.
@@ -516,17 +560,18 @@ function linkCell(reps, folder) {
 		`${up.length} of ${reps.length} up${speeds.length === 1 ? ` · ${speeds[0]}` : ''}`);
 }
 
-// carries says what a port carries, by its fields in force: an access
-// port's VLAN; a trunk's untagged and tagged VLANs; a tunnel port's VNIs.
-function carries(fields, name) {
-	const v = (k) => fields[`ports.${name}.${k}`]?.value;
+// carries says what a port carries, by its fields in force under base: an
+// access port's VLAN; a trunk's untagged and tagged VLANs; a tunnel port's
+// VNIs.
+function carries(fields, name, base = '') {
+	const v = (k) => fields[`${base}ports.${name}.${k}`]?.value;
 	switch (v('mode')) {
 	case 'access':
 		return `VLAN ${v('untagged')}, untagged`;
 	case 'trunk':
 		return [v('untagged') ? `untagged ${v('untagged')}` : 'nothing untagged', v('tagged')?.length && `tagged ${v('tagged').join(', ')}`].filter(Boolean).join(' · ');
 	case 'tunnel': {
-		const vnis = vnisOf(fields, name);
+		const vnis = vnisOf(fields, name, base);
 		return vnis.length ? vnis.map((m) => `${onWire(m.vlan, true)} → ${carried(m)}`).join('; ') : 'no VNIs yet';
 	}
 	case 'lacp':
@@ -537,75 +582,118 @@ function carries(fields, name) {
 
 const MODES = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' };
 
-// portRows is a port's row, and the row under it that Edit or Info opens.
-function portRows(ctx, d, here, nodeName, name, fields, reps, rows, canEdit, edit, folder) {
-	const f = (k) => fields[`ports.${name}.${k}`];
+// plainOf is a field's plain path, which the labels know: a kind of AP's
+// own (boards.<board>.ports...) is shown as its port's (0092).
+const plainOf = (path) => path.replace(/^boards\.[^.]+\./, '');
+
+// The kinds whose cards are open, by folder and board, so a redraw keeps
+// them open.
+const opened = new Set();
+
+// kindPanel is one kind of AP: its line, with its arrow, and its cards.
+function kindPanel(ctx, d, here, page, kind, fields, canEdit, edit, folder, only) {
+	const kf = kindFields(fields, kind, page.ancestry || []);
+	const names = [...kind.ports.keys()];
+	const uplink = (n) => (kind.ports.get(n) || []).some((r) => r.p.uplink);
+	names.sort((a, b) => Number(uplink(b)) - Number(uplink(a)) || byPort(a, b));
+	const key = `${here}|${kind.board}`;
+	const isOpen = () => opened.has(key) || (only && !opened.has('!' + key));
+	const box = h('div', { class: 'edit flush' });
+	const cards = h('div', { class: 'portcards' });
+	const body = h('div', { class: 'kindbody' }, cards, box);
+	const arrow = h('span', { class: 'arrow', 'aria-hidden': 'true' });
+	const head = h('button', { type: 'button', class: 'kindhead', 'aria-expanded': 'false' }, arrow,
+		h('strong', null, kind.name),
+		h('span', { class: 'sub' }, [`${kind.aps.length} AP${kind.aps.length === 1 ? '' : 's'}`, summary(names, uplink, kf, kind.base)].filter(Boolean).join(' · ')),
+		h('span', { class: 'gap' }),
+		kind.board && folder && h('span', { class: 'mono sub' }, kind.board));
+	const set = (open) => {
+		body.hidden = !open;
+		arrow.textContent = open ? '▾' : '▸';
+		head.setAttribute('aria-expanded', String(open));
+		if (open) {
+			opened.add(key);
+			opened.delete('!' + key);
+		} else {
+			opened.delete(key);
+			if (only) opened.add('!' + key);
+		}
+	};
+	head.addEventListener('click', () => set(body.hidden));
+	cards.replaceChildren(
+		...names.map((n) => portCard(ctx, d, here, page.node.name, n, kf, kind, kind.ports.get(n) || [], canEdit, edit, folder, box)),
+		canEdit && h('button', { type: 'button', class: 'portcard add', onclick: () => addPort(ctx, d, here, page.node.name, kf, box, edit, kind) },
+			'+ Add a port', h('span', { class: 'sub' }, `for ${folder && kind.board ? `every ${kind.name}` : 'this AP'} here`)));
+	set(isOpen());
+	return h('section', { class: 'panel kind' }, head, body);
+}
+
+// summary is a kind's ports in a few words: the uplink first, then the
+// others, and how many of them something sets.
+function summary(names, uplink, kf, base) {
+	if (!names.length) return 'no ports reported';
+	const up = names.filter(uplink);
+	const rest = names.filter((n) => !uplink(n));
+	const set = rest.filter((n) => carries(kf, n, base) || kf[`${base}ports.${n}.enabled`]?.value === false);
+	return [up.length && `${up.join(', ')} uplink`, rest.length && rest.join(', '), set.length && `${set.length} set`].filter(Boolean).join(' · ');
+}
+
+// portCard is one port of a kind: its link, mode and what it carries, and
+// Edit, or on the uplink Info, which open under the kind's cards.
+function portCard(ctx, d, here, nodeName, name, kf, kind, reps, canEdit, edit, folder, box) {
+	const base = kind.base;
+	const f = (k) => kf[`${base}ports.${name}.${k}`];
 	const uplinkOn = reps.filter((r) => r.p.uplink);
 	const allUplink = uplinkOn.length > 0 && uplinkOn.length === reps.length;
 	const off = f('enabled')?.value === false;
 	const names = (id) => ctx.name('locations', id);
-	// Where what is in force comes from, when not here.
-	const set = Object.entries(fields).filter(([p]) => p.startsWith(`ports.${name}.`));
+	const set = Object.entries(kf).filter(([p, r]) => p.startsWith(`${base}ports.${name}.`) && r);
 	const from = [...new Set(set.filter(([, r]) => r.from !== here).map(([, r]) => `${r.origin === 'locked' ? 'locked by' : 'from'} ${names(r.from)}`))];
-	// On a folder, the APs below that set this port their own way.
-	const sum = (loc) => `${loc[`ports.${name}.enabled`]?.value}|${loc[`ports.${name}.mode`]?.value}|${carries(loc, name)}`;
-	const own = folder ? rows.filter((r) => r.cfg && reps.some((x) => x.ap.id === r.ap.id) && sum(r.cfg.location || {}) !== sum(fields)) : [];
-	const slot = h('div', null);
-	const under = h('tr', { class: 'under', hidden: true }, h('td', { colspan: 5 }, slot));
-	let showing = null;
-	const show = (what, make) => {
-		if (showing === what) {
-			under.hidden = true;
-			showing = null;
-			slot.replaceChildren();
-			return;
-		}
-		showing = what;
-		slot.replaceChildren(make());
-		under.hidden = false;
-	};
-	const close = () => {
-		under.hidden = true;
-		showing = null;
-		slot.replaceChildren();
-	};
-	const mine = set.filter(([, r]) => r.from === here && r.origin === 'self').map(([p]) => p);
-	const editForm = () => h('div', null,
-		portForm(ctx, d, here, nodeName, name, fields, close, edit),
-		mine.length > 0 && h('div', { class: 'below' }, followButton(ctx, 'locations', here, nodeName, edit?.parentName, mine, slot, `Follow ${edit?.parentName ?? 'above'} for ${name}`)));
-	const info = () => h('div', null, uplinkOn.map((r) => [folder && h('h3', null, r.ap.name), uplinkInfo(r.cfg.condition.state.report)]));
+	const mine = set.filter(([, r]) => r.from === here && r.origin === 'self' && !r.plain).map(([p]) => p);
 	const mode = allUplink ? 'Uplink' : off ? 'Off' : MODES[f('mode')?.value];
+	const report = uplinkOn[0]?.cfg?.condition?.state?.report;
+	const agg = report?.uplink_neighbor?.aggregation;
 	const what = allUplink
-		? [h('span', { class: 'sub' }, 'The AP\'s management; Aeolus leaves it alone.'),
-			!folder && hasUplinkNews(uplinkOn[0].cfg.condition.state.report) && uplinkCell(uplinkOn[0].cfg.condition.state.report)]
-		: carries(fields, name);
-	return [
-		h('tr', null,
-			h('td', { class: 'mono' }, name,
-				uplinkOn.length > 0 && [' ', h('span', { class: 'chip from', title: uplinkOn.map((r) => r.ap.name).join(', ') }, allUplink ? 'uplink' : `uplink on ${uplinkOn.length}`)],
-				off && [' ', h('span', { class: 'chip idle' }, 'off')],
-				reps.some((r) => r.cfg?.condition?.state?.report?.vxlan?.loops?.some((l) => l.port === name)) && [' ', h('span', { class: 'chip bad' }, 'off its tunnels: a loop')]),
-			h('td', null, linkCell(reps, folder)),
-			h('td', { class: 'set' }, mode ?? h('span', { class: 'sub' }, '—')),
-			h('td', { class: 'set' }, what ?? h('span', { class: 'sub' }, 'Not set'),
-				from.length > 0 && h('span', { class: 'whence' }, from.join(', ')),
-				own.length > 0 && h('div', { class: 'sub', title: own.map((r) => r.ap.name).join(', ') }, `${own.length} AP${own.length === 1 ? ' sets its' : 's set their'} own`)),
-			h('td', { class: 'actions' },
-				allUplink ? h('button', { type: 'button', class: 'button small', onclick: () => show('info', info) }, 'Info')
-					: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => show('edit', editForm) }, 'Edit'))),
-		under,
-	];
+		? [h('span', { class: 'sub' }, `The AP's management${agg?.enabled ? ', in an LACP aggregate' : ''}; Aeolus leaves it alone.`),
+			!folder && hasUplinkNews(report) && uplinkCell(report)]
+		: carries(kf, name, base);
+	const showIn = (make) => {
+		box.replaceChildren(h('section', { class: 'panel', 'data-editing': true },
+			h('h2', null, `${name}${folder && kind.board ? ` on every ${kind.name} here` : ''}`, h('span', { class: 'controls' },
+				h('button', { type: 'button', class: 'button small', onclick: () => box.replaceChildren() }, 'Close'))),
+			make()));
+		box.scrollIntoView({ block: 'nearest' });
+	};
+	const close = () => box.replaceChildren();
+	const editForm = () => h('div', null,
+		portForm(ctx, d, here, nodeName, name, kf, close, edit, kind),
+		mine.length > 0 && h('div', { class: 'below' }, followButton(ctx, 'locations', here, nodeName, edit?.parentName, mine, box, `Follow ${edit?.parentName ?? 'above'} for ${name}`)));
+	const info = () => h('div', null, uplinkOn.map((r) => [folder && h('h3', null, r.ap.name), uplinkInfo(r.cfg.condition.state.report)]));
+	const row = (label, v) => h('div', { class: 'row' }, h('span', { class: 'label' }, label), h('span', { class: 'value' }, v));
+	return h('div', { class: `portcard${allUplink ? ' uplink' : ''}` },
+		h('div', { class: 'cardhead' }, h('span', { class: 'mono' }, name),
+			uplinkOn.length > 0 && h('span', { class: 'chip from', title: uplinkOn.map((r) => r.ap.name).join(', ') }, allUplink ? 'uplink' : `uplink on ${uplinkOn.length}`),
+			off && h('span', { class: 'chip idle' }, 'off'),
+			reps.some((r) => r.cfg?.condition?.state?.report?.vxlan?.loops?.some((l) => l.port === name)) && h('span', { class: 'chip bad' }, 'off its tunnels: a loop')),
+		row('Link', linkCell(reps, folder)),
+		row('Mode', mode ?? h('span', { class: 'sub' }, '—')),
+		h('div', { class: 'row set' }, h('span', { class: 'label' }, 'Carries'),
+			h('span', { class: 'value' }, what ?? h('span', { class: 'sub' }, 'Not set'),
+				from.length > 0 && h('span', { class: 'whence' }, from.join(', ')))),
+		h('div', { class: 'actions' },
+			allUplink ? h('button', { type: 'button', class: 'button small', onclick: () => showIn(info) }, 'Info')
+				: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => showIn(editForm) }, 'Edit')));
 }
 
 // vniPath is where a tunnel port sets one of a VNI's fields (0058, 0059).
-const vniPath = (name, vlan, k) => `ports.${name}.vxlan.${vlan}.${k}`;
+const vniPath = (name, vlan, k, base = '') => `${base}ports.${name}.vxlan.${vlan}.${k}`;
 const VNI_FIELDS = ['tunnel', 'vni', 'probe'];
 
 // vnisOf reads a tunnel port's VNIs from the values in force (by path, each
 // {value, from, origin}) as [{vlan, tunnel, vni}], untagged first, then by
 // VLAN.
-function vnisOf(fields, name) {
-	const prefix = `ports.${name}.vxlan.`;
+function vnisOf(fields, name, base = '') {
+	const prefix = `${base}ports.${name}.vxlan.`;
 	const out = new Map();
 	for (const [path, r] of Object.entries(fields || {})) {
 		if (!path.startsWith(prefix)) continue;
@@ -639,14 +727,15 @@ function ipv4(text) {
 // portForm edits one port's settings on this node, in one change. Only what
 // the mode uses is shown: an access port's one VLAN, a trunk's untagged VLAN
 // and tagged ones, or a tunnel port's VNIs (0058).
-function portForm(ctx, d, here, nodeName, name, fields, close, edit) {
-	const prefix = `ports.${name}.`;
+function portForm(ctx, d, here, nodeName, name, fields, close, edit, kind = { base: '' }) {
+	const base = kind.base;
+	const prefix = `${base}ports.${name}.`;
 	const { body, inputs, rows } = fieldsForm(d, [[null, FIELDS.map((k) => prefix + k)]], fields, here);
 	const mode = rows.get(prefix + 'mode')?.it.el;
 	// LACP is in the schema, but not applied yet (0053).
 	if (mode && mode.value !== 'lacp') mode.querySelector('option[value="lacp"]')?.remove();
 	const out = h('div', { class: 'edit flush' });
-	const vnis = vniTable(ctx, here, nodeName, name, fields, edit, out);
+	const vnis = vniTable(ctx, here, nodeName, name, fields, edit, out, base);
 	const sync = () => {
 		const m = mode?.value;
 		const show = (k, on) => {
@@ -688,7 +777,7 @@ function portForm(ctx, d, here, nodeName, name, fields, close, edit) {
 			if (!p) return;
 			confirm(ctx, out, op, p, [
 				h('div', null, h('strong', null, `Port ${name} on ${nodeName}`)),
-				h('ul', { class: 'becomes' }, unsets.map((path) => h('li', null, `${group(path).label}: ${fields[path].value} → `,
+				h('ul', { class: 'becomes' }, unsets.map((path) => h('li', null, `${group(plainOf(path)).label}: ${fields[path].value} → `,
 					p.resolved?.[path] ? `${p.resolved[path].value} (from ${ctx.name('locations', p.resolved[path].from)})` : 'none: the AP asks any IPv6 host there'))),
 			], [h('div', { class: 'sub warn' }, PROBE_ONLY)]);
 			return;
@@ -715,11 +804,13 @@ function portForm(ctx, d, here, nodeName, name, fields, close, edit) {
 		const p = await ask(out, op);
 		if (!p) return;
 		confirm(ctx, out, op, p, [
-			h('div', null, h('strong', null, `Port ${name} on ${nodeName}`)),
+			h('div', null, h('strong', null, `Port ${name} on ${nodeName}${base ? `, every ${kind.name}` : ''}`)),
 			h('ul', { class: 'becomes' }, paths.map((path) => h('li', null,
-				`${group(path).label}: `,
-				fields[path] ? [value(path, fields[path].value), ' → '] : '', value(path, values[path])))),
-			h('div', { class: 'sub' }, `Every AP here with a port named ${name} uses it; APs below that set their own keep theirs.`),
+				`${group(plainOf(path)).label}: `,
+				fields[path] ? [value(plainOf(path), fields[path].value), ' → '] : '', value(plainOf(path), values[path])))),
+			h('div', { class: 'sub' }, base
+				? `Every ${kind.name} here uses it for its ${name}, and no other kind of AP; folders below and APs that set their own keep theirs.`
+				: `Every AP here with a port named ${name} uses it; APs below that set their own keep theirs.`),
 		], [h('div', { class: 'sub warn' }, probeOnly(paths) ? PROBE_ONLY : RELOAD)]);
 	};
 	return h('div', { class: 'fieldform', 'data-editing': true },
@@ -739,7 +830,7 @@ function portForm(ctx, d, here, nodeName, name, fields, close, edit) {
 // {values, unsets}: {path: value} to set, and the probe addresses cleared,
 // to unset; or throws with what is wrong. count() says how many VNIs the
 // port would carry.
-function vniTable(ctx, here, nodeName, name, fields, edit, out) {
+function vniTable(ctx, here, nodeName, name, fields, edit, out, base = '') {
 	const lib = tunnelsAt(fields);
 	const names = (id) => ctx.name('locations', id);
 	const picker = (cur) => h('select', null,
@@ -754,13 +845,13 @@ function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 		return n;
 	};
 	const address = (cur) => h('input', { type: 'text', maxlength: 15, value: cur ?? '', placeholder: 'probe address' });
-	const have = vnisOf(fields, name);
+	const have = vnisOf(fields, name, base);
 	const lines = have.map((m) => {
 		const tunnel = picker(m.tunnel?.value);
 		const vni = number(m.vni?.value);
 		const probe = address(m.probe?.value);
 		tunnel.disabled = vni.disabled = probe.disabled = [m.tunnel, m.vni, m.probe].some((r) => r?.origin === 'locked' && r.from !== here);
-		const own = VNI_FIELDS.map((k) => vniPath(name, m.vlan, k)).filter((p) => fields[p]?.origin === 'self');
+		const own = VNI_FIELDS.map((k) => vniPath(name, m.vlan, k, base)).filter((p) => fields[p]?.origin === 'self' && fields[p]?.from === here && !fields[p]?.plain);
 		const heading = `Port ${name} on ${nodeName}: ${onWire(m.vlan)} leaves VNI ${m.vni?.value}`;
 		return {
 			m, tunnel, vni, probe,
@@ -786,20 +877,20 @@ function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 		for (const l of lines) {
 			if (l.tunnel.disabled) continue;
 			const pr = probeIn(l.probe, l.m.vlan);
-			if (pr !== undefined && pr !== l.m.probe?.value) values[vniPath(name, l.m.vlan, 'probe')] = pr;
+			if (pr !== undefined && pr !== l.m.probe?.value) values[vniPath(name, l.m.vlan, 'probe', base)] = pr;
 			if (pr === undefined && l.m.probe) {
 				if (l.m.probe.origin !== 'self') throw new Error(`${onWire(l.m.vlan, true)}: its probe address is set above; set another here, or leave it`);
-				unsets.push(vniPath(name, l.m.vlan, 'probe'));
+				unsets.push(vniPath(name, l.m.vlan, 'probe', base));
 			}
 			const t = l.tunnel.value || undefined;
 			const v = vniIn(l.vni, l.m.vlan);
 			if (t !== l.m.tunnel?.value) {
 				if (!t) throw new Error(`${onWire(l.m.vlan, true)}: pick its tunnel, or remove the row`);
-				values[vniPath(name, l.m.vlan, 'tunnel')] = t;
+				values[vniPath(name, l.m.vlan, 'tunnel', base)] = t;
 			}
 			if (v !== l.m.vni?.value) {
 				if (v === undefined) throw new Error(`${onWire(l.m.vlan, true)}: set its VNI, or remove the row`);
-				values[vniPath(name, l.m.vlan, 'vni')] = v;
+				values[vniPath(name, l.m.vlan, 'vni', base)] = v;
 			}
 		}
 		const vlan = vlanIn.value.trim().toLowerCase();
@@ -810,10 +901,10 @@ function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 		const v = vniIn(newVni, vlan);
 		if (!newTunnel.value) throw new Error(`${onWire(vlan, true)}: pick its tunnel.`);
 		if (v === undefined) throw new Error(`${onWire(vlan, true)}: set its VNI.`);
-		values[vniPath(name, vlan, 'tunnel')] = newTunnel.value;
-		values[vniPath(name, vlan, 'vni')] = v;
+		values[vniPath(name, vlan, 'tunnel', base)] = newTunnel.value;
+		values[vniPath(name, vlan, 'vni', base)] = v;
 		const pr = probeIn(newProbe, vlan);
-		if (pr !== undefined) values[vniPath(name, vlan, 'probe')] = pr;
+		if (pr !== undefined) values[vniPath(name, vlan, 'probe', base)] = pr;
 		return { values, unsets };
 	};
 	const el = h('div', { class: 'vnis' },
@@ -827,7 +918,7 @@ function vniTable(ctx, here, nodeName, name, fields, edit, out) {
 
 // addPort sets up a port no AP here has reported yet, by its name, such as
 // one on APs that are still to be adopted.
-function addPort(ctx, d, here, nodeName, fields, box, edit) {
+function addPort(ctx, d, here, nodeName, fields, box, edit, kind = { base: '' }) {
 	const pattern = new RegExp(d.names.ports || '^[a-z][a-z0-9._-]{0,15}$');
 	const nameIn = h('input', { type: 'text', maxlength: 16, placeholder: 'lan3' });
 	const slot = h('div', null);
@@ -839,10 +930,10 @@ function addPort(ctx, d, here, nodeName, fields, box, edit) {
 			msg.replaceChildren('A port name is lower case, such as lan3 or eth1.');
 			return;
 		}
-		slot.replaceChildren(portForm(ctx, d, here, nodeName, name, fields, () => box.replaceChildren(), edit));
+		slot.replaceChildren(portForm(ctx, d, here, nodeName, name, fields, () => box.replaceChildren(), edit, kind));
 	};
 	box.replaceChildren(h('section', { class: 'panel', 'data-editing': true },
-		h('h2', null, 'Add a port'),
+		h('h2', null, kind.base ? `Add a port to every ${kind.name} here` : 'Add a port'),
 		h('div', { class: 'fieldform' },
 			h('label', { class: 'field' }, h('span', { class: 'label' }, 'Port name'), nameIn),
 			msg,
