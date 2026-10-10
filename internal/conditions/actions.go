@@ -64,15 +64,29 @@ CREATE UNIQUE INDEX actions_open ON actions (ap, kind) WHERE state IN ('pending'
 
 // AddAction records an action for an AP, pending. One of the same kind
 // already open, pending or running, is returned instead, so a second click
-// does not reboot an AP twice.
+// does not reboot an AP twice. It looks and adds in one transaction, which
+// the database opens immediate, so the AP taking up or finishing the open
+// one cannot come between them.
 func (s *Store) AddAction(ap hierarchy.NodeID, kind, actor string) (Action, error) {
 	s.expire(ap)
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO actions (ap, kind, actor, at, state) VALUES (?, ?, ?, ?, 'pending')`,
-		string(ap), kind, actor, stamp(s.now())); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
 		return Action{}, err
 	}
+	defer tx.Rollback()
 	var id int64
-	if err := s.db.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND state IN ('pending', 'running')`, string(ap), kind).Scan(&id); err != nil {
+	err = tx.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND state IN ('pending', 'running')`, string(ap), kind).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		var res sql.Result
+		if res, err = tx.Exec(`INSERT INTO actions (ap, kind, actor, at, state) VALUES (?, ?, ?, ?, 'pending')`,
+			string(ap), kind, actor, stamp(s.now())); err == nil {
+			id, err = res.LastInsertId()
+		}
+	}
+	if err != nil {
+		return Action{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Action{}, err
 	}
 	return s.action(id)
