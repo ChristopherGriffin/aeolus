@@ -164,6 +164,8 @@ Each milestone ends in something checkable before the next starts.
 | [0108](docs/decisions/0108-usage.md) | Usage over the last day |
 | [0109](docs/decisions/0109-alert-history.md) | What alerted, and for how long |
 | [0110](docs/decisions/0110-top-clients.md) | The clients that moved the most |
+| [0111](docs/decisions/0111-radius-vlans-and-disconnect.md) | VLANs from RADIUS, and disconnects from a NAC |
+| [0112](docs/decisions/0112-mac-authentication.md) | MAC authentication, for devices that cannot sign in |
 
 ## Open questions
 
