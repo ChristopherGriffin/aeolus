@@ -298,7 +298,7 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 		}
 	});
 	const form = canAct && (nets.length
-		? h('div', { class: 'testform', 'data-editing': 'false' },
+		? h('div', { class: 'testform' },
 			h('div', { class: 'row' }, h('div', { class: 'label' }, 'Test'), h('div', { class: 'value' }, net, where, bandSeg)),
 			how,
 			h('div', { class: 'actions' }, run, ' ', all))

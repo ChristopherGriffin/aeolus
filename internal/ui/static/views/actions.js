@@ -12,9 +12,6 @@ const KINDS = [
 	['restart-wifi', 'Restart Wi-Fi', 'Restart its Wi-Fi: every client on it drops, and joins again in a few seconds.', 'Its clients drop for a few seconds.'],
 	['reboot', 'Reboot', 'Reboot it: it is off the air, and its wired clients cut off, for about two minutes.', 'It is off the air for about two minutes.'],
 ];
-// What else an AP may be asked, from elsewhere on its page: named here for
-// the list of what was asked.
-const ALSO = { 'client-test': 'Client test' };
 const STATE = { pending: ['', 'waiting for the AP'], running: ['', 'taken up by the AP'], done: ['ok', 'done'], failed: ['bad', 'failed'], expired: ['warn', 'expired: the AP did not take it up'] };
 
 export async function actionsPanel(id, name, canAct) {
@@ -41,18 +38,22 @@ export async function actionsPanel(id, name, canAct) {
 				} }, label),
 				h('button', { type: 'button', class: 'button', onclick: () => box.replaceChildren() }, 'Cancel'))));
 	};
+	// Its client tests are under Assurance, each with what it found: here,
+	// the others, the latest few, a line each.
+	const others = list.filter((a) => a.kind !== 'client-test').slice(0, 4);
 	return h('section', { class: 'panel' },
-		h('h2', null, 'Actions'),
-		canAct && h('div', { class: 'actions' }, KINDS.map(([kind, label, title, warn]) =>
-			h('button', { type: 'button', class: 'button small', title, onclick: () => (warn ? ask(kind, label, warn) : post(`/v1/aps/${encodeURIComponent(id)}/actions`, { kind })
-				.then(() => flash(`${label}: asked of ${name}; it acts on its next poll.`)).catch((err) => box.replaceChildren(h('div', { class: 'error' }, err.message)))) }, label))),
+		h('h2', { class: 'withcontrols', title: 'What it can be asked to do. It does it on its next poll, within about a minute.' }, 'Actions',
+			canAct && h('span', { class: 'controls' }, KINDS.map(([kind, label, title, warn]) =>
+				h('button', { type: 'button', class: 'button small', title, onclick: () => (warn ? ask(kind, label, warn) : post(`/v1/aps/${encodeURIComponent(id)}/actions`, { kind })
+					.then(() => flash(`${label}: asked of ${name}; it acts on its next poll.`)).catch((err) => box.replaceChildren(h('div', { class: 'error' }, err.message)))) }, label)))),
 		box,
-		list.length ? h('table', { class: 'list' },
-			h('tr', null, ['Action', 'Asked', 'By', 'What came of it'].map((t) => h('th', null, t))),
-			list.slice(0, 8).map((a) => h('tr', null,
-				h('td', null, a.kind === 'disconnect' ? ['Reconnect ', h('span', { class: 'mono' }, a.target)] : KINDS.find(([k]) => k === a.kind)?.[1] ?? ALSO[a.kind] ?? a.kind),
-				h('td', null, ago(a.at)),
-				h('td', null, a.actor),
-				h('td', null, h('span', { class: `chip ${STATE[a.state]?.[0] ?? ''}` }, STATE[a.state]?.[1] ?? a.state), a.result && h('span', { class: 'sub' }, ` ${a.result}`)))))
-			: h('p', { class: 'sub' }, canAct ? 'None asked yet.' : 'None asked yet. Asking needs operator on this AP.'));
+		// What came of one is said where it did not go well; of one that did, on hover.
+		others.length > 0 && h('table', { class: 'list wraps' },
+			others.map((a) => h('tr', { title: a.result || null },
+				h('td', null, a.kind === 'disconnect' ? ['Reconnect ', h('span', { class: 'mono' }, a.target)] : KINDS.find(([k]) => k === a.kind)?.[1] ?? a.kind),
+				h('td', { class: 'sub' }, `${ago(a.at)} · ${a.actor}`),
+				h('td', null, h('span', { class: `chip ${STATE[a.state]?.[0] ?? ''}` }, STATE[a.state]?.[1] ?? a.state),
+					a.result && a.state !== 'done' && h('span', { class: 'sub' }, ` ${a.result}`))))),
+		// One who may not ask is told so, where there is nothing else to show.
+		!canAct && !others.length && h('p', { class: 'sub pad' }, 'Asking needs operator on this AP.'));
 }
