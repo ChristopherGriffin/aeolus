@@ -414,10 +414,24 @@ function bandPanel(at, band, b) {
 		const goes = new Set(manual ? [] : usable(band, d.channels, width(), noDFS(), onlyPSC(), spread()));
 		const marked = !manual && (onlyPSC() || spread());
 		const picked = manual && d.channel != null ? new Set(takes(band, d.channel, width()) || []) : new Set();
-		// On 2.4 GHz at 40 MHz each channel is joined with another (0117):
-		// the ones the picked channels are joined with are shown as taken.
+		// On 2.4 GHz at 40 MHz each channel is joined with another (0117).
+		// A channel the APs go to and the one it is joined with are filled
+		// in one colour, pair after pair in turn, as the blocks of the
+		// other bands are (Griff, 2026-10-10); the joined one a little
+		// lighter, as it is taken, not picked.
 		const forty = band === '2g' && width() > 20;
-		const joined = new Set(forty && !manual ? [...(marked ? goes : d.channels)].map(pair2g) : []);
+		const colour = new Map();   // channel -> 'a' or 'b', its pair's
+		const takenBy = new Map();  // a channel taken -> the channel it is joined with
+		if (forty) {
+			const ones = manual ? (d.channel != null ? [d.channel] : []) : [...(marked ? goes : d.channels)].sort((x, y) => x - y);
+			ones.forEach((c, i) => colour.set(c, i % 2 ? 'b' : 'a'));
+			ones.forEach((c, i) => {
+				const q = pair2g(c);
+				if (colour.has(q)) return;
+				colour.set(q, i % 2 ? 'b' : 'a');
+				takenBy.set(q, c);
+			});
+		}
 		map.replaceChildren(...ranges(band, country).map((list) => {
 			const groups = [];
 			for (const c of list) {
@@ -429,9 +443,10 @@ function bandPanel(at, band, b) {
 			}
 			return h('div', { class: 'chrange' }, groups.map((g, i) => {
 				const all = !manual && g.whole && g.whole.every((c) => d.channels.has(c));
-				const some = !manual && g.whole && !all && (g.whole.some((c) => d.channels.has(c)) || g.whole.some((c) => joined.has(c)));
+				const some = !manual && g.whole && !all && g.whole.some((c) => d.channels.has(c));
 				const off = !g.whole || (noDFS() && g.whole.some((c) => radar(band, c))) || (onlyPSC() && !g.whole.some(psc));
-				return h('div', { class: `chblock ${width() > 20 && band !== '2g' && i % 2 ? 'b' : 'a'}` }, g.chans.map((c) => {
+				const tint = forty ? colour.get(g.chans[0]) || 'a' : width() > 20 && band !== '2g' && i % 2 ? 'b' : 'a';
+				return h('div', { class: `chblock ${tint}` }, g.chans.map((c) => {
 					const aps = on.get(c) || [];
 					const can = manual ? allowed(c) : !off;
 					const why = !g.whole ? `No ${width()} MHz block includes ${c}`
@@ -439,15 +454,16 @@ function bandPanel(at, band, b) {
 							: onlyPSC() && !psc(c) && manual ? 'Not a preferred scanning channel'
 								: onlyPSC() && !g.whole.some(psc) ? 'No preferred scanning channel in this block'
 									: radar(band, c) ? 'Shared with radar (DFS)' : '';
-					const isOn = manual ? picked.has(c) : all;
+					const taken = forty && takenBy.has(c) && !(!manual && all);
+					const isOn = manual ? (forty ? c === d.channel : picked.has(c)) : all;
 					// A dot marks the AP's own channel on its page; a folder's map
 					// has none (Griff, 2026-10-09).
 					return h('button', {
 						type: 'button',
-						class: `ch${isOn ? ' on' : ''}${some ? ' part' : ''}${can ? '' : ' off'}${radar(band, c) ? ' dfs' : ''}${band === '6g' && psc(c) ? ' psc' : ''}${(marked && goes.has(c)) || (manual && d.channel === c) ? ' goes' : ''}`,
+						class: `ch${isOn ? ' on' : ''}${taken ? ' on taken' : ''}${some ? ' part' : ''}${can ? '' : ' off'}${radar(band, c) ? ' dfs' : ''}${band === '6g' && psc(c) ? ' psc' : ''}${(marked && goes.has(c)) || (manual && d.channel === c) ? ' goes' : ''}`,
 						disabled: d.mode === 'unset' || !editable(manual ? 'channel' : 'channels') || !can,
 						title: [why, band === '6g' && psc(c) && 'Preferred scanning channel', manual && d.channel === c && 'The channel',
-							forty && `At 40 MHz, with channel ${pair2g(c)}`, forty && !isOn && joined.has(c) && 'Taken by a channel picked',
+							forty && `At 40 MHz, with channel ${pair2g(c)}`, taken && `Taken with channel ${takenBy.get(c)}`,
 							marked && goes.has(c) && 'The APs go to this channel', aps.length && `Now: ${aps.join(', ')}`].filter(Boolean).join(' · '),
 						onclick: () => {
 							if (manual) d.channel = c;

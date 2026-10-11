@@ -424,6 +424,9 @@ div.field.start input[type=number] { height: 34px; width: 110px; padding: 0 10px
 .chblock.a .ch.on { background: var(--accent); color: #FFFFFF; }
 .chblock.b .ch.on { background: #8A6A2E; color: #FFFFFF; }
 .ch.part { border-color: var(--warn); border-style: dashed; }
+/* 2.4 GHz at 40 MHz (0117): the channel a picked one is joined with is
+   filled in its pair's colour, lighter. */
+.ch.on.taken { opacity: 0.68; }
 .ch.dfs { background-image: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.09) 0 3px, transparent 3px 7px); }
 .ch.on.dfs { background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0 3px, transparent 3px 7px); }
 .ch.off { opacity: 0.4; cursor: not-allowed; }
