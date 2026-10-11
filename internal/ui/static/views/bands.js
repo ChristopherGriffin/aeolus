@@ -147,7 +147,9 @@ function reported(rows, band, k) {
 // Customize: a node that sets none of them here shows them greyed out until
 // it is pressed (Griff, 2026-10-09). report is the AP's latest state
 // report, on an AP's page; rows are the APs the node reaches, each with its
-// config and condition.
+// config and condition. A folder has every band, those no AP in it has a
+// radio for too, so a site is set up before its APs are there; an AP has
+// the bands it has radios for.
 export function bandsSection(ctx, node, page, report, rows = []) {
 	const hw = page.hardware;
 	if (!hw) return null;
@@ -572,6 +574,8 @@ function bandPanel(at, band, b) {
 			h('label', { class: 'radio-on', title: 'Radio on' }, radioOn, h('span', { class: 'title' }, bandName(band))),
 			count,
 			h('span', { class: 'width' }, widthSel)),
+		// A band set ahead of its APs, as on a site not yet built.
+		b.ahead && h('div', { class: 'sub ahead' }, `No AP here has a ${bandName(band)} radio yet: what is set here waits for the first that does.`),
 		ticks.length > 0 && h('div', { class: 'ticks' }, ticks.map((t) => t.row)),
 		map,
 		h('div', { class: 'row' }, label('Channel', 'channel'), h('div', { class: 'value' }, modeSel, ' ', modeNote)),
