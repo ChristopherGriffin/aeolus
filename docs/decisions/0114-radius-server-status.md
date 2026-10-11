@@ -25,6 +25,7 @@
   - **unknown:** not asked three times yet.
 - **It goes in the state report as `radius`,** one entry per network: the server and port, the verdict, the last round trip, how long since the last answer, and the counts.
 - **A silent server is a critical alert,** `radius-silent`, on each AP and network it is silent for. The AP's own page says so with its uplink and DHCP troubles.
+- **The AP reports at once when a server goes silent or comes back,** as it does for a tunnel (0059), not with its next report up to 5 minutes later. In the lab's first outage test the APs knew in 100 seconds and the manager 90 seconds after that, when the reports came round.
 - **The Networks tab shows it as "RADIUS on each AP",** beside the transports and DHCP of each AP: server, status, last answer, and sign-ins accepted, refused and timed out.
 - **The prober logs when a server goes silent and when it is back,** not each change between up and unverified.
 
