@@ -548,7 +548,9 @@ function wifi_missing() {
 // (DFS) included, and returns the networks that did not, leaving out those
 // that were already down before it. Where netifd couldn't say which were
 // down, before the apply or now, it goes by how many are missing against
-// how many were, missing.
+// how many were, missing: both as wifi_missing counts them, since netifd
+// also lists what is no AP network, and one of those already down would
+// stand in for an AP network that failed.
 function wifi_back(before, missing) {
 	let deadline = time() + WIFI_WAIT;
 	let down;
@@ -557,7 +559,7 @@ function wifi_back(before, missing) {
 		if (down != null && before != null)
 			down = filter(down, n => index(before, n) < 0);
 		else {
-			let n = down != null ? length(down) : wifi_missing();
+			let n = wifi_missing();
 			down = n > missing ? [ sprintf('%d more of its networks than before; netifd cannot say which', n - missing) ] : [];
 		}
 		if (!length(down) || time() >= deadline)
@@ -592,8 +594,9 @@ function apply(out, version, hash) {
 	}
 	let wifi = index(out.changed, 'wireless') >= 0;
 	let before = wifi ? wifi_down() : [];
-	// How many were already missing, for where netifd can't name them.
-	let missing = !wifi ? 0 : before != null ? length(before) : wifi_missing();
+	// How many were already missing, for where netifd can't name them, now
+	// or after the apply.
+	let missing = wifi ? wifi_missing() : 0;
 	let pending = { version: version, hash: hash, packages: out.changed };
 	store(PENDING, sprintf('%J', pending));
 	for (let p in out.changed)

@@ -17,6 +17,7 @@ The same apply rendered a VXLAN tunnel that never came up: `vxlan` was installed
   - After the AP reaches the manager again, it waits up to 150 seconds, a radar check (DFS) included, for every network that was up before to be up again: each interface netifd lists for a radio that is on.
   - If one is not, the AP puts its old config back and reports the apply as failed. The report names the networks and hostapd's last errors, such as "Line 148: unknown configuration item 'bss_transition'".
   - A network already down before the apply does not count against it.
+  - Where netifd cannot list them, before the apply or after it, the AP counts instead: the AP networks its config has on radios that are on, less the AP interfaces that are up. More missing than before the apply fails it. Both counts are made the same way, so an interface that is no AP network and was already down cannot stand in for an AP network that failed.
 - **Band steering and BSS transition need 802.11v:**
   - **The agent asks the running hostapd.** A BSS's ubus object offers `bss_transition_request` only when hostapd has 802.11v. It reports that with its steering state, and uses it when rendering. With no BSS running, it is not known.
   - **Where hostapd lacks it,** the agent leaves `bss_transition` out and says why, and the render check refuses the config.
