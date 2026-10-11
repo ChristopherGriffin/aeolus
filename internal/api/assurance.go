@@ -20,9 +20,11 @@ import (
 
 // Service assurance (0123): the service tried from a client's side, on a
 // schedule. Where a folder says how often (assurance.tests.every), the
-// manager asks each AP there that has a scan radio for a client test (0121)
-// that often: each time one network, on one AP, on one band, turn and turn
-// about. What a test finds is kept as any client test's is. A network that
+// manager asks each AP there that can make one for a client test that
+// often, of the tests the folder asks for (0131): through the air, one with
+// a scan radio (0121), each time one network, on one AP, on one band; over
+// the wire, any whose agent can (0128), each time one network; turn and
+// turn about. What a test finds is kept as any client test's is. A network that
 // fails twice running where it is tested is an alert (0099) on the AP it
 // failed on.
 
@@ -325,6 +327,14 @@ func (s *Server) assureRounds(state *change.State, docs map[hierarchy.NodeID]map
 	return rounds, window
 }
 
+// verdictStands says whether what a thing's latest test came to is said
+// still: for three rounds of its AP's schedule and an hour after that
+// test, or for an hour where the AP is asked for none. After that nothing
+// is testing it, and what it last came to is old news.
+func verdictStands(now, last time.Time, round time.Duration) bool {
+	return now.Sub(last) <= 3*round+time.Hour
+}
+
 // assureVerdict is what the tests of one thing, by one AP, come to.
 type assureVerdict struct {
 	last    *testRecord // the latest that was made
@@ -396,8 +406,9 @@ func (s *Server) tests(since time.Time) ([]testRecord, error) {
 }
 
 // assure asks each AP for the client test it is due, and returns what it
-// asked. An AP is due when its folders say how often, it has a scan radio,
-// it has called in lately and runs its config, and no test of it is open.
+// asked. An AP is due when its folders say how often, it can make a test
+// of those they ask for (0131), it has called in lately and runs its
+// config, and no test of it is open.
 // What it tests next is the thing it tested longest ago; but a thing that
 // failed for the first time is tested again within minutes, and one that
 // is failing every other time, so its mending is seen soon.
@@ -475,7 +486,7 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 		if inRound {
 			var due []assureCombo
 			for _, c := range s.roundCombos(state, ap, docs, rnd.Over) {
-				if at[c].Before(rnd.At) {
+				if at[c].Before(rnd.since(c)) {
 					due = append(due, c)
 				}
 			}
@@ -607,9 +618,7 @@ func (s *Server) failingTests(state *change.State, now time.Time) map[hierarchy.
 		if !ok {
 			continue
 		}
-		// A verdict stands for three rounds of the AP's schedule and an hour
-		// after its last test, or for an hour where it is asked for none.
-		if now.Sub(v.last.At) > 3*rounds[k.tester]+time.Hour {
+		if !verdictStands(now, v.last.At, rounds[k.tester]) {
 			continue
 		}
 		on := hierarchy.NodeID(k.combo.On)
@@ -746,7 +755,7 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 	docs := map[hierarchy.NodeID]map[string]any{}
 	// What is failing is worked out as an alert is, over three rounds of
 	// the schedule; the counts and the tests listed are of the time asked.
-	_, window := s.assureRounds(c.state, docs)
+	turns, window := s.assureRounds(c.state, docs)
 	list, err := s.tests(now.Add(-max(window, now.Sub(from))))
 	if err != nil {
 		return err
@@ -790,8 +799,10 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		tallies[k].add(testWay(r.detail))
 	}
 	// The round asked by hand that the APs shown are in (0129), the latest
-	// where they are in more than one, and how far it has got.
+	// where they are in more than one, and how far it has got. It is of the
+	// tests those APs are asked for in it (0131).
 	var inRound *roundView
+	roundAir, roundWire := false, false
 	for _, id := range t.APs() {
 		// An AP that can test: on a schedule, or only when asked, as one
 		// with no scan radio whose folders ask for no tests over the wire.
@@ -815,28 +826,37 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		}
 		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed, Things: things,
 			Air: scanRadio(c.state, id), Wire: byWire(over) && canWire, CanWire: canWire, Round: len(could), Over: over})
-		if one, ok := s.rounds.of(t, id, now); ok {
+		// An AP is in a round where the round asks something of it: one
+		// through the air says nothing of an AP with no scan radio.
+		one, ok := s.rounds.of(t, id, now)
+		var mine []assureCombo
+		if ok {
+			mine = s.roundCombos(c.state, id, docs, one.Over)
+		}
+		if len(mine) > 0 {
 			if inRound == nil || one.At.After(inRound.At) {
 				// A round asked at a folder above is said to have been
 				// asked, and when: its folder's name and who asked it only
 				// to one who may view that folder, as the tree names it to
 				// no other.
-				inRound = &roundView{round: round{Node: one.Node, At: one.At, Over: one.Over}}
+				inRound = &roundView{round: round{Node: one.Node, At: one.At}}
+				roundAir, roundWire = false, false
 				if roleOn(c, change.Locations, t, one.Node) >= access.Viewer {
 					inRound.Name, inRound.By = name(one.Node), one.By
 				}
 			}
 			if one.At.Equal(inRound.At) && one.Node == inRound.Node {
 				// What this AP tests in it: of the tests the round asked for.
-				could := s.roundCombos(c.state, id, docs, one.Over)
+				could := mine
 				inRound.Of += len(could)
-				// Each thing once, by the first test of it since the round
-				// was asked, which is the round's: the tests come newest
+				roundAir, roundWire = roundAir || byAir(one.Over), roundWire || byWire(one.Over)
+				// Each thing once, by the first test of it since its kind
+				// was asked for, which is the round's: the tests come newest
 				// first, and the schedule may have come to the thing again.
 				first := map[assureCombo]*testRecord{}
 				for i := range list {
 					r := &list[i]
-					if hierarchy.NodeID(r.AP) == id && r.Actor == change.SystemActor && !r.At.Before(one.At) && slices.Contains(could, r.combo()) {
+					if hierarchy.NodeID(r.AP) == id && r.Actor == change.SystemActor && slices.Contains(could, r.combo()) && !r.At.Before(one.since(r.combo())) {
 						first[r.combo()] = r
 					}
 				}
@@ -864,8 +884,11 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 				ch.OnName = ""
 			}
 			if v := verdicts[k]; v != nil {
-				ch.Failing, ch.Passed, ch.Failed = v.failing, v.passed, v.failed
-				if v.failing {
+				// Failing is said for as long as its alert is (0123): of a
+				// thing no longer tested, not for as long as its last tests
+				// are in the time shown.
+				ch.Failing, ch.Passed, ch.Failed = v.failing && verdictStands(now, v.last.At, turns[k.tester]), v.passed, v.failed
+				if ch.Failing {
 					since := v.since
 					ch.Since = &since
 				}
@@ -923,6 +946,15 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 	joins, err := s.joinsView(c, under, from, now)
 	if err != nil {
 		return err
+	}
+	if inRound != nil {
+		inRound.Over = overAir
+		if roundWire {
+			inRound.Over = overWire
+			if roundAir {
+				inRound.Over = overBoth
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"testers": testers, "checks": checks, "tests": tests, "joins": joins, "hours": hours, "round": inRound})
 	return nil
