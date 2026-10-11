@@ -54,6 +54,7 @@ const SPEED_SECONDS = 5;   // seconds measured each way, after one to warm up
 const STREAMS = 3;         // connections at once each way
 const LOAN = 120;          // seconds the radio is asked of an airscan that lends it
 const HEAR_WAIT = 30;      // seconds airscan is given, the radio back, to hear the air again
+const LONGEST = 450;       // seconds the whole of it may take: the agent gives it 480 before it takes it for dead
 const SWEEP_WAIT = 90;     // and to sweep the spectrum, which it does next
 const BOUND_WAIT = 40;     // seconds a driver bound again is given to bring its radio up
 
@@ -68,6 +69,18 @@ function log(fmt, ...args) {
 
 function note(fmt, ...args) {
 	syslog(LOG_WARNING, fmt, ...args);
+}
+
+// within is how long a wait may be: what it asks for, cut to what is left
+// of the time the whole test has. Every wait after another, at its longest,
+// comes to more than the agent gives the test before it takes it for dead;
+// so the last of them give way, and the result says what was not seen.
+let began = clock(true);
+
+function within(secs) {
+	let c = clock(true);
+	let left = LONGEST - ((c[0] - began[0]) + (c[1] - began[1]) / 1e9);
+	return left < secs ? (left > 0 ? left : 0) : secs;
 }
 
 function now() {
@@ -133,7 +146,7 @@ function bind_again(addr) {
 	sleep(3000);
 	fs.writefile(driver + '/bind', addr);
 	let up = false;
-	for (let i = 0; i < BOUND_WAIT * 2 && !up; i++) {
+	for (let i = 0; i < within(BOUND_WAIT) * 2 && !up; i++) {
 		sleep(500);
 		up = length(fs.lsdir(dev + '/ieee80211') ?? []) > 0;
 	}
@@ -155,7 +168,7 @@ let lent = false;   // the radio is on loan from an airscan that runs on
 // waited for until it is between its jobs, with none about to start.
 function free() {
 	let from = now(), lends = can('lend');
-	while (now() - from < FREE_WAIT) {
+	while (now() - from < within(FREE_WAIT)) {
 		if (lends) {
 			if (bus.call('airscan', 'lend', { seconds: LOAN, to: 'an Aeolus client test' })?.lent) {
 				for (let i = 0; i < 20 && bus.call('airscan', 'status')?.state != 'lent'; i++)
@@ -461,7 +474,7 @@ function heard_now() {
 // looked waits for a look airscan made at or after a time, and says how
 // many networks it heard: null where it made none in the seconds given.
 function looked(from, wait) {
-	for (let i = 0; i < wait * 2; i++) {
+	for (let i = 0; i < within(wait) * 2; i++) {
 		let h = heard_now();
 		if (h && h.time >= from)
 			return h.count;
@@ -479,7 +492,7 @@ function sweeps() {
 // swept waits for the sweep of the spectrum airscan makes once it has the
 // radio back, and says whether it made it.
 function swept(from) {
-	for (let i = 0; i < SWEEP_WAIT; i++) {
+	for (let i = 0; i < within(SWEEP_WAIT); i++) {
 		let s = bus.call('airscan', 'status');
 		if (s?.last?.spectral >= from && s.state in ['clients', 'idle'])
 			return true;
