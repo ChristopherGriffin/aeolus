@@ -223,14 +223,22 @@ func testWay(d *clientTest) (way []wayPoint, stopped string) {
 	// What the test measured, where its steps do not say: all that is left
 	// of a test whose steps were cut short, or kept by a manager from
 	// before they were.
-	measured := func(k string, ok bool, ms *float64) {
-		if p := at(k); p != nil && p.State == "none" && ok {
-			p.State, p.MS = "ok", ms
+	measured := func(k string, ok bool, ms *float64) bool {
+		p := at(k)
+		if p == nil || p.State != "none" || !ok {
+			return false
 		}
+		p.State, p.MS = "ok", ms
+		return true
 	}
+	// Whether the address's time is DHCP's own, from its first asking: its
+	// step's own, or the test's measure of it.
+	whole := wire && slices.ContainsFunc(steps, func(s wayStep) bool { return s.K == "dhcp" && s.OK != nil && *s.OK && s.MS != nil })
 	if d.DHCP != nil {
 		ms := float64(d.DHCP.MS)
-		measured("dhcp", true, &ms)
+		if measured("dhcp", true, &ms) {
+			whole = wire
+		}
 	}
 	if g := d.Gateway; g != nil {
 		ms := g.Avg
@@ -239,7 +247,7 @@ func testWay(d *clientTest) (way []wayPoint, stopped string) {
 		}
 		measured("gateway", g.Got > 0 || g.ARPMS != nil || g.MAC != "", ms)
 	}
-	if n := d.DNS; n != nil && n.Rcode != nil && *n.Rcode == 0 {
+	if n := d.DNS; n != nil && n.Rcode != nil && *n.Rcode == 0 && n.Answers > 0 {
 		var ms *float64
 		if n.MS != nil {
 			v := float64(*n.MS)
@@ -251,7 +259,7 @@ func testWay(d *clientTest) (way []wayPoint, stopped string) {
 	// first asking: with the offer a point of its own, what is left after
 	// it. The step itself comes later than the acknowledgement did, by the
 	// test's own look for another that uses the address.
-	if offer, given := at("offer"), at("dhcp"); wire && offer != nil && given != nil && offer.MS != nil && given.MS != nil && given.State == "ok" {
+	if offer, given := at("offer"), at("dhcp"); whole && offer != nil && given != nil && offer.MS != nil && given.MS != nil && given.State == "ok" {
 		left := max(0, *given.MS-*offer.MS)
 		given.MS = &left
 	}
