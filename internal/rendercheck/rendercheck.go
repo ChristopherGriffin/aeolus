@@ -137,6 +137,7 @@ var Coverage = map[string]string{
 	"assurance.tests.every":           "not sent to APs: the manager asks the tests (0123)",
 	"assurance.tests.speed":           "not sent to APs: the manager asks the tests (0123)",
 	"assurance.tests.wire":            "not sent to APs: the manager asks the tests (0128)",
+	"assurance.tests.over":            "not sent to APs: the manager asks the tests (0131)",
 	"boards.*.ports.*.enabled":        folded,
 	"boards.*.ports.*.speed":          folded,
 	"boards.*.uplink.stp":             folded,

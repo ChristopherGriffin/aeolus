@@ -45,4 +45,4 @@
 - **A test and a client can be set side by side:** the same points, timed the same way but for what only one of them can see. A test knows when it began to look; an AP sees a client first at its authentication.
 - **The times are worked out at each reading, and kept nowhere.** To trend them over weeks they want keeping: a row a point, by network, AP and band, tests and clients alike. That is the next step, and this reading is what would fill it.
 - **A network's way reads up to 2000 attempts whole at each look.** That is a few ms in the lab; on a site of thousands of clients it wants the kept rows above.
-- **Not in this:** a choice of tests, through the air, over the wire, or both, for a schedule and for a round (0123, 0129); a step saying what the radio saw, frames sent, acknowledged and heard, so a test that hears nothing back says where the frames stopped.
+- **Not in this:** a step saying what the radio saw, frames sent, acknowledged and heard, so a test that hears nothing back says where the frames stopped.
