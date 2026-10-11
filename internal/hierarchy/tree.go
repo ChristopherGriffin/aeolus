@@ -59,6 +59,8 @@ var (
 	ErrLockOnValue = errors.New("a lock needs a value set at the same node")
 	ErrIsolated    = errors.New("inside an isolated folder: nothing can be set there, and it holds only APs")
 	ErrNotAnAP     = errors.New("node is not an AP")
+	ErrNotAFolder  = errors.New("node is not a folder that can be removed: the Org and an isolated folder stay")
+	ErrNotEmpty    = errors.New("the folder is not empty")
 )
 
 // Tree is one hierarchy under the Org: Locations or Services (0013).
@@ -175,6 +177,41 @@ func (t *Tree) RemoveAP(id NodeID) ([]Override, error) {
 		}
 	}
 	delete(t.nodes, id)
+	delete(t.set, id)
+	delete(t.base, id)
+	delete(t.locks, id)
+	return removed, nil
+}
+
+// RemoveFolder takes a folder out of the tree, with whatever was set at it,
+// which it returns, its locks and its baseline. The folder must hold
+// nothing, no folder and no AP: what is in it is moved or removed first.
+// The Org root stays, and so does an isolated folder (0032).
+func (t *Tree) RemoveFolder(id NodeID) ([]Override, error) {
+	n, ok := t.nodes[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	if n.Kind != KindFolder || n.Isolated {
+		return nil, fmt.Errorf("%w: %s", ErrNotAFolder, id)
+	}
+	if len(t.children[id]) > 0 {
+		return nil, fmt.Errorf("%w: %s holds %d", ErrNotEmpty, id, len(t.children[id]))
+	}
+	var removed []Override
+	for p, v := range t.set[id] {
+		removed = append(removed, Override{Node: id, Path: p, Value: v})
+	}
+	sort.Slice(removed, func(i, j int) bool { return removed[i].Path < removed[j].Path })
+	siblings := t.children[n.Parent]
+	for i, c := range siblings {
+		if c == id {
+			t.children[n.Parent] = append(siblings[:i:i], siblings[i+1:]...)
+			break
+		}
+	}
+	delete(t.nodes, id)
+	delete(t.children, id)
 	delete(t.set, id)
 	delete(t.base, id)
 	delete(t.locks, id)

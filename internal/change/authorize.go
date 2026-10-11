@@ -153,6 +153,26 @@ func Authorize(s *State, actor string, op Op) error {
 		return fmt.Errorf("%w: an AP says what it is itself, through POST /v1/ap/facts", ErrForbidden)
 	case RemoveAP:
 		return need(access.Operator, Locations, op.Node)
+	case RemoveFolder:
+		// As making one: operator where it hangs. Roles granted on it go
+		// with it, which is an admin's to do, as revoking them is.
+		t, err := tree(s.Org, op.Tree)
+		if err != nil {
+			return nil // Apply reports the unknown tree
+		}
+		n, ok := t.Node(op.Node)
+		if !ok {
+			return nil // Apply reports the unknown node
+		}
+		for _, g := range s.Access.Grants() {
+			if g.Tree == string(op.Tree) && g.Node == op.Node {
+				return need(access.Admin, op.Tree, op.Node)
+			}
+		}
+		if n.Parent == "" {
+			return need(access.Admin, op.Tree, op.Node)
+		}
+		return need(access.Operator, op.Tree, n.Parent)
 	case IssueToken:
 		if op.Account == who {
 			return nil

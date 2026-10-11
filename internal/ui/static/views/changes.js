@@ -60,6 +60,7 @@ function summary(ctx, op) {
 	case 'enroll': return `AP ${op.name} enrolled (${op.value?.mac || op.node})`;
 	case 'facts': return `AP ${node(op.node, 'locations')} said what it is again`;
 	case 'remove-ap': return `remove AP ${op.node}`;
+	case 'remove-folder': return `${op.tree}: remove folder ${op.node}`;
 	case 'set-concentrator': return `library: set concentrator ${op.concentrator}`;
 	case 'remove-concentrator': return `library: remove concentrator ${op.concentrator}`;
 	case 'set-vni': return `library: VNI ${op.vni} on ${op.concentrator} = ${op.name}`;

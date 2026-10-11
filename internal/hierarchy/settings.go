@@ -42,6 +42,16 @@ func (t *Tree) EachSet(fn func(node NodeID, p Path, v Value)) {
 	}
 }
 
+// EachBase calls fn for every value copied at a break (0005), in no
+// particular order: what a branch keeps of what it used to inherit.
+func (t *Tree) EachBase(fn func(node NodeID, p Path, v Value)) {
+	for n, vals := range t.base {
+		for p, v := range vals {
+			fn(n, p, v)
+		}
+	}
+}
+
 // IsLocked reports whether the node itself locks p.
 func (t *Tree) IsLocked(id NodeID, p Path) bool { return t.locks[id][p] }
 

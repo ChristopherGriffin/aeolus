@@ -436,3 +436,45 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// A folder that holds nothing is removed by whoever may make one there
+// (0125): an operator where it hangs, an admin where roles are granted on it.
+func TestRemoveFolderThroughTheAPI(t *testing.T) {
+	f := newFixture(t)
+	add := func(node string) {
+		t.Helper()
+		if code, b := f.change("griff", map[string]any{"kind": "add-folder", "tree": "locations", "node": node, "name": node, "parent": "house"}); code != 200 {
+			t.Fatalf("add %s: %d %v", node, code, b)
+		}
+	}
+	remove := func(as, tree, node string) (int, map[string]any) {
+		return f.change(as, map[string]any{"kind": "remove-folder", "tree": tree, "node": node})
+	}
+	add("spare")
+	add("granted")
+	if code, b := f.change("griff", map[string]any{"kind": "grant", "account": "tenant", "tree": "locations", "node": "granted", "role": "viewer"}); code != 200 {
+		t.Fatalf("grant: %d %v", code, b)
+	}
+	if code, _ := remove("tenant", "locations", "spare"); code != 403 {
+		t.Fatalf("a tenant removed a folder: %d", code)
+	}
+	if code, _ := remove("claude", "locations", "granted"); code != 403 {
+		t.Fatalf("an operator removed a folder with roles granted on it: %d", code)
+	}
+	if code, b := remove("claude", "locations", "office"); code == 200 {
+		t.Fatalf("a folder with an AP in it was removed: %v", b)
+	}
+	if code, b := remove("claude", "services", "household"); code == 200 {
+		t.Fatalf("a Services folder on offer was removed: %v", b)
+	}
+	code, b := remove("claude", "locations", "spare")
+	if code != 200 || len(b["reversioned"].([]any)) != 0 {
+		t.Fatalf("an operator removing an empty folder: %d %v", code, b)
+	}
+	if code, b := remove("griff", "locations", "granted"); code != 200 {
+		t.Fatalf("an admin removing a folder with roles on it: %d %v", code, b)
+	}
+	if code, _ := f.do("GET", "/v1/trees/locations/nodes/spare", "griff", nil); code != 404 {
+		t.Fatalf("the removed folder's page: %d", code)
+	}
+}

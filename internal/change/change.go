@@ -71,6 +71,9 @@ const (
 	// enrolled or last said (0122).
 	Facts Kind = "facts"
 
+	// A folder that holds nothing, taken away (0125).
+	RemoveFolder Kind = "remove-folder"
+
 	// Per-user keys (0014, 0070).
 	AddKey    Kind = "add-key"
 	SetKey    Kind = "set-key"
@@ -267,6 +270,8 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 		eff, err = applyAccess(s, op)
 	case Enroll, RemoveAP, Facts:
 		eff, err = applyAP(s, op)
+	case RemoveFolder:
+		eff, err = removeFolder(s, op)
 	case AddKey, SetKey, RemoveKey:
 		eff, err = applyKey(s, op)
 	default:
@@ -344,7 +349,7 @@ func validate(op Op) error {
 		if len(op.Value) == 0 {
 			return ErrNoFacts
 		}
-	case RemoveAP:
+	case RemoveAP, RemoveFolder:
 	case AddKey, SetKey, RemoveKey:
 		return validateKey(op)
 	case GrantRole, RevokeRole:
