@@ -28,6 +28,63 @@ type clientTestAsk struct {
 	BSSIDs  []string `json:"bssids,omitempty"`
 	Band    string   `json:"band,omitempty"`
 	Speed   string   `json:"speed,omitempty"`
+	EAP     *testEAP `json:"eap,omitempty"`
+}
+
+// testEAP is the user a test signs in as, on a network that signs clients
+// in by 802.1X (0124): how, and its name. Its password is put in only on
+// the way to the AP that makes the test: it is not kept with the action,
+// and nobody reads it back.
+type testEAP struct {
+	Method   string `json:"method"`
+	Identity string `json:"identity"`
+	Password string `json:"password,omitempty"`
+}
+
+// enterprise are the ways a network signs each client in as itself, by
+// 802.1X: a test joins one as the network's test user, where it has one.
+var enterprise = map[string]bool{"wpa2-enterprise": true, "wpa3-enterprise": true, "wpa2-wpa3-enterprise": true}
+
+// testUser is the user a network's tests sign in as on an AP (0124), as its
+// folders have it: nil where the network has none, or no password for it.
+// sealed is that password, still sealed.
+func testUser(state *change.State, ap hierarchy.NodeID, network string) (user *testEAP, sealed any) {
+	cfg, err := state.Org.ResolveAP(ap)
+	if err != nil {
+		return nil, nil
+	}
+	f := cfg.Networks[network].Fields
+	name, _ := f["radius.test.user"].Value.(string)
+	pass, ok := f[change.TestPassword]
+	if name == "" || !ok {
+		return nil, nil
+	}
+	method, _ := f["radius.test.method"].Value.(string)
+	if method == "" {
+		method = "peap"
+	}
+	return &testEAP{Method: method, Identity: name}, pass.Value
+}
+
+// cannotTest says why a test cannot join a network as an AP's config has
+// it, or nothing where it can: one that gives each device a passphrase of
+// its own from RADIUS (0115), or signs clients in by 802.1X and has no test
+// user (0124).
+func cannotTest(state *change.State, ap hierarchy.NodeID, network string, n map[string]any) string {
+	sec, _ := n["security"].(string)
+	if rad, _ := n["radius"].(map[string]any); rad["passphrases"] == true {
+		return "gives each device a passphrase of its own from RADIUS (0115), and the test has none"
+	}
+	if enterprise[sec] {
+		if u, _ := testUser(state, ap, network); u == nil {
+			return "signs clients in by 802.1X, and has no test user to sign in as (radius.test.user and radius.test.password, 0124)"
+		}
+		return ""
+	}
+	if !testable[sec] {
+		return "is secured in a way the test does not know"
+	}
+	return ""
 }
 
 // testable are the ways a network is secured that the test can join: with
@@ -88,17 +145,17 @@ func (s *Server) clientTestOf(state *change.State, ap hierarchy.NodeID, network,
 		return ask, badRequest("network: one of the networks this AP offers")
 	}
 	ssid, _ := n["ssid"].(string)
-	sec, _ := n["security"].(string)
-	if rad, _ := n["radius"].(map[string]any); rad["passphrases"] == true {
-		return ask, badRequest("network %s gives each device a passphrase of its own from RADIUS (0115), and the test has none", network)
-	}
-	if !testable[sec] {
-		return ask, badRequest("network %s signs clients in by 802.1X, which the test cannot do yet", network)
+	if why := cannotTest(state, ap, network, n); why != "" {
+		return ask, badRequest("network %s %s", network, why)
 	}
 	if band != "" && !bands[band] {
 		return ask, badRequest("band: 2g, 5g or 6g, or none for any")
 	}
 	ask = clientTestAsk{Network: network, On: on, SSID: ssid, Band: band}
+	ask.EAP, _ = testUser(state, ap, network)
+	if sec, _ := n["security"].(string); !enterprise[sec] {
+		ask.EAP = nil
+	}
 	if on != "" {
 		id := hierarchy.NodeID(on)
 		target, ok := t.Node(id)
@@ -234,7 +291,7 @@ type testScanning struct {
 	Again    *int `json:"again,omitempty"`
 }
 
-var testStages = map[string]bool{"find": true, "auth": true, "assoc": true, "key": true, "dhcp": true, "gateway": true, "dns": true, "speed": true}
+var testStages = map[string]bool{"find": true, "auth": true, "assoc": true, "signin": true, "key": true, "dhcp": true, "gateway": true, "dns": true, "speed": true}
 
 func (t *clientTest) check() error {
 	bad := func(format string, args ...any) error {

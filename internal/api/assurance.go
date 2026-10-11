@@ -172,9 +172,8 @@ func (s *Server) assureCombos(state *change.State, ap hierarchy.NodeID, docs map
 	var out []assureCombo
 	for _, id := range ids {
 		n, _ := mine[id].(map[string]any)
-		sec, _ := n["security"].(string)
 		// Not one turned off here (0012), nor one a test cannot join.
-		if rad, _ := n["radius"].(map[string]any); !testable[sec] || rad["passphrases"] == true || n["enabled"] == false {
+		if n["enabled"] == false || cannotTest(state, ap, id, n) != "" {
 			continue
 		}
 		for _, p := range places {

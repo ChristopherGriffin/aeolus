@@ -141,6 +141,22 @@ printf('credentials: an ID the AP has no section for %J, its section under anoth
 printf('dfs: channel 132 %J, 36 and 149 %J, 2.4 GHz and 6 GHz %J, 48 with 52 %J, none %J\n',
 	ct.dfs([5660]), ct.dfs([5180, 5745]), ct.dfs([2412, 5955, 6115]), ct.dfs([5240, 5260]), ct.dfs(null));
 
+// A network that signs clients in by 802.1X (0124): the user the test was
+// given, PEAP or TTLS, on WPA2-Enterprise, WPA3-Enterprise or both.
+let user = ct.wanted({ ssid: 'Aeolus-Enterprise', eap: { method: 'peap', identity: 'aeolus-test', password: 'a "quoted" pass' } });
+printf('wanted with a user %J\n', user.eap);
+printf('wanted with a user: no password %J, a method there is none of %J, a name too long %J\n',
+	ct.wanted({ ssid: 'x', eap: { method: 'peap', identity: 'u' } }), ct.wanted({ ssid: 'x', eap: { method: 'tls', identity: 'u', password: 'p' } }),
+	ct.wanted({ ssid: 'x', eap: { method: 'peap', identity: join('', map([1, 2, 3, 4, 5, 6, 7, 8, 9], x => '0123456789abcdef')), password: 'p' } }));
+for (let e in ['wpa2', 'wpa3', 'wpa3-mixed', 'wpa'])
+	printf('enterprise %s: %J\n', e, ct.supplicant('/var/run/x', 'Aeolus-Enterprise', { encryption: e }, { bssids: ['20:05:b6:01:8b:ed'], freqs: [5220] }, user.eap));
+printf('enterprise by TTLS: %J\n', ct.supplicant('/var/run/x', 'Aeolus-Enterprise', { encryption: 'wpa2' }, null, { method: 'ttls', identity: 'u', password: 'p' }));
+printf('enterprise with no user: %J\n', ct.supplicant('/var/run/x', 'Aeolus-Enterprise', { encryption: 'wpa3-mixed' }, null, null));
+for (let l in ['<3>CTRL-EVENT-EAP-STARTED EAP authentication started', '<3>CTRL-EVENT-EAP-PROPOSED-METHOD vendor=0 method=25',
+	'<3>CTRL-EVENT-EAP-METHOD EAP vendor 0 method 25 (PEAP) selected', '<3>CTRL-EVENT-EAP-PEER-CERT depth=0 subject=\'/CN=zephyrus\'',
+	'<3>CTRL-EVENT-EAP-SUCCESS EAP authentication completed successfully', '<3>CTRL-EVENT-EAP-FAILURE EAP authentication failed'])
+	printf('eap event %J\n', ct.event(l));
+
 // What a test's findings come to, and how each reads in a line.
 let found = () => ({
 	ssid: 'Aeolus Lab', joined_ms: 636, dhcp: { ms: 284, address: '192.168.20.108' },
@@ -169,3 +185,4 @@ show('DNS silent', { ...found(), dns: { server: '192.168.20.254', name: 'example
 show('DNS has no such name', { ...found(), dns: { server: '192.168.20.254', name: 'nowhere.invalid', rcode: 3, answers: 0, ms: 12 } });
 show('speed server unreachable', { ...found(), speed: { server: 'http://192.168.20.106', error: 'Connection refused' } });
 show('a reason that is not plain text', { stopped: { stage: 'find', why: 'caf\xc3\xa9 ' + join('', map([1, 2, 3, 4, 5, 6, 7, 8], x => 'a long reason that goes on and on and on, ')) } });
+show('the sign-in refused', { stopped: { stage: 'signin', why: 'the sign-in was refused' } });

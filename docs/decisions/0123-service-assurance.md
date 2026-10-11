@@ -65,7 +65,7 @@
 - **A test on a DFS channel costs the scan radio a driver restart** each time (0121).
 - **Each test is a client on the network:** a DHCP lease, a line in the client history of the AP it joined (0118), under the scan radio's own MAC and the name `aeolus-test`.
 - **Only what an AP with a scan radio can reach is tested.** A site with none has an empty tab, which says so.
-- **Networks that sign clients in by 802.1X are not tested** (0121).
+- **A network that signs clients in by 802.1X is tested once it has a test user** (0124), and left out until then.
 
 ## Tried
 
@@ -73,7 +73,6 @@
 
 ## Not done here
 
-- **Networks that sign clients in by 802.1X,** which need a user for the test (0121).
 - **A test's speed held against what the network should give,** and an alert when it falls.
 - **How a thing did over a week:** only the counts of the time asked for are shown.
 - **An AP's own Assurance tab.**

@@ -121,10 +121,45 @@ func (s *Server) apActions(w http.ResponseWriter, _ *http.Request, c apCall) err
 		if len(a.Params) > 0 {
 			x["params"] = a.Params
 		}
+		// A test of a network that signs clients in takes its user's
+		// password with it (0124): opened here, for the AP alone.
+		if a.Kind == "client-test" {
+			if p, ok := s.withTestPassword(c.ap, a.Params); ok {
+				x["params"] = p
+			}
+		}
 		out = append(out, x)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"actions": out})
 	return nil
+}
+
+// withTestPassword puts the password of a test's user in what the AP is
+// handed (0124), where the test has a user: read from the network as the
+// AP's folders have it now, and opened. A password that is gone, or does
+// not open, leaves the test without one, and the AP says it cannot sign in.
+func (s *Server) withTestPassword(ap hierarchy.NodeID, params json.RawMessage) (json.RawMessage, bool) {
+	var ask clientTestAsk
+	if json.Unmarshal(params, &ask) != nil || ask.EAP == nil {
+		return nil, false
+	}
+	state := s.log.Snapshot()
+	if state == nil {
+		return nil, false
+	}
+	user, sealed := testUser(state, ap, ask.Network)
+	if user == nil {
+		return nil, false
+	}
+	v, err := s.reveal("network."+ask.Network+"."+change.TestPassword, sealed)
+	pass, _ := v.(string)
+	if err != nil || pass == "" {
+		slog.Warn("client test: its user's password does not open", "ap", ap, "network", ask.Network, "err", err)
+		return nil, false
+	}
+	ask.EAP.Password = pass
+	out, err := json.Marshal(ask)
+	return out, err == nil
 }
 
 // apActionDone is what came of one: POST /v1/ap/actions/{id} {ok, result,

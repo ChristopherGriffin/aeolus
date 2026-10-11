@@ -177,6 +177,7 @@ Each milestone ends in something checkable before the next starts.
 | [0121](docs/decisions/0121-client-tests.md) | A client test from the scan radio |
 | [0122](docs/decisions/0122-an-ap-says-again-what-it-is.md) | An AP says again what it is |
 | [0123](docs/decisions/0123-service-assurance.md) | Service assurance: client tests on a schedule |
+| [0124](docs/decisions/0124-client-tests-that-sign-in.md) | Client tests that sign in |
 
 ## Open questions
 
