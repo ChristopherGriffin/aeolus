@@ -1407,7 +1407,8 @@ function health_state() {
 // did not (none once it has), and how long ago the last was. Null on an AP
 // with no scan radio; missing where it has one and airscan does not answer;
 // lent where it does not answer because a client test has stopped it for
-// its own use (0121), as one does with an airscan that lends no radio.
+// its own use (0121), as one does with an airscan that lends no radio: the
+// test says so for as long as it has it stopped, not while it only waits.
 const SCAN_STATES = { idle: 'idle', clients: 'clients', bss: 'bss', spectral: 'spectral', lent: 'lent', healing: 'healing' };
 
 function scan_radio_state() {
@@ -1419,7 +1420,7 @@ function scan_radio_state() {
 		return null;
 	let st = bus.call('airscan', 'status');
 	if (type(st) != 'object')
-		return { state: fs.access('/var/run/aeolus/clienttest/running') ? 'lent' : 'missing' };
+		return { state: fs.access('/var/run/aeolus/clienttest/stopped') ? 'lent' : 'missing' };
 	let out = { state: SCAN_STATES[st.state] ?? 'waiting' };
 	let b = bus.call('airscan', 'bss');
 	if (type(b?.list) == 'array' && type(b.time) == 'int' && b.time > 0) {
@@ -1804,7 +1805,7 @@ function tests_done(token) {
 		if (fs.access('/sys/class/net/aet-sta0'))
 			system(['iw', 'dev', 'aet-sta0', 'del']);
 		// Its passphrase file among what it left.
-		for (let f in ['wpa.conf', 'wpa.pid', 'lease', 'udhcpc.sh', 'ctl'])
+		for (let f in ['wpa.conf', 'wpa.pid', 'lease', 'udhcpc.sh', 'ctl', 'stopped'])
 			fs.unlink(CT_DIR + '/' + f);
 		if (fs.access('/etc/init.d/airscan'))
 			system('/etc/init.d/airscan start >/dev/null 2>&1');

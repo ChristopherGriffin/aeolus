@@ -51,7 +51,7 @@ function over(c) {
 	const runs = c.runs || [];
 	if (runs.length < 2) return null;
 	const good = runs.filter((r) => r.passed);
-	const said = (r) => `${clock(r.at)}: ${r.passed ? `passed, let on in ${secs(r.joined_ms)}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}`
+	const said = (r) => `${clock(r.at)}: ${r.passed ? `passed${r.joined_ms ? `, let on in ${secs(r.joined_ms)}` : ''}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}`
 		: `failed at ${r.stage}`}`;
 	const times = [['let on in', span(good, 'joined_ms')], ['an address in', span(good, 'dhcp_ms')], ['DNS in', span(good, 'dns_ms')]]
 		.filter(([, v]) => v).map(([k, v]) => `${k} ${v}`);
