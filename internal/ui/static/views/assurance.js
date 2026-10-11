@@ -120,7 +120,7 @@ function joined(n) {
 				n.typical_ms > 0 && `typically online in ${secs(n.typical_ms)}`,
 				most && `${n.failed ? 'most' : 'some'} stopped at ${STAGE[most.stage] || most.stage}`].filter(Boolean).join(' · ')),
 			status),
-		n.way?.some((p) => p.passed) && h('div', { class: 'attempt' }, typicalPath(n.way, `${n.way_of < n.attempts ? 'the latest ' : ''}${many(n.way_of, 'attempt')}`)),
+		n.way?.some((p) => p.passed || p.stopped) && h('div', { class: 'attempt' }, typicalPath(n.way, `${n.way_of < n.attempts ? 'the latest ' : ''}${many(n.way_of, 'attempt')}`)),
 		h('p', { class: 'sub' }, `${many(n.attempts, 'attempt')}, ${n.attempts_failed} failed. A client got on where one of its attempts came online or was let on; it did not where one failed and none got on. One that left of its own accord, as for another AP, is neither.`),
 		n.stops.length > 0 && h('table', { class: 'list' },
 			h('tr', null, ['Failed attempts stopped at', 'Why, as the AP put it', 'Attempts', 'Clients', 'Latest'].map((t) => h('th', null, t))),
@@ -175,7 +175,7 @@ function check(ctx, c) {
 				!c.scheduled && tried > 0 && 'not on the schedule'].filter(Boolean).join(' · ')),
 			status),
 		over(c),
-		c.way?.some((p) => p.passed) && tried > 1 && h('div', { class: 'attempt' }, typicalPath(c.way, many(tried, 'test'))),
+		c.way?.some((p) => p.passed || p.stopped) && tried > 1 && h('div', { class: 'attempt' }, typicalPath(c.way, many(tried, 'test'))),
 		c.last && tried > 1 && h('p', { class: 'sub attemptlinks' }, 'Its latest test:'),
 		c.last ? testOpened(c.last) : h('p', { class: 'sub' }, 'No test of it has been made yet.'));
 	d.addEventListener('toggle', () => (d.open ? open.add(key) : open.delete(key)));

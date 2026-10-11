@@ -33,15 +33,16 @@ type wayStep struct {
 }
 
 // wayKind is how one kind of way is read: its points in order; those whose
-// time is their answer's own, as the step says it; those with no time but
-// that one, where the time between two steps says nothing, as of a
-// gateway pinged three times a second apart; those done at their first
-// success, as a first name looked up is, where the others are done at
-// their last step; and those left out where nothing was seen of them.
+// time is their answer's own, as the step says it; those never timed from
+// the point before, where that time says nothing, as of a gateway pinged
+// three times a second apart, or of an address a client asked for when it
+// chose to; those done at their first success, as a first name looked up
+// is, where the others are done at their last step; and those left out
+// where nothing was seen of them.
 type wayKind struct {
 	order    []string
 	own      map[string]bool
-	ownOnly  map[string]bool
+	noGap    map[string]bool
 	first    map[string]bool
 	optional map[string]bool
 	// fromStart says the steps' times are from the start of the way, as a
@@ -64,7 +65,7 @@ var (
 	wayAir = wayKind{
 		order:     []string{"find", "auth", "assoc", "signin", "key", "dhcp", "gateway", "dns", "speed"},
 		own:       set("dhcp", "gateway", "dns"),
-		ownOnly:   set("gateway", "dns", "speed"),
+		noGap:     set("gateway", "dns", "speed"),
 		optional:  set("signin", "speed"),
 		fromStart: true,
 	}
@@ -73,15 +74,18 @@ var (
 	// 0130 says nothing of the offer, and its address is one point.
 	wayWire = wayKind{
 		order:     []string{"offer", "dhcp", "gateway", "dns", "release"},
-		own:       set("gateway", "dns"),
-		ownOnly:   set("gateway", "dns", "release"),
+		own:       set("dhcp", "gateway", "dns"),
+		noGap:     set("gateway", "dns", "release"),
 		optional:  set("offer", "release"),
 		fromStart: true,
 	}
-	// A client's own attempt (0118), as its AP saw it.
+	// A client's own attempt (0118), as its AP saw it. What a client asks
+	// for, it asks for when it chooses: how long after its keys says
+	// nothing of the network.
 	wayClient = wayKind{
 		order:    connStages,
 		own:      set("gateway", "dns", "internet"),
+		noGap:    set("dhcp", "gateway", "dns", "internet"),
 		first:    set("gateway", "dns", "internet"),
 		optional: set("signin"),
 	}
@@ -91,10 +95,15 @@ var (
 // the point the whole stopped at, where it failed: that point is bad though
 // no step of it says so, as of an address asked for and never answered.
 //
+// How a point went is what its last step that says said: a look that
+// missed and then found the network went well. One done at its first
+// success went well where any step did.
+//
 // How long a point took is, the first of these that applies: its answer's
 // own time, where its kind takes that and the step says it; from its first
 // step to its end, where it began with a step that only asks; from the
-// point before it to its end.
+// point before it to its end, where its kind is timed so. One only begun
+// has no time.
 func wayOf(steps []wayStep, kind wayKind, failed string) []wayPoint {
 	by := map[string][]wayStep{}
 	for _, s := range steps {
@@ -106,24 +115,25 @@ func wayOf(steps []wayStep, kind wayKind, failed string) []wayPoint {
 	for _, k := range kind.order {
 		mine := by[k]
 		p := wayPoint{K: k, State: "none"}
-		if k == failed {
-			p.State = "bad"
-		}
 		if len(mine) == 0 {
+			if k == failed {
+				p.State = "bad"
+			}
 			if !kind.optional[k] || p.State == "bad" {
 				out = append(out, p)
 			}
 			continue
 		}
 		// Where it was done: at its first success, or at its last step.
-		end, won := mine[len(mine)-1], false
+		end := mine[len(mine)-1]
+		var said *bool
+		won := false
 		for _, s := range mine {
 			if s.OK == nil {
 				continue
 			}
-			if !*s.OK {
-				p.State = "bad"
-			} else if !won {
+			said = s.OK
+			if *s.OK && !won {
 				won = true
 				if kind.first[k] {
 					end = s
@@ -131,22 +141,23 @@ func wayOf(steps []wayStep, kind wayKind, failed string) []wayPoint {
 			}
 		}
 		switch {
-		case p.State == "bad":
-		case won:
+		case k == failed:
+			p.State = "bad"
+		case kind.first[k] && won, said != nil && *said:
 			p.State = "ok"
+		case said != nil:
+			p.State = "bad"
 		default:
 			p.State = "begun"
 		}
-		// A point begun and not seen through has no time: it took none yet.
 		var ms float64 = -1
 		switch {
 		case p.State == "begun":
 		case kind.own[k] && p.State == "ok" && end.MS != nil:
 			ms = *end.MS
-		case kind.ownOnly[k]:
 		case mine[0].OK == nil && len(mine) > 1 && end.T >= mine[0].T:
 			ms = float64(end.T - mine[0].T)
-		case begun && end.T >= before:
+		case !kind.noGap[k] && begun && end.T >= before:
 			ms = float64(end.T - before)
 		}
 		if ms >= 0 {
@@ -158,15 +169,21 @@ func wayOf(steps []wayStep, kind wayKind, failed string) []wayPoint {
 	return out
 }
 
-// testWay is a client test's way. A step belongs to the point it names,
-// or to its stage.
-func testWay(d *clientTest) []wayPoint {
+// testWay is a client test's way, and the point it stopped at, where it
+// failed at one of them. A step belongs to the point it names, or to its
+// stage.
+func testWay(d *clientTest) (way []wayPoint, stopped string) {
 	wire := d.Band == wireBand
+	kind := wayAir
+	if wire {
+		kind = wayWire
+	}
 	steps := make([]wayStep, len(d.Steps))
 	past := false
 	for i, s := range d.Steps {
 		k := s.K
-		if k == "" {
+		// A point that is none of this kind's is read as its stage.
+		if k == "" || !slices.Contains(kind.order, k) {
 			k = s.Stage
 			// Over the wire the address is given back at the end, which an
 			// agent from before 0130 says as one more step of DHCP.
@@ -182,45 +199,68 @@ func testWay(d *clientTest) []wayPoint {
 			steps[i].OK = &yes
 		}
 	}
-	failed := ""
 	if d.Outcome == "failed" {
-		failed = d.Stage
-	}
-	kind := wayAir
-	if wire {
-		kind = wayWire
-		// It stopped at DHCP: before an offer, where it was asking for
-		// one and none came.
-		if failed == "dhcp" && slices.ContainsFunc(steps, func(s wayStep) bool { return s.K == "offer" && s.OK != nil && !*s.OK }) {
-			failed = "offer"
+		stopped = d.Stage
+		// Over the wire it stopped at DHCP: before an offer, where it was
+		// asking for one and none came.
+		if wire && stopped == "dhcp" && slices.ContainsFunc(steps, func(s wayStep) bool { return s.K == "offer" && s.OK != nil && !*s.OK }) {
+			stopped = "offer"
 		}
 	}
-	way := wayOf(steps, kind, failed)
-	for i := range way {
-		p := &way[i]
-		if p.State != "ok" || p.MS != nil {
-			continue
+	way = wayOf(steps, kind, stopped)
+	if !slices.Contains(kind.order, stopped) {
+		// It stopped before any of them, as one that could not be made.
+		stopped = ""
+	}
+	at := func(k string) *wayPoint {
+		for i := range way {
+			if way[i].K == k {
+				return &way[i]
+			}
 		}
-		// What the test measured, where its steps do not say: all a
-		// manager kept of a test from before its steps were.
-		switch {
-		case p.K == "dhcp" && d.DHCP != nil && kind.own["dhcp"]:
-			ms := float64(d.DHCP.MS)
-			p.MS = &ms
-		case p.K == "gateway" && d.Gateway != nil && d.Gateway.Avg != nil:
-			p.MS = d.Gateway.Avg
-		case p.K == "gateway" && d.Gateway != nil:
-			p.MS = d.Gateway.ARPMS
-		case p.K == "dns" && d.DNS != nil && d.DNS.MS != nil:
-			ms := float64(*d.DNS.MS)
-			p.MS = &ms
+		return nil
+	}
+	// What the test measured, where its steps do not say: all that is left
+	// of a test whose steps were cut short, or kept by a manager from
+	// before they were.
+	measured := func(k string, ok bool, ms *float64) {
+		if p := at(k); p != nil && p.State == "none" && ok {
+			p.State, p.MS = "ok", ms
 		}
 	}
-	return way
+	if d.DHCP != nil {
+		ms := float64(d.DHCP.MS)
+		measured("dhcp", true, &ms)
+	}
+	if g := d.Gateway; g != nil {
+		ms := g.Avg
+		if ms == nil {
+			ms = g.ARPMS
+		}
+		measured("gateway", g.Got > 0 || g.ARPMS != nil || g.MAC != "", ms)
+	}
+	if n := d.DNS; n != nil && n.Rcode != nil && *n.Rcode == 0 {
+		var ms *float64
+		if n.MS != nil {
+			v := float64(*n.MS)
+			ms = &v
+		}
+		measured("dns", true, ms)
+	}
+	// Over the wire, the address's own time is all of DHCP's, from the
+	// first asking: with the offer a point of its own, what is left after
+	// it. The step itself comes later than the acknowledgement did, by the
+	// test's own look for another that uses the address.
+	if offer, given := at("offer"), at("dhcp"); wire && offer != nil && given != nil && offer.MS != nil && given.MS != nil && given.State == "ok" {
+		left := max(0, *given.MS-*offer.MS)
+		given.MS = &left
+	}
+	return way, stopped
 }
 
-// connWay is the way of a client's own attempt, from its AP's record of it.
-func connWay(c conditions.Connection) []wayPoint {
+// connWay is the way of a client's own attempt, from its AP's record of
+// it, and the point it stopped at, where it failed.
+func connWay(c conditions.Connection) (way []wayPoint, stopped string) {
 	var rec struct {
 		Events []connStep `json:"events"`
 	}
@@ -234,16 +274,15 @@ func connWay(c conditions.Connection) []wayPoint {
 		}
 		steps = append(steps, s)
 	}
-	failed := ""
-	if c.Outcome == "failed" {
-		failed = c.Stage
+	if c.Outcome == "failed" && slices.Contains(wayClient.order, c.Stage) {
+		stopped = c.Stage
 	}
-	return wayOf(steps, wayClient, failed)
+	return wayOf(steps, wayClient, stopped), stopped
 }
 
 // wayTypical is one point over many ways: how many passed it, and of those
 // with a time the least, the middle and the most, in ms; and how many
-// stopped at it.
+// stopped at it, going no further.
 type wayTypical struct {
 	K       string   `json:"k"`
 	Passed  int      `json:"passed"`
@@ -266,18 +305,22 @@ func newWayTally(kind wayKind) *wayTally {
 	return &wayTally{kind: kind, times: map[string][]float64{}, passed: map[string]int{}, stopped: map[string]int{}}
 }
 
-func (t *wayTally) add(way []wayPoint) {
+// add adds one way, and the point it stopped at, where it failed. A point
+// that went badly in a way that went on, as a gateway that answers nothing
+// before a name that is looked up all the same, is neither passed nor
+// where it stopped.
+func (t *wayTally) add(way []wayPoint, stopped string) {
 	t.n++
 	for _, p := range way {
-		switch p.State {
-		case "ok":
+		if p.State == "ok" && p.K != stopped {
 			t.passed[p.K]++
 			if p.MS != nil {
 				t.times[p.K] = append(t.times[p.K], *p.MS)
 			}
-		case "bad":
-			t.stopped[p.K]++
 		}
+	}
+	if stopped != "" {
+		t.stopped[stopped]++
 	}
 }
 
@@ -316,7 +359,7 @@ func withWay(a conditions.Action) conditions.Action {
 	if json.Unmarshal(a.Detail, &d) != nil {
 		return a
 	}
-	d.Way = testWay(&d)
+	d.Way, _ = testWay(&d)
 	if raw, err := json.Marshal(d); err == nil {
 		a.Detail = raw
 	}

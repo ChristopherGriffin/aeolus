@@ -330,7 +330,8 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 	}
 	out := []entry{}
 	for _, cn := range list {
-		e := entry{Connection: cn, Way: connWay(cn)}
+		way, _ := connWay(cn)
+		e := entry{Connection: cn, Way: way}
 		if n, ok := t.Node(cn.AP); ok {
 			e.APName = n.Name
 		}

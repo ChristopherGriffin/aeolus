@@ -132,7 +132,7 @@ left a second after asking for its gateway: left, stage dhcp, 6000 ms, reason "d
   { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
   { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
-  { "t": 100, "stage": "dhcp", "what": "uses 192.168.20.61, which it had already" }
+  { "t": 100, "stage": "dhcp", "what": "uses 192.168.20.61, which it had already", "ok": true }
   { "t": 100, "stage": "gateway", "what": "asks who has 192.168.20.9" }
   { "t": 5000, "stage": "dhcp", "what": "given 192.168.20.61", "ok": true, "server": "192.168.20.1", "router": "192.168.20.1", "dns": "192.168.20.1 9.9.9.9" }
   { "t": 5100, "stage": "gateway", "what": "asks who has 192.168.20.1, its gateway" }

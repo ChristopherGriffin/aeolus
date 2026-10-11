@@ -424,7 +424,7 @@ function on_frame(a, p, at) {
 			if (!a.address && p.address) {
 				a.address = p.address;
 				if (!a.dhcp.ack)
-					step(a, at, 'dhcp', 'uses ' + p.address + ', which it had already', null);
+					step(a, at, 'dhcp', 'uses ' + p.address + ', which it had already', true);
 			}
 			if (p.what == 'ask' && (a.arp.asked == null || p.about == a.router)) {
 				// How long it waited is counted from its first asking for

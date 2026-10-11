@@ -73,7 +73,9 @@ function way(d) {
 		speed: s && !s.error ? 'Mbit/s down, up' : null,
 	};
 	const main = { speed: s && !s.error ? `${s.down} · ${s.up ?? '?'}` : null };
+	// One that could not be made at all stopped there.
 	const lead = w && [{ top: 'From', main: w.device, sub: w.vlan ? `VLAN ${w.vlan}` : w.vni != null ? `VNI ${w.vni}` : null,
+		state: d.outcome === 'failed' && d.stage === 'find' ? 'bad' : null,
 		title: `Made from ${w.device}${w.vlan ? `, on VLAN ${w.vlan}` : w.vni != null ? `, the tunnel of VNI ${w.vni}` : ''}, with a MAC of the test’s own` }];
 	return wayPath(d.way, { sub, main, lead, what: w ? 'The test’s way, over the wire' : 'The test’s way online' });
 }

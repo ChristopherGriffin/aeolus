@@ -40,7 +40,7 @@ const WENT = { ok: 'done', bad: 'failed', begun: 'begun, and not seen through', 
 export function wayPath(way, opts = {}) {
 	if (!way?.length) return null;
 	const hops = [...(opts.lead || [])];
-	const told = [];
+	const told = hops.map((p) => p.title).filter(Boolean);
 	for (const p of way) {
 		const name = POINT[p.k] || p.k;
 		const time = p.ms != null ? took(p.ms) : null;
