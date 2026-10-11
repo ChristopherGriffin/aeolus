@@ -190,6 +190,12 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 			defer wg.Done()
 			apiServer.Notify(ctx, time.Minute)
 		}()
+		// The client tests the folders want on a schedule (0123).
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			apiServer.Assure(ctx, time.Minute)
+		}()
 	}
 	apiHandler := apiServer.Handler()
 	mux := http.NewServeMux()

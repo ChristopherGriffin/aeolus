@@ -57,6 +57,9 @@ const TUNNEL = { address: 'Far end (IP)', port: 'Port', mtu: 'MTU', probe_interv
 const PORT_VNI = { tunnel: 'tunnel', vni: 'VNI', probe: 'probe address' };
 
 // group says which panel a field belongs in, and its label there.
+// Service assurance (0123): client tests on a schedule.
+const ASSURANCE = { 'tests.every': 'A client test', 'tests.speed': 'With its speed' };
+
 export function group(path) {
 	const p = path.split('.');
 	// A kind of AP's own (0092): its field's, for that board.
@@ -72,6 +75,7 @@ export function group(path) {
 	if (p[0] === 'ports' && p[2] === 'vxlan') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: `${p[3] === 'untagged' ? 'Untagged' : 'VLAN ' + p[3]} ${PORT_VNI[p[4]] || p[4]}` };
 	if (p[0] === 'ports') return { key: 'ports.' + p[1], title: 'Port ' + p[1], order: 4, label: PORT[p[2]] || p[2] };
 	if (p[0] === 'notify') return { key: 'notify', title: 'Alerts', order: 2.9, label: NOTIFY[p[1]] || p[1] };
+	if (p[0] === 'assurance') return { key: 'assurance', title: 'Assurance', order: 2.8, label: ASSURANCE[p.slice(1).join('.')] || p.slice(1).join('.') };
 	if (p[0] === 'uplink') return { key: 'uplink', title: 'Uplink', order: 3.9, label: UPLINK[p[1]] || p[1] };
 	if (p[0] === 'concentrators') return { key: 'concentrators.' + p[1], title: 'Tunnel ' + p[1], order: 4.5, label: TUNNEL[p[2]] || p[2] };
 	if (p[0] === 'services') return { key: 'services', title: 'Services', order: 5, label: 'Service folders' };
@@ -105,6 +109,7 @@ export function value(path, v, names) {
 	if (last === 'dtim') return `every ${v} beacon${v === 1 ? '' : 's'}`;
 	if (last === 'dfs') return v === 'avoid' ? 'avoided' : v === 'look-first' ? 'used after a look' : 'allowed';
 	if (path === 'system.agent') return v === 'current' ? "current: the manager's own" : String(v);
+	if (path === 'assurance.tests.every') return v === 0 ? 'never' : v < 60 ? `every ${v} minutes` : v === 60 ? 'every hour' : v < 1440 ? `every ${v / 60} hours` : 'once a day';
 	if (path === 'rrm.window') return `${String(v).replace('-', '–')}, the AP's local time`;
 	if (path === 'rrm.margin') return `${v} rating points`;
 	if (path === 'apc.target') return `${v} dBm`;

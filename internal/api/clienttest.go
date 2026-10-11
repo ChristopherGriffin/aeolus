@@ -60,12 +60,22 @@ func scanRadio(state *change.State, ap hierarchy.NodeID) bool {
 // join, the testing AP itself among them, or none for the strongest other
 // AP; and a band, or none.
 func (s *Server) clientTestFor(c call, ap hierarchy.NodeID, network, on, band string) (clientTestAsk, error) {
-	var ask clientTestAsk
 	t := c.state.Org.Locations
-	if !scanRadio(c.state, ap) {
+	return s.clientTestOf(c.state, ap, network, on, band, true, func(id hierarchy.NodeID) bool {
+		return roleOn(c, change.Locations, t, id) >= access.Viewer
+	})
+}
+
+// clientTestOf is clientTestFor for whoever asks: a person, who may join
+// only an AP they may view, or the manager, on a schedule (0123), which
+// may leave the speed out.
+func (s *Server) clientTestOf(state *change.State, ap hierarchy.NodeID, network, on, band string, speed bool, may func(hierarchy.NodeID) bool) (clientTestAsk, error) {
+	var ask clientTestAsk
+	t := state.Org.Locations
+	if !scanRadio(state, ap) {
 		return ask, badRequest("a client test needs an AP with a scan radio, and this one has not said it has one")
 	}
-	res, err := s.compose(c.state, ap, s.reveal)
+	res, err := s.compose(state, ap, s.reveal)
 	if err != nil {
 		return ask, err
 	}
@@ -92,7 +102,7 @@ func (s *Server) clientTestFor(c call, ap hierarchy.NodeID, network, on, band st
 	if on != "" {
 		id := hierarchy.NodeID(on)
 		target, ok := t.Node(id)
-		if !ok || target.Kind != hierarchy.KindAP || roleOn(c, change.Locations, t, id) < access.Viewer {
+		if !ok || target.Kind != hierarchy.KindAP || !may(id) {
 			return ask, badRequest("on: an AP, whose networks the test joins")
 		}
 		st, err := s.conds.LatestState(id)
@@ -113,7 +123,7 @@ func (s *Server) clientTestFor(c call, ap hierarchy.NodeID, network, on, band st
 			ask.BSSIDs = ask.BSSIDs[:32]
 		}
 	}
-	if r, ok := t.Resolve(ap, hierarchy.Path("system.speed_server")); ok {
+	if r, ok := t.Resolve(ap, hierarchy.Path("system.speed_server")); ok && speed {
 		ask.Speed, _ = r.Value.(string)
 	}
 	return ask, nil

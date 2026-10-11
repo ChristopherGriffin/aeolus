@@ -25,11 +25,14 @@ const SECTIONS = [
 ];
 
 // systemEditor opens the editor in box, for the Locations node here, with
-// the values in force there (fields, by path).
-export function systemEditor(ctx, d, here, nodeName, fields, box) {
-	const placed = new Set(SECTIONS.flatMap(([, paths]) => paths));
-	const rest = Object.keys(d.fields).filter((p) => p.startsWith('system.') && !placed.has(p)).sort();
-	const { body, inputs, rows } = fieldsForm(d, [...SECTIONS, [MORE, rest]], fields, here, MORE);
+// the values in force there (fields, by path). With some, it is an editor
+// of those sections alone, under its heading: another tab's own few
+// settings, set the same way (0123).
+export function systemEditor(ctx, d, here, nodeName, fields, box, some) {
+	const sections = some?.sections || SECTIONS;
+	const placed = new Set(sections.flatMap(([, paths]) => paths));
+	const rest = some ? [] : Object.keys(d.fields).filter((p) => p.startsWith('system.') && !placed.has(p)).sort();
+	const { body, inputs, rows } = fieldsForm(d, [...sections, [MORE, rest]], fields, here, MORE);
 	const snmpOn = rows.get('system.snmp.enabled')?.it.el;
 	const sync = () => {
 		for (const [path, { row }] of rows)
@@ -73,7 +76,7 @@ export function systemEditor(ctx, d, here, nodeName, fields, box) {
 		if (paths.some((path) => path.startsWith('system.management.')))
 			note = h('div', { class: 'sub warn' }, "Applying reloads each AP's network. An AP that can no longer reach Aeolus puts its old settings back within 90 seconds.");
 		confirm(ctx, out, op, p, [
-			h('div', null, h('strong', null, `System settings on ${nodeName}`)),
+			h('div', null, h('strong', null, `${some?.what || 'System settings'} on ${nodeName}`)),
 			h('ul', { class: 'becomes' }, paths.map((path) => h('li', null,
 				`${group(path).title} · ${group(path).label}: `,
 				secret(path) ? 'a new one' : [fields[path] ? [value(path, fields[path].value), ' → '] : '', value(path, values[path])]))),
@@ -81,7 +84,7 @@ export function systemEditor(ctx, d, here, nodeName, fields, box) {
 		], [note]);
 	};
 	box.replaceChildren(h('section', { class: 'panel', 'data-editing': true },
-		h('h2', null, 'Edit system settings'),
+		h('h2', null, some?.heading || 'Edit system settings'),
 		h('div', { class: 'fieldform' },
 			body,
 			msg,

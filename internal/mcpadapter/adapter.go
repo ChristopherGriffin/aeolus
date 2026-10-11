@@ -239,13 +239,25 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", "/v1/dhcp/relayed", nil)
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "list_alerts", Description: "What needs attention on the APs you can view (0099), most urgent first, with counts by severity: critical (clients are or will be without service: an AP offline, a config refused or put back, a network with no transport, a loop, netifd's lost wireless object), warning (a config held, an agent update rolled back, a tunnel down, a network on its fallback, a VLAN silent on the uplink, DHCP that does not answer, an AP behind its version) and info (waiting in Landing Zone, a clock not synced). With under, only the APs below that Locations node. Worked out from what the manager has on each call, so an alert ends when its cause does.", Annotations: readOnly},
+	mcp.AddTool(s, &mcp.Tool{Name: "list_alerts", Description: "What needs attention on the APs you can view (0099), most urgent first, with counts by severity: critical (clients are or will be without service: an AP offline, a config refused or put back, a network with no transport, a loop, netifd's lost wireless object), warning (a config held, an agent update rolled back, a tunnel down, a network on its fallback, a VLAN silent on the uplink, DHCP that does not answer, an AP behind its version, a network that failed its last two client tests on an AP) and info (waiting in Landing Zone, a clock not synced). With under, only the APs below that Locations node. Worked out from what the manager has on each call, so an alert ends when its cause does.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in alertsIn) (*mcp.CallToolResult, any, error) {
 			path := "/v1/alerts"
 			if in.Under != "" {
 				path += "?under=" + url.QueryEscape(in.Under)
 			}
 			out, err := c.call(ctx, "GET", path, nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_assurance", Description: "Service assurance (0123): the client tests (0121) of the APs you can view that have a scan radio, over the last hours (24 unless set, at most 720). testers: each such AP, how often it is asked for a test on a schedule (every, in minutes; 0 for never; set with make_change on assurance.tests.every at a folder, and assurance.tests.speed for a speed measurement in them) and how many things it tests in turn. checks: each thing tested, a network on an AP on a band, by which AP, with how many of its tests passed and failed, its latest, and whether it is failing (its last two failed, which is also an alert on the AP it failed on), the failing first. tests: the latest 50, newest first, each as ap_action lists it. With under, only the APs below that Locations node.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in usageIn) (*mcp.CallToolResult, any, error) {
+			q := url.Values{}
+			if in.Under != "" {
+				q.Set("under", in.Under)
+			}
+			if in.Hours > 0 {
+				q.Set("hours", fmt.Sprint(in.Hours))
+			}
+			out, err := c.call(ctx, "GET", "/v1/assurance?"+q.Encode(), nil)
 			return nil, out, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list_alert_history", Description: "The alerts that lasted on the APs you can view (0109), at some time in the last hours (24 unless set, at most 720), newest first, at most 500: each with its AP, severity, kind, key and message, when it began, and when it ended, or none while it lasts. An alert is logged once it has lasted two minutes, from when it was first seen; a shorter blip is not. With under, only the APs below that Locations node.", Annotations: readOnly},

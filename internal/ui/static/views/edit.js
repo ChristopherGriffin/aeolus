@@ -62,7 +62,8 @@ export function input(path, f, current) {
 	} else if (f.enum) {
 		el = h('select', null,
 			current === undefined && h('option', { value: '' }, '—'),
-			f.enum.map((v) => h('option', { value: String(v), selected: v === current }, last === 'security' ? security(v) : last === 'mode' ? value(path, v) : String(v))));
+			f.enum.map((v) => h('option', { value: String(v), selected: v === current }, last === 'security' ? security(v)
+				: last === 'mode' || path === 'assurance.tests.every' ? value(path, v) : String(v))));
 		read = () => (el.value === '' ? undefined : f.enum.find((v) => String(v) === el.value));
 	} else if (f.type === 'array' && f.items?.enum) {
 		const all = f.items.enum;

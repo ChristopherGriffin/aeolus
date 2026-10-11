@@ -50,6 +50,22 @@ type Input struct {
 	Latest     conditions.Latest
 	Fleet      *Fleet          // what is the fleet's own, to tell a stranger's network (0105)
 	Known      map[string]bool // BSSIDs its folders' rogues.known say are no rogues (0106)
+	Tests      []FailingTest   // its networks that fail their client tests here (0123)
+}
+
+// FailingTest is a network that failed its last two client tests on this AP
+// (0121, 0123): which, on which band, the AP whose scan radio tried it, by
+// name, this AP itself where Itself; where the latest test stopped and
+// why; and since when.
+type FailingTest struct {
+	Network string
+	SSID    string
+	Band    string
+	Tester  string
+	Itself  bool
+	Stage   string
+	Reason  string
+	Since   *time.Time
 }
 
 // Fleet is what the APs together call their own (0105): every BSSID an AP
@@ -137,9 +153,25 @@ func For(in Input) []Alert {
 	if st := l.State; st != nil && in.Now.Sub(st.At) <= 3*StateEvery {
 		out = append(out, fromReport(in, st)...)
 	}
+	// A network that failed its last two client tests here (0123): tried as
+	// a client would, it does not work, whatever the AP says of itself.
+	for _, t := range in.Tests {
+		from := "from " + t.Tester
+		if t.Itself {
+			from = "from its own scan radio"
+		}
+		on := ""
+		if t.Band != "" {
+			on = " on " + bandNames[t.Band]
+		}
+		add(Warning, "client-test", fmt.Sprintf("%s does not work here%s, tried as a client %s: it failed at %s: %s", t.SSID, on, from, t.Stage, t.Reason), t.Since)
+		out[len(out)-1].Key = fmt.Sprintf("client-test:%s:%s:%s", t.Network, t.Band, t.Tester)
+	}
 	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Severity] < rank[out[j].Severity] })
 	return out
 }
+
+var bandNames = map[string]string{"2g": "2.4 GHz", "5g": "5 GHz", "6g": "6 GHz"}
 
 // report is the parts of a state report alerts read (0040, 0059, 0061,
 // 0064, 0065, 0069, 0079).

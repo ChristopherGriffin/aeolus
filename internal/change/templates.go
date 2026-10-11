@@ -30,6 +30,10 @@ const NotifyPrefix = "notify."
 // of networks the APs hear (0106): the manager's too.
 const RoguesPrefix = "rogues."
 
+// AssurancePrefix starts the Locations fields that say which client tests
+// the manager asks on a schedule (0123): the manager's too.
+const AssurancePrefix = "assurance."
+
 // TemplatePath is the Locations field that picks a board's template.
 func TemplatePath(board string) hierarchy.Path { return hierarchy.Path(TemplatesPrefix + board) }
 
@@ -331,7 +335,8 @@ func (s *State) ResolveAP(ap hierarchy.NodeID) (hierarchy.APConfig, error) {
 		return cfg, err
 	}
 	for p := range cfg.Location {
-		if strings.HasPrefix(string(p), TemplatesPrefix) || strings.HasPrefix(string(p), NotifyPrefix) || strings.HasPrefix(string(p), RoguesPrefix) {
+		if strings.HasPrefix(string(p), TemplatesPrefix) || strings.HasPrefix(string(p), NotifyPrefix) || strings.HasPrefix(string(p), RoguesPrefix) ||
+			strings.HasPrefix(string(p), AssurancePrefix) {
 			delete(cfg.Location, p)
 		}
 	}

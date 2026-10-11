@@ -132,6 +132,29 @@ function opened(a) {
 
 // The tests opened, by their IDs, so a panel drawn again keeps them open.
 const open = new Set();
+
+// testLine is one test, a line that opens to what it found. name gives an
+// AP's name by its ID; from, where the tests of several APs are listed
+// together, says which AP's scan radio made it.
+export function testLine(a, name, from) {
+	const p = a.params || {};
+	const on = !p.on ? 'the strongest other AP' : p.on === a.ap && from ? `${name(p.on)} itself` : name(p.on);
+	const d = h('details', { class: 'fold', open: open.has(a.id) },
+		h('summary', null,
+			h('span', { class: 'when', title: when(a.at) }, ago(a.at)),
+			h('span', { class: 'who' }, p.ssid || p.network || 'a network'),
+			h('span', { class: 'grow sub' }, [`on ${on}`, p.band && bandName(p.band), from && p.on !== a.ap && `from ${name(a.ap)}`,
+				a.actor === 'aeolus' ? 'on the schedule' : `asked by ${a.actor}`,
+				a.detail?.outcome === 'failed' && a.detail.reason].filter(Boolean).join(' · ')),
+			chip(a)),
+		opened(a));
+	d.addEventListener('toggle', () => (d.open ? open.add(a.id) : open.delete(a.id)));
+	return d;
+}
+
+// What the Assurance tab draws of a test (0123): its chip, and it opened.
+export const testChip = (a) => chip(a);
+export const testOpened = (a) => opened(a);
 // What the form last had chosen, so a redraw does not reset it.
 const chosen = { network: '', on: '', band: '' };
 
@@ -193,7 +216,7 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 			h('div', { class: 'row' }, h('div', { class: 'label' }, 'Join'), h('div', { class: 'value' }, net, ' on ', on, ' ', bandSeg)),
 			h('div', { class: 'sub' }, speed
 				? `Its speed is measured against ${String(speed).replace(/^[a-z]+:\/\//, '')}, the speed server set for this AP.`
-				: 'No speed server is set here (System › Client tests), so it measures no speed: it joins, takes an address, and tries its gateway and DNS.'),
+				: 'No speed server is set here (System › Client tests, or its folder’s Assurance tab), so it measures no speed: it joins, takes an address, and tries its gateway and DNS.'),
 			h('div', { class: 'actions' }, run))
 		: h('p', { class: 'sub' }, 'This AP offers no network to test.'));
 
@@ -202,18 +225,6 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 		form,
 		box,
 		list.length
-			? list.map((a) => {
-				const p = a.params || {};
-				const d = h('details', { class: 'fold', open: open.has(a.id) },
-					h('summary', null,
-						h('span', { class: 'when', title: when(a.at) }, ago(a.at)),
-						h('span', { class: 'who' }, p.ssid || p.network || 'a network'),
-						h('span', { class: 'grow sub' }, [`on ${p.on ? name(p.on) : 'the strongest other AP'}`, p.band && bandName(p.band), `asked by ${a.actor}`,
-							a.detail?.outcome === 'failed' && a.detail.reason].filter(Boolean).join(' · ')),
-						chip(a)),
-					opened(a));
-				d.addEventListener('toggle', () => (d.open ? open.add(a.id) : open.delete(a.id)));
-				return d;
-			})
+			? list.map((a) => testLine(a, name))
 			: h('p', { class: 'sub' }, canAct ? 'None asked yet.' : 'None asked yet. Asking needs operator on this AP.'));
 }
