@@ -100,7 +100,7 @@ function deaf(radio) {
 function opened(a) {
 	const d = a.detail;
 	if (!d) return h('p', { class: 'sub' }, a.state === 'pending' || a.state === 'running'
-		? 'Its result follows when the AP has done it and has seen its scan radio hear again: within about three minutes of its next poll.'
+		? 'Its result follows when the AP has done it and has seen its scan radio hear again: one to three minutes after its next poll.'
 		: a.result || 'It left no result.');
 	const steps = d.steps || [];
 	const radio = d.scan_radio;
@@ -121,7 +121,9 @@ function opened(a) {
 		h('p', { class: 'sub attemptlinks' }, [
 			d.waited_ms > 1000 && `It waited ${took(d.waited_ms)} for the scan radio to be between its own jobs. `,
 			radio?.was_deaf && 'Before the test the scan radio heard nothing, so its driver was bound again first. ',
-			radio && !radio.deaf && !radio.unseen && `The scan radio heard ${radio.after} networks once it had it back and had swept the spectrum (${radio.before} before). `,
+			radio?.after_dfs && (radio.rebound ? 'The test had the scan radio on a DFS channel, after which it goes deaf, so its driver was bound again before airscan had it back. '
+				: 'The test had the scan radio on a DFS channel, after which it goes deaf, and its driver could not be bound again from here. '),
+			radio && !radio.deaf && !radio.unseen && `The scan radio heard ${radio.after} networks once airscan had it back (${radio.before} before). `,
 			d.client && h('a', { href: '#', class: 'clientlink', title: 'The same join, as the AP it joined recorded it',
 				onclick: (e) => { e.preventDefault(); journeyPanel(other, d.client); } }, `What the AP it joined saw of ${d.client}`),
 		]),
@@ -178,7 +180,7 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 			if (on.value) body.on = on.value;
 			if (chosen.band) body.band = chosen.band;
 			await post(`/v1/aps/${enc}/actions`, body);
-			flash(`Client test asked of ${page.node.name}: it starts on its next poll, within about a minute, and takes two or three.`, 60);
+			flash(`Client test asked of ${page.node.name}: it starts on its next poll, within about a minute, and takes one to three.`, 60);
 			hurry(240);
 			redrawNow();
 		} catch (err) {

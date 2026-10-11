@@ -213,13 +213,14 @@ type testSpeed struct {
 }
 
 type testScanning struct {
-	Before  int  `json:"before"`
-	After   int  `json:"after"`
-	WasDeaf bool `json:"was_deaf,omitempty"`
-	Deaf    bool `json:"deaf,omitempty"`
-	Unseen  bool `json:"unseen,omitempty"`
-	Rebound bool `json:"rebound,omitempty"`
-	Again   *int `json:"again,omitempty"`
+	Before   int  `json:"before"`
+	After    int  `json:"after"`
+	WasDeaf  bool `json:"was_deaf,omitempty"`
+	AfterDFS bool `json:"after_dfs,omitempty"`
+	Deaf     bool `json:"deaf,omitempty"`
+	Unseen   bool `json:"unseen,omitempty"`
+	Rebound  bool `json:"rebound,omitempty"`
+	Again    *int `json:"again,omitempty"`
 }
 
 var testStages = map[string]bool{"find": true, "auth": true, "assoc": true, "key": true, "dhcp": true, "gateway": true, "dns": true, "speed": true}

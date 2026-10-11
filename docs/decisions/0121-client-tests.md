@@ -39,6 +39,11 @@
 ### The radio is borrowed, and the AP's own traffic left alone
 
 - **The radio is airscan's.** The test stops airscan, makes its client interface, and when it is done takes the interface away and starts airscan again, whatever happened.
+- **An airscan that lends its radio is asked for it instead,** and runs on (its `lend` and `reclaim`, which it says it has among its `features`). It takes its own interfaces off the radio, runs no job on it while it is lent, and takes it back when told, or after a minute and a half should the test die.
+  - It says no while it scans or sweeps, and the test asks again.
+  - It keeps its place in its own round, so the test costs it no scan or sweep.
+  - **Such an airscan sees to a deaf radio itself** (`heal`): it binds the driver again where a look hears nothing. So the test waits for no sweep. It asks airscan for a look, and where that hears nothing, waits for airscan to bring the radio back, and binds the driver itself only if airscan does not.
+  - **A test that had the radio on a DFS channel binds its driver again before it gives it back,** inside the loan, while airscan has nothing on the radio. That radio goes deaf within half a minute of such a test, every time (see Tried), so airscan is not handed one that is about to. The result says so. A test that only looked on a DFS channel, for a network it then joined elsewhere, does the same.
 - **It takes the radio only while airscan is between its jobs,** looking at clients, and waits up to two minutes for that. Never while airscan scans or sweeps the spectrum, nor within three seconds of when it next will.
 - **It holds the radio for under a minute.**
 - **The client's traffic is its own:**
@@ -78,7 +83,8 @@
 - **Only an AP with a scan radio can test,** and only networks it offers itself.
 - **While a test runs the AP has no scan radio:** airscan is stopped for a minute or so, and radio resource management, which listens through it (0116), hears nothing new for that time.
 - **Starting airscan again starts its work from the beginning:** a scan and a spectrum sweep, about a minute, before it looks at clients again.
-- **A test takes two to three minutes in all,** of which the test itself is under one. The rest is airscan's scan and sweep, waited for so the result can say the scan radio still hears; and half a minute more where its driver had to be bound again.
+- **A test takes two to three minutes in all** where airscan has to be stopped, of which the test itself is under one. The rest is airscan's scan and sweep, waited for so the result can say the scan radio still hears; and half a minute more where its driver had to be bound again.
+- **Where airscan lends its radio a test takes about half a minute:** the test, and one look after it; and twenty seconds more after a DFS channel, for the driver. A radio that goes deaf later, for another cause, is airscan's to bring back, and the test's result does not say so.
 - **Binding the driver again gives the scan radio a new name** (`phy8` for `phy7`). airscan finds it by where it is, not by that name, and so does the test.
 - **The speed is the test radio's as much as the network's.** The C-360's scan radio on 5 GHz shows about 21 Mbit/s whatever the network can do. On 2.4 GHz it showed 72 down and 69 up over a 143 Mbit/s link.
 - **A test's client is seen by everything that sees clients:** the serving AP's client list and its record of the join, DHCP, which gives it a lease, and airscan on other APs. Its MAC is the scan radio's own, and it calls itself `aeolus-test`.
@@ -93,21 +99,27 @@
   - **The C-360's own 5 GHz network, on channel 44:** 12 Mbit/s each way, the test radio and the serving radio sharing the air a metre apart.
   - **A BSSID the scan radio had not heard in its last look:** found by the client's own look across the band.
 - **The scan radio went deaf,** hearing no network in any look, its own AP's among them, and was brought back each time by binding its driver again. What was seen of when:
-  - **After a test that used the DFS channel, at airscan's next sweep, three times of three.** Its first look, the radio back, heard about 40 networks; the sweep followed; the look after it heard none. One of the three only looked on the DFS channel, and joined on 2.4 GHz.
-  - **After a test that kept off DFS, never, four times of four:** three on 2.4 GHz, with and without the speed measured, one taking the radio a second after a sweep ended; and one on 5 GHz channel 44.
+  - **After a test that had it on DFS channel 132, every time, six of six,** and within half a minute of the test's end. Looks at one such radio heard 42 networks 14 s after, 13 at 37 s and none at 99 s; at another, 15 at 13 s and none at 34 s. One of the six only looked on the DFS channel, and joined on 2.4 GHz.
+  - **It is not airscan's sweep that does it,** as first thought, when each such test was followed by a restart of airscan and so a sweep: with the radio lent and no sweep made, it went deaf as soon.
+  - **After a test that kept off DFS, never, five times of five:** four on 2.4 GHz, with and without the speed measured, and one on 5 GHz channel 44.
   - **After airscan was only stopped and started, with no test, never, five times of five.**
-  - **Taken in the middle of a sweep, at once, twice of twice,** earlier the same night, before the test waited for airscan to be between its jobs. Both were on the DFS channel too.
-- **The test bringing it back itself:** a test on the DFS channel passed, the look after the sweep heard nothing, the test bound the driver again, and 34 seconds later airscan heard 31 networks. Two minutes and a half in all.
+  - **A look on other channels before the client interface was taken down did not help:** deaf 34 s after.
+  - **Binding the driver again before airscan had the radio back did:** it then heard 40, 38 and 42 networks at 40, 90 and 150 s, and airscan had nothing to put right.
+- **The test bringing it back itself,** with airscan stopped: a test on the DFS channel passed, the look after airscan's sweep heard nothing, the test bound the driver again, and 34 seconds later airscan heard 31 networks. Two minutes and a half in all.
+- **With an airscan that lends its radio** (0.2, run by hand on the C-360):
+  - **2.4 GHz:** 29 seconds from start to result, 56 down and 58 up.
+  - **DFS channel 132, the driver bound again inside the loan:** 37 seconds, 26 down and 24 up, the radio hearing after.
+  - **airscan's own cure,** the driver left alone by the test: 23 s after the test's end a whole round of its client surveys heard no beacon, its look heard nothing, it bound the driver again, and 20 s later heard 31 networks.
+- **Through the manager, from the AP's page,** 2026-10-11 02:09: Aeolus Lab on the office AP, 2.4 GHz: let on in 0.5 s, an address in 0.3 s, 70 down and 68 up; asked, taken up 38 s later, and its result there 101 s after that, with airscan stopped and started.
 
 ## Not known yet
 
-- **Why a scan radio that has been a client on a DFS channel goes deaf at the next sweep.** It is the driver's or the firmware's (ath11k, QCN9074), not Aeolus's. Until it is known, the test sees it and puts it right; it does not prevent it.
-- **Whether other radios do the same.** The C-360's is the only scan radio tried.
+- **Why being a client on a DFS channel deafens the C-360's scan radio.** It is the driver's or the firmware's (ath11k; the card is a QCN9072, driven as a QCN9074), not Aeolus's. Until it is known, the test binds the driver again after such a test, and airscan after any deafness it finds.
+- **Whether other radios do the same.** The C-360's is the only scan radio tried, and the only one airscan runs on.
 
 ## Not done here
 
-- **Bringing back a scan radio that goes deaf at any other time.** It is airscan's radio, and airscan is the place for it: it could bind the driver again when a look hears nothing.
-- **Lending the radio without stopping airscan,** which would spare the scan and sweep it starts with each time, and the wait for them.
+- **Saying in Aeolus that airscan brought a deaf radio back,** at a sweep after a test or at any other time. airscan logs it and counts it in its status; no report carries it yet.
 - **Networks that sign clients in by 802.1X,** which need a user for the test.
 - **A speed test to the AP itself and to the internet,** beside the one to a server on the premises.
 - **Tests on a schedule,** and an alert when one fails.

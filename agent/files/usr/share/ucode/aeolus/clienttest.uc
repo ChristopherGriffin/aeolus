@@ -94,6 +94,15 @@ function credentials(want, ifaces, radios) {
 	return null;
 }
 
+// dfs says whether any of the frequencies a client looks on or joins at is
+// a DFS one: 5 GHz channels 52 to 144.
+function dfs(freqs) {
+	for (let f in freqs ?? [])
+		if (f >= 5260 && f <= 5720)
+			return true;
+	return false;
+}
+
 // band_freqs are the frequencies a client looks on for a band, every
 // 20 MHz channel of it; for none, those of 2.4 and 5 GHz, where a look at
 // all of 6 GHz too would take most of the time a test has.
@@ -390,6 +399,6 @@ function summary(res) {
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	STAGES, STEPS, HEARD, between, hexstr, wanted, credentials, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of,
+	STAGES, STEPS, HEARD, between, hexstr, wanted, credentials, dfs, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of,
 	prefix_net, dns_query, dns_answer, rate, plain, verdict, summary
 };
