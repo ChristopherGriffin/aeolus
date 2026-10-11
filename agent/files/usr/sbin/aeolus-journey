@@ -26,6 +26,12 @@
 // to the manager; the agent writes back how far it got, and what was sent
 // is let go. procd runs it beside the agent.
 //
+// Of an attempt that fails it keeps a capture too (0135): the client's
+// frames as its radio heard and sent them, from a monitor interface the
+// daemon adds to each radio that serves, and those that crossed the wire
+// side. The captures go to a directory beside the records, a file each,
+// which the agent sends to the manager and takes away.
+//
 //	aeolus-journey [-o <records file>] [-p <UDP port>]
 //
 // -o and -p are for trying it out beside the one procd runs.
@@ -34,6 +40,8 @@
 
 import * as fs from 'fs';
 import * as socket from 'socket';
+import { cursor } from 'uci';
+import * as capture from 'aeolus.capture';
 import { connect } from 'ubus';
 import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING } from 'log';
 import * as journey from 'aeolus.journey';
@@ -56,6 +64,13 @@ const WRITE_EVERY = 2;             // seconds between writes of the records, at 
 const KEPT = 128;                  // records kept for the agent; past that, the oldest go
 const OPEN = 256;                  // attempts followed at once
 const WIDE = journey.capture(true), NARROW = journey.capture(false);
+const CAPTURES = replace(out, /[^\/]*$/, 'captures');   // where the captures go, beside the records
+const CAPTURES_KEPT = 10;          // captures kept for the agent; past that, the oldest go
+const CAPTURE_EVERY = 60;          // seconds between two captures of one client, at the least
+const RADIO = capture.radio_filter();
+const MONITOR = 'aemon';           // a radio's monitor interface: aemon0 on phy0
+const MONITOR_AGAIN = 600;         // seconds before a radio that would have none is tried again
+const HOLD = capture.AFTER + 1.2;  // seconds an attempt that failed waits for its capture: for the frames after it, and those a radio hands up late
 
 let bus = connect();
 openlog('aeolus-journey', LOG_PID, LOG_DAEMON);
@@ -100,6 +115,15 @@ let open = {};        // '<bss> <mac>' -> the attempt being followed
 let done = [];        // the records not yet sent, oldest first
 let seq = 0, dropped = 0, dirty = false;
 let logsock = null;
+let capturing = true; // whether captures are kept: unless the AP's config says not (0135)
+let mons = {};        // a radio that serves, by its phy -> { name, sock, index, ring }: its monitor interface
+let no_mon = {};      // a radio that would have no monitor interface -> when that was found
+let captured = {};    // a client -> when a capture of it was last kept
+let captures = 0;     // captures kept by this run
+let held = [];        // attempts that failed, waiting for their captures: { a, r, at, until }, the first first
+let waiting = [];     // captures kept whose records are not yet written, by their names
+let spared = {};      // a radio that has no monitor interface for what its clients would lose to one
+let stopping = false; // asked to stop
 let heard = null;     // usteer's clients, when last asked, and when
 
 function ifindex(name) {
@@ -117,10 +141,28 @@ function packet(dev, prog) {
 		s.close();
 		return null;
 	}
+	// The kernel says when each frame came, for a capture (0135): the
+	// daemon reads them when it gets to it, which may be a while after.
+	// Asked for in nanoseconds: ucode hands that stamp as the kernel wrote
+	// it, and reads the one in microseconds wrongly on a 32-bit processor.
+	s.setopt(socket.SOL_SOCKET, socket.SO_TIMESTAMPNS, 1);
 	// What arrived before the filter took hold goes.
 	while (s.recv(2048, socket.MSG_DONTWAIT) != null)
 		;
 	return s;
+}
+
+// came is when the kernel took a frame in, as it says with the frame: on
+// the steady clock in seconds, and on the calendar's in ms. Where it does
+// not say, or says a time that cannot be right, now.
+function came(m) {
+	let t = now(), w = wall();
+	for (let c in m?.ancillary ?? []) {
+		let stamped = c.level == socket.SOL_SOCKET ? capture.stamp(c.data, w) : null;
+		if (stamped != null)
+			return [t - (w - stamped) / 1000.0, stamped];
+	}
+	return [t, w];
 }
 
 // hostapd_ctl sends one of hostapd's networks a command on its control
@@ -172,6 +214,141 @@ function say_more(back) {
 		log('hostapd says each message of the key handshake on %s', join(' ', sort(now_fine)));
 	if (length(not_fine))
 		note('hostapd did not take the asking for its debug lines on %s: the key handshake is recorded as one step there', join(' ', sort(not_fine)));
+}
+
+// unwatch lets a radio's monitor interface go, and takes it away where
+// gone says so.
+function unwatch(phy, gone) {
+	let m = mons[phy];
+	if (!m)
+		return;
+	m.sock.close();
+	if (gone)
+		system(['iw', 'dev', m.name, 'del']);
+	delete mons[phy];
+}
+
+// monitor_addr is the address a radio's monitor interface is given: one of
+// its own, out of the way of those the radio's networks have. Wi-Fi set up
+// afresh takes the addresses of the interfaces a radio already has as
+// used, and gives its networks the next: a monitor interface with the
+// radio's own address, which it has unless told another, moved every
+// network of the radio on by one, and with it the address each client
+// knows its network by. The interface sends nothing, so its address is
+// never on the air.
+function monitor_addr(phy) {
+	let m = match(read(`/sys/class/ieee80211/${phy}/macaddress`) ?? '', /^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:([0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2})$/);
+	return m ? '06:ae:0c:' + m[1] : sprintf('06:ae:0c:00:00:%02x', int(substr(phy, 3)) & 255);
+}
+
+// watch_radios has a monitor interface on each radio that serves (0135):
+// one with no flags, so the radio hears what it heard before, read through
+// a filter that keeps management frames and key messages alone. A radio's
+// frames go to its ring as they come. One whose interface went, as when
+// its Wi-Fi is set up afresh, has it made again; one that will have none
+// is left for a while. With captures off, the interfaces are taken away.
+function watch_radios(at) {
+	let want = {};
+	if (capturing)
+		for (let ifname, b in bsses) {
+			let phy = read(`/sys/class/net/${ifname}/phy80211/name`);
+			if (phy && match(phy, /^phy[0-9]+$/)) {
+				b.phy = phy;
+				want[phy] = true;
+			}
+		}
+	for (let phy, m in mons)
+		if (!want[phy] || ifindex(m.name) != m.index)
+			unwatch(phy, !want[phy]);
+	// One a run before this left, on a radio that is to have none now.
+	for (let n in fs.lsdir('/sys/class/net') ?? [])
+		if (match(n, /^aemon[0-9]+$/) && !want['phy' + substr(n, length(MONITOR))])
+			system(['iw', 'dev', n, 'del']);
+	for (let phy in keys(want)) {
+		if (mons[phy] || (no_mon[phy] != null && at - no_mon[phy] < MONITOR_AGAIN))
+			continue;
+		let name = MONITOR + substr(phy, 3);
+		// A radio that makes and takes apart its clients' frames in
+		// hardware does so for none of them while a monitor interface is
+		// on it: it has none, and a failed attempt there has what crossed
+		// the wire side for its capture.
+		if (capture.loses_offload(read(`/sys/kernel/debug/ieee80211/${phy}/hwflags`))) {
+			if (ifindex(name))
+				system(['iw', 'dev', name, 'del']);
+			if (!spared[phy])
+				log('%s: no monitor interface is made on it, as its clients would lose what the radio does for them in hardware: a failed attempt there has no capture of its radio', phy);
+			spared[phy] = true;
+			no_mon[phy] = at;
+			continue;
+		}
+		// One a run before this left, with whatever address, is made again.
+		if (ifindex(name) && read(`/sys/class/net/${name}/address`) != monitor_addr(phy))
+			system(['iw', 'dev', name, 'del']);
+		if (!ifindex(name))
+			system(['iw', 'phy', phy, 'interface', 'add', name, 'type', 'monitor', 'addr', monitor_addr(phy), 'flags', 'none']);
+		let s = ifindex(name) && system(['ip', 'link', 'set', name, 'up']) == 0 ? packet(name, RADIO) : null;
+		if (!s) {
+			// None is left up with no one to read it.
+			if (ifindex(name))
+				system(['iw', 'dev', name, 'del']);
+			note('%s: no monitor interface could be had, so a failed attempt there has no capture of its radio', phy);
+			no_mon[phy] = at;
+			continue;
+		}
+		delete no_mon[phy];
+		mons[phy] = { name: name, sock: s, index: ifindex(name), ring: capture.ring() };
+	}
+}
+
+// on_radio keeps what a radio's monitor interface has.
+function on_radio(m) {
+	let f;
+	while ((f = m.sock.recvmsg(capture.SNAP, 64, socket.MSG_DONTWAIT)) != null && length(f.data)) {
+		let when = came(f);
+		capture.ring_add(m.ring, when[0], when[1], f.data);
+	}
+}
+
+// keep_capture keeps the capture of an attempt that failed, and returns
+// what the record says of it, { id, frames }, or null where there is
+// none: nothing was heard of the client, or it had one within the last
+// CAPTURE_EVERY seconds, so that a client that fails over and over, as one
+// with a wrong passphrase, does not take every place. The file is the
+// capture in base64 with whose it is, for the agent to send as it is.
+// CAPTURES_KEPT are kept, the latest.
+function keep_capture(a, at) {
+	if (!capturing || (captured[a.mac] != null && at - captured[a.mac] < CAPTURE_EVERY))
+		return null;
+	let phy = bsses[a.bss]?.phy;
+	let c = capture.capture(mons[phy]?.ring, a.mac, a.started, at, a.wire, `${phy ?? 'radio'}, the radio`, `${a.bss}, the wire side`);
+	if (!c)
+		return null;
+	let id = sprintf('%d-%d', boot, ++captures);
+	// A client's key handshake is for no one else on the AP to read.
+	fs.mkdir(CAPTURES, 0o700);
+	// Under a name the agent does not take up, until the attempt's record
+	// is written: sent before the record, the manager has no attempt for
+	// it, refuses it, and the agent lets it go.
+	let path = `${CAPTURES}/${id}.json.wait`;
+	let file = fs.open(path, 'w', 0o600);
+	let whole = file != null && file.write(sprintf('%J\n', { id: id, mac: a.mac, bss: a.bss, started: a.wall, frames: c.frames, radio: c.radio, wire: c.wire, file: b64enc(c.file) })) != null;
+	if (file)
+		file.close();
+	if (!whole) {
+		fs.unlink(path);
+		return null;
+	}
+	push(waiting, id);
+	for (let mac, t in captured)
+		if (at - t >= CAPTURE_EVERY)
+			delete captured[mac];
+	captured[a.mac] = at;
+	// The oldest go: by this run's count, and any a run before left.
+	let mine = (n) => index(n, boot + '-') == 0 ? int(substr(n, length('' + boot) + 1)) : 0;
+	let files = sort(filter(fs.lsdir(CAPTURES) ?? [], n => match(n, /^[0-9]+-[0-9]+\.json(\.wait)?$/)), (x, y) => mine(x) - mine(y));
+	for (let n in slice(files, 0, max(0, length(files) - CAPTURES_KEPT)))
+		fs.unlink(`${CAPTURES}/${n}`);
+	return { id: id, frames: c.frames };
 }
 
 // look takes up the AP's Wi-Fi networks as netifd has them now: each one's
@@ -275,9 +452,9 @@ function start(bss, mac, at, wall_at) {
 }
 
 // finish closes an attempt: its record joins those the agent sends.
-function finish(key, at) {
-	let r = journey.record(open[key], at);
-	delete open[key];
+// emit puts a record with those the agent sends, numbered as it joins
+// them: the agent says how far it got by that number.
+function emit(r) {
 	r.seq = ++seq;
 	push(done, r);
 	if (length(done) > KEPT) {
@@ -285,6 +462,32 @@ function finish(key, at) {
 		done = slice(done, -KEPT);
 	}
 	dirty = true;
+}
+
+function finish(key, at) {
+	let a = open[key];
+	let r = journey.record(a, at);
+	delete open[key];
+	// Every failure has a capture, where anything was heard of it (0135):
+	// made a little after the attempt ended, for the frames that follow
+	// it, and those a radio hands up a second late. Its record waits with
+	// it, to say that it has one.
+	if (r.outcome == 'failed' && capturing)
+		push(held, { a: a, r: r, at: at, until: at + HOLD });
+	else
+		emit(r);
+}
+
+// release gives each attempt that has waited long enough its capture, and
+// its record to the agent; every one, where all says so.
+function release(at, all) {
+	while (length(held) && (all || held[0].until <= at)) {
+		let h = shift(held);
+		let kept = keep_capture(h.a, h.at);
+		if (kept)
+			h.r.capture = kept;
+		emit(h.r);
+	}
 }
 
 // write stores the records the agent has not said it sent.
@@ -296,8 +499,13 @@ function write() {
 	}
 	if (sent?.boot == boot && type(sent.seq) == 'int')
 		done = filter(done, r => r.seq > sent.seq);
-	store(out, sprintf('%J\n', { at: time(), boot: boot, seq: seq, dropped: dropped, list: done }));
+	if (!store(out, sprintf('%J\n', { at: time(), boot: boot, seq: seq, dropped: dropped, list: done })))
+		return;
 	dirty = false;
+	// The captures of the records now written are the agent's to send.
+	for (let id in waiting)
+		fs.rename(`${CAPTURES}/${id}.json.wait`, `${CAPTURES}/${id}.json`);
+	waiting = [];
 }
 
 // on_log takes one of hostapd's log lines: a client's step, into the
@@ -336,11 +544,18 @@ function on_log(msg, at, wall_at) {
 // being followed.
 function on_frames(i, at) {
 	let m;
-	while ((m = i.sock.recvmsg(2048, 0, socket.MSG_DONTWAIT)) != null) {
+	while ((m = i.sock.recvmsg(2048, 64, socket.MSG_DONTWAIT)) != null) {
 		let p = journey.frame(m.data, m.address?.packet_type == 4);
 		let a = p ? open[i.bss + ' ' + p.mac] : null;
-		if (a)
+		if (a) {
 			journey.on_frame(a, p, at);
+			// Kept as it crossed, for a capture should the attempt fail.
+			a.wire ??= [];
+			if (capturing && length(a.wire) < capture.WIRE) {
+				let when = came(m);
+				push(a.wire, { at: when[0], wall: when[1], m: m.data });
+			}
+		}
 	}
 }
 
@@ -376,13 +591,26 @@ function stop() {
 	if (pid)
 		system(['kill', '' + pid]);
 	say_more(true);
+	// What waits goes to the agent as it is.
+	release(now(), true);
+	if (dirty)
+		write();
+	for (let phy in keys(mons))
+		unwatch(phy, true);
 	exit(0);
 }
 
 function main() {
-	signal('SIGTERM', stop);
-	signal('SIGINT', stop);
+	// Asked to stop, it does so at the top of its loop, with nothing half
+	// done: a record taken from those that wait and not yet given on.
+	signal('SIGTERM', () => { stopping = true; });
+	signal('SIGINT', () => { stopping = true; });
 	fs.mkdir('/var/run/aeolus');
+	// A capture a run before this kept and never wrote the record of: no
+	// attempt is the manager's to hang it on.
+	for (let n in fs.lsdir(CAPTURES) ?? [])
+		if (match(n, /\.json\.wait$/))
+			fs.unlink(`${CAPTURES}/${n}`);
 	// A logread the last run left sends to a socket that is gone.
 	let old = logread_pid();
 	if (old)
@@ -390,10 +618,15 @@ function main() {
 	let next_look = 0, next_write = 0;
 	log('watching clients come online');
 	while (true) {
+		if (stopping)
+			stop();
 		let at = now();
 		if (at >= next_look) {
 			look();
 			say_more();
+			// Captures are kept unless the AP's config says not.
+			capturing = cursor().get('aeolus', 'aeolus_journey', 'captures') != '0';
+			watch_radios(at);
 			listen();
 			narrow(at);
 			next_look = at + LOOK_EVERY;
@@ -401,6 +634,7 @@ function main() {
 		for (let key in keys(open))
 			if (journey.due(open[key], at))
 				finish(key, at);
+		release(at);
 		if (at >= next_write) {
 			// Written when there is something new, and now and then so what
 			// the agent sent is let go.
@@ -414,6 +648,11 @@ function main() {
 		for (let name, i in ifaces) {
 			by[i.sock.fileno()] = name;
 			push(polls, [i.sock, socket.POLLIN]);
+		}
+		let radios = {};
+		for (let phy, m in mons) {
+			radios[m.sock.fileno()] = phy;
+			push(polls, [m.sock, socket.POLLIN]);
 		}
 		if (!length(polls)) {
 			sleep(1000);
@@ -429,6 +668,15 @@ function main() {
 				let msg;
 				while ((msg = logsock.recv(2048, socket.MSG_DONTWAIT)) != null)
 					on_log(msg, t, w);
+				continue;
+			}
+			if (radios[fd]) {
+				let m = mons[radios[fd]];
+				if (m)
+					on_radio(m);
+				// A monitor interface that went is made again at the next look.
+				if (m && (r[1] & (socket.POLLERR | socket.POLLHUP)))
+					unwatch(radios[fd], false);
 				continue;
 			}
 			let name = by[fd], i = ifaces[name];

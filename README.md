@@ -187,6 +187,7 @@ Each milestone ends in something checkable before the next starts.
 | [0131](docs/decisions/0131-which-tests-air-wire-or-both.md) | Which tests: through the air, over the wire, or both |
 | [0133](docs/decisions/0133-the-keys-a-message-at-a-time.md) | The keys, a message at a time |
 | [0134](docs/decisions/0134-a-speed-server-near-and-one-far.md) | A speed server near, and one far |
+| [0135](docs/decisions/0135-a-capture-of-every-failure.md) | A capture of every failure |
 | [0136](docs/decisions/0136-roaming.md) | Roaming |
 
 ## Open questions

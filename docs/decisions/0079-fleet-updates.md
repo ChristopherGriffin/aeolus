@@ -60,6 +60,7 @@
 - **The AP's state report says which bundle it runs,** with its release, and the last failed or rolled-back update with why.
 - **The fleet view gives each AP's agent beside the one it should run.**
 - **The APs tab has an Agent column:** the release, and *current*, *updating*, *behind*, *rolled back* or *failed*.
+  - Since 2026-10-11 it has none. An AP whose agent is not the release it should run says so beside its state, with the release it runs; one that is current says nothing there, and its own page has the release under About this AP.
 - **In the tree, an AP whose agent is behind** is amber, like an AP out of sync.
 - **The System tab's Agent version** is a dropdown: `current` and the releases the manager holds.
 

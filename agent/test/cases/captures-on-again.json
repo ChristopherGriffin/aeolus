@@ -1,0 +1,56 @@
+{
+	"about": "Captures of failed attempts set on again (0135), on an AP with a network called journey. The AP has the agent's journey section from when they were off, and the network's own sections are named aeolus_journey too, in other packages: the agent's goes all the same, taken away by name and not kept for the network's.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"journey": {
+				"ssid": "Journey",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"extra": {
+		"aeolus": {
+			"aeolus_journey": {
+				".anonymous": false,
+				".type": "journey",
+				".name": "aeolus_journey",
+				".index": 50,
+				"captures": "0"
+			}
+		}
+	}
+}

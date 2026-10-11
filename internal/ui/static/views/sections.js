@@ -22,68 +22,81 @@ export async function configs(aps) {
 	return aps.map((a, i) => ({ ap: a, cfg: all[i].status === 'fulfilled' ? all[i].value : null }));
 }
 
-// channelsSection lists each AP below a folder on its APs tab (0075): its
-// state, such as In sync (status, by AP ID, from the fleet), and its radios
-// as it last reported them: the channel each is on, its width and clients,
-// beside what Aeolus sets. With automatic channels each AP picks its own
-// (0045), within the band's channel set. With canEdit, each AP can be
-// renamed, its hostname with it, and moved to another folder (0076).
-// agentCell is an AP's agent (0079): the release it runs, and whether that
-// is the one it should run: current, updating, behind, rolled back or
-// failed, or held where its folder pins a release the manager no longer
-// keeps.
-function agentCell(a) {
-	if (!a) return '—';
+// channelsSection lists each AP below a folder on its APs tab (0075), a
+// line each: its state, such as In sync (status, by AP ID, from the fleet),
+// how it is doing, its radios as it last reported them, and its clients.
+// The rest is a step away: a radio says its clients, and what Aeolus sets
+// for it, to whoever points at it; the AP's own page has everything. With
+// automatic channels each AP picks its own (0045), within the band's
+// channel set. With canEdit, each AP can be renamed, its hostname with it,
+// and moved to another folder (0076).
+//
+// agentChip is an AP's agent (0079) where it is not the release it should
+// run: updating, behind, rolled back or failed, or held where its folder
+// pins a release the manager no longer keeps. Nothing where it is current:
+// that is as it should be, and its page says which, under About. Nothing
+// where it has said none yet.
+function agentChip(a) {
+	if (!a?.runs?.version && !a?.missing_pin) return null;
 	const { runs, wants } = a;
 	const short = (v) => (v || '').replace(/-[0-9a-f]{7,}$/, '') || 'unknown';
 	const u = runs?.update;
-	const chip = (cls, label, title) => h('span', { class: 'chip ' + cls, title: title || null }, label);
-	let state;
-	if (a.missing_pin) state = chip('warn', 'pin missing', `Its folder pins ${a.missing_pin}, which the manager no longer keeps, so it stays as it is.`);
-	else if (u?.state === 'updating') state = chip('warn', 'updating', `Trying ${short(u.version)}`);
-	else if (runs?.hash && runs.hash === wants?.hash) state = chip('ok', 'current');
-	else if (u && u.hash === wants?.hash && u.state === 'rolled-back') state = chip('warn', 'rolled back', u.why);
-	else if (u && u.hash === wants?.hash && u.state === 'failed') state = chip('warn', 'failed', u.why);
-	else state = chip('warn', 'behind', wants && `It should run ${short(wants.version)}`);
-	return [h('span', { class: 'mono' }, short(runs?.version)), ' ', state];
+	const chip = (label, why) => h('span', { class: 'chip warn', title: [`It runs agent ${short(runs?.version)}.`, why].filter(Boolean).join(' ') }, `agent ${label}`);
+	if (a.missing_pin) return chip('pin missing', `Its folder pins ${a.missing_pin}, which the manager no longer keeps, so it stays as it is.`);
+	if (u?.state === 'updating') return chip('updating', `Trying ${short(u.version)}.`);
+	if (runs?.hash && runs.hash === wants?.hash) return null;
+	if (u && u.hash === wants?.hash && u.state === 'rolled-back') return chip('rolled back', u.why);
+	if (u && u.hash === wants?.hash && u.state === 'failed') return chip('failed', u.why);
+	return chip('behind', wants && `It should run ${short(wants.version)}.`);
 }
 
 export function channelsSection(ctx, rows, status, canEdit) {
 	if (!rows.length) return h('div', { class: 'banner info' }, 'No APs here yet.');
 	const box = h('div', { class: 'edit' });
-	const lines = rows.flatMap(({ ap, cfg }) => {
+	// Rename and Move, each named for its AP: a line away from the name,
+	// they would otherwise all read alike.
+	const acts = (ap) => {
+		const rename = renameButton(ctx, 'locations', { id: ap.id, name: ap.name, kind: 'ap' }, box);
+		const move = moveButton(ctx, 'locations', { id: ap.id, name: ap.name, kind: 'ap' }, box);
+		rename.setAttribute('aria-label', `Rename ${ap.name}`);
+		move.setAttribute('aria-label', `Move ${ap.name}`);
+		return [rename, move];
+	};
+	const lines = rows.map(({ ap, cfg }) => {
 		const rep = cfg?.condition?.state;
 		const radios = rep?.report?.radios || [];
-		const apLink = [link(`/aps/${encodeURIComponent(ap.id)}`, ap.name),
-			canEdit && renameButton(ctx, 'locations', { id: ap.id, name: ap.name, kind: 'ap' }, box),
-			canEdit && moveButton(ctx, 'locations', { id: ap.id, name: ap.name, kind: 'ap' }, box)];
 		const st = status?.get(ap.id);
 		const state = st && h('span', { class: 'chip ' + st.chip, title: st.detail }, st.label);
-		const agent = cfg && agentCell(cfg.agent);
+		// Not where its state already speaks of its agent: said once.
+		const agent = cfg && !/^Agent /.test(st?.label || '') && agentChip(cfg.agent);
 		// How it is doing, by its latest report (0119); its Health tab has the rest.
 		const brief = healthBrief(rep?.report?.health);
 		const health = brief && h('a', { class: 'chip ' + brief.grade, href: `#/aps/${encodeURIComponent(ap.id)}/health`, title: 'By its latest report. Open its health and history' }, brief.text);
-		if (!radios.length) return [h('tr', null, h('td', null, apLink), h('td', null, state), h('td', null, agent), h('td', { class: 'nowrap' }, health), h('td', { colspan: 6, class: 'sub' }, cfg ? 'No report yet.' : 'You cannot see this AP.'))];
-		return radios.map((r, i) => {
+		// A radio: its band, with the channel it is on and its width.
+		const radio = (r) => {
 			const path = `radio.${r.band}.channel`;
 			const set = cfg.location?.[path];
-			return h('tr', null,
-				h('td', null, i === 0 && apLink),
-				h('td', null, i === 0 && state),
-				h('td', null, i === 0 && agent),
-				h('td', { class: 'nowrap' }, i === 0 && health),
-				h('td', null, bandName(r.band)),
-				h('td', { class: 'mono' }, r.channel || 'starting'),
-				h('td', { class: 'mono' }, r.width ? r.width + ' MHz' : '—'),
-				h('td', null, String(r.clients ?? '—')),
-				h('td', null, set ? value(path, set.value) : h('span', { class: 'sealed' }, 'not set')),
-				h('td', null, ago(rep.at)));
-		});
+			const n = r.clients ?? 0;
+			// It leads to the AP's radios, where what the chip says on
+			// hover is said in full, for whoever has no pointer.
+			const says = `${bandName(r.band)}: ${r.channel ? `channel ${r.channel}` : 'starting'}${r.width ? `, ${r.width} MHz` : ''}, ${n} client${n === 1 ? '' : 's'}. Aeolus sets its channel: ${set ? value(path, set.value) : 'not set'}.`;
+			return h('a', { class: 'chip idle radio', href: `#/aps/${encodeURIComponent(ap.id)}/interfaces/radios`, title: says, 'aria-label': says },
+				bandName(r.band), h('span', { class: 'mono' }, r.channel ? `${r.channel}${r.width ? `/${r.width}` : ''}` : 'starting'));
+		};
+		return h('tr', null,
+			h('td', null, link(`/aps/${encodeURIComponent(ap.id)}`, ap.name)),
+			h('td', null, state, agent && ' ', agent),
+			h('td', { class: 'nowrap' }, health || h('span', { class: 'sub' }, '—')),
+			h('td', null, radios.length ? h('span', { class: 'radiochips' }, radios.map(radio)) : h('span', { class: 'sub' }, !cfg ? 'You cannot see this AP' : rep?.at ? 'No radios reported' : 'No report yet')),
+			h('td', null, radios.length ? String(radios.reduce((n, r) => n + (r.clients || 0), 0)) : '—'),
+			h('td', { class: 'sub nowrap' }, rep?.at ? ago(rep.at) : '—'),
+			canEdit && h('td', { class: 'rowacts' }, acts(ap)));
 	});
 	return h('section', { class: 'panel' },
-		h('h2', null, 'APs', h('span', { class: 'note' }, 'radios as each last reported')),
+		h('h2', null, 'APs', h('span', { class: 'note' }, 'as each last reported')),
 		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'State', 'Agent', 'Health', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
+			h('tr', null, ['AP', 'State', 'Health', 'Radios', 'Clients', 'Reported'].map((c) => h('th', null, c)),
+				canEdit && h('th', null, h('span', { class: 'sr' }, 'Rename or move'))),
 			lines),
 		box);
 }

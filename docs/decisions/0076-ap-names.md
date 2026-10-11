@@ -23,6 +23,7 @@
   - A folder's name may be any 1 to 64 characters, no control characters.
   - Renaming an AP re-versions its config. The agent applies it: the system section changes, `reload_config` sets the hostname, and nothing else restarts.
 - **The APs tab** offers **Rename…** beside each AP for someone who may change it, previewed and logged as other changes are.
+  - Since 2026-10-11 Rename… and Move… are at the end of the AP's line, each named for its AP, and no longer under its name.
 - **A folder's page** offers **Rename…** beside its name, in both trees (Griff, 2026-10-05). Renaming a folder changes no AP's config.
 - **An AP's own page** offers Rename… and Move… beside its name too (Griff, 2026-10-05).
 - **A folder's page offers New folder…** (Griff, 2026-10-05): a folder inside it, by name, in either tree; not inside an isolated folder.

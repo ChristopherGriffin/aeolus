@@ -16,6 +16,7 @@ const SYSTEM = {
 	'syslog': 'Syslog', 'ssh_keys': 'SSH keys', 'speed_server': 'Speed server, local', 'speed_server_remote': 'Speed server, remote',
 	'management.vlan': 'VLAN', 'management.addressing': 'Addressing', 'management.address': 'Address',
 	'management.gateway': 'Gateway', 'management.dns': 'DNS',
+	'captures': 'Capture failed joins',
 };
 
 // Radio resource management's fields (0073).

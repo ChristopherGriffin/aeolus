@@ -5,7 +5,7 @@
 // each with its time.
 
 import { h, link } from '../dom.js';
-import { get } from '../api.js';
+import { download, get } from '../api.js';
 import { bandName, ago } from '../format.js';
 import { wayPath } from './way.js';
 import { KIND, took as roamTook } from './roaming.js';
@@ -63,6 +63,39 @@ function heard(c) {
 	return 'Heard asking for networks ' + p.map((x) => `${x.ap ? `by the AP at ${x.ap}` : `by this AP${x.band ? ` on ${bandName(x.band)}` : ''}`} at ${x.signal} dBm`).join('; ') + '.';
 }
 
+const size = (n) => (n < 1000 ? `${n} bytes` : n < 1e6 ? `${(n / 1000).toFixed(n < 10000 ? 1 : 0)} kB` : `${(n / 1e6).toFixed(1)} MB`);
+
+// captureLink is the capture kept of an attempt that failed (0135), to be
+// had as a file: the client's frames as the AP's radio heard and sent them,
+// and those that crossed its wire side. One who may not read it, short of
+// operator on its AP, is told there is one. Nothing where none is kept.
+function captureLink(c) {
+	const k = c.capture;
+	if (!k) return null;
+	const holds = `${k.frames} frame${k.frames === 1 ? '' : 's'}, ${size(k.bytes)}`;
+	if (!k.may)
+		return h('span', { class: 'capture sub', title: `A capture of this attempt is kept (${holds}). Reading it needs operator on its AP: it holds the client’s key handshake.` }, 'Capture kept');
+	const a = h('a', { class: 'capture', href: '#', role: 'button',
+		title: `The client’s frames in this attempt, as the AP’s radio heard and sent them and as they crossed its wire side: ${holds}. A pcapng file, which Wireshark opens.` }, 'Capture');
+	a.addEventListener('click', async (e) => {
+		// In a summary, a click would open or close the attempt too.
+		e.preventDefault();
+		e.stopPropagation();
+		if (a.classList.contains('busy')) return;
+		a.classList.add('busy');
+		a.textContent = 'Capture…';
+		try {
+			await download(`/v1/connections/${c.id}/capture`);
+			a.textContent = 'Capture';
+		} catch (err) {
+			a.textContent = 'Capture';
+			a.after(h('span', { class: 'capture bad', role: 'alert' }, ` ${err.message}`));
+		}
+		a.classList.remove('busy');
+	});
+	return a;
+}
+
 // steps is the attempt opened: its stages in a row, then each step with how
 // long after the start it came.
 function steps(c) {
@@ -118,6 +151,7 @@ export async function connectionsSection(mac) {
 					// It came as a client already on the network (0136).
 					c.roam && h('span', { class: 'roamed', title: `A roam: it came as a client already on the network, from another AP or another radio. ${KIND[c.roam.kind]?.[1] || ''}` },
 						` · roam, ${KIND[c.roam.kind]?.[0] || c.roam.kind}${c.roam.ms != null ? `, ${roamTook(c.roam.ms)}` : ''}`)),
+				captureLink(c),
 				outcomeChip(c)),
 			steps(c),
 			h('p', { class: 'sub attemptlinks' }, link(`/aps/${encodeURIComponent(c.ap)}/clients`, `${c.ap_name || c.ap}'s clients`)));
