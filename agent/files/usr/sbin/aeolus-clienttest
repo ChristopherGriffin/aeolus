@@ -1,0 +1,468 @@
+#!/usr/bin/ucode -S
+// aeolus-clienttest: the Aeolus agent's client test (0121). On an AP with a
+// scan radio, that radio joins one of the AP's own networks as a client
+// would, on the AP asked for, and each step of its way online is timed:
+// finding the network, authentication, association, the keys, DHCP, its
+// gateway, a DNS lookup, and how fast it moves bytes to and from an
+// OpenSpeedTest server.
+//
+// The scan radio is airscan's. It is taken only while airscan is between
+// its jobs, looking at clients, never while it sweeps the spectrum or
+// scans: taken mid-sweep, the C-360's goes deaf until its driver is bound
+// again (2026-10-11). It is held for under a minute, and given back
+// whatever happens.
+//
+// The client's traffic is its own: its address is the only one on its
+// interface, its routes are ones only a socket bound to that interface
+// takes, and every packet of the test is sent from such a socket. The AP's
+// own traffic keeps to its uplink, and no neighbour takes the one for the
+// other: OpenWrt answers ARP only for the address of the interface asked.
+//
+//	aeolus-clienttest <what is asked, a JSON file> <where the result goes>
+//
+// The agent starts it for a client-test action, and reports the result.
+
+'use strict';
+
+import * as fs from 'fs';
+import * as socket from 'socket';
+import { cursor } from 'uci';
+import { connect } from 'ubus';
+import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING } from 'log';
+import * as ct from 'aeolus.clienttest';
+
+const IF = 'aet-sta0';
+const DIR = '/var/run/aeolus/clienttest';
+const FREE_WAIT = 120;     // seconds it waits for airscan to be between its jobs
+const CONNECT_WAIT = 20;   // seconds to be let on to the network
+const SPEED_SECONDS = 5;   // seconds measured each way, after one to warm up
+const STREAMS = 3;         // connections at once each way
+const HEAR_WAIT = 30;      // seconds airscan is given, the radio back, to hear the air again
+
+let bus = connect();
+openlog('aeolus-clienttest', LOG_PID, LOG_DAEMON);
+let t0 = 0;
+let steps = [];
+
+function log(fmt, ...args) {
+	syslog(LOG_INFO, fmt, ...args);
+}
+
+function note(fmt, ...args) {
+	syslog(LOG_WARNING, fmt, ...args);
+}
+
+function now() {
+	let c = clock(true);
+	return c[0] + c[1] / 1e9;
+}
+
+function since() {
+	return int((now() - t0) * 1000);
+}
+
+function step(stage, what, ok, ms) {
+	if (length(steps) >= ct.STEPS)
+		return;
+	let s = { t: since(), stage: stage, what: what };
+	if (ok != null)
+		s.ok = ok;
+	if (ms != null)
+		s.ms = ms;
+	push(steps, s);
+}
+
+function run(...args) {
+	return system(args) == 0;
+}
+
+function output(cmd) {
+	let p = fs.popen(cmd + ' 2>/dev/null');
+	if (!p)
+		return '';
+	let t = p.read('all') ?? '';
+	p.close();
+	return t;
+}
+
+// credentials are the network's own settings on this AP: how it is secured
+// and its passphrase, as the AP's wireless config has them.
+function credentials(ssid) {
+	let found = null;
+	cursor().foreach('wireless', 'wifi-iface', i => {
+		if (!found && i.mode == 'ap' && i.ssid == ssid)
+			found = { encryption: i.encryption ?? 'none', key: i.key, ppsk: i.ppsk };
+	});
+	return found;
+}
+
+// free waits until airscan is between its jobs, and says whether it is.
+function free() {
+	let from = now(), state = null;
+	while (now() - from < FREE_WAIT) {
+		state = bus.call('airscan', 'status')?.state;
+		if (state in ['clients', 'idle'])
+			return true;
+		sleep(500);
+	}
+	return false;
+}
+
+// take takes the scan radio from airscan and makes the client's interface
+// on it; give_back undoes it all and starts airscan again.
+function take(phy) {
+	run('/etc/init.d/airscan', 'stop');
+	sleep(1500);
+	for (let ifn in fs.lsdir('/sys/class/net') ?? [])
+		if (trim(fs.readfile(`/sys/class/net/${ifn}/phy80211/name`) ?? '') == phy)
+			run('iw', 'dev', ifn, 'del');
+	if (!run('iw', 'phy', phy, 'interface', 'add', IF, 'type', 'managed'))
+		return false;
+	// No IPv6: a router's advertisement would give the AP itself a route.
+	fs.writefile(`/proc/sys/net/ipv6/conf/${IF}/disable_ipv6`, '1');
+	return run('ip', 'link', 'set', IF, 'up');
+}
+
+function give_back() {
+	let pid = trim(fs.readfile(`${DIR}/wpa.pid`) ?? '');
+	if (match(pid, /^[0-9]+$/))
+		run('kill', pid);
+	sleep(300);
+	if (fs.access(`/sys/class/net/${IF}`))
+		run('iw', 'dev', IF, 'del');
+	for (let f in ['wpa.conf', 'wpa.pid', 'lease', 'udhcpc.sh', 'ctl'])
+		fs.unlink(`${DIR}/${f}`);
+	run('/etc/init.d/airscan', 'start');
+}
+
+// ctl_open is the test's socket to wpa_supplicant's control interface,
+// attached to its events.
+function ctl_open() {
+	let path = `${DIR}/wpa/${IF}`;
+	for (let i = 0; i < 30 && !fs.stat(path); i++)
+		sleep(100);
+	let k = socket.create(socket.AF_UNIX, socket.SOCK_DGRAM);
+	fs.unlink(`${DIR}/ctl`);
+	if (!k || !k.bind({ path: `${DIR}/ctl` }) || !k.connect({ path: path })) {
+		if (k)
+			k.close();
+		return null;
+	}
+	k.send('ATTACH');
+	return k;
+}
+
+// bound is a socket that sends and hears only on the client's interface.
+function bound(kind) {
+	let s = socket.create(socket.AF_INET, kind);
+	if (s && !s.setopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, IF)) {
+		s.close();
+		return null;
+	}
+	return s;
+}
+
+// lookup asks a DNS server for a name's address, twice at most, and says
+// what it answered and how long that took; null where it did not.
+function lookup(server, name) {
+	let s = bound(socket.SOCK_DGRAM);
+	if (!s)
+		return null;
+	let id = 0x4165, out = null, started = now();
+	for (let tries = 0; tries < 2 && !out; tries++) {
+		started = now();
+		s.send(ct.dns_query(id, name), 0, { address: server, port: 53 });
+		socket.poll(1500, [s, socket.POLLIN]);
+		let d = s.recv(1500, socket.MSG_DONTWAIT);
+		if (d)
+			out = ct.dns_answer(d, id);
+	}
+	s.close();
+	if (out)
+		out.ms = int((now() - started) * 1000);
+	return out;
+}
+
+// speed moves bytes from or to an OpenSpeedTest server, over a few
+// connections at once, and says how fast after the first second: its
+// download is a file of 30 MB, asked for again and again, and its upload
+// takes as much at a time.
+function speed(host, port, dir) {
+	let name = host + (port == 80 ? '' : ':' + port);
+	const BODY = 33554432;
+	let req = '', chunk = '';
+	for (let i = 0; i < 64; i++)
+		req += `GET /downloading HTTP/1.1\r\nHost: ${name}\r\n\r\n`;
+	for (let i = 0; i < 1024; i++)
+		chunk += '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+	let head = `POST /upload HTTP/1.1\r\nHost: ${name}\r\nContent-Type: application/octet-stream\r\nContent-Length: ${BODY}\r\n\r\n`;
+	let socks = [];
+	let shut = () => {
+		for (let x in socks)
+			x.s.close();
+	};
+	for (let i = 0; i < STREAMS; i++) {
+		let s = bound(socket.SOCK_STREAM);
+		if (!s || !s.connect({ address: host, port: port })) {
+			let why = socket.error() ?? 'it cannot be reached';
+			if (s)
+				s.close();
+			shut();
+			return { error: why };
+		}
+		s.send(dir == 'down' ? req : head);
+		push(socks, { s: s, left: BODY });
+	}
+	let start = now(), bytes = 0, warm = null, warm_at = null;
+	while (now() - start < SPEED_SECONDS + 1) {
+		let ev = socket.poll(200, ...map(socks, x => [x.s, dir == 'down' ? socket.POLLIN : socket.POLLOUT]));
+		for (let i = 0; i < length(ev ?? []); i++) {
+			if (!ev[i][1])
+				continue;
+			let x = socks[i];
+			if (dir == 'down') {
+				let d = x.s.recv(262144, socket.MSG_DONTWAIT);
+				if (d != null)
+					bytes += length(d);
+				continue;
+			}
+			let want = min(x.left, length(chunk));
+			let n = x.s.send(want == length(chunk) ? chunk : substr(chunk, 0, want), socket.MSG_DONTWAIT);
+			if (n > 0) {
+				bytes += n;
+				x.left -= n;
+			}
+			if (x.left <= 0) {
+				x.s.send(head);
+				x.left = BODY;
+			}
+		}
+		if (warm == null && now() - start >= 1) {
+			warm = bytes;
+			warm_at = now();
+		}
+	}
+	let end = now();
+	shut();
+	if (warm == null || bytes == warm)
+		return { error: 'no bytes moved' };
+	return { mbps: ct.rate(bytes - warm, end - warm_at) };
+}
+
+// join starts wpa_supplicant and follows it until the client is let on, or
+// is not: it returns null, or where it stopped and why.
+function join_network(res) {
+	run('wpa_supplicant', '-B', '-i', IF, '-D', 'nl80211', '-c', `${DIR}/wpa.conf`, '-P', `${DIR}/wpa.pid`);
+	let k = ctl_open();
+	if (!k)
+		return { stage: 'find', why: 'wpa_supplicant did not start' };
+	let connected = false, failed = null, notfound = 0, last = 'find';
+	while (!connected && !failed && now() - t0 < CONNECT_WAIT) {
+		socket.poll(250, [k, socket.POLLIN]);
+		let d;
+		while ((d = k.recv(4096, socket.MSG_DONTWAIT)) != null && length(d)) {
+			let e = ct.event(d);
+			if (!e)
+				continue;
+			if (e.stage)
+				last = e.stage;
+			if (e.bssid) {
+				res.bssid = e.bssid;
+				res.band = ct.band_of(e.freq);
+				res.channel = ct.channel_of(e.freq);
+			}
+			// The same look, again and again, is said once.
+			if (!e.notfound || !notfound)
+				step(e.stage ?? last, e.what, e.ok);
+			if (e.notfound)
+				notfound++;
+			if (e.connected)
+				connected = true;
+			if (e.fail)
+				failed = e.what;
+		}
+	}
+	k.close();
+	if (connected)
+		return null;
+	return { stage: last, why: failed ?? (notfound && last == 'find' ? `it was not found there in ${notfound} looks` : `it was not let on within ${CONNECT_WAIT} s`) };
+}
+
+// measure is the test itself, the radio taken: the join, and then each
+// thing a client needs once it is on.
+function measure(res, want) {
+	t0 = now();
+	let stopped = join_network(res);
+	if (stopped)
+		return stopped;
+	res.joined_ms = since();
+	res.link = ct.link_of(output(`iw dev ${IF} station dump`));
+
+	// An address.
+	let from = now();
+	run('udhcpc', '-i', IF, '-f', '-n', '-q', '-t', '5', '-T', '2', '-A', '1', '-x', 'hostname:aeolus-test', '-s', `${DIR}/udhcpc.sh`);
+	let lease = ct.lease_of(fs.readfile(`${DIR}/lease`));
+	if (!lease) {
+		step('dhcp', 'no answer to its DHCP requests', false);
+		return { stage: 'dhcp', why: 'no DHCP server gave it an address' };
+	}
+	res.dhcp = { ms: int((now() - from) * 1000), ...lease };
+	step('dhcp', `given ${lease.address} by ${lease.server ?? 'a server that did not say who it is'}`, true, res.dhcp.ms);
+	// Its address alone, and routes only what is bound to the interface
+	// takes: the AP's own traffic keeps to its own.
+	run('ip', 'addr', 'add', lease.address + '/32', 'dev', IF);
+	let net = ct.prefix_net(lease.address, lease.mask);
+	if (net)
+		run('ip', 'route', 'add', `${net}/${lease.mask}`, 'dev', IF, 'src', lease.address, 'metric', '4096');
+	if (lease.router)
+		run('ip', 'route', 'add', 'default', 'via', lease.router, 'dev', IF, 'src', lease.address, 'metric', '4096');
+
+	// Its gateway.
+	if (lease.router) {
+		res.gateway = { address: lease.router, ...ct.ping_of(output(`ping -I ${IF} -c 3 -W 1 ${lease.router}`)) };
+		step('gateway', res.gateway.got ? `${lease.router}, its gateway, answers ${res.gateway.got} of ${res.gateway.sent} pings` : `${lease.router}, its gateway, does not answer`,
+			res.gateway.got > 0, res.gateway.avg);
+	}
+
+	// A name looked up: the speed server's, where it has one.
+	let host = want.speed?.host;
+	let named = host && length(iptoarr(host) ?? []) != 4;
+	let name = named ? host : want.dns_name;
+	if (lease.dns[0]) {
+		let a = lookup(lease.dns[0], name);
+		res.dns = { server: lease.dns[0], name: name, ...(a ?? {}) };
+		let found = a && a.rcode == 0 && a.answers > 0;
+		step('dns', !a ? `${lease.dns[0]} does not answer for ${name}` : found ? `${lease.dns[0]} answers ${name}: ${a.address ?? a.answers + ' records'}` : `${lease.dns[0]} has no address for ${name} (code ${a.rcode})`,
+			!!found, a?.ms);
+		if (named)
+			host = a?.address;
+	} else if (named)
+		host = null;
+
+	// How fast.
+	if (want.speed) {
+		res.speed = { server: want.speed.url };
+		if (!host)
+			res.speed.error = 'its name was not found';
+		else {
+			let down = speed(host, want.speed.port, 'down');
+			step('speed', down.error ? `download: ${down.error}` : `down ${down.mbps} Mbit/s`, !down.error);
+			res.speed.down = down.mbps;
+			res.speed.error = down.error;
+			if (!down.error) {
+				let up = speed(host, want.speed.port, 'up');
+				step('speed', up.error ? `upload: ${up.error}` : `up ${up.mbps} Mbit/s`, !up.error);
+				res.speed.up = up.mbps;
+				res.speed.error = up.error;
+			}
+		}
+		if (res.speed.error == null)
+			delete res.speed.error;
+		// The rates the link settled at, once bytes had moved.
+		let after = ct.link_of(output(`iw dev ${IF} station dump`));
+		if (after.tx || after.rx)
+			res.link = after;
+	}
+	res.took_ms = since();
+	return null;
+}
+
+// heard_now is how many networks airscan's latest look heard, and when it
+// looked.
+function heard_now() {
+	let b = bus.call('airscan', 'bss');
+	return type(b?.list) == 'array' ? { count: length(b.list), time: b.time ?? 0 } : null;
+}
+
+function main() {
+	let res = { v: 1, outcome: 'failed', stage: 'find', reason: '' };
+	let stop = (stage, why) => {
+		res.stopped = { stage: stage, why: why };
+		return res;
+	};
+	let want = null;
+	try {
+		want = ct.wanted(json(fs.readfile(ARGV[0]) ?? 'null'));
+	} catch (e) {
+	}
+	if (!want)
+		return stop('find', 'what was asked is not a test this agent knows');
+	res.ssid = want.ssid;
+	let cred = credentials(want.ssid);
+	if (!cred)
+		return stop('find', 'this AP does not offer that network, so it has no way to join it');
+	let phy = bus.call('airscan', 'status')?.phy;
+	if (type(phy) != 'string' || !match(phy, /^phy[0-9]+$/))
+		return stop('find', 'this AP has no scan radio to test from');
+	let before = heard_now();
+	let tgt = ct.target(want, bus.call('airscan', 'bss')?.list);
+	if (!tgt)
+		return stop('find', 'the scan radio does not hear that network from another AP');
+	res.heard = tgt.heard;
+	let sup = ct.supplicant(DIR, want.ssid, cred, tgt);
+	if (!sup.conf)
+		return stop('key', sup.why);
+
+	fs.mkdir('/var/run/aeolus');
+	fs.mkdir(DIR);
+	fs.writefile(`${DIR}/wpa.conf`, sup.conf);
+	fs.chmod(`${DIR}/wpa.conf`, 0o600);
+	fs.writefile(`${DIR}/udhcpc.sh`, '#!/bin/sh\n[ "$1" = bound ] || exit 0\n' +
+		`{ echo "ip=$ip"; echo "mask=$mask"; echo "router=$router"; echo "dns=$dns"; echo "server=$serverid"; echo "lease=$lease"; } > ${DIR}/lease\n`);
+	fs.chmod(`${DIR}/udhcpc.sh`, 0o700);
+	fs.unlink(`${DIR}/lease`);
+
+	let waited = now();
+	if (!free()) {
+		fs.unlink(`${DIR}/wpa.conf`);
+		return stop('find', `the scan radio stayed busy for ${FREE_WAIT} s`);
+	}
+	res.waited_ms = int((now() - waited) * 1000);
+	log('testing %s%s from the scan radio', want.ssid, length(want.bssids) ? ' on ' + join(' ', want.bssids) : '');
+	let taken = time();
+	if (!take(phy)) {
+		give_back();
+		return stop('find', 'the scan radio would not make a client interface');
+	}
+	res.client = trim(fs.readfile(`/sys/class/net/${IF}/address`) ?? '');
+	try {
+		let stopped = measure(res, want);
+		if (stopped)
+			res.stopped = stopped;
+	} catch (e) {
+		res.stopped = { stage: 'find', why: 'the test broke: ' + e };
+		note('the test broke: %s', e);
+	}
+	give_back();
+
+	// The radio is airscan's again: its next look says whether it still
+	// hears the air.
+	let after = null;
+	for (let i = 0; i < HEAR_WAIT * 2; i++) {
+		sleep(500);
+		after = heard_now();
+		if (after && after.time >= taken)
+			break;
+		after = null;
+	}
+	if (before && after) {
+		res.scan_radio = { before: before.count, after: after.count };
+		if (before.count > 0 && after.count == 0) {
+			res.scan_radio.deaf = true;
+			note('after the test the scan radio hears nothing, where it heard %d networks before: its driver needs binding again', before.count);
+		}
+	}
+	return res;
+}
+
+let result = main();
+ct.verdict(result);
+delete result.stopped;
+result.steps = steps;
+result.summary = ct.summary(result);
+log('%s', result.summary);
+let path = ARGV[1] ?? '/dev/stdout';
+if (path == '/dev/stdout')
+	printf('%.J\n', result);
+else if (fs.writefile(path + '.new', sprintf('%J\n', result)) != null)
+	fs.rename(path + '.new', path);

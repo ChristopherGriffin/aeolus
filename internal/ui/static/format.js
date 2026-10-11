@@ -12,7 +12,7 @@ const SECURITY = {
 
 const SYSTEM = {
 	'country': 'Country', 'tz': 'Time zone', 'ntp': 'NTP servers', 'poll': 'Poll interval', 'agent': 'Agent version',
-	'syslog': 'Syslog', 'ssh_keys': 'SSH keys',
+	'syslog': 'Syslog', 'ssh_keys': 'SSH keys', 'speed_server': 'Speed server',
 	'management.vlan': 'VLAN', 'management.addressing': 'Addressing', 'management.address': 'Address',
 	'management.gateway': 'Gateway', 'management.dns': 'DNS',
 };

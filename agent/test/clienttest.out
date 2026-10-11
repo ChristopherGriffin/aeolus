@@ -1,0 +1,122 @@
+wanted { "ssid": "Aeolus Lab", "bssids": [ "20:05:b6:01:8b:ec" ], "band": "5g", "speed": { "url": "http://192.168.20.106", "host": "192.168.20.106", "port": 80 }, "dns_name": "openwrt.org" }
+wanted least { "ssid": "Aeolus Lab", "bssids": [ ], "band": null, "speed": null, "dns_name": "example.com" }
+wanted named server { "url": "http://zephyrus.symtus.com:3000/", "host": "zephyrus.symtus.com", "port": 3000 }
+wanted null: null
+wanted { }: null
+wanted { "ssid": "" }: null
+wanted { "ssid": "x", "bssids": [ "not one" ] }: null
+wanted { "ssid": "x", "band": "60g" }: null
+wanted { "ssid": "x", "speed": "https://secure.example" }: null
+wanted { "ssid": "x", "speed": "http://host:99999" }: null
+wanted { "ssid": "x", "speed": "http://host/path" }: null
+wanted { "ssid": "x", "dns_name": "bad name" }: null
+wanted { "ssid": "a name of more than thirty-two bytes" }: null
+freqs 2g [ 2412, 2417, 2422, 2427, 2432, 2437, 2442, 2447, 2452, 2457, 2462, 2467, 2472 ]
+freqs 5g [ 5180, 5200, 5220, 5240, 5260, 5280, 5300, 5320, 5500, 5520, 5540, 5560, 5580, 5600, 5620, 5640, 5660, 5680, 5700, 5720, 5745, 5765, 5785, 5805, 5825 ]
+freqs 6g 59, from 5955 to 7115; any band 38
+where [ "2g", 1 ] [ "5g", 132 ] [ "6g", 197 ] [ "2g", 14 ] [ "6g", 2 ] null
+target the office AP { "bssids": [ "20:05:b6:01:8b:e5", "20:05:b6:01:8b:ec" ], "freqs": [ 2412, 5660 ], "heard": [ { "bssid": "20:05:b6:01:8b:e5", "band": "2g", "channel": 1, "signal": -28 }, { "bssid": "20:05:b6:01:8b:ec", "band": "5g", "channel": 132, "signal": -44 } ] }
+target the office AP on 5 GHz { "bssids": [ "20:05:b6:01:8b:e5", "20:05:b6:01:8b:ec" ], "freqs": [ 5660 ], "heard": [ { "bssid": "20:05:b6:01:8b:ec", "band": "5g", "channel": 132, "signal": -44 } ] }
+target this AP itself on 2.4 GHz { "bssids": [ "32:86:2d:03:17:c0", "32:86:2d:03:17:d0" ], "freqs": [ 2437 ], "heard": [ { "bssid": "32:86:2d:03:17:d0", "band": "2g", "channel": 6, "signal": 0 } ] }
+target an AP not heard: it looks on 13 channels, heard [ ]
+target the strongest other AP { "bssids": [ "20:05:b6:01:8b:e5" ], "freqs": [ 2412 ], "heard": [ { "bssid": "20:05:b6:01:8b:e5", "band": "2g", "channel": 1, "signal": -28 }, { "bssid": "20:05:b6:01:8b:ec", "band": "5g", "channel": 132, "signal": -44 }, { "bssid": "aa:04:60:21:36:61", "band": "2g", "channel": 11, "signal": -84 } ] }
+target the strongest other AP on 5 GHz { "bssids": [ "20:05:b6:01:8b:ec" ], "freqs": [ 5660 ], "heard": [ { "bssid": "20:05:b6:01:8b:ec", "band": "5g", "channel": 132, "signal": -44 } ] }
+target none heard null null
+supplicant psk2:
+ctrl_interface=/var/run/aeolus/clienttest/wpa
+update_config=0
+sae_pwe=2
+network={
+	ssid=41656f6c7573204c6162
+	scan_ssid=1
+	bssid_accept=20:05:b6:01:8b:ec
+	scan_freq=5660
+	freq_list=5660
+	key_mgmt=WPA-PSK
+	psk="fixture-passphrase-1"
+}
+supplicant sae: [ "key_mgmt=SAE", "ieee80211w=2", "sae_password=\"a \"quoted\" passphrase\"\n}\n" ]
+supplicant sae-mixed: [ "key_mgmt=SAE WPA-PSK", "ieee80211w=1", "psk=\"a \"quoted\" passphrase\"\n}\n" ]
+supplicant owe: [ "key_mgmt=OWE", "ieee80211w=2\n}\n" ]
+supplicant none: [ "key_mgmt=NONE\n}\n" ]
+supplicant psk-mixed+ccmp: [ "key_mgmt=WPA-PSK", "psk=\"a \"quoted\" passphrase\"\n}\n" ]
+supplicant no target: "ctrl_interface=/var/run/aeolus/clienttest/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=78\n\tscan_ssid=1\n\tkey_mgmt=NONE\n}\n"
+supplicant { "encryption": "wpa2", "key": "x" }: { "why": "it signs clients in by 802.1X, which the test cannot do yet" }
+supplicant { "encryption": "wpa3-mixed" }: { "why": "it signs clients in by 802.1X, which the test cannot do yet" }
+supplicant { "encryption": "psk2", "ppsk": "1" }: { "why": "each device has a passphrase of its own from RADIUS there, and the test has none" }
+supplicant { "encryption": "psk2" }: { "why": "this AP has no passphrase for it" }
+supplicant { "encryption": "psk2", "key": "short" }: { "why": "its passphrase is one the test cannot hand to wpa_supplicant" }
+supplicant { "encryption": "psk2", "key": "two\nlines of it" }: { "why": "its passphrase is one the test cannot hand to wpa_supplicant" }
+supplicant { "encryption": "wep", "key": "fixture-passphrase-1" }: { "why": "its security, wep, is one the test does not know" }
+supplicant null: { "why": "this AP does not offer that network" }
+event "<3>CTRL-EVENT-SCAN-STARTED "
+   { "stage": "find", "what": "looks for the network" }
+event "<3>CTRL-EVENT-SCAN-RESULTS "
+   null
+event "<3>SME: Trying to authenticate with 20:05:b6:01:8b:ec (SSID='Aeolus Lab' freq=5660 MHz)"
+   { "stage": "find", "what": "found it on 20:05:b6:01:8b:ec, 5660 MHz", "ok": true, "bssid": "20:05:b6:01:8b:ec", "freq": 5660 }
+event "<3>Trying to associate with 20:05:b6:01:8b:ec (SSID='Aeolus Lab' freq=5660 MHz)"
+   { "stage": "auth", "what": "authenticated", "ok": true }
+event "<3>Associated with 20:05:b6:01:8b:ec"
+   { "stage": "assoc", "what": "associated", "ok": true }
+event "<3>CTRL-EVENT-SUBNET-STATUS-UPDATE status=0"
+   null
+event "<3>WPA: Key negotiation completed with 20:05:b6:01:8b:ec [PTK=CCMP GTK=CCMP]"
+   { "stage": "key", "what": "key handshake completed", "ok": true }
+event "<3>CTRL-EVENT-CONNECTED - Connection to 20:05:b6:01:8b:ec completed [id=0 id_str=]"
+   { "stage": "key", "what": "let on to the network", "ok": true, "connected": true }
+event "<3>CTRL-EVENT-NETWORK-NOT-FOUND "
+   { "stage": "find", "what": "the network was not found", "ok": false, "notfound": true }
+event "<3>CTRL-EVENT-AUTH-REJECT 20:05:b6:01:8b:e8 auth_type=0 auth_transaction=2 status_code=1"
+   { "stage": "auth", "what": "authentication refused (status 1)", "ok": false, "fail": true }
+event "<3>CTRL-EVENT-ASSOC-REJECT bssid=20:05:b6:01:8b:e8 status_code=17"
+   { "stage": "assoc", "what": "association refused (status 17)", "ok": false, "fail": true }
+event "<3>WPA: 4-Way Handshake failed - pre-shared key may be incorrect"
+   { "stage": "key", "what": "wrong passphrase", "ok": false }
+event "<3>CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=\"Aeolus Lab\" auth_failures=1 duration=10 reason=WRONG_KEY"
+   { "stage": "key", "what": "wrong passphrase", "ok": false, "fail": true }
+event "<3>CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=\"Aeolus-PPSK\" auth_failures=2 duration=20 reason=CONN_FAILED"
+   { "stage": null, "what": "gave up: conn failed", "ok": false, "fail": true }
+event "<3>CTRL-EVENT-DISCONNECTED bssid=20:05:b6:01:8b:ec reason=3 locally_generated=1"
+   { "stage": null, "what": "disconnected (reason 3)", "ok": false }
+event "OK"
+   null
+event null
+   null
+link 5 GHz, just joined { "signal": -45, "tx": null, "rx": { "mbps": 48.0, "how": "" } }
+link 2.4 GHz { "signal": -34, "tx": { "mbps": 143.3, "how": "HE-MCS 11 HE-NSS 1 HE-GI 0 HE-DCM 0" }, "rx": { "mbps": 143.3, "how": "HE-MCS 11 HE-NSS 1 HE-GI 0 HE-DCM 0" } }
+link of nothing { "signal": null, "tx": null, "rx": null }
+ping { "sent": 3, "got": 3, "min": 2.358, "avg": 4.131, "max": 7.61 }
+ping unanswered { "sent": 3, "got": 0, "min": null, "avg": null, "max": null }
+ping of nothing { "sent": 0, "got": 0, "min": null, "avg": null, "max": null }
+lease { "address": "192.168.20.108", "mask": 24, "router": "192.168.20.1", "dns": [ "192.168.20.254", "9.9.9.9" ], "server": "192.168.20.254", "lease": 86400 }
+lease, little said { "address": "10.0.0.7", "mask": 8, "router": null, "dns": [ ], "server": null, "lease": 0 }
+lease, none null null null
+network "192.168.20.0" "10.16.0.0" "10.20.30.40" "0.0.0.0" null
+dns query 416501000001000000000000076578616d706c6503636f6d0000010001
+dns answer { "rcode": 0, "answers": 2, "address": "104.20.23.154" }
+dns no such name { "rcode": 3, "answers": 0, "address": null }
+dns another question null, the question itself null, cut short { "rcode": 0, "answers": 2, "address": null } null
+rate 21.0 1912.4 null
+all of it: passed, stage done, reason ""
+   passed: joined in 0.6 s, address in 0.3 s, gateway 4 ms, DNS 42 ms, 21 down / 22.1 up Mbit/s
+no speed server: passed, stage done, reason ""
+   passed: joined in 0.6 s, address in 0.3 s, gateway 4 ms, DNS 42 ms
+joined, and nothing more asked: passed, stage done, reason ""
+   passed: joined in 2.6 s
+never found: failed, stage find, reason "it was not found there in 17 looks"
+   failed at find: it was not found there in 17 looks
+wrong passphrase: failed, stage key, reason "wrong passphrase"
+   failed at key: wrong passphrase
+no address: failed, stage dhcp, reason "no DHCP server gave it an address"
+   failed at dhcp: no DHCP server gave it an address
+gateway silent: failed, stage gateway, reason "its gateway, 192.168.20.1, does not answer"
+   failed at gateway: its gateway, 192.168.20.1, does not answer
+DNS silent: failed, stage dns, reason "its DNS server, 192.168.20.254, does not answer"
+   failed at dns: its DNS server, 192.168.20.254, does not answer
+DNS has no such name: failed, stage dns, reason "its DNS server, 192.168.20.254, has no address for nowhere.invalid"
+   failed at dns: its DNS server, 192.168.20.254, has no address for nowhere.invalid
+speed server unreachable: failed, stage speed, reason "the speed server: Connection refused"
+   failed at speed: the speed server: Connection refused
+a reason that is not plain text: failed, stage find, reason "caf?? a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on"
+   failed at find: caf?? a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on

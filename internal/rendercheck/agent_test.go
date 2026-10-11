@@ -275,7 +275,7 @@ func anyList(v any) []string {
 func TestAgentCallsOnlyWhatIsDeclaredAbove(t *testing.T) {
 	decl := regexp.MustCompile(`^(?:export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	call := regexp.MustCompile(`(^|[^A-Za-z0-9_.$])([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/libexec/aeolus-gi"}
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/sbin/aeolus-clienttest", "files/usr/libexec/aeolus-gi"}
 	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
 	for _, m := range mods {
 		rel, _ := filepath.Rel(agentDir, m)
@@ -590,7 +590,7 @@ func TestPassphrasesFromRADIUSCheck(t *testing.T) {
 // agent, on every state report, where ports_state had a local uplink).
 func TestAgentHidesNoModule(t *testing.T) {
 	imp := regexp.MustCompile(`^import \* as ([A-Za-z_][A-Za-z0-9_]*) from`)
-	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/libexec/aeolus-gi"}
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/sbin/aeolus-clienttest", "files/usr/libexec/aeolus-gi"}
 	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
 	for _, m := range mods {
 		rel, _ := filepath.Rel(agentDir, m)
@@ -614,5 +614,34 @@ func TestAgentHidesNoModule(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// The client test (0121): what wpa_supplicant is told for each way a
+// network is secured, what its events mean, a DNS question and its answer,
+// and what a test's findings come to. agent/test/clienttest.uc prints them;
+// clienttest.out is what it must print.
+func TestAgentClientTest(t *testing.T) {
+	ucode, err := exec.LookPath("ucode")
+	if err != nil {
+		t.Skip("ucode is not installed; CI builds it (0040)")
+	}
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", "clienttest.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "clienttest.uc"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Errorf("the client test's parts print other than clienttest.out says:\n%s", out)
 	}
 }

@@ -1668,6 +1668,89 @@ function disconnect(a) {
 		: { ok: false, result: 'it is not connected to this AP' };
 }
 
+// The client test (0121): on an AP with a scan radio, that radio joins one
+// of the AP's networks as a client would. It takes a minute or two, so it
+// runs beside the agent, which says what came of it once its result is
+// there (tests_done).
+const CT_TOOL = '/usr/sbin/aeolus-clienttest';
+const CT_DIR = '/var/run/aeolus/clienttest';
+const CT_LONGEST = 360;   // seconds a test is given before it is taken to have died
+
+// test_running is the client test under way: { id, at, pid }, or null.
+function test_running() {
+	let r = null;
+	try {
+		r = json(read(CT_DIR + '/running') ?? 'null');
+	} catch (e) {
+	}
+	return type(r?.id) == 'int' && type(r.at) == 'int' ? r : null;
+}
+
+function client_test(a) {
+	if (!fs.access(CT_TOOL))
+		return { ok: false, result: 'this agent has no client test' };
+	if (type(a.params) != 'object')
+		return { ok: false, result: 'nothing was said of what to test' };
+	if (test_running())
+		return { ok: false, result: 'a client test is running here already' };
+	fs.mkdir('/var/run/aeolus');
+	fs.mkdir(CT_DIR);
+	fs.unlink(CT_DIR + '/result.json');
+	fs.unlink(CT_DIR + '/pid');
+	fs.writefile(CT_DIR + '/ask.json', sprintf('%J', a.params));
+	fs.writefile(CT_DIR + '/running', sprintf('%J', { id: a.id, at: time() }));
+	system(`setsid sh -c 'echo $$ > ${CT_DIR}/pid; exec ${CT_TOOL} ${CT_DIR}/ask.json ${CT_DIR}/result.json' </dev/null >/dev/null 2>&1 &`);
+	return { pending: true, result: 'started; its result follows' };
+}
+
+// tests_done says what came of the client test under way, once its result
+// is there. One that died without a result is said to have, and what it
+// may have left is put right: its interface taken down, and airscan, whose
+// radio it borrowed, started again.
+function tests_done(token) {
+	let r = test_running();
+	if (!r)
+		return;
+	let res = null;
+	try {
+		res = json(read(CT_DIR + '/result.json') ?? 'null');
+	} catch (e) {
+	}
+	let out = null;
+	if (type(res) == 'object')
+		out = { ok: res.outcome == 'passed', result: type(res.summary) == 'string' ? res.summary : '' + res.outcome, detail: res };
+	else {
+		// Its PID is written a moment after it is started.
+		let pid = read(CT_DIR + '/pid');
+		let alive = pid == null ? time() - r.at < 10 : match(pid, /^[0-9]+$/) && fs.access('/proc/' + pid);
+		if (alive && time() - r.at <= CT_LONGEST)
+			return;
+		for (let f in ['pid', 'wpa.pid']) {
+			let p = read(CT_DIR + '/' + f);
+			if (match(p ?? '', /^[0-9]+$/) && fs.access('/proc/' + p))
+				system(['kill', p]);
+		}
+		if (fs.access('/sys/class/net/aet-sta0'))
+			system(['iw', 'dev', 'aet-sta0', 'del']);
+		// Its passphrase file among what it left.
+		for (let f in ['wpa.conf', 'wpa.pid', 'lease', 'udhcpc.sh', 'ctl'])
+			fs.unlink(CT_DIR + '/' + f);
+		if (fs.access('/etc/init.d/airscan'))
+			system('/etc/init.d/airscan start >/dev/null 2>&1');
+		out = { ok: false, result: 'the test did not finish; the scan radio was given back to airscan' };
+		note('the client test did not finish');
+	}
+	let d = http('POST', `/v1/ap/actions/${r.id}`, out, token);
+	// Said, or no longer wanted: either way it is done with.
+	if (d.status == 200 || d.status == 404) {
+		for (let f in ['running', 'ask.json', 'result.json', 'pid'])
+			fs.unlink(CT_DIR + '/' + f);
+		log('action client-test: %s', out.result);
+	}
+	else
+		fail('action client-test: %s', describe(d));
+}
+
 // do_actions fetches the actions that wait for this AP, does each, and says
 // what came of it (0104).
 function do_actions(token) {
@@ -1676,10 +1759,13 @@ function do_actions(token) {
 		fail('actions: %s', describe(r));
 		return;
 	}
-	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap, disconnect: disconnect };
+	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap, disconnect: disconnect, 'client-test': client_test };
 	for (let a in r.json?.actions ?? []) {
 		let out = kinds[a.kind] ? kinds[a.kind](a) : { ok: false, result: 'this agent cannot ' + a.kind };
 		log('action %s%s: %s', a.kind, a.target ? ' ' + a.target : '', out.result);
+		// One that runs on beside the agent is said of when it is done.
+		if (out.pending)
+			continue;
 		let d = http('POST', `/v1/ap/actions/${a.id}`, out, token);
 		if (d.status != 200)
 			fail('action %s: %s', a.kind, describe(d));
@@ -1769,6 +1855,8 @@ function main() {
 		// Actions a person asked of this AP, once each (0104).
 		if (reached && int(header(r, 'Aeolus-Actions') ?? '0') > 0)
 			do_actions(token);
+		if (reached)
+			tests_done(token);
 		// The bundle the manager names, where it isn't the one this AP runs.
 		let wanted = header(r, 'Aeolus-Agent');
 		if (reached && !trial && match(wanted ?? '', /^[0-9a-f]{64}$/) &&
@@ -1797,8 +1885,9 @@ function main() {
 		if (time() >= next_packages && !fs.access(PACKAGES_DONE))
 			next_packages = packages(time());
 		want();
-		// On trial, often, to confirm in good time.
-		let poll = trial ? 10 : settings().poll;
+		// On trial, often, to confirm in good time; and while a client
+		// test runs, to say what came of it soon after it is done.
+		let poll = trial ? 10 : test_running() ? 5 : settings().poll;
 		sleep(poll * 1000 * (90 + math.rand() % 21) / 100);
 	}
 }

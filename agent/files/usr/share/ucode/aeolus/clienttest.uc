@@ -1,0 +1,345 @@
+// The client test's pure parts (0121), so they are tested anywhere: what
+// wpa_supplicant is told for a network, what its events mean, a DNS
+// question and its answer, the frequencies a client looks on, and what a
+// test's findings come to.
+
+'use strict';
+
+const STAGES = ['find', 'auth', 'assoc', 'key', 'dhcp', 'gateway', 'dns', 'speed'];
+const STEPS = 40;      // steps a test's result keeps
+const HEARD = 8;       // and of the networks the scan radio heard before it
+
+function hexstr(s) {
+	let o = '';
+	for (let i = 0; i < length(s); i++)
+		o += sprintf('%02x', ord(s, i));
+	return o;
+}
+
+// wanted reads what a test is asked for, and returns it checked, or null:
+// the network's SSID; the BSSIDs it may join, an AP's own, or none for the
+// strongest other AP; a band, or none for any; an OpenSpeedTest server, as
+// a plain HTTP address with its host and, if it has one, its port, or none;
+// and a name to look up.
+function wanted(p) {
+	if (type(p) != 'object' || type(p.ssid) != 'string' || !length(p.ssid) || length(p.ssid) > 32)
+		return null;
+	let out = { ssid: p.ssid, bssids: [], band: null, speed: null, dns_name: 'example.com' };
+	for (let b in (type(p.bssids) == 'array' ? p.bssids : [])) {
+		if (type(b) != 'string' || !match(lc(b), /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/) || length(out.bssids) >= 32)
+			return null;
+		push(out.bssids, lc(b));
+	}
+	if (p.band != null) {
+		if (!(p.band in ['2g', '5g', '6g']))
+			return null;
+		out.band = p.band;
+	}
+	if (p.speed != null) {
+		let m = type(p.speed) == 'string' ? match(p.speed, /^http:\/\/([A-Za-z0-9.-]{1,253})(:([0-9]{1,5}))?\/?$/) : null;
+		let port = int(m?.[3] ?? '80');
+		if (!m || port < 1 || port > 65535)
+			return null;
+		out.speed = { url: p.speed, host: m[1], port: port };
+	}
+	if (p.dns_name != null) {
+		if (type(p.dns_name) != 'string' || !match(p.dns_name, /^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/))
+			return null;
+		out.dns_name = p.dns_name;
+	}
+	return out;
+}
+
+// band_freqs are the frequencies a client looks on for a band, every
+// 20 MHz channel of it; for none, those of 2.4 and 5 GHz, where a look at
+// all of 6 GHz too would take most of the time a test has.
+function band_freqs(band) {
+	let out = [];
+	if (!band || band == '2g')
+		for (let f = 2412; f <= 2472; f += 5)
+			push(out, f);
+	if (!band || band == '5g') {
+		for (let f = 5180; f <= 5320; f += 20)
+			push(out, f);
+		for (let f = 5500; f <= 5720; f += 20)
+			push(out, f);
+		for (let f = 5745; f <= 5825; f += 20)
+			push(out, f);
+	}
+	if (band == '6g')
+		for (let f = 5955; f <= 7115; f += 20)
+			push(out, f);
+	return out;
+}
+
+// band_of and channel_of say where a frequency is.
+function band_of(f) {
+	return f >= 2400 && f <= 2500 ? '2g' : f >= 5150 && f <= 5900 ? '5g' : f >= 5925 && f <= 7125 ? '6g' : null;
+}
+
+function channel_of(f) {
+	if (f == 2484)
+		return 14;
+	if (f < 2484)
+		return int((f - 2407) / 5);
+	if (f < 5925)
+		return int((f - 5000) / 5);
+	return f == 5935 ? 2 : int((f - 5950) / 5);
+}
+
+// target says which networks the client may join and where it looks for
+// them, from what is asked (wanted's) and what the scan radio last heard
+// ([{ bssid, ssid, band, freq, channel, signal, own }]). Asked for an AP's
+// own BSSIDs, it keeps to those, and looks where the scan radio heard them,
+// or on every channel of the band where it did not: a look can miss a
+// beacon. Asked for none, it takes the strongest the scan radio heard that
+// is not this AP's own. It returns { bssids, freqs, heard }, or null with
+// nothing to join.
+function target(want, list) {
+	let heard = filter(list ?? [], b => type(b) == 'object' && b.ssid == want.ssid && (!want.band || b.band == want.band) &&
+		type(b.bssid) == 'string' && (length(want.bssids) ? index(want.bssids, lc(b.bssid)) >= 0 : !b.own));
+	heard = sort(heard, (a, b) => (b.signal ?? -200) - (a.signal ?? -200));
+	let seen = map(slice(heard, 0, HEARD), b => ({ bssid: lc(b.bssid), band: b.band, channel: b.channel, signal: b.signal }));
+	if (length(want.bssids))
+		return { bssids: want.bssids, freqs: length(heard) ? uniq(map(heard, b => b.freq)) : band_freqs(want.band), heard: seen };
+	if (!length(heard))
+		return null;
+	return { bssids: [lc(heard[0].bssid)], freqs: [heard[0].freq], heard: seen };
+}
+
+// supplicant is wpa_supplicant's configuration to join a network as the AP
+// itself offers it: cred is { encryption, key, ppsk } from the AP's own
+// wireless config, tgt is target's. It returns { conf }, or { why } for a
+// network the test can't join: one that signs clients in by 802.1X, or
+// gives each device a passphrase of its own, or has none here.
+function supplicant(dir, ssid, cred, tgt) {
+	if (type(cred) != 'object')
+		return { why: 'this AP does not offer that network' };
+	let e = cred.encryption ?? 'none';
+	let lines = ['ssid=' + hexstr(ssid), 'scan_ssid=1'];
+	if (length(tgt?.bssids))
+		push(lines, 'bssid_accept=' + join(' ', tgt.bssids));
+	if (length(tgt?.freqs))
+		push(lines, 'scan_freq=' + join(' ', tgt.freqs), 'freq_list=' + join(' ', tgt.freqs));
+	if (cred.ppsk == '1')
+		return { why: 'each device has a passphrase of its own from RADIUS there, and the test has none' };
+	if (match(e, /^wpa/) || match(e, /eap/))
+		return { why: 'it signs clients in by 802.1X, which the test cannot do yet' };
+	// A passphrase goes between quotes. wpa_supplicant reads to the last
+	// quote on the line, so one that holds a quote is still read whole.
+	let quoted = (k) => type(k) == 'string' && length(k) >= 8 && length(k) <= 63 && index(k, '\n') < 0;
+	if (e == 'none')
+		push(lines, 'key_mgmt=NONE');
+	else if (e == 'owe')
+		push(lines, 'key_mgmt=OWE', 'ieee80211w=2');
+	else if (!cred.key)
+		return { why: 'this AP has no passphrase for it' };
+	else if (!quoted(cred.key))
+		return { why: 'its passphrase is one the test cannot hand to wpa_supplicant' };
+	else if (e == 'sae')
+		push(lines, 'key_mgmt=SAE', 'ieee80211w=2', 'sae_password="' + cred.key + '"');
+	else if (e == 'sae-mixed')
+		push(lines, 'key_mgmt=SAE WPA-PSK', 'ieee80211w=1', 'psk="' + cred.key + '"');
+	else if (match(e, /^psk/))
+		push(lines, 'key_mgmt=WPA-PSK', 'psk="' + cred.key + '"');
+	else
+		return { why: 'its security, ' + e + ', is one the test does not know' };
+	return { conf: `ctrl_interface=${dir}/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\t${join('\n\t', lines)}\n}\n` };
+}
+
+// event reads one of wpa_supplicant's events as a step of the join, or
+// null for the rest: { stage, what, ok } and, where it is one, bssid and
+// freq of the network found, connected, notfound, or fail, for one after
+// which it does not go on.
+function event(line) {
+	line = replace(line ?? '', /^<[0-9]+>/, '');
+	let m;
+	if (match(line, /^CTRL-EVENT-SCAN-STARTED/))
+		return { stage: 'find', what: 'looks for the network' };
+	if ((m = match(line, /^SME: Trying to authenticate with ([0-9a-f:]{17}) .*freq=([0-9]+)/)))
+		return { stage: 'find', what: `found it on ${m[1]}, ${m[2]} MHz`, ok: true, bssid: m[1], freq: int(m[2]) };
+	if (match(line, /^Trying to associate with/))
+		return { stage: 'auth', what: 'authenticated', ok: true };
+	if (match(line, /^Associated with/))
+		return { stage: 'assoc', what: 'associated', ok: true };
+	if (match(line, /^WPA: Key negotiation completed/))
+		return { stage: 'key', what: 'key handshake completed', ok: true };
+	if (match(line, /^CTRL-EVENT-CONNECTED/))
+		return { stage: 'key', what: 'let on to the network', ok: true, connected: true };
+	if (match(line, /^CTRL-EVENT-NETWORK-NOT-FOUND/))
+		return { stage: 'find', what: 'the network was not found', ok: false, notfound: true };
+	if ((m = match(line, /^CTRL-EVENT-AUTH-REJECT .*status_code=([0-9]+)/)))
+		return { stage: 'auth', what: `authentication refused (status ${m[1]})`, ok: false, fail: true };
+	if ((m = match(line, /^CTRL-EVENT-ASSOC-REJECT .*status_code=([0-9]+)/)))
+		return { stage: 'assoc', what: `association refused (status ${m[1]})`, ok: false, fail: true };
+	if (match(line, /^WPA: 4-Way Handshake failed/))
+		return { stage: 'key', what: 'wrong passphrase', ok: false };
+	if ((m = match(line, /^CTRL-EVENT-SSID-TEMP-DISABLED .*reason=([A-Z_]+)/)))
+		return m[1] == 'WRONG_KEY' ? { stage: 'key', what: 'wrong passphrase', ok: false, fail: true }
+			: { stage: null, what: 'gave up: ' + lc(replace(m[1], /_/g, ' ')), ok: false, fail: true };
+	if ((m = match(line, /^CTRL-EVENT-DISCONNECTED .*reason=([0-9]+)/)))
+		return { stage: null, what: `disconnected (reason ${m[1]})`, ok: false };
+	return null;
+}
+
+// link_of reads what `iw dev <interface> station dump` says of a client's
+// link: its signal, in dBm, and the rate each way with how it is sent.
+function link_of(text) {
+	let way = (dir) => {
+		let m = match(text ?? '', regexp(dir + ' bitrate:[ \t]+([0-9.]+) MBit/s([^\n]*)'));
+		return m ? { mbps: +m[1], how: trim(m[2]) } : null;
+	};
+	let sig = match(text ?? '', /signal:[ \t]+(-?[0-9]+)/)?.[1];
+	return { signal: sig != null ? int(sig) : null, tx: way('tx'), rx: way('rx') };
+}
+
+// ping_of reads busybox ping's summary: how many it sent and got back, and
+// the least, mean and most time, in ms.
+function ping_of(text) {
+	let m = match(text ?? '', /([0-9]+) packets transmitted, ([0-9]+) (packets )?received/);
+	let r = match(text ?? '', /= ([0-9.]+)\/([0-9.]+)\/([0-9.]+) ms/);
+	return { sent: m ? int(m[1]) : 0, got: m ? int(m[2]) : 0, min: r ? +r[1] : null, avg: r ? +r[2] : null, max: r ? +r[3] : null };
+}
+
+// lease_of reads the lease udhcpc's script wrote, key=value a line: the
+// address and prefix length, the first router, the DNS servers, the DHCP
+// server and the lease time; or null without an address.
+function lease_of(text) {
+	let v = {};
+	for (let line in split(text ?? '', '\n')) {
+		let m = match(line, /^([a-z]+)=(.*)$/);
+		if (m)
+			v[m[1]] = trim(m[2]);
+	}
+	let ip4 = (s) => type(s) == 'string' && length(iptoarr(s) ?? []) == 4;
+	let bits = int(v.mask ?? '');
+	if (!ip4(v.ip) || !(bits >= 0 && bits <= 32))
+		return null;
+	return {
+		address: v.ip, mask: bits, router: filter(split(v.router ?? '', ' '), ip4)[0] ?? null,
+		dns: slice(filter(split(v.dns ?? '', ' '), ip4), 0, 3), server: ip4(v.server) ? v.server : null, lease: int(v.lease ?? '0') || 0,
+	};
+}
+
+// prefix_net is the network an address is in, for a prefix length.
+function prefix_net(ip, bits) {
+	let a = iptoarr(ip);
+	if (length(a ?? []) != 4 || !(bits >= 0 && bits <= 32))
+		return null;
+	let out = [];
+	for (let i = 0; i < 4; i++) {
+		let keep = min(8, max(0, bits - 8 * i));
+		push(out, a[i] & (0xff00 >> keep) & 0xff);
+	}
+	return arrtoip(out);
+}
+
+// dns_query is a question for a name's IPv4 address.
+function dns_query(id, name) {
+	let q = chr(id >> 8, id & 255, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0);
+	for (let label in split(name, '.'))
+		if (length(label))
+			q += chr(length(label)) + label;
+	return q + chr(0, 0, 1, 0, 1);
+}
+
+// dns_answer reads the answer to it: its code, how many records it has,
+// and the first IPv4 address among them; null for what is no answer to it.
+function dns_answer(d, id) {
+	if (length(d ?? '') < 12 || ((ord(d, 0) << 8) | ord(d, 1)) != id || !(ord(d, 2) & 0x80))
+		return null;
+	let out = { rcode: ord(d, 3) & 15, answers: (ord(d, 6) << 8) | ord(d, 7), address: null };
+	let skip = (p) => {
+		while (p < length(d)) {
+			let n = ord(d, p);
+			if (n == 0)
+				return p + 1;
+			if ((n & 0xc0) == 0xc0)
+				return p + 2;
+			p += n + 1;
+		}
+		return p;
+	};
+	let p = 12;
+	for (let i = 0; i < ((ord(d, 4) << 8) | ord(d, 5)); i++)
+		p = skip(p) + 4;
+	for (let i = 0; i < out.answers && p + 10 <= length(d); i++) {
+		p = skip(p);
+		if (p + 10 > length(d))
+			break;
+		let kind = (ord(d, p) << 8) | ord(d, p + 1), len = (ord(d, p + 8) << 8) | ord(d, p + 9);
+		if (kind == 1 && len == 4 && p + 14 <= length(d) && !out.address)
+			out.address = arrtoip([ord(d, p + 10), ord(d, p + 11), ord(d, p + 12), ord(d, p + 13)]);
+		p += 10 + len;
+	}
+	return out;
+}
+
+// rate is megabits a second, to a tenth, for bytes moved in seconds.
+function rate(bytes, seconds) {
+	return seconds > 0 ? int(bytes * 8 / seconds / 1e5 + 0.5) / 10.0 : null;
+}
+
+// plain is text as the manager takes it: printable ASCII, anything else a
+// ?, and no longer than most.
+function plain(s, most) {
+	let out = '';
+	for (let i = 0; i < length(s ?? '') && i < most; i++) {
+		let c = ord(s, i);
+		out += c >= 32 && c < 127 ? chr(c) : '?';
+	}
+	return out;
+}
+
+// verdict says how a test went, from what it found (res): passed, or
+// failed with the stage it stopped at and why. A test that joined but then
+// found a step that does not work has failed at that step.
+function verdict(res) {
+	let fail = (stage, why) => {
+		res.outcome = 'failed';
+		res.stage = stage in STAGES ? stage : 'find';
+		res.reason = plain(why, 200);
+		return res;
+	};
+	if (res.stopped)
+		return fail(res.stopped.stage, res.stopped.why);
+	if (res.gateway && !res.gateway.got)
+		return fail('gateway', `its gateway, ${res.gateway.address}, does not answer`);
+	if (res.dns && !(res.dns.rcode == 0 && res.dns.answers > 0))
+		return fail('dns', res.dns.rcode == null ? `its DNS server, ${res.dns.server}, does not answer` : `its DNS server, ${res.dns.server}, has no address for ${res.dns.name}`);
+	if (res.speed?.error)
+		return fail('speed', `the speed server: ${res.speed.error}`);
+	res.outcome = 'passed';
+	res.stage = 'done';
+	res.reason = '';
+	return res;
+}
+
+// summary is a test's result in a line, for the list of what the AP was
+// asked to do: printable ASCII, at most 300 characters.
+function summary(res) {
+	let secs = (ms) => sprintf('%.1f s', (ms ?? 0) / 1000.0);
+	let s;
+	if (res.outcome != 'passed')
+		s = `failed at ${res.stage}: ${res.reason}`;
+	else {
+		let parts = [`joined in ${secs(res.joined_ms)}`];
+		if (res.dhcp)
+			push(parts, `address in ${secs(res.dhcp.ms)}`);
+		if (res.gateway?.avg != null)
+			push(parts, sprintf('gateway %.0f ms', res.gateway.avg));
+		if (res.dns?.ms != null)
+			push(parts, `DNS ${res.dns.ms} ms`);
+		if (res.speed?.down != null)
+			push(parts, `${res.speed.down} down / ${res.speed.up ?? '?'} up Mbit/s`);
+		s = 'passed: ' + join(', ', parts);
+	}
+	return plain(s, 300);
+}
+
+// Exported in one statement: this ucode version cannot parse a comment
+// that follows an exported function declaration.
+export {
+	STAGES, STEPS, HEARD, hexstr, wanted, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of,
+	prefix_net, dns_query, dns_answer, rate, plain, verdict, summary
+};

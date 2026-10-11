@@ -2,6 +2,7 @@ package conditions
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -12,17 +13,21 @@ import (
 // restart-wifi or reboot; or disconnect, of one client, its target (0107). It is pending until the AP takes it up, running
 // once it has, which hands it to the AP only once, so a report of it that
 // is lost never has it done again; then done or failed, as the AP says.
-// One not finished within ActionWait expires.
+// One not finished within ActionWait expires. A client test (0121) is one
+// too: it carries what to test, its params, and brings back what it found,
+// its detail, both JSON.
 type Action struct {
-	ID     int64      `json:"id"`
-	AP     string     `json:"ap"`
-	Kind   string     `json:"kind"`
-	Target string     `json:"target,omitempty"` // what of the AP it is for: the client's MAC, for disconnect
-	Actor  string     `json:"actor"`
-	At     time.Time  `json:"at"`
-	State  string     `json:"state"` // pending, running, done, failed or expired
-	DoneAt *time.Time `json:"done_at,omitempty"`
-	Result string     `json:"result,omitempty"`
+	ID     int64           `json:"id"`
+	AP     string          `json:"ap"`
+	Kind   string          `json:"kind"`
+	Target string          `json:"target,omitempty"` // what of the AP it is for: the client's MAC, for disconnect
+	Actor  string          `json:"actor"`
+	At     time.Time       `json:"at"`
+	State  string          `json:"state"` // pending, running, done, failed or expired
+	DoneAt *time.Time      `json:"done_at,omitempty"`
+	Result string          `json:"result,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	Detail json.RawMessage `json:"detail,omitempty"`
 }
 
 // ActionWait is how long an action waits for its AP: an AP that comes back
@@ -71,6 +76,16 @@ ALTER TABLE actions ADD COLUMN target TEXT NOT NULL DEFAULT '';
 DROP INDEX actions_open;
 CREATE UNIQUE INDEX actions_open ON actions (ap, kind, target) WHERE state IN ('pending', 'running');`
 
+// actionsMore gives an action what it is asked, where that is more than a
+// kind and a target, and what it found, where that is more than a line
+// (0121): a client test's network and where to join it, and each step of
+// its way online.
+const actionsMore = `
+ALTER TABLE actions ADD COLUMN params TEXT NOT NULL DEFAULT '';
+ALTER TABLE actions ADD COLUMN detail TEXT NOT NULL DEFAULT '';`
+
+const actionCols = `id, ap, kind, target, actor, at, state, done_at, result, params, detail`
+
 // AddAction records an action for an AP, pending, for target where it acts
 // on one thing of the AP's, else for "". One of the same kind and target
 // already open, pending or running, is returned instead, so a second click
@@ -78,6 +93,12 @@ CREATE UNIQUE INDEX actions_open ON actions (ap, kind, target) WHERE state IN ('
 // the database opens immediate, so the AP taking up or finishing the open
 // one cannot come between them.
 func (s *Store) AddAction(ap hierarchy.NodeID, kind, target, actor string) (Action, error) {
+	return s.AddActionWith(ap, kind, target, actor, nil)
+}
+
+// AddActionWith is AddAction for an action that carries what it is asked,
+// params, as JSON (0121).
+func (s *Store) AddActionWith(ap hierarchy.NodeID, kind, target, actor string, params json.RawMessage) (Action, error) {
 	s.expire(ap)
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -88,8 +109,8 @@ func (s *Store) AddAction(ap hierarchy.NodeID, kind, target, actor string) (Acti
 	err = tx.QueryRow(`SELECT id FROM actions WHERE ap = ? AND kind = ? AND target = ? AND state IN ('pending', 'running')`, string(ap), kind, target).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		var res sql.Result
-		if res, err = tx.Exec(`INSERT INTO actions (ap, kind, target, actor, at, state) VALUES (?, ?, ?, ?, ?, 'pending')`,
-			string(ap), kind, target, actor, stamp(s.now())); err == nil {
+		if res, err = tx.Exec(`INSERT INTO actions (ap, kind, target, actor, at, state, params) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+			string(ap), kind, target, actor, stamp(s.now()), string(params)); err == nil {
 			id, err = res.LastInsertId()
 		}
 	}
@@ -111,7 +132,7 @@ func (s *Store) expire(ap hierarchy.NodeID) {
 // PendingActions is what waits for an AP, not yet taken up, oldest first.
 func (s *Store) PendingActions(ap hierarchy.NodeID) ([]Action, error) {
 	s.expire(ap)
-	return s.actions(`SELECT id, ap, kind, target, actor, at, state, done_at, result FROM actions WHERE ap = ? AND state = 'pending' ORDER BY id`, string(ap))
+	return s.actions(`SELECT `+actionCols+` FROM actions WHERE ap = ? AND state = 'pending' ORDER BY id`, string(ap))
 }
 
 // ClaimActions hands an AP what waits for it, and marks each running, in
@@ -158,12 +179,18 @@ func (s *Store) ClaimActions(ap hierarchy.NodeID) ([]Action, error) {
 
 // FinishAction records what came of an AP's pending action.
 func (s *Store) FinishAction(ap hierarchy.NodeID, id int64, ok bool, result string) (Action, error) {
+	return s.FinishActionWith(ap, id, ok, result, nil)
+}
+
+// FinishActionWith is FinishAction for an action that brings back what it
+// found, detail, as JSON (0121).
+func (s *Store) FinishActionWith(ap hierarchy.NodeID, id int64, ok bool, result string, detail json.RawMessage) (Action, error) {
 	state := "done"
 	if !ok {
 		state = "failed"
 	}
-	res, err := s.db.Exec(`UPDATE actions SET state = ?, done_at = ?, result = ? WHERE id = ? AND ap = ? AND state IN ('pending', 'running')`,
-		state, stamp(s.now()), result, id, string(ap))
+	res, err := s.db.Exec(`UPDATE actions SET state = ?, done_at = ?, result = ?, detail = ? WHERE id = ? AND ap = ? AND state IN ('pending', 'running')`,
+		state, stamp(s.now()), result, string(detail), id, string(ap))
 	if err != nil {
 		return Action{}, err
 	}
@@ -176,11 +203,22 @@ func (s *Store) FinishAction(ap hierarchy.NodeID, id int64, ok bool, result stri
 // Actions is an AP's latest actions, newest first.
 func (s *Store) Actions(ap hierarchy.NodeID, limit int) ([]Action, error) {
 	s.expire(ap)
-	return s.actions(`SELECT id, ap, kind, target, actor, at, state, done_at, result FROM actions WHERE ap = ? ORDER BY id DESC LIMIT ?`, string(ap), limit)
+	return s.actions(`SELECT `+actionCols+` FROM actions WHERE ap = ? ORDER BY id DESC LIMIT ?`, string(ap), limit)
+}
+
+// OpenAction is one of an AP's actions that is not yet finished, by its ID:
+// what the AP may say the outcome of.
+func (s *Store) OpenAction(ap hierarchy.NodeID, id int64) (Action, error) {
+	s.expire(ap)
+	out, err := s.actions(`SELECT `+actionCols+` FROM actions WHERE id = ? AND ap = ? AND state IN ('pending', 'running')`, id, string(ap))
+	if err != nil || len(out) == 0 {
+		return Action{}, errors.Join(err, ErrNoAction)
+	}
+	return out[0], nil
 }
 
 func (s *Store) action(id int64) (Action, error) {
-	out, err := s.actions(`SELECT id, ap, kind, target, actor, at, state, done_at, result FROM actions WHERE id = ?`, id)
+	out, err := s.actions(`SELECT `+actionCols+` FROM actions WHERE id = ?`, id)
 	if err != nil || len(out) == 0 {
 		return Action{}, errors.Join(err, ErrNoAction)
 	}
@@ -196,10 +234,16 @@ func (s *Store) actions(q string, args ...any) ([]Action, error) {
 	out := []Action{}
 	for rows.Next() {
 		var a Action
-		var at string
+		var at, params, detail string
 		var done sql.NullString
-		if err := rows.Scan(&a.ID, &a.AP, &a.Kind, &a.Target, &a.Actor, &at, &a.State, &done, &a.Result); err != nil {
+		if err := rows.Scan(&a.ID, &a.AP, &a.Kind, &a.Target, &a.Actor, &at, &a.State, &done, &a.Result, &params, &detail); err != nil {
 			return nil, err
+		}
+		if params != "" {
+			a.Params = json.RawMessage(params)
+		}
+		if detail != "" {
+			a.Detail = json.RawMessage(detail)
 		}
 		if a.At, err = time.Parse(time.RFC3339Nano, at); err != nil {
 			return nil, err

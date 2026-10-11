@@ -184,6 +184,16 @@ details.fold > table.list { margin-bottom: 8px; }
 .attempt table.steps td:first-child, .attempt table.steps td:nth-child(2) { white-space: nowrap; }
 .attempt table.steps tr.failed td { background: #FBEDEB; }
 .attemptlinks { padding: 0 20px 10px 38px; margin: 0; }
+/* A client test (0121): its form, and what it measured, a line each. */
+.testform .row { border-top: 0; }
+.testform .row .value { font-family: inherit; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.testform > .sub { padding: 0 20px 6px; }
+.testform > .actions { padding: 4px 20px 14px; }
+.testfound .row { padding: 4px 0; min-height: 0; border-top: 0; }
+.testfound .row .label { width: 90px; }
+.testfound { margin: 0 0 10px; }
+.attempt .attemptlinks { padding: 0 0 10px; }
+.testother { margin-left: -18px; }
 p.pad { padding: 4px 20px 16px; margin: 0; }
 
 /* An AP's health (0119): its processor and memory as two lines. */
