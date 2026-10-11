@@ -244,7 +244,7 @@ function bandPanel(at, band, b) {
 	// The band's tick boxes: each with how it reads the draft, to draw it
 	// again on Undo.
 	const tick = (k, label, about, isOn, set) => {
-		const el = h('input', { type: 'checkbox', disabled: !editable(k) });
+		const el = h('input', { type: 'checkbox', class: 'switch', role: 'switch', disabled: !editable(k) });
 		el.checked = isOn();
 		el.addEventListener('change', () => { set(el.checked); draw(); });
 		const row = h('label', { class: 'tick', title: about }, el, ' ', label, whence(k) && h('span', { class: 'whence' }, whence(k)));
