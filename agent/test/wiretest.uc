@@ -58,6 +58,22 @@ let rel = wt.dhcp(SRC, 'release', 7, { ciaddr: '192.168.20.77', server: '192.168
 printf('release to %s, IP %s to %s, flags %s, options %s\n', wt.mac_text(rel, 0), join('.', map([26, 27, 28, 29], i => ord(rel, i))),
 	join('.', map([30, 31, 32, 33], i => ord(rel, i))), hexed(substr(rel, 52, 2)), hexed(substr(rel, 282, 16)));
 
+// A discover sent again says how long it has been asking; an address that
+// is another's already is turned down; and every datagram has a checksum
+// that adds up, the routed release among them.
+let dec = wt.dhcp(SRC, 'decline', 0x1234abcd, { requested: '192.168.20.77', server: '192.168.20.1' });
+printf('asked again after 4.7 s: secs %s; decline to %s, options %s\n', hexed(substr(wt.dhcp(SRC, 'discover', 1, { secs: 4.7 }), 50, 2)),
+	wt.mac_text(dec, 0), hexed(substr(dec, 282, 22)));
+function adds_up(f) {
+	let u = substr(f, 14 + (ord(f, 14) & 15) * 4), data = substr(f, 26, 8) + chr(0) + chr(17) + substr(u, 4, 2) + u, sum = 0;
+	for (let i = 0; i < length(data); i += 2)
+		sum += ord(data, i) << 8 | (i + 1 < length(data) ? ord(data, i + 1) : 0);
+	while (sum >> 16)
+		sum = (sum & 0xffff) + (sum >> 16);
+	return sum == 0xffff;
+}
+printf('checksums add up: discover %J, request %J, decline %J, release %J\n', adds_up(d), adds_up(r), adds_up(dec), adds_up(rel));
+
 // A server's answer: an offer and an acknowledgement, with a mask, a
 // router, two DNS servers and a lease time; one to another client, one to
 // another transaction, and a refusal.
@@ -93,9 +109,18 @@ let mine = wt.arp_answer(who, SRC, '192.168.20.77');
 printf('asked for its address, it answers %J to %s\n', wt.arp_of(mine), wt.mac_text(mine, 0));
 printf('asked for another %J, its own request %J, no ARP %J\n', wt.arp_answer(who, SRC, '192.168.20.78'), wt.arp_answer(ask, SRC, '192.168.20.1'), wt.arp_answer(d, SRC, '192.168.20.77'));
 
+// Before it uses an address it asks whether another has it, from no
+// address; and another that answers for it, or asks from it, has.
+let probe = wt.arp_probe(SRC, '192.168.20.77');
+printf('probe %J\n', wt.arp_of(probe));
+let taken = mac('ff:ff:ff:ff:ff:ff') + mac('7e:2a:ea:9b:2b:8f') + u16(0x0806) + u16(1) + u16(0x0800) + chr(6) + chr(4) + u16(2) +
+	mac('7e:2a:ea:9b:2b:8f') + ip4('192.168.20.77') + mac(SRC) + ip4('0.0.0.0');
+printf('another has it %J; the gateway asking for it %J; the test itself %J; no ARP %J\n', wt.arp_conflict(taken, SRC, '192.168.20.77'),
+	wt.arp_conflict(who, SRC, '192.168.20.77'), wt.arp_conflict(mine, SRC, '192.168.20.77'), wt.arp_conflict(d, SRC, '192.168.20.77'));
+
 // A DNS lookup as a frame, and its answer read back.
 let q = wt.udp(SRC, 'd4:01:c3:00:00:01', '192.168.20.77', '9.9.9.9', 40001, 53, ct.dns_query(0x4165, 'openwrt.org'));
-printf('query %d bytes to %s: IP %s\n', length(q), wt.mac_text(q, 0), hexed(substr(q, 14, 20)));
+printf('query %d bytes to %s: IP %s, its checksum adds up %J\n', length(q), wt.mac_text(q, 0), hexed(substr(q, 14, 20)), adds_up(q));
 let back = wt.udp('d4:01:c3:00:00:01', SRC, '9.9.9.9', '192.168.20.77', 53, 40001, unhex('41658180000100010000000000000100010000010001000000e10004404482a4'));
 let got = wt.udp_of(back, '192.168.20.77', 40001);
 printf('answer from %s port %d: %J\n', got.from, got.sport, ct.dns_answer(got.data, 0x4165));
@@ -117,6 +142,7 @@ printf('a VLAN not watched %J\n', wt.where('br-lan.99', null, null, watch, 'eth0
 printf('on its tunnel %J\n', wt.where('br-n351c496e', sw, ['aeolus_50', 'phy0-ap1'], watch, 'eth0'));
 printf('on its fallback %J\n', wt.where('br-n351c496e', sw, ['anf351c496e', 'phy0-ap1'], watch, 'eth0'));
 printf('on neither %J\n', wt.where('br-n351c496e', sw, ['phy0-ap1'], watch, 'eth0'));
+printf('on a tunnel alone %J\n', wt.where('br-vx50', null, null, watch, 'eth0'));
 printf('no uplink %J, no VLAN %J, no interface %J\n', wt.where('br-lan.20', null, null, watch, null), wt.where('br-lan', null, null, watch, 'eth0'), wt.where(null, null, null, watch, 'eth0'));
 
 // What a test over the wire comes to, in a line.

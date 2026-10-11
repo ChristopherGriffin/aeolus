@@ -71,6 +71,8 @@ const WIRE_TRIES = 3;      // times a frame is sent over the wire before its ans
 const WIRE_WAIT = 3;       // seconds a DHCP answer is waited for each time: a server may look before it offers
 const WIRE_BURST = 64;     // frames of other VLANs read in a row before the time is looked at
 const WIRE_ANSWERS = 8;    // ARP requests for its address it answers in one wait
+const WIRE_PROBE = 0.3;    // seconds it waits to hear whether an address it was given is another's already
+const PACKET_MR_UNICAST = 3;   // the kernel's, which the socket module does not name
 
 let bus = connect();
 openlog('aeolus-clienttest', LOG_PID, LOG_DAEMON);
@@ -620,8 +622,14 @@ function wire_open(w, src) {
 	}
 	if (w.vlan)
 		s.setopt(socket.SOL_PACKET, socket.PACKET_AUXDATA, 1);
-	// What arrived before the filter took hold goes.
-	while (s.recv(2048, socket.MSG_DONTWAIT) != null)
+	// The device takes frames to the test's MAC for as long as the socket
+	// is open. A port in a bridge takes every frame already; one that is
+	// not, or is its bridge's only port, would hear the broadcasts and
+	// none of the answers. Where the socket cannot ask, it goes without.
+	s.setopt(socket.SOL_PACKET, socket.PACKET_ADD_MEMBERSHIP, { interface: w.device, type: PACKET_MR_UNICAST, address: src });
+	// What arrived before the filter took hold goes: no more than a few
+	// hundred frames, however fast they come.
+	for (let i = 0; i < 4 * WIRE_BURST && s.recv(2048, socket.MSG_DONTWAIT) != null; i++)
 		;
 	return s;
 }
@@ -686,7 +694,7 @@ function wire_dhcp(res) {
 	let from = now(), xid = math.rand() & 0x7fffffff, offer = null, ack = null;
 	let by = (r) => r.server ?? 'a server that did not say who it is';
 	for (let i = 0; i < WIRE_TRIES && !offer; i++) {
-		wire_tx(wt.dhcp(wire.src, 'discover', xid));
+		wire_tx(wt.dhcp(wire.src, 'discover', xid, { secs: now() - from }));
 		step('dhcp', 'asks for an address (discover)');
 		offer = wire_wait(WIRE_WAIT, f => {
 			let r = wt.dhcp_reply(f, xid, wire.src);
@@ -699,7 +707,7 @@ function wire_dhcp(res) {
 	}
 	step('dhcp', `offered ${offer.address} by ${by(offer)}`);
 	for (let i = 0; i < WIRE_TRIES && !ack; i++) {
-		wire_tx(wt.dhcp(wire.src, 'request', xid, { requested: offer.address, server: offer.server }));
+		wire_tx(wt.dhcp(wire.src, 'request', xid, { requested: offer.address, server: offer.server, secs: now() - from }));
 		step('dhcp', 'asks to use the address (request)');
 		ack = wire_wait(WIRE_WAIT, f => {
 			let r = wt.dhcp_reply(f, xid, wire.src);
@@ -715,6 +723,16 @@ function wire_dhcp(res) {
 		return { stage: 'dhcp', why: `the DHCP server refused it ${offer.address}, which it had offered` };
 	}
 	let ms = int((now() - from) * 1000);
+	// Is it another's already? It asks, as a client does before it uses an
+	// address, and turns down one that someone answers for: it would
+	// otherwise answer for it too, and take the other's traffic.
+	wire_tx(wt.arp_probe(wire.src, ack.address));
+	let other = wire_wait(WIRE_PROBE, f => wt.arp_conflict(f, wire.src, ack.address));
+	if (other) {
+		wire_tx(wt.dhcp(wire.src, 'decline', xid, { requested: ack.address, server: ack.server ?? offer.server }));
+		step('dhcp', `given ${ack.address} by ${by(ack)}, which ${other} uses already: turned down`, false);
+		return { stage: 'dhcp', why: `the DHCP server gave it ${ack.address}, which ${other} uses already` };
+	}
 	res.dhcp = { ms: ms, address: ack.address, mask: ack.mask, router: ack.router, dns: ack.dns, server: ack.server ?? offer.server, lease: ack.lease };
 	wire.held = ack.address;
 	wire.lease = res.dhcp;
@@ -724,16 +742,18 @@ function wire_dhcp(res) {
 
 // wire_arp asks who has an address, and says its MAC and how long the
 // answer took, in ms; null where none came.
-function wire_arp(target) {
-	for (let i = 0; i < WIRE_TRIES; i++) {
+function wire_arp(target, tries) {
+	for (let i = 0; i < (tries ?? WIRE_TRIES); i++) {
 		let sent = now();
 		wire_tx(wt.arp_request(wire.src, wire.held, target));
 		let mac = wire_wait(1, f => {
 			let a = wt.arp_of(f);
 			return a && a.op == 2 && a.ip == target ? a.mac : null;
 		});
-		if (mac)
+		if (mac) {
+			wire.macs[target] = mac;
 			return { mac: mac, ms: int((now() - sent) * 10000 + 0.5) / 10.0 };
+		}
 	}
 	return null;
 }
@@ -790,7 +810,7 @@ function wire_main(want) {
 	let s = wire_open(w, src);
 	if (!s)
 		return stop('find', `${w.device} could not be opened to test on`);
-	wire = { ...w, sock: s, src: src, held: null, lease: null };
+	wire = { ...w, sock: s, src: src, held: null, lease: null, macs: {} };
 	res.client = src;
 	log('testing %s over the wire, on %s%s', want.ssid, w.device, w.vlan ? ` VLAN ${w.vlan}` : '');
 	t0 = now();
@@ -813,12 +833,13 @@ function wire_main(want) {
 			}
 			wire_dns(res, want.dns_name, gw);
 			res.took_ms = since();
-			// The address goes back: to its server, where the test knows the
-			// way there, else to whoever hears.
+			// The address goes back to its server: straight to it on the
+			// test's own subnet, asked for by ARP where the test has not
+			// met it yet; through the gateway elsewhere; and to whoever
+			// hears, where the test knows no way.
 			let server = wire.lease.server;
 			if (server) {
-				let near = wt.on_link(server, wire.lease);
-				let dst = server == router || !near ? gw?.mac : null;
+				let dst = !wt.on_link(server, wire.lease) ? gw?.mac : wire.macs[server] ?? wire_arp(server, 1)?.mac;
 				wire_tx(wt.dhcp(src, 'release', math.rand() & 0x7fffffff, { ciaddr: wire.held, server: server, to: server, dst: dst }));
 				step('dhcp', `gives ${wire.held} back`);
 			}

@@ -123,18 +123,21 @@ function with_tag(frame, vlan, tagged) {
 }
 
 // The DHCP messages the test sends.
-const DHCP = { discover: 1, request: 3, release: 7 };
+const DHCP = { discover: 1, request: 3, decline: 4, release: 7 };
 
 // dhcp builds a DHCP message from src as a whole frame: a discover, a
-// request or a release, with xid, and o: the address held (ciaddr, when
-// releasing), the offer a request takes up (requested, server), and where
-// to send it (to, and dst, the MAC of where it goes next; broadcast by
-// default). It asks, as a client does, for its
-// mask, router, DNS servers, lease time and server, and to be answered by
-// broadcast, as it has no address to be answered at.
+// request, a decline or a release, with xid, and o: the address held
+// (ciaddr, when releasing), the offer a request takes up or a decline
+// turns down (requested, server), how many seconds it has been asking
+// (secs, which a relay may wait on), and where to send it (to, and dst,
+// the MAC of where it goes next; broadcast by default). It asks, as a
+// client does, for its mask, router, DNS servers, lease time and server,
+// and to be answered by broadcast, as it has no address to be answered at.
+// Its datagram has its checksum: one that is routed to its server, as a
+// release is, may not be let by without.
 function dhcp(src, type, xid, o) {
 	let held = o?.ciaddr ?? '0.0.0.0';
-	let msg = chr(1) + chr(1) + chr(6) + chr(0) + u32(xid) + u16(0) + u16(o?.ciaddr ? 0 : 0x8000) +
+	let msg = chr(1) + chr(1) + chr(6) + chr(0) + u32(xid) + u16(min(max(int(o?.secs ?? 0), 0), 0xffff)) + u16(o?.ciaddr ? 0 : 0x8000) +
 		ip4(held) + ip4('0.0.0.0') + ip4('0.0.0.0') + ip4('0.0.0.0') + mac(src);
 	while (length(msg) < 236)
 		msg += chr(0);
@@ -143,14 +146,17 @@ function dhcp(src, type, xid, o) {
 		msg += chr(50) + chr(4) + ip4(o.requested);
 	if (o?.server)
 		msg += chr(54) + chr(4) + ip4(o.server);
-	if (type != 'release')
+	if (type == 'discover' || type == 'request')
 		msg += bytes([55, 5, 1, 3, 6, 51, 54]) + chr(12) + chr(length(HOST)) + HOST;
 	msg += chr(255);
 	while (length(msg) < 300)
 		msg += chr(0);
+	let to = o?.to ?? '255.255.255.255';
 	let udp = u16(68) + u16(67) + u16(8 + length(msg)) + u16(0) + msg;
+	let sum = checksum(ip4(held) + ip4(to) + chr(0) + chr(17) + u16(length(udp)) + udp);
+	udp = substr(udp, 0, 6) + u16(sum || 0xffff) + substr(udp, 8);
 	let ip = bytes([0x45, 0]) + u16(20 + length(udp)) + u16(0) + u16(0) + chr(64) + chr(17) + u16(0) +
-		ip4(held) + ip4(o?.to ?? '255.255.255.255');
+		ip4(held) + ip4(to);
 	ip = substr(ip, 0, 10) + u16(checksum(ip)) + substr(ip, 12);
 	return mac(o?.dst ?? BROADCAST) + mac(src) + u16(0x0800) + ip + udp;
 }
@@ -209,6 +215,13 @@ function arp_request(src, from, target) {
 		mac(src) + ip4(from) + mac('00:00:00:00:00:00') + ip4(target));
 }
 
+// arp_probe asks whether anyone has an address already, before the test
+// uses it: from no address, as a host asks of one it was just given (RFC
+// 5227), so that nobody's table takes the test for its holder yet.
+function arp_probe(src, target) {
+	return arp_request(src, '0.0.0.0', target);
+}
+
 // arp_of reads an ARP frame: {op (1 a request, 2 a reply), mac and ip of
 // who sent it, target the address it is about}; null for anything else.
 function arp_of(f) {
@@ -226,6 +239,14 @@ function arp_answer(f, src, held) {
 	return pad(mac(a.mac) + mac(src) + u16(0x0806) +
 		u16(1) + u16(0x0800) + chr(6) + chr(4) + u16(2) +
 		mac(src) + ip4(held) + mac(a.mac) + ip4(a.ip));
+}
+
+// arp_conflict is the MAC of another that says an address is its own: any
+// ARP sent from that address by a MAC that is not the test's. Null for
+// anything else.
+function arp_conflict(f, src, address) {
+	let a = arp_of(f);
+	return a && a.ip == address && a.mac != src ? a.mac : null;
 }
 
 // udp builds a UDP datagram as a whole frame, from the test's MAC and the
@@ -308,11 +329,16 @@ function where(dev, sw, members, watch, out) {
 	let m = match(dev, /^[A-Za-z0-9_-]{1,10}\.([0-9]{1,4})$/);
 	if (m)
 		return on_vlan(m[1]);
+	// A network on a tunnel alone (0054): the tunnel's device is in a
+	// bridge named for its VNI, which the network's Wi-Fi joins.
+	m = match(dev, /^br-vx([0-9]{1,8})$/);
+	if (m)
+		return { device: 'aeolus_' + m[1], vni: +m[1] };
 	return { why: `the network is on ${dev}, which is no VLAN of the uplink's and no tunnel of Aeolus's` };
 }
 
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	BROADCAST, HOST, test_mac, bpf, with_tag, dhcp, dhcp_reply, bits, arp_request, arp_of, arp_answer, udp, udp_of, on_link, where, mac_text
+	BROADCAST, HOST, test_mac, bpf, with_tag, dhcp, dhcp_reply, bits, arp_request, arp_probe, arp_of, arp_answer, arp_conflict, udp, udp_of, on_link, where, mac_text
 };

@@ -1510,8 +1510,9 @@ function state_report(running) {
 	if (radius && length(radius))
 		report.radius = slice(radius, 0, 64);
 	// Its scan radio, where it has one (0126).
-	// Its agent can make a client test over the wire (0128).
-	if (fs.access(WIRE_LIB))
+	// Its agent can make a client test over the wire (0128): it has the
+	// test, and the socket module the test is made with.
+	if (fs.access(WIRE_LIB) && has_prober())
 		report.wire_tests = true;
 	let scan = scan_radio_state();
 	if (scan)

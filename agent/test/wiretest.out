@@ -10,6 +10,8 @@ discover 342 bytes, to ff:ff:ff:ff:ff:ff from 0e:03:17:ff:00:20, flags 8000, opt
 tagged for VLAN 20: 810000140800; untagged there: 0800; no VLAN: 0800
 request options 3501033d07010e0317ff00203204c0a8144d3604c0a81401370501030633360c0b61656f6c75732d7465
 release to d4:01:c3:00:00:01, IP 192.168.20.77 to 192.168.20.1, flags 0000, options 3501073d07010e0317ff00203604c0a8
+asked again after 4.7 s: secs 0004; decline to ff:ff:ff:ff:ff:ff, options 3501043d07010e0317ff00203204c0a8144d3604c0a8
+checksums add up: discover true, request true, decline true, release true
 offer { "type": "offer", "address": "192.168.20.77", "mask": 24, "router": "192.168.20.1", "dns": [ "192.168.20.1", "9.9.9.9" ], "server": "192.168.20.1", "lease": 43200 }
 ack { "type": "ack", "address": "192.168.20.77", "mask": 24, "router": "192.168.20.1", "dns": [ "192.168.20.1", "9.9.9.9" ], "server": "192.168.20.1", "lease": 43200 }
 nak "nak"
@@ -19,7 +21,9 @@ arp request 60 bytes: { "op": 1, "mac": "0e:03:17:ff:00:20", "ip": "192.168.20.7
 arp reply { "op": 2, "mac": "d4:01:c3:00:00:01", "ip": "192.168.20.1", "target": "192.168.20.77" }
 asked for its address, it answers { "op": 2, "mac": "0e:03:17:ff:00:20", "ip": "192.168.20.77", "target": "192.168.20.1" } to d4:01:c3:00:00:01
 asked for another null, its own request null, no ARP null
-query 71 bytes to d4:01:c3:00:00:01: IP 450000399c4140004011b76bc0a8144d09090909
+probe { "op": 1, "mac": "0e:03:17:ff:00:20", "ip": "0.0.0.0", "target": "192.168.20.77" }
+another has it "7e:2a:ea:9b:2b:8f"; the gateway asking for it null; the test itself null; no ARP null
+query 71 bytes to d4:01:c3:00:00:01: IP 450000399c4140004011b76bc0a8144d09090909, its checksum adds up true
 answer from 9.9.9.9 port 53: { "rcode": 0, "answers": 1, "address": "64.68.130.164" }
 to another port null, to another address null, no UDP null
 on link true false false true
@@ -29,6 +33,7 @@ a VLAN not watched { "why": "this AP does not watch VLAN 99 on its uplink, so it
 on its tunnel { "device": "aeolus_50", "vni": 50 }
 on its fallback { "device": "eth0", "vlan": 50, "tagged": true }
 on neither { "why": "the network has no transport in its bridge now" }
+on a tunnel alone { "device": "aeolus_50", "vni": 50 }
 no uplink { "why": "this AP has no uplink port to test from" }, no VLAN { "why": "the network is on br-lan, which is no VLAN of the uplink's and no tunnel of Aeolus's" }, no interface { "why": "this AP has no interface for that network" }
 passed: passed: over the wire, address in 0.2 s, gateway answers ARP in 0.8 ms, DNS 14 ms
 no gateway: failed at gateway: its gateway, 192.168.20.1, does not answer

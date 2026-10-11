@@ -79,7 +79,7 @@ func (r *rounds) of(t *hierarchy.Tree, ap hierarchy.NodeID, now time.Time) (roun
 // have been asked for since, and how many of those are done.
 type roundView struct {
 	round
-	Name  string `json:"name"`
+	Name  string `json:"name,omitempty"` // its node's, for one who may view that node
 	Of    int    `json:"of"`
 	Asked int    `json:"asked"`
 	Done  int    `json:"done"`
