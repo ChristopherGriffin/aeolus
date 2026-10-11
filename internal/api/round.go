@@ -39,15 +39,6 @@ type round struct {
 	air, wire time.Time
 }
 
-// since is when the round's tests of a thing's kind were asked for: a test
-// of the thing made since then is the round's.
-func (r round) since(c assureCombo) time.Time {
-	if c.Band == wireBand {
-		return r.wire
-	}
-	return r.air
-}
-
 // roundLive says whether a kind asked for at a time is worked at still.
 func roundLive(at, now time.Time) bool { return !at.IsZero() && now.Sub(at) <= roundLife }
 
@@ -101,40 +92,44 @@ func (r *rounds) ask(node hierarchy.NodeID, by string, now time.Time, over strin
 	return one
 }
 
-// of is the round an AP is in: of each kind of test, the latest asked for
-// at the AP or at a folder above it that is worked at still; and its node,
-// its time and who asked it, those of the one asked last. So an AP below a
-// round over the wire, asked for one through the air itself, is in both.
-func (r *rounds) of(t *hierarchy.Tree, ap hierarchy.NodeID, now time.Time) (round, bool) {
+// of is the rounds an AP is in, one of each kind of test: through the air,
+// and over the wire, each the latest asked for at the AP or at a folder
+// above it that is worked at still. Each is the round asked at its node,
+// where, when last and by whom, of that kind alone, from when that kind
+// was asked for there. One the AP is not in is the zero round; ok says it
+// is in either. So an AP below a round over the wire, asked for one through
+// the air itself, is in both, each from its own time.
+func (r *rounds) of(t *hierarchy.Tree, ap hierarchy.NodeID, now time.Time) (air, wire round, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.at) == 0 {
-		return round{}, false
+		return air, wire, false
 	}
-	var out round
-	found := false
 	for _, id := range append(t.Ancestry(ap), ap) {
-		one, ok := r.at[id]
-		if !ok {
+		one, found := r.at[id]
+		if !found {
 			continue
 		}
-		air, wire := roundLive(one.air, now), roundLive(one.wire, now)
-		if !air && !wire {
-			continue
+		if roundLive(one.air, now) && one.air.After(air.air) {
+			air = round{Node: one.Node, At: one.At, By: one.By, Over: overAir, air: one.air}
 		}
-		if air && one.air.After(out.air) {
-			out.air = one.air
+		if roundLive(one.wire, now) && one.wire.After(wire.wire) {
+			wire = round{Node: one.Node, At: one.At, By: one.By, Over: overWire, wire: one.wire}
 		}
-		if wire && one.wire.After(out.wire) {
-			out.wire = one.wire
-		}
-		if !found || one.At.After(out.At) {
-			out.Node, out.At, out.By = one.Node, one.At, one.By
-		}
-		found = true
 	}
-	out.Over = roundOver(out.air, out.wire)
-	return out, found
+	return air, wire, !air.air.IsZero() || !wire.wire.IsZero()
+}
+
+// roundsOver is the tests the two rounds an AP is in are of.
+func roundsOver(air, wire round) string { return roundOver(air.air, wire.wire) }
+
+// roundSince is when a round's tests of a thing's kind were asked for, of
+// the two an AP is in: a test of the thing made since then is the round's.
+func roundSince(air, wire round, c assureCombo) time.Time {
+	if c.Band == wireBand {
+		return wire.wire
+	}
+	return air.air
 }
 
 // roundView is a round as a person sees it: of how many things, how many

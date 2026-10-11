@@ -52,7 +52,8 @@ function keep(k) {
 function asSet(fields) {
 	const before = fields['assurance.tests.wire'];
 	if (fields['assurance.tests.over'] || before?.value !== true) return fields;
-	return { ...fields, 'assurance.tests.over': { ...before, value: 'both' } };
+	// A lock on the setting before is not one on this: a lock is a field's.
+	return { ...fields, 'assurance.tests.over': { ...before, value: 'both', origin: before.origin === 'locked' ? 'inherited' : before.origin } };
 }
 
 // The checks opened, by what they are of, so a redraw keeps them open.

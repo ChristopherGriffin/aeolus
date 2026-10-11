@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
 
 // Which tests (0131): a folder says whether its APs are asked for tests
@@ -26,13 +28,14 @@ func TestWhichTests(t *testing.T) {
 		}
 	}
 	must(map[string]any{"kind": "add-builtins"})
+	must(map[string]any{"kind": "add-folder", "tree": "locations", "node": "annex", "name": "Annex", "parent": "office"})
 	serving := map[string]any{"radio": "radio0", "band": "5g", "htmodes": []string{"HE20", "HE40", "HE80"}}
 	spare := map[string]any{"radio": "radio2", "band": "5g", "htmodes": []string{"HE20"}, "reserved": true}
 	// Three APs: one with a scan radio whose agent can test over the wire;
-	// one with no scan radio, and the wire; and one with a scan radio whose
-	// agent cannot test over the wire.
+	// one with no scan radio, and the wire, in a folder of its own below;
+	// and one with a scan radio whose agent cannot test over the wire.
 	scanner := strings.Split(f.enrollAt("Scanner", "02:00:00:00:00:7a", "office", []any{serving, spare}, map[string]int{"5g": 36}), "|")
-	plain := strings.Split(f.enrollAt("Plain", "02:00:00:00:00:7b", "office", []any{serving}, map[string]int{"5g": 44}), "|")
+	plain := strings.Split(f.enrollAt("Plain", "02:00:00:00:00:7b", "annex", []any{serving}, map[string]int{"5g": 44}), "|")
 	deaf := strings.Split(f.enrollAt("Deaf", "02:00:00:00:00:7c", "office", []any{serving, spare}, map[string]int{"5g": 149}), "|")
 	names := map[string]string{scanner[0]: "Scanner", plain[0]: "Plain", deaf[0]: "Deaf"}
 	tokens := map[string]string{scanner[0]: scanner[1], plain[0]: plain[1], deaf[0]: deaf[1]}
@@ -203,7 +206,7 @@ func TestWhichTests(t *testing.T) {
 		if !ok {
 			return "none"
 		}
-		return fmt.Sprintf("%v: %v of %v", r["over"], r["done"], r["of"])
+		return fmt.Sprintf("%v at %v: %v of %v", r["over"], r["node"], r["done"], r["of"])
 	}
 
 	// A round through the air: the APs with a scan radio are asked for
@@ -218,7 +221,7 @@ func TestWhichTests(t *testing.T) {
 	if got, want := over(3), "Deaf 5g (round), Scanner 5g (round)"; got != want {
 		t.Errorf("a round through the air asked %s, want %s", got, want)
 	}
-	if got, want := said("office"), "air: 3 of 3"; got != want {
+	if got, want := said("office"), "air at office: 3 of 3"; got != want {
 		t.Errorf("the round through the air, as the tab says it = %s, want %s", got, want)
 	}
 
@@ -233,8 +236,55 @@ func TestWhichTests(t *testing.T) {
 	if got, want := over(4), "Deaf 5g (round), Plain wire (round), Scanner 5g (round), Scanner wire (round)"; got != want {
 		t.Errorf("the two rounds asked %s, want %s", got, want)
 	}
-	if got, want := said("office"), "both: 5 of 5"; got != want {
+	if got, want := said("office"), "both at office: 5 of 5"; got != want {
 		t.Errorf("the two rounds, as the tab says them = %s, want %s", got, want)
+	}
+
+	// Each kind from its own time: a round over the wire, done; and then
+	// one through the air, which asks for nothing over the wire again.
+	fresh()
+	round("office", "wire")
+	if got, want := over(2), "Plain wire (round), Scanner wire (round)"; got != want {
+		t.Errorf("a round over the wire asked %s, want %s", got, want)
+	}
+	round("office", "air")
+	if got, want := said("office"), "both at office: 2 of 5"; got != want {
+		t.Errorf("a round through the air, after one over the wire was done = %s, want %s", got, want)
+	}
+	if got, want := over(3), "Deaf 5g (round), Scanner 5g (round)"; got != want {
+		t.Errorf("a round through the air, after one over the wire was done, asked %s, want %s", got, want)
+	}
+	// And the other way about: the air first, and then the wire.
+	fresh()
+	round("office", "air")
+	if got, want := over(3), "Deaf 5g (round), Scanner 5g (round)"; got != want {
+		t.Errorf("a round through the air asked %s, want %s", got, want)
+	}
+	if code, b := round("office", "wire"); code != 200 || b["round"].(map[string]any)["over"] != "both" {
+		t.Fatalf("a round over the wire, after one through the air: %d %v", code, b)
+	}
+	if got, want := over(2), "Plain wire (round), Scanner wire (round)"; got != want {
+		t.Errorf("a round over the wire, after one through the air was done, asked %s, want %s", got, want)
+	}
+	if got, want := said("office"), "both at office: 5 of 5"; got != want {
+		t.Errorf("the two rounds, one after the other = %s, want %s", got, want)
+	}
+
+	// What is said of a round at a folder is of what it asks of the APs
+	// there, and of where that was asked: below a round through the air, a
+	// folder whose AP has no scan radio, asked for one over the wire, is in
+	// a round over the wire, asked at itself, whichever was asked last.
+	fresh()
+	round("office", "air")
+	round("annex", "wire")
+	if got, want := said("annex"), "wire at annex: 0 of 1"; got != want {
+		t.Errorf("a round over the wire, below one through the air = %s, want %s", got, want)
+	}
+	fresh()
+	round("annex", "wire")
+	round("office", "air")
+	if got, want := said("annex"), "wire at annex: 0 of 1"; got != want {
+		t.Errorf("a round over the wire, below a later one through the air = %s, want %s", got, want)
 	}
 
 	// And the same where the second is asked at an AP below: that AP is in
@@ -246,6 +296,49 @@ func TestWhichTests(t *testing.T) {
 	}
 	if got, want := over(4), "Plain wire (round), Scanner 5g (round), Scanner wire (round)"; got != want {
 		t.Errorf("a round at the folder and one at an AP below asked %s, want %s", got, want)
+	}
+}
+
+// A round is worked at for an hour, each kind from when it was asked for
+// (0129, 0131): after that the kind is let go, and the other goes on; and a
+// kind let go is not taken up again by a later asking for the other.
+func TestRoundsAreLetGo(t *testing.T) {
+	f := newFixture(t)
+	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	serving := map[string]any{"radio": "radio0", "band": "5g", "htmodes": []string{"HE20", "HE40", "HE80"}}
+	ap := strings.Split(f.enrollAt("Plain", "02:00:00:00:00:7b", "office", []any{serving}, map[string]int{"5g": 44}), "|")[0]
+	tree := f.log.Snapshot().Org.Locations
+	var r rounds
+	t0 := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	in := func(after time.Duration) string {
+		air, wire, ok := r.of(tree, hierarchy.NodeID(ap), t0.Add(after))
+		if !ok {
+			return "none"
+		}
+		return roundsOver(air, wire)
+	}
+	r.ask("office", "griff", t0, overWire)
+	r.ask("office", "griff", t0.Add(50*time.Minute), overAir)
+	for after, want := range map[time.Duration]string{
+		51 * time.Minute:  overBoth,
+		60 * time.Minute:  overBoth,
+		61 * time.Minute:  overAir, // the wire's hour is up
+		110 * time.Minute: overAir,
+		111 * time.Minute: "none",
+	} {
+		if got := in(after); got != want {
+			t.Errorf("%v after the first: in %s, want %s", after, got, want)
+		}
+	}
+	// The wire, let go at 60 minutes, is not taken up again by the air
+	// asked for once more at 70.
+	if one := r.ask("office", "griff", t0.Add(70*time.Minute), overAir); one.Over != overAir {
+		t.Errorf("a round through the air asked again, the wire's hour up: of %s", one.Over)
+	}
+	if got := in(71 * time.Minute); got != overAir {
+		t.Errorf("after that: in %s", got)
 	}
 }
 
@@ -268,5 +361,69 @@ func TestVerdictStands(t *testing.T) {
 		if got := verdictStands(now, now.Add(-c.ago), c.round); got != c.want {
 			t.Errorf("%s: %v, want %v", name, got, c.want)
 		}
+	}
+}
+
+// A thing that was failing, and is tested no longer, is listed still, and
+// is said to be failing only for as long as its alert is (0123, 0131): an
+// hour after its last test, where its AP is asked for nothing now.
+func TestFailingIsSaidAsLongAsItsAlert(t *testing.T) {
+	f := newFixture(t)
+	change := func(op map[string]any) {
+		t.Helper()
+		if code, b := f.change("griff", op); code != 200 {
+			t.Fatalf("%v: %d %v", op, code, b)
+		}
+	}
+	change(map[string]any{"kind": "add-builtins"})
+	serving := map[string]any{"radio": "radio0", "band": "5g", "htmodes": []string{"HE20", "HE40", "HE80"}}
+	spare := map[string]any{"radio": "radio2", "band": "5g", "htmodes": []string{"HE20"}, "reserved": true}
+	scanner := strings.Split(f.enrollAt("Scanner", "02:00:00:00:00:7a", "office", []any{serving, spare}, map[string]int{"5g": 36}), "|")
+	report := func() {
+		t.Helper()
+		_, _, cfg := f.apDo("GET", "/v1/ap/config", scanner[1], nil, nil)
+		if code, _, b := f.apDo("POST", "/v1/ap/state", scanner[1], map[string]any{"version": cfg["version"], "uptime": 60, "bssids": []string{"02:00:00:00:00:7a"}}, nil); code != 200 {
+			t.Fatalf("state: %d %v", code, b)
+		}
+	}
+	change(map[string]any{"kind": "set", "tree": "locations", "node": "office", "path": "assurance.tests.every", "value": 15})
+	// Its one thing, tested an hour and a half ago by the manager's clock,
+	// fails, is tried again within minutes, and fails again.
+	*f.skew = -90 * time.Minute
+	for i := 0; i < 2; i++ {
+		report()
+		got := f.api.assure(f.now())
+		if len(got) != 1 {
+			t.Fatalf("test %d asked: %v", i, got)
+		}
+		f.apDo("GET", "/v1/ap/actions", scanner[1], nil, nil)
+		d := map[string]any{"v": 1, "ssid": "Sweet Spot", "band": "5g", "bssid": "02:00:00:00:00:7a", "client": "02:00:00:00:0a:f0",
+			"outcome": "failed", "stage": "dhcp", "reason": "no DHCP server gave it an address", "steps": []any{}}
+		if code, _, b := f.apDo("POST", fmt.Sprintf("/v1/ap/actions/%d", got[0].ID), scanner[1], map[string]any{"ok": false, "result": "failed at dhcp", "detail": d}, nil); code != 200 {
+			t.Fatalf("done: %d %v", code, b)
+		}
+		*f.skew += assureRetry
+	}
+	*f.skew = 0
+	said := func() string {
+		t.Helper()
+		_, view := f.do("GET", "/v1/assurance", "griff", nil)
+		checks := view["checks"].([]any)
+		if len(checks) != 1 {
+			t.Fatalf("checks = %v", checks)
+		}
+		ch := checks[0].(map[string]any)
+		return fmt.Sprintf("failing %v, scheduled %v, failed %v", ch["failing"], ch["scheduled"], ch["failed"])
+	}
+	// On its schedule still, a quarter of an hour a thing: its verdict
+	// stands for three of those and an hour.
+	if got, want := said(), "failing true, scheduled true, failed 2"; got != want {
+		t.Errorf("an hour and a half after, tested still: %s, want %s", got, want)
+	}
+	// Asked for the wire alone, which its agent cannot make, it is tested
+	// no longer: its verdict stands for an hour, and that is up.
+	change(map[string]any{"kind": "set", "tree": "locations", "node": "office", "path": "assurance.tests.over", "value": "wire"})
+	if got, want := said(), "failing false, scheduled false, failed 2"; got != want {
+		t.Errorf("an hour and a half after, tested no longer: %s, want %s", got, want)
 	}
 }
