@@ -79,6 +79,9 @@ type connRecord struct {
 	Host    string      `json:"host,omitempty"`
 	Signal  *int        `json:"signal,omitempty"`
 	Probes  []connProbe `json:"probes,omitempty"`
+	// How the client came (0136): by a reassociation, a fast transition, a
+	// key from before, and how long it took to be let on.
+	How *connHow `json:"how,omitempty"`
 	// The capture its AP kept of it, where it failed (0135): the AP's name
 	// for it, and how many frames it holds. The capture itself comes by
 	// itself, POST /v1/ap/captures.
@@ -202,6 +205,11 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) e
 				why = err.Error()
 			}
 			continue
+		}
+		// How the client came (0136) that this manager cannot take, as a
+		// later agent's may be, is left out, and the attempt kept.
+		if rec.How != nil && !rec.How.ok() {
+			rec.How = nil
 		}
 		// A step that names a point this manager does not know, as a later
 		// agent's may, is kept without the name: the step still says what
@@ -349,14 +357,30 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 		conditions.Connection
 		APName string     `json:"ap_name"`
 		Way    []wayPoint `json:"way"`
+		// How it came, where it came as a client already on the network
+		// (0136): the kind of roam, and how long to be let on.
+		Roam *roamSaid `json:"roam,omitempty"`
 		// The capture kept of it (0135), and whether the caller may read
 		// it: with operator on its AP.
 		Capture *captureSaid `json:"capture,omitempty"`
 	}
 	out := []entry{}
+	// Which of them were roams: to an AP or a radio other than the one
+	// the client was last let on at.
+	roams, err := s.roamsAmong(c, list)
+	if err != nil {
+		return err
+	}
+	roamed := map[int64]roam{}
+	for _, m := range roams {
+		roamed[m.ID] = m
+	}
 	for _, cn := range list {
 		way, _ := connWay(cn)
 		e := entry{Connection: cn, Way: way}
+		if m, ok := roamed[cn.ID]; ok {
+			e.Roam = &roamSaid{Kind: m.Kind, MS: m.MS}
+		}
 		if k := cn.Capture; k != nil {
 			e.Capture = &captureSaid{Frames: k.Frames, Bytes: k.Bytes, May: roleOn(c, change.Locations, t, cn.AP) >= access.Operator}
 		}

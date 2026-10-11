@@ -8,6 +8,7 @@ import { h, link } from '../dom.js';
 import { download, get } from '../api.js';
 import { bandName, ago } from '../format.js';
 import { wayPath } from './way.js';
+import { KIND, took as roamTook } from './roaming.js';
 
 // The stages of coming online, in order, as they are named.
 const STAGES = [
@@ -146,7 +147,10 @@ export async function connectionsSection(mac) {
 				h('span', { class: 'when' }, when(c.started)),
 				h('span', { class: 'who' }, c.ap_name || c.ap),
 				h('span', { class: 'grow sub' }, [c.ssid || c.network, bandName(c.band)].filter(Boolean).join(' · '),
-					c.outcome === 'failed' && c.reason ? ` · ${c.reason}` : ''),
+					c.outcome === 'failed' && c.reason ? ` · ${c.reason}` : '',
+					// It came as a client already on the network (0136).
+					c.roam && h('span', { class: 'roamed', title: `A roam: it came as a client already on the network, from another AP or another radio. ${KIND[c.roam.kind]?.[1] || ''}` },
+						` · roam, ${KIND[c.roam.kind]?.[0] || c.roam.kind}${c.roam.ms != null ? `, ${roamTook(c.roam.ms)}` : ''}`)),
 				captureLink(c),
 				outcomeChip(c)),
 			steps(c),

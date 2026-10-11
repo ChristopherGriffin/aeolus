@@ -280,6 +280,60 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 	return out, rows.Err()
 }
 
+// ConnectionsOfClients lists the attempts of the clients named, on any AP,
+// begun since a time, the latest first, at most limit: where each was
+// before it roamed (0136).
+func (s *Store) ConnectionsOfClients(macs []string, since time.Time, limit int) ([]Connection, error) {
+	if macs == nil {
+		macs = []string{}
+	}
+	list, err := json.Marshal(macs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(`SELECT id, ap, mac, at, network, ssid, band, outcome, stage, reason, took_ms, record FROM connections
+		WHERE mac IN (SELECT value FROM json_each(?)) AND at >= ? ORDER BY at DESC, id DESC LIMIT ?`, string(list), since.UnixMilli(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Connection{}
+	for rows.Next() {
+		var c Connection
+		var ap, record string
+		var started int64
+		if err := rows.Scan(&c.ID, &ap, &c.MAC, &started, &c.Network, &c.SSID, &c.Band, &c.Outcome, &c.Stage, &c.Reason, &c.TookMS, &record); err != nil {
+			return nil, err
+		}
+		c.AP, c.Started, c.Record = hierarchy.NodeID(ap), time.UnixMilli(started).UTC(), json.RawMessage(record)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// LastLetOn is the latest attempt of a client, on any AP, begun before a
+// time, at which it was let on to its network: its record says when, or it
+// came online, was connected, or failed at something that comes after.
+// Where a client was before it roamed (0136), however long before.
+func (s *Store) LastLetOn(mac string, before time.Time) (Connection, bool, error) {
+	var c Connection
+	var ap, record string
+	var started int64
+	err := s.db.QueryRow(`SELECT id, ap, mac, at, network, ssid, band, outcome, stage, reason, took_ms, record FROM connections
+		WHERE mac = ? AND at < ? AND (outcome IN ('online', 'connected') OR (outcome = 'failed' AND stage IN ('dhcp', 'gateway', 'dns', 'internet'))
+			OR json_extract(record, '$.how.on_ms') IS NOT NULL)
+		ORDER BY at DESC, id DESC LIMIT 1`, mac, before.UnixMilli()).
+		Scan(&c.ID, &ap, &c.MAC, &started, &c.Network, &c.SSID, &c.Band, &c.Outcome, &c.Stage, &c.Reason, &c.TookMS, &record)
+	if err == sql.ErrNoRows {
+		return Connection{}, false, nil
+	}
+	if err != nil {
+		return Connection{}, false, err
+	}
+	c.AP, c.Started, c.Record = hierarchy.NodeID(ap), time.UnixMilli(started).UTC(), json.RawMessage(record)
+	return c, true, nil
+}
+
 // ConnectionsSince lists the attempts begun since a time on aps, but for
 // those of the clients not names, the latest first, at most limit: for what
 // they come to together, a step at a time (0130). They are found by their

@@ -1,7 +1,8 @@
 // The Overview tab of a Locations folder or the Org (0102): the APs below it
 // at a glance. How many are up, their clients by band, what needs attention,
 // whether their configs are in force, whether their networks work when tried
-// as a client (0123), their usage over the last day (0108),
+// as a client (0123), how their clients roam (0136), their usage over the
+// last day (0108),
 // the busiest APs, the clients on each network, and the channels the APs
 // share. It reads what the other tabs do,
 // and sets nothing.
@@ -12,6 +13,7 @@ import { apStatus } from '../layout.js';
 import { bandName } from '../format.js';
 import { configs } from './sections.js';
 import { usagePanel } from './usage.js';
+import { roamingPanel, showRoaming, took } from './roaming.js';
 
 const BANDS = ['2g', '5g', '6g'];
 
@@ -51,13 +53,30 @@ function gotOn(a, base) {
 	return tile('Clients getting on', `${online} of ${online + failed}`, sub, stuck.length ? 'bad' : failed ? 'warn' : 'ok', `${base}/assurance`);
 }
 
+// roamed is how the clients here roam (0136): how long a roam typically
+// takes at the AP a client comes to, and how many there were over the last
+// day; amber where some failed or were slow, red where many failed. It
+// opens the panel below. No tile where no client roamed.
+function roamed(r, panel) {
+	if (!panel) return null;
+	const sub = [`${r.roams} roam${r.roams === 1 ? '' : 's'} today`, r.failed > 0 && `${r.failed} failed`, r.slow > 0 && `${r.slow} slow`].filter(Boolean).join(' · ');
+	const many = r.failed >= 3 && r.failed * 10 >= r.roams;
+	const t = tile('Roaming', r.typical_ms != null ? took(r.typical_ms) : '—', sub, many ? 'bad' : r.failed || r.slow ? 'warn' : 'ok', '#');
+	t.title = 'How long a roam typically took, at the AP the client came to, from its authentication there to its being let on. Opens the roams below';
+	t.addEventListener('click', (e) => { e.preventDefault(); showRoaming(panel); });
+	return t;
+}
+
 export async function overviewTab(ctx, id, page, fleet) {
 	const below = page.hardware?.aps || [];
 	if (!below.length) return [h('div', { class: 'banner info' }, 'No APs here yet.')];
 	const ids = new Set(below.map((a) => a.id));
 	const aps = (fleet?.aps || []).filter((a) => ids.has(a.id));
-	const [rows, al, usage, assurance] = await Promise.all([configs(below), get(`/v1/alerts?under=${encodeURIComponent(id)}`), usagePanel(id, true),
-		get(`/v1/assurance?under=${encodeURIComponent(id)}`).catch(() => null)]);
+	const [rows, al, usage, assurance, roams] = await Promise.all([configs(below), get(`/v1/alerts?under=${encodeURIComponent(id)}`), usagePanel(id, true),
+		get(`/v1/assurance?under=${encodeURIComponent(id)}`).catch(() => null),
+		// An older manager has none.
+		get(`/v1/roaming?under=${encodeURIComponent(id)}`).catch(() => null)]);
+	const roaming = roamingPanel(roams);
 	const base = `#/locations/${encodeURIComponent(id)}`;
 
 	// APs: up is heard from lately and not idle in Landing Zone.
@@ -79,7 +98,7 @@ export async function overviewTab(ctx, id, page, fleet) {
 		tile('Alerts', String((c.critical || 0) + (c.warning || 0)), `${c.critical || 0} critical · ${c.warning || 0} warning`,
 			c.critical ? 'bad' : c.warning ? 'warn' : 'ok', `${base}/alerts`),
 		tile('Configs in force', `${inSync} of ${st.length}`, held ? `${held} held` : 'none held', held ? 'warn' : inSync === st.length ? 'ok' : 'warn', `${base}/aps`),
-		assured(assurance, base), gotOn(assurance, base));
+		assured(assurance, base), gotOn(assurance, base), roamed(roams, roaming));
 
 	// The busiest APs.
 	const busiest = reports.map(({ ap, r }) => ({ ap, n: (r?.clients || []).length, radios: r?.radios || [] }))
@@ -134,6 +153,7 @@ export async function overviewTab(ctx, id, page, fleet) {
 		trouble.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Critical'),
 			h('ul', null, trouble.map((a) => h('li', null, link(`/locations/${encodeURIComponent(a.ap)}`, a.name), `: ${a.message}`)))),
+		roaming,
 		usage,
 		h('div', { class: 'grid2' }, h('div', { class: 'col' }, busy), h('div', { class: 'col' }, netList, chans)),
 	].filter(Boolean);
