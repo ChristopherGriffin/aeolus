@@ -26,7 +26,10 @@ export function outcomeChip(c, brief) {
 	const at = NAME[c.stage] || c.stage;
 	if (c.outcome === 'online') return h('span', { class: 'chip ok', title: 'An address, and something beyond itself answered it' }, brief ? 'Online' : `Online in ${took(c.took_ms)}`);
 	if (c.outcome === 'failed') return h('span', { class: 'chip bad' }, brief ? 'Failed' : `Failed at ${at}`);
-	if (c.outcome === 'left') return h('span', { class: 'chip warn', title: 'It went of its own accord before it was seen online' }, brief ? 'Left' : `Left after ${at}`);
+	// One that went before it was let on left at the stage it had come to, not after it.
+	const early = (c.reason || '').startsWith('before it was let on');
+	if (c.outcome === 'left') return h('span', { class: 'chip warn', title: early ? 'It went, or was sent off, before it was let on' : 'It went of its own accord before it was seen online' },
+		brief ? 'Left' : `Left ${early ? 'at' : 'after'} ${at}`);
 	return h('span', { class: 'chip idle', title: 'Let on to the network, with nothing more seen of it: a device that keeps its address and says little' }, 'Connected');
 }
 
