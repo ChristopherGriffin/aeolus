@@ -38,3 +38,12 @@
 
 - One kind's ports no longer reach another's of the same name, where they are set by kind. A plain setting still reaches all, and the plain ones already set stay as they are.
 - A lock on a plain port field holds a kind's own below it too, though the kind's own is another path.
+
+## Added 2026-10-11: a folder set up before its APs
+
+- **Griff:** "We need to be able to prestage sites."
+- **A folder that reaches no AP yet has the kinds of AP the Org has,** on Interfaces › Ethernet: each board its APs said they are, by its model's name, with the ports an AP of that board last reported, wherever it is. Each says "none here yet: what is set waits for the first".
+- **Its ports are set as any kind's are,** under `boards.<board>.ports`, and a port none reported is added by name.
+- **The uplink is the one an AP of the kind said is its uplink.** It carries the AP's management, and is left alone here as anywhere.
+- **Once an AP is in the folder, the page has the kinds that are there,** as before.
+- **A kind no AP in the Org is of is not offered:** nothing knows its ports.
