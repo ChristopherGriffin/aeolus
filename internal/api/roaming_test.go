@@ -101,7 +101,7 @@ func TestRoaming(t *testing.T) {
 	// A client that says nothing of roaming, as many a phone: it joins
 	// North, and a minute later South, as if for the first time, by WPA3's
 	// exchange. It was on North moments before: a roam, and a hard one.
-	hard, band, late, sitter, guest, failer := client(10), client(11), client(12), client(13), client(14), client(15)
+	hard, band, late, sitter, guest, failer, prober := client(10), client(11), client(12), client(13), client(14), client(15), client(16)
 	attempt(northToken, hard, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 150})
 	attempt(southToken, hard, "phy0-ap0", "5g", 640*time.Second, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 160})
 	// One that goes from North's 5 GHz radio to its other, so.
@@ -131,7 +131,11 @@ func TestRoaming(t *testing.T) {
 	// One on North that tries South, and is not let on: a roam that
 	// failed.
 	attempt(northToken, failer, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
-	attempt(southToken, failer, "phy0-ap0", "5g", 660*time.Second, "failed", "assoc", "it was never let on", map[string]any{"alg": "open"})
+	attempt(southToken, failer, "phy0-ap0", "5g", 660*time.Second, "failed", "key", "wrong passphrase", map[string]any{"alg": "open"})
+	// One on North that authenticates at South and goes no further, with
+	// nothing refused: given up, and no failure.
+	attempt(northToken, prober, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
+	attempt(southToken, prober, "phy0-ap0", "5g", 655*time.Second, "failed", "assoc", "it was never let on", map[string]any{"alg": "open"})
 	// North's own scan radio, testing: no client's roaming.
 	attempt(southToken, scan, "phy0-ap0", "5g", 60*time.Second, "connected", "key", "", map[string]any{"re": true, "alg": "ft", "on_ms": 15})
 	// How it came costs no record. What this manager cannot take of it is
@@ -156,7 +160,7 @@ func TestRoaming(t *testing.T) {
 		t.Fatalf("roaming: %d %v", code, v)
 	}
 	if got, want := fmt.Sprintf("%v roams, %v failed, %v slow, %v left, %v not timed, %v clients, typically %v ms, slow past %v, more %v", v["roams"], v["failed"], v["slow"], v["left"], v["untimed"], v["clients"], v["typical_ms"], v["slow_over_ms"], v["more"]),
-		"16 roams, 2 failed, 2 slow, 1 left, 2 not timed, 11 clients, typically 35 ms, slow past 250, more <nil>"; got != want {
+		"16 roams, 2 failed, 2 slow, 2 left, 2 not timed, 12 clients, typically 35 ms, slow past 250, more <nil>"; got != want {
 		t.Errorf("in all: %s, want %s", got, want)
 	}
 	var kinds []string
@@ -206,6 +210,7 @@ func TestRoaming(t *testing.T) {
 		"01 to North 5g from South 5g, ft, ok in 21 ms",
 		"01 to South 5g from North 5g, ft, ok in 17 ms",
 		"0a to South 5g from North 5g, full, ok in 160 ms",
+		"10 to South 5g from North 5g, keys, left",
 		"0f to South 5g from North 5g, keys, failed",
 		"0b to North 2g from North 5g, keys, ok in 25 ms",
 		"07 to North 5g from South 5g, keys, ok in 33 ms",
@@ -218,6 +223,7 @@ func TestRoaming(t *testing.T) {
 		"02 to North 2g from somewhere not known, pmksa, slow in 1198 ms after 5 SA Queries",
 		"01 to North 5g from South 5g, keys, failed",
 		"01 to South 5g from North 5g, keys, slow in 280 ms",
+		"10 to South 5g from North 5g, keys, left",
 		"0f to South 5g from North 5g, keys, failed",
 	}, "\n"); got != want {
 		t.Errorf("those that went badly:\n%s\nwant:\n%s", got, want)
@@ -238,6 +244,13 @@ func TestRoaming(t *testing.T) {
 	}
 	if got, want := strings.Join(marks, ", "), "-, keys 35, keys <nil>, keys 280, ft 21, ft 17, -"; got != want {
 		t.Errorf("the phone's attempts, the latest first = %s, want %s", got, want)
+	}
+	// A test's own client's attempts are marked as no roams.
+	_, tests := f.do("GET", "/v1/clients/"+scan+"/connections", "griff", nil)
+	for _, c := range tests["connections"].([]any) {
+		if c.(map[string]any)["roam"] != nil {
+			t.Errorf("a test's own client, marked as roaming: %v", c)
+		}
 	}
 	// Below one AP, its own alone, with where each came from all the same.
 	_, one := f.do("GET", "/v1/roaming?under="+north+"&hours=1", "griff", nil)

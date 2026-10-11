@@ -42,10 +42,12 @@
   - Since 2026-10-11. Before, each such client was let on unasked: wrong for one that went of itself in the seconds after hostapd started, before it was asked for its debug lines, when every client joins again.
 - **What hostapd says beside an attempt begins none:** a reassociation, the asking for proof, a key from before.
 - **A roam is a client's attempt at an AP or a radio other than the one it was last let on at, on the network it was on there, moments after it was there.** One that asks again on the radio it is on is no roam.
-  - **Moments after:** it was let on there within five minutes before, or that AP reported, within those five minutes, that it moved something through it (0110). APs report every minute.
+  - **Moments after:** it was let on there within five minutes before, or that AP reported, within the seven before, that it moved something through it (0110). An AP reports every five minutes, at its next poll after (0040): a report of a client that was there until it moved is no older than six, and the time it took to move.
   - **A client that says it is already on the network needs no such proof:** one that asks by a reassociation, or comes by a fast transition, is roaming by its own word, from wherever it was last let on, however long before.
   - **Until 2026-10-11 only those were roams.** A Galaxy S23 walked between three APs that day and was let on seven times, each time by an association as if for the first, with WPA3's exchange, on a network that offers 802.11r: not one was counted. Many a client roams so.
-  - **One not let on is a roam that failed** all the same: a client on one AP that tries the next and is refused, or not heard.
+  - **One not let on is a roam that failed** all the same: a client on one AP that tries the next and is refused.
+  - **One that authenticated, or began to, and went no further, with nothing refused, is given up and no failure:** a client that looked at the next AP and thought better of it, or was not heard there. It is counted with those the client gave up, apart from the roams. The same phone did so once in ten moves; counted as failures, such tries would have the tile say a sound network fails.
+  - A test's own client is in no count, and its own attempts are not marked: it goes from AP to AP as the tests have it.
   - A client that leaves and is back within five minutes at another AP is counted as roaming, though it may have been out of reach between.
   - Where it came from is where it was last let on, on any AP, however long before: read from its own attempts, an agent's from before this among them, which say only how each ended. A client with no attempt before has no such place, and its roam is one all the same.
 - **Its kind is how much it did again,** the least first:
@@ -69,8 +71,10 @@
 ## Not done
 
 - **Where a client came from is not read from its own frame.** A reassociation names the AP it leaves; with captures (0135) the frame is at hand, and the place could be exact, and known for the first roam too.
-- **A roam on a network that signs clients in is known as one only by its fast transition,** or where hostapd logs at debug. A reassociation there with a key from before, or with a sign-in again, is an attempt like any other. The frame would say.
-- **A fast transition back to an AP that still held the client, where hostapd does not log at debug, is let on and is no roam:** nothing says how it came.
+- **A client that moved nothing through its AP in the seven minutes before it left is not seen to roam,** unless it says so: an AP reports only the clients that moved something.
+- **A client that is let on with nothing said of how** (a fast transition back to an AP that still held it, where hostapd does not log at debug) has no kind of its own: where it is a roam, it is named for what its network would have had it do, the four messages, or a key from before.
+- **Each time a client on one AP tries another and is refused is a roam that failed:** one that tries over and over fills the list of those that went badly.
+- **A rejoin on an AP's other radio, as after Wi-Fi is set up again, is a roam** from the one radio to the other.
 - **A manager taken back to a release before this one refuses each record that says how the client came,** as it does any with a field it does not know: for the minute or two until its agents are taken back with it.
 - **The order of a client's attempts on different APs is by those APs' clocks.** Where two clocks differ by more than the time between two of its roams, the later is taken for the earlier, and one of the two is not seen as a roam.
 - **A client let on in silence is never seen online,** for it is let on when its record is made: what it sent meanwhile is in its steps, and its outcome is connected.

@@ -154,8 +154,8 @@ export async function connectionsSection(mac) {
 				h('span', { class: 'who' }, c.ap_name || c.ap),
 				h('span', { class: 'grow sub' }, [c.ssid || c.network, bandName(c.band)].filter(Boolean).join(' · '),
 					c.outcome === 'failed' && c.reason ? ` · ${c.reason}` : '',
-					// It came as a client already on the network (0136).
-					c.roam && h('span', { class: 'roamed', title: `A roam: it came as a client already on the network, from another AP or another radio. ${KIND[c.roam.kind]?.[1] || ''}` },
+					// A roam (0136): it came from another AP, or another radio.
+					c.roam && h('span', { class: 'roamed', title: `A roam: it came from another AP, or another radio of this one, where it was moments before. ${KIND[c.roam.kind]?.[1] || ''}` },
 						` · ${roamName(c.roam.kind)}${c.roam.ms != null ? `, ${roamTook(c.roam.ms)}` : ''}`)),
 				captureLink(c),
 				outcomeChip(c)),

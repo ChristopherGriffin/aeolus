@@ -52,11 +52,15 @@ const (
 	// of those that failed or were slow.
 	roamingLatest = 50
 	// roamingFresh is how long before an attempt a client must have been
-	// on the AP or radio it comes from for the attempt to be a roam, where
-	// the client did not come as one already on the network: let on there
-	// within that time, or reported by that AP as moving something through
-	// it. APs report every minute.
-	roamingFresh = 5 * time.Minute
+	// let on at the AP or radio it comes from for the attempt to be a
+	// roam, where the client did not come as one already on the network;
+	// or, within roamingReported, been reported by that AP as moving
+	// something through it. An AP reports every stateEvery, at its next
+	// poll after, a minute later at the most: a report of a client that
+	// was there until it moved is no older than that, and the time it took
+	// to move.
+	roamingFresh    = 5 * time.Minute
+	roamingReported = stateEvery + 2*time.Minute
 	// roamingBack is how far before the first roam looked at a client's
 	// attempts are read together, to know where each was before; one that
 	// was nowhere in that time is looked for by itself, however far back.
@@ -266,7 +270,7 @@ type roamSaid struct {
 // client came to an AP or a radio other than the one it was last let on
 // at, and either came as one already on the network (roamKind), or was on
 // that other, on the same network, moments before: let on there within
-// roamingFresh, or reported by that AP within it. One that asked again on
+// roamingFresh, or reported by that AP within roamingReported. One that asked again on
 // the radio it was on is none. Where a client was before is read from its own
 // attempts on every AP, as the attempts given may leave out the APs it
 // came from: together back to an hour before the first of the roams, and
@@ -342,6 +346,12 @@ func (s *Server) roamsAmong(c call, list []conditions.Connection) ([]roam, error
 			// Let on, as its outcome says, by a record that has no time
 			// for it: it went well, and is not timed.
 			r.State, r.Untimed = "ok", true
+		case cn.Outcome == "failed" && cn.Reason == "it was never let on" && (cn.Stage == "auth" || cn.Stage == "assoc"):
+			// It authenticated, or began to, and went no further, and
+			// nothing was refused: a client that looked at this AP and
+			// thought better of it, or was not heard. Given up, and no
+			// failure of the network's.
+			r.State, r.Reason = "left", "it authenticated and went no further"
 		case cn.Outcome == "failed":
 			r.State, r.Reason = "failed", cn.Reason
 		default:
@@ -380,7 +390,7 @@ func (s *Server) roamsAmong(c call, list []conditions.Connection) ([]roam, error
 		if gap := cn.Started.Sub(before.at); gap >= 0 && gap <= roamingFresh {
 			return true
 		}
-		was, err := s.conds.Moved(before.ap, cn.MAC, cn.Started.Add(-roamingFresh), cn.Started)
+		was, err := s.conds.Moved(before.ap, cn.MAC, cn.Started.Add(-roamingReported), cn.Started)
 		if err != nil {
 			failed = err
 		}

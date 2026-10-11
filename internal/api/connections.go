@@ -357,8 +357,8 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 		conditions.Connection
 		APName string     `json:"ap_name"`
 		Way    []wayPoint `json:"way"`
-		// How it came, where it came as a client already on the network
-		// (0136): the kind of roam, and how long to be let on.
+		// Where it was a roam (0136): of which kind, and how long to be
+		// let on.
 		Roam *roamSaid `json:"roam,omitempty"`
 		// The capture kept of it (0135), and whether the caller may read
 		// it: with operator on its AP.
@@ -370,6 +370,11 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 	roams, err := s.roamsAmong(c, list)
 	if err != nil {
 		return err
+	}
+	// A test's own client goes from AP to AP as the tests have it: no
+	// roaming.
+	if _, tests := testClients(c.state)[mac]; tests {
+		roams = nil
 	}
 	roamed := map[int64]roam{}
 	for _, m := range roams {
