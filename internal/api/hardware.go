@@ -3,11 +3,13 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
 	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
+	"github.com/ChristopherGriffin/aeolus/internal/library"
 	"github.com/ChristopherGriffin/aeolus/internal/radio"
 )
 
@@ -59,6 +61,69 @@ type hardwareView struct {
 	APs     []apRef    `json:"aps"`
 	Unknown []apRef    `json:"unknown"` // never said what radios they have
 	Bands   []bandView `json:"bands"`
+	// On a folder that reaches no AP yet: the kinds of AP it can be set up
+	// for ahead of them (0092).
+	Kinds []kindView `json:"kinds,omitempty"`
+}
+
+// kindView is a kind of AP a folder with none yet can be set up for (0092),
+// as a site is before it is built: its board, its model's name, and its
+// ports as an AP of that board last reported them, wherever in the Org it
+// is. The uplink is marked: it carries the AP's management, and Aeolus
+// leaves it alone.
+type kindView struct {
+	Board string     `json:"board"`
+	Name  string     `json:"name"`
+	Ports []kindPort `json:"ports"`
+}
+
+type kindPort struct {
+	Name   string `json:"name"`
+	Uplink bool   `json:"uplink,omitempty"`
+}
+
+// kinds are the kinds of AP the Org has, by the boards its APs said they
+// are when they enrolled, each with the ports one of them last reported.
+// At most three APs of a board are asked: where none of those has reported
+// its ports, the kind has none to show yet.
+func (s *Server) kinds(state *change.State) ([]kindView, error) {
+	by := map[string][]hierarchy.NodeID{}
+	for id := range state.Facts {
+		if b := state.Board(id); library.BoardOK(b) {
+			by[b] = append(by[b], id)
+		}
+	}
+	out := []kindView{}
+	for _, board := range slices.Sorted(maps.Keys(by)) {
+		aps := by[board]
+		slices.Sort(aps)
+		k := kindView{Board: board, Name: board, Ports: []kindPort{}}
+		for _, id := range aps {
+			if m := state.Model(id); m != "" {
+				k.Name = m
+				break
+			}
+		}
+		for _, id := range aps[:min(len(aps), 3)] {
+			l, err := s.conds.Latest(id)
+			if err != nil {
+				return nil, err
+			}
+			if l.State == nil {
+				continue
+			}
+			var rep struct {
+				Ports []kindPort `json:"ports"`
+			}
+			if json.Unmarshal(l.State.Report, &rep) != nil || len(rep.Ports) == 0 {
+				continue
+			}
+			k.Ports = rep.Ports
+			break
+		}
+		out = append(out, k)
+	}
+	return out, nil
 }
 
 // apRadios is what one AP said about its radios when it enrolled (0033),
@@ -124,6 +189,15 @@ func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardware
 		known = append(known, r)
 	}
 	alone := self.Kind == hierarchy.KindAP
+	// A folder with no AP in it yet is set up for the kinds of AP the Org
+	// has (Griff, 2026-10-11: "we need to be able to prestage sites").
+	if !alone && len(hw.APs) == 0 {
+		k, err := s.kinds(state)
+		if err != nil {
+			return nil, err
+		}
+		hw.Kinds = k
+	}
 	for _, band := range radio.Bands {
 		var have []apRadios
 		for _, r := range known {

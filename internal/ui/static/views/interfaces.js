@@ -459,7 +459,7 @@ function tunnelState(report, t) {
 async function ethernet(ctx, here, page, ap, edit) {
 	const [d, rows] = await Promise.all([schema(), ap ? [ap] : configs(page.hardware?.aps || [])]);
 	const fields = page.fields || {};
-	const kinds = kindsOf(rows, fields, !ap);
+	const kinds = kindsOf(rows, fields, !ap, page.hardware?.kinds);
 	const report = ap?.cfg?.condition?.state;
 	const box = h('div', { class: 'edit flush' });
 	const panel = h('div', { class: 'ports' });
@@ -489,7 +489,10 @@ async function ethernet(ctx, here, page, ap, edit) {
 // APs, and its ports: those its APs reported, and those set for it. On an
 // AP's page, its one kind is set as the AP's own; elsewhere a kind is set
 // under boards.<board>., and APs that never said their board as plain ports.
-function kindsOf(rows, fields, folder) {
+// A folder with no AP in it yet has the kinds of AP the Org has (ahead),
+// each with the ports one of its kind reported elsewhere, so a site's ports
+// are set before its APs are there.
+function kindsOf(rows, fields, folder, ahead) {
 	const out = new Map();
 	const kind = (board, name) => {
 		const key = board || '';
@@ -504,6 +507,12 @@ function kindsOf(rows, fields, folder) {
 			if (!k.ports.has(p.name)) k.ports.set(p.name, []);
 			k.ports.get(p.name).push({ ap: r.ap, cfg: r.cfg, p });
 		}
+	}
+	for (const a of (folder && ahead) || []) {
+		const k = kind(a.board, a.name);
+		k.ahead = true;
+		k.uplinks = new Set((a.ports || []).filter((p) => p.uplink).map((p) => p.name));
+		for (const p of a.ports || []) if (!k.ports.has(p.name)) k.ports.set(p.name, []);
 	}
 	// Kinds set here or above with no AP here yet, and ports set for a kind
 	// that none of its APs reported.
@@ -682,7 +691,9 @@ function poe(report) {
 function kindPanel(ctx, d, here, page, kind, fields, canEdit, edit, folder, only) {
 	const kf = kindFields(fields, kind, page.ancestry || []);
 	const names = [...kind.ports.keys()];
-	const uplink = (n) => (kind.ports.get(n) || []).some((r) => r.p.uplink);
+	// A kind set ahead of its APs has its uplink as one of its kind said
+	// elsewhere.
+	const uplink = (n) => (kind.ports.get(n) || []).some((r) => r.p.uplink) || kind.uplinks?.has(n) === true;
 	names.sort((a, b) => Number(uplink(b)) - Number(uplink(a)) || byPort(a, b));
 	const key = `${here}|${kind.board}`;
 	const isOpen = () => opened.has(key) || ((only || !folder) && !opened.has('!' + key));
@@ -692,7 +703,8 @@ function kindPanel(ctx, d, here, page, kind, fields, canEdit, edit, folder, only
 	const arrow = h('span', { class: 'arrow', 'aria-hidden': 'true' });
 	const head = h('button', { type: 'button', class: 'kindhead', 'aria-expanded': 'false' }, arrow,
 		h('strong', null, kind.name),
-		h('span', { class: 'sub' }, [`${kind.aps.length} AP${kind.aps.length === 1 ? '' : 's'}`, summary(names, uplink, kf, kind.base)].filter(Boolean).join(' · ')),
+		h('span', { class: 'sub' }, [kind.ahead ? 'none here yet: what is set waits for the first' : `${kind.aps.length} AP${kind.aps.length === 1 ? '' : 's'}`,
+			summary(names, uplink, kf, kind.base)].filter(Boolean).join(' · ')),
 		h('span', { class: 'gap' }),
 		kind.board && folder && h('span', { class: 'mono sub' }, kind.board));
 	const set = (open) => {
@@ -903,7 +915,9 @@ function portJack(c, name, reps, pick) {
 	const base = kind.base;
 	const f = (k) => kf[`${base}ports.${name}.${k}`];
 	const uplinkOn = reps.filter((r) => r.p.uplink);
-	const allUplink = uplinkOn.length > 0 && uplinkOn.length === reps.length;
+	// With no AP of the kind here yet, the uplink is what one of its kind
+	// said elsewhere.
+	const allUplink = reps.length ? uplinkOn.length > 0 && uplinkOn.length === reps.length : kind.uplinks?.has(name) === true;
 	const off = f('enabled')?.value === false;
 	const names = (id) => ctx.name('locations', id);
 	const set = Object.entries(kf).filter(([p, r]) => p.startsWith(`${base}ports.${name}.`) && r);
@@ -942,7 +956,7 @@ function portJack(c, name, reps, pick) {
 		const head = () => h('h2', null, name, bond && h('span', { class: 'note' }, `${bond.mode === '802.3ad' ? 'LACP' : bond.mode} bond`),
 			folder && kind.board && h('span', { class: 'note' }, `every ${kind.name} here`),
 			h('span', { class: 'controls' },
-				allUplink ? h('button', { type: 'button', class: 'button small', onclick: () => show(info) }, 'Info')
+				allUplink ? uplinkOn.length > 0 && h('button', { type: 'button', class: 'button small', onclick: () => show(info) }, 'Info')
 					: canEdit && h('button', { type: 'button', class: 'button small', onclick: () => show(editForm) }, 'Edit'),
 				h('button', { type: 'button', class: 'button small', onclick: () => pick(name, () => null) }, 'Close')));
 		// On a folder, the kind's ports as they are for every AP of it: what
@@ -962,7 +976,7 @@ function portJack(c, name, reps, pick) {
 			row('Power', power)].filter(Boolean));
 		return panel;
 	};
-	const marks = [uplinkOn.length > 0 && (!twoUp || path) && h('span', { class: 'up', title: path ? 'the path out' : allUplink ? 'the uplink' : `the uplink on ${uplinkOn.map((r) => r.ap.name).join(', ')}` }, '↑'),
+	const marks = [(uplinkOn.length > 0 || allUplink) && (!twoUp || path) && h('span', { class: 'up', title: path ? 'the path out' : allUplink ? 'the uplink' : `the uplink on ${uplinkOn.map((r) => r.ap.name).join(', ')}` }, '↑'),
 		power && h('span', { class: 'poe', title: power }, '⚡'),
 		blocked && h('span', { class: 'stpblock', title: 'blocked by spanning tree: a second path to the network' }, '⊘'),
 		reps.some((r) => r.cfg?.condition?.state?.report?.vxlan?.loops?.some((l) => l.port === name)) && h('span', { class: 'loop', title: 'off its tunnels: a loop' }, '!')];
