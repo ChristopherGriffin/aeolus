@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
@@ -119,6 +120,29 @@ func (c connRecord) check() error {
 	return nil
 }
 
+// arrivals gives each attempt from an AP whose clock is unset a time of
+// arrival (0118): now, or a millisecond after the last it gave that AP,
+// whichever is later. So those sent in one report, and in the reports that
+// follow it at once, as when more are queued than one report holds, stay
+// in the order they were sent, and no two share a time.
+type arrivals struct {
+	mu   sync.Mutex
+	last map[hierarchy.NodeID]time.Time
+}
+
+func (a *arrivals) next(ap hierarchy.NodeID, now time.Time) time.Time {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.last == nil {
+		a.last = map[hierarchy.NodeID]time.Time{}
+	}
+	if last, ok := a.last[ap]; ok && !now.After(last) {
+		now = last.Add(time.Millisecond)
+	}
+	a.last[ap] = now
+	return now
+}
+
 // connections takes the attempts an AP reports: POST /v1/ap/connections,
 // {connections: [...]}, at most 64. Each is read and checked by itself, and
 // one that is not well formed, a field of another kind or one this manager
@@ -127,9 +151,9 @@ func (c connRecord) check() error {
 // the first's reason. An attempt reported before, by its AP, its client and
 // the start its AP gave, is not kept twice. One whose start is not near now,
 // as from an AP whose clock is unset, is taken to have begun when it came
-// in, each a millisecond after the one before it, so that no two share a
-// time and a page of them ends between two; it is still told apart by the
-// start its AP gave.
+// in, each later than the one before it from that AP, in this report or
+// the last, so that no two share a time and a page of them ends between
+// two; it is still told apart by the start its AP gave.
 func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxConnections)
 	var req struct {
@@ -147,7 +171,7 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) e
 	now := time.Now()
 	var list []conditions.Connection
 	refused, why := 0, ""
-	for i, one := range req.Connections {
+	for _, one := range req.Connections {
 		var rec connRecord
 		dec := json.NewDecoder(bytes.NewReader(one))
 		dec.DisallowUnknownFields()
@@ -165,7 +189,7 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) e
 		}
 		started := time.UnixMilli(rec.Started)
 		if started.After(now.Add(10*time.Minute)) || started.Before(now.Add(-7*24*time.Hour)) {
-			started = now.Add(time.Duration(i) * time.Millisecond)
+			started = s.arrive.next(c.ap, now)
 		}
 		raw, err := json.Marshal(rec)
 		if err != nil {

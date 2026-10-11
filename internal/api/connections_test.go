@@ -124,15 +124,19 @@ func TestClientConnections(t *testing.T) {
 	if code, body := post(stale); code != 200 || body["recorded"] != float64(0) {
 		t.Fatalf("an unset clock, sent again: %d %v", code, body)
 	}
-	// Several from such an AP at once are each given their own time, so a
-	// page that ends between two of them loses neither.
+	// Several from such an AP, in one report and in the next sent at once,
+	// are each given their own time, in the order they were sent, so a page
+	// that ends between two of them loses neither.
 	var three []any
 	for i := 0; i < 3; i++ {
 		three = append(three, map[string]any{"mac": "02:00:00:00:00:0b", "bss": "phy0-ap0", "started": 86400000 + i*5000, "took_ms": 10 + i,
 			"outcome": "left", "stage": "auth", "reason": "", "events": []any{}})
 	}
-	if code, _, body := f.apDo("POST", "/v1/ap/connections", token, map[string]any{"connections": three}, nil); code != 200 || body["recorded"] != float64(3) {
-		t.Fatalf("three with an unset clock: %d %v", code, body)
+	if code, _, body := f.apDo("POST", "/v1/ap/connections", token, map[string]any{"connections": three[:2]}, nil); code != 200 || body["recorded"] != float64(2) {
+		t.Fatalf("two with an unset clock: %d %v", code, body)
+	}
+	if code, _, body := f.apDo("POST", "/v1/ap/connections", token, map[string]any{"connections": three[2:]}, nil); code != 200 || body["recorded"] != float64(1) {
+		t.Fatalf("one more with an unset clock: %d %v", code, body)
 	}
 	took, before := []float64{}, ""
 	for page := 0; page < 4; page++ {

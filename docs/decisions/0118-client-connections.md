@@ -38,7 +38,7 @@
 ### The manager keeps them
 
 - **`POST /v1/ap/connections`** takes them. Each is read and checked by itself: one not well formed, or with a field this manager does not know, is passed over and counted, and does not hold the others back.
-- **One sent again is not kept twice.** An attempt is told from any other by its AP, its client and the start its AP gave, which is the same however often it is sent. When it began, as shown, is that start where it is near the manager's time, else when it came in, each of those sent together a millisecond after the one before.
+- **One sent again is not kept twice.** An attempt is told from any other by its AP, its client and the start its AP gave, which is the same however often it is sent. When it began, as shown, is that start where it is near the manager's time, else when it came in, each later than the one before it from that AP, in that report or the last.
 - **Every client seen is kept for good:** its MAC, when it was first and last seen and where, what it calls itself, who it signed in as, its address, how many times it tried to come online and how many failed. A state report's clients (0066) count as seen too.
 - **Its attempts are kept 90 days,** unless `--keep-connection-days` or `AEOLUS_KEEP_CONNECTION_DAYS` says otherwise.
 - **`GET /v1/clients`** lists the clients, the latest first, with `?q=` to find one and `?under=` a Locations node.

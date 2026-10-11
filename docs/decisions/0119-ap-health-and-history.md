@@ -45,7 +45,7 @@
 ### The page
 
 - **An AP has a Health tab:** tiles for its processor, memory, storage, temperature, time up and what it runs; its processor and memory over a day or a week; and its history.
-- **A folder's APs tab says how each AP is doing, in a line:** its processor, memory and temperature by its latest report, and its storage where that is nearly full. The line takes the colour of the worst of them, by the alerts' own lines, and opens the AP's Health tab.
+- **A folder's APs tab says how each AP is doing, in a line:** its processor, memory and temperature by its latest report, and its storage where that is nearly full. The line takes the colour of the worst of them, by the alerts' own lines and as grave as the alerts are, and opens the AP's Health tab. The Health tab's tiles are coloured the same.
 
 ## Consequences
 
