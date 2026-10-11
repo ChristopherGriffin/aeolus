@@ -280,10 +280,9 @@ function retryCell(c) {
 	if (!r.sent) return '—';
 	const worst = Math.max(r.retried, r.failed);
 	const pct = (x) => x < 1 && x > 0 ? '<1 %' : `${Math.round(x)} %`;
-	return [
-		h('span', { class: 'chip ' + (worst > 25 ? 'bad' : worst > 10 ? 'warn' : 'ok'), title: `${c.tx_retries} retried and ${c.tx_failed} failed of ${r.sent} frames sent` }, `${pct(r.retried)} retried`),
-		r.failed >= 1 && h('div', { class: 'sub' }, `${pct(r.failed)} failed`),
-	];
+	// Its retries, and no more (Griff, 2026-10-11): the frames that failed
+	// are in the chip's colour, and on hover.
+	return h('span', { class: 'chip ' + (worst > 25 ? 'bad' : worst > 10 ? 'warn' : 'ok'), title: `${c.tx_retries} retries and ${c.tx_failed} failed of ${r.sent} frames sent` }, `${pct(r.retried)} retries`);
 }
 
 // rate writes a client's rates, down (the AP sending to it) and up, in
