@@ -515,17 +515,51 @@ function wifi_down() {
 	return out;
 }
 
+// wifi_missing counts the Wi-Fi networks that should be up and are not, by
+// the config and the kernel alone, for when netifd can't say
+// (wireless_status): the AP networks /etc/config/wireless has on radios
+// that are on, less the AP interfaces that are up. It names none of them.
+// Without it, an apply made while netifd's object was gone went unchecked,
+// and the C-360 kept a config that had failed two of its radios
+// (2026-10-10).
+function wifi_missing() {
+	let c = cursor();
+	let off = {};
+	c.foreach('wireless', 'wifi-device', d => { off[d['.name']] = d.disabled == '1'; });
+	let want = 0;
+	c.foreach('wireless', 'wifi-iface', i => {
+		if ((i.mode ?? 'ap') == 'ap' && i.disabled != '1' && off[i.device] === false)
+			want++;
+	});
+	// The AP interfaces, as iw has them; a key's or the RADIUS server's VLAN
+	// interface is of another type, AP/VLAN.
+	let up = 0, name = null;
+	for (let line in split(run('iw dev 2>/dev/null'), '\n')) {
+		let m = match(line, /^\s*Interface (\S+)/);
+		if (m)
+			name = m[1];
+		else if (name && match(line, /^\s*type AP$/) && read(`/sys/class/net/${name}/operstate`) == 'up')
+			up++;
+	}
+	return max(0, want - up);
+}
+
 // wifi_back waits for the Wi-Fi to come back after an apply, a radar check
 // (DFS) included, and returns the networks that did not, leaving out those
-// that were already down before it.
-function wifi_back(before) {
+// that were already down before it. Where netifd couldn't say which were
+// down, before the apply or now, it goes by how many are missing against
+// how many were, missing.
+function wifi_back(before, missing) {
 	let deadline = time() + WIFI_WAIT;
 	let down;
 	while (true) {
 		down = wifi_down();
-		if (down == null)
-			return null;
-		down = filter(down, n => index(before ?? [], n) < 0);
+		if (down != null && before != null)
+			down = filter(down, n => index(before, n) < 0);
+		else {
+			let n = down != null ? length(down) : wifi_missing();
+			down = n > missing ? [ sprintf('%d more of its networks than before; netifd cannot say which', n - missing) ] : [];
+		}
 		if (!length(down) || time() >= deadline)
 			return down;
 		sleep(5000);
@@ -558,6 +592,8 @@ function apply(out, version, hash) {
 	}
 	let wifi = index(out.changed, 'wireless') >= 0;
 	let before = wifi ? wifi_down() : [];
+	// How many were already missing, for where netifd can't name them.
+	let missing = !wifi ? 0 : before != null ? length(before) : wifi_missing();
 	let pending = { version: version, hash: hash, packages: out.changed };
 	store(PENDING, sprintf('%J', pending));
 	for (let p in out.changed)
@@ -577,9 +613,9 @@ function apply(out, version, hash) {
 		revert(pending);
 		return { ok: false, error: sprintf('lost the manager within %d seconds of applying; reverted', CONFIRM) };
 	}
-	let down = wifi ? wifi_back(before) : [];
-	if (down == null)
-		note('the Wi-Fi was not checked after applying version %d: netifd lost its network.wireless object; restarting the network brings it back', version);
+	let down = wifi ? wifi_back(before, missing) : [];
+	if (wifi && wireless_status() == null)
+		note('netifd lost its network.wireless object: the Wi-Fi after applying version %d was checked by counting its networks; restarting the network brings the object back', version);
 	if (length(down)) {
 		let why = hostapd_error();
 		revert(pending);

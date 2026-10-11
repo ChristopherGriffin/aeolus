@@ -139,7 +139,7 @@ export function apStatus(a) {
 	// netifd lost its network.wireless object (2026-10-06): the radios run,
 	// but Aeolus there can't see them.
 	if (a.wireless_missing) return { cls: 'warn', chip: 'warn', label: 'Radios unseen',
-		detail: `netifd lost its network.wireless object, so Aeolus on this AP can't see its radios, clients or neighbours, nor check the Wi-Fi after a change. Restarting the network on the AP brings it back; its Wi-Fi drops for about 30 seconds.` };
+		detail: `netifd lost its network.wireless object, so Aeolus on this AP can't see its radios, clients or neighbours, and checks the Wi-Fi after a change only by counting its networks. Restarting the network on the AP brings it back; its Wi-Fi drops for about 30 seconds.` };
 	if (a.in_sync === true) {
 		// Its agent (0079), once it says which it runs: amber while that
 		// isn't the one it should run.
