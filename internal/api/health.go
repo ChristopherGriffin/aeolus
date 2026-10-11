@@ -40,7 +40,8 @@ type apHealth struct {
 // service, airscan, is at, missing where it does not answer and waiting
 // where it has no radio to work; how many networks its latest look heard,
 // and how many seconds ago; how often airscan bound its driver again to
-// bring it back, how many of those did not, and how long ago the last was.
+// bring it back, how many times running that did not, which is none once
+// it has, and how long ago the last was.
 type scanRadioState struct {
 	State      string `json:"state"`
 	Networks   *int   `json:"networks,omitempty"`

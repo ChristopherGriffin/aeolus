@@ -1403,9 +1403,11 @@ function health_state() {
 // scan_radio_state is how the AP's scan radio is doing, where it has one
 // (0081, 0126): what airscan, whose radio it is, is at; how many networks
 // its latest look heard, and how long ago that was; and how often airscan
-// has bound its driver again to bring it back, how many of those did not,
-// and how long ago the last was. Null on an AP with no scan radio; missing
-// where it has one and airscan does not answer.
+// has bound its driver again to bring it back, how many times running that
+// did not (none once it has), and how long ago the last was. Null on an AP
+// with no scan radio; missing where it has one and airscan does not answer;
+// lent where it does not answer because a client test has stopped it for
+// its own use (0121), as one does with an airscan that lends no radio.
 const SCAN_STATES = { idle: 'idle', clients: 'clients', bss: 'bss', spectral: 'spectral', lent: 'lent', healing: 'healing' };
 
 function scan_radio_state() {
@@ -1417,7 +1419,7 @@ function scan_radio_state() {
 		return null;
 	let st = bus.call('airscan', 'status');
 	if (type(st) != 'object')
-		return { state: 'missing' };
+		return { state: fs.access('/var/run/aeolus/clienttest/running') ? 'lent' : 'missing' };
 	let out = { state: SCAN_STATES[st.state] ?? 'waiting' };
 	let b = bus.call('airscan', 'bss');
 	if (type(b?.list) == 'array' && type(b.time) == 'int' && b.time > 0) {
