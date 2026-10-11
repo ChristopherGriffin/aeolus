@@ -21,14 +21,19 @@ func TestFactsAgain(t *testing.T) {
 		return log["changes"].([]any)
 	}
 	before := len(changes())
+	version := func() any {
+		_, _, cfg := f.apDo("GET", "/v1/ap/config", token, nil, nil)
+		return cfg["version"]
+	}
+	was := version()
 	test := func() (int, map[string]any) {
 		return f.do("POST", "/v1/aps/"+ap+"/actions", "griff", map[string]any{"kind": "client-test", "network": "sweet"})
 	}
 
 	// What it enrolled with, said again, changes nothing.
 	said := map[string]any{"mac": "02:00:00:00:00:3A", "hostname": "Scanner", "radios": []any{serving, spare}}
-	if code, _, b := f.apDo("POST", "/v1/ap/facts", token, said, nil); code != 200 || b["changed"] != false || len(changes()) != before {
-		t.Fatalf("the same facts: %d %v, %d changes for %d", code, b, len(changes()), before)
+	if code, _, b := f.apDo("POST", "/v1/ap/facts", token, said, nil); code != 200 || b["changed"] != false || len(changes()) != before || version() != was {
+		t.Fatalf("the same facts: %d %v, %d changes for %d, version %v for %v", code, b, len(changes()), before, version(), was)
 	}
 	if code, b := test(); code != 400 || !strings.Contains(b["error"].(string), "scan radio") {
 		t.Fatalf("a client test with no scan radio: %d %v", code, b)
@@ -59,6 +64,11 @@ func TestFactsAgain(t *testing.T) {
 		page["node"].(map[string]any)["parent"] != "office" {
 		t.Fatalf("AP page = %v", page)
 	}
+	// Its config is another version: it is checked against its radios, and
+	// the AP renders for the ones it has, so it takes it up again.
+	if now := version(); now == was {
+		t.Fatalf("its version stayed %v", now)
+	}
 	// A scan radio serves no one, so what it can do is not the band's.
 	if office, _ := f.hardwareOf("office"); office["5g"][80] != "" {
 		t.Fatalf("office, with a scan radio = %v", office)
@@ -88,5 +98,31 @@ func TestFactsAgain(t *testing.T) {
 	}
 	if code, b := f.change("griff", map[string]any{"kind": "facts", "node": ap, "value": said}); code != 403 {
 		t.Fatalf("a person's facts: %d %v", code, b)
+	}
+}
+
+// An AP that says it is another board is another kind of AP, which gets its
+// template as an adopted one does (0085).
+func TestFactsOfANewBoard(t *testing.T) {
+	f := newFixture(t)
+	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	serving := map[string]any{"radio": "radio0", "band": "5g", "htmodes": []string{"HE20", "HE40", "HE80"}}
+	ids := strings.Split(f.enrollAt("Reflashed", "02:00:00:00:00:3c", "office", []any{serving}, map[string]int{"5g": 36}), "|")
+	templates := func() []any {
+		_, body := f.do("GET", "/v1/library", "griff", nil)
+		return body["templates"].([]any)
+	}
+	if got := templates(); len(got) != 0 {
+		t.Fatalf("templates before it has a board: %v", got)
+	}
+	said := map[string]any{"mac": "02:00:00:00:00:3c", "hostname": "Reflashed", "board": "acme,scanner", "model": "Acme Scanner", "radios": []any{serving}}
+	if code, _, b := f.apDo("POST", "/v1/ap/facts", ids[1], said, nil); code != 200 || b["changed"] != true {
+		t.Fatalf("new facts: %d %v", code, b)
+	}
+	got := templates()
+	if len(got) != 1 || got[0].(map[string]any)["name"] != "Acme Scanner" || len(got[0].(map[string]any)["aps"].([]any)) != 1 {
+		t.Fatalf("templates once it said its board: %v", got)
 	}
 }
