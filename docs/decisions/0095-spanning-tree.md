@@ -40,5 +40,7 @@
 
 - With the core switch at the default priority, the root is whichever bridge has the lowest MAC, which may be an AP. That is a loop-free tree still, but a poor one. A network's core should have its priority set lower anyway.
 - The bond goes on working with spanning tree on: bond0 is one port of the bridge.
+- An AP that ran spanning tree before the agent set a hello time restarts its uplink's bridge once, when the agent that sets one first renders: netifd restarts a bridge for any change to it but its ports. Its clients drop for some seconds, as when spanning tree is turned on. An AP with a hello time already, its own or set by hand, does not.
+- An AP that runs spanning tree from its own config, with `uplink.stp` unset, is left as it is, hello time and all.
 - A config that asks for spanning tree waits on an AP whose feed cannot give it ustp, its other changes with it, until ustp installs.
 - Stage 2, two separate ports in place of the C-360's bond, builds on this. The uplink label then follows the forwarding port.
