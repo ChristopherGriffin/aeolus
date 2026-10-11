@@ -62,6 +62,14 @@ func (s *Server) clientJourney(w http.ResponseWriter, r *http.Request, c call) e
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, journey.Build(mac, samples))
+	j := journey.Build(mac, samples)
+	// An AP's scan radio, making client tests (0121), is no device to look
+	// into: its signal and its moves are the tests', so what would be worth
+	// a look in a client's journey is left out of its, and it says whose.
+	if who := testerOf(c, testClients(c.state), mac); who != "" {
+		j.Tester = who
+		j.Issues = j.Issues[:0]
+	}
+	writeJSON(w, http.StatusOK, j)
 	return nil
 }

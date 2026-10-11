@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
@@ -110,6 +111,46 @@ func scanRadio(state *change.State, ap hierarchy.NodeID) bool {
 		}
 	}
 	return false
+}
+
+// testClients are the Wi-Fi clients that are the APs' own: an AP's scan
+// radio, joining a network as a client for a test (0121), is a client to
+// the AP it joins, under one of its own AP's MACs. By MAC, in lower case,
+// the AP whose it is, of the APs that have a scan radio. A list of clients
+// says so of each, as it is no device of anyone's.
+func testClients(state *change.State) map[string]hierarchy.NodeID {
+	out := map[string]hierarchy.NodeID{}
+	for ap, raw := range state.Facts {
+		var f struct {
+			MAC  string   `json:"mac"`
+			MACs []string `json:"macs"`
+		}
+		// Only an AP with a scan radio makes tests: another AP's MAC among
+		// the clients is something else, a link between APs say.
+		if !scanRadio(state, ap) || json.Unmarshal(raw, &f) != nil {
+			continue
+		}
+		for _, m := range append(f.MACs, f.MAC) {
+			if m != "" {
+				out[strings.ToLower(m)] = ap
+			}
+		}
+	}
+	return out
+}
+
+// testerOf is the name of the AP a client is the scan radio of, where it is
+// one: for a caller who may not view that AP, that it is an AP's and no more.
+func testerOf(c call, own map[string]hierarchy.NodeID, mac string) string {
+	ap, ok := own[strings.ToLower(mac)]
+	if !ok {
+		return ""
+	}
+	t := c.state.Org.Locations
+	if n, ok := t.Node(ap); ok && roleOn(c, change.Locations, t, ap) >= access.Viewer {
+		return n.Name
+	}
+	return "an AP"
 }
 
 // clientTestFor makes what an AP is told to test from what a person asked:

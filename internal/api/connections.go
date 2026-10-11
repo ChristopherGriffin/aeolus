@@ -237,7 +237,8 @@ func mayView(c call, under hierarchy.NodeID) []hierarchy.NodeID {
 // Locations node's APs; ?q= to those whose MAC, host name, user or address
 // has that in it; ?limit= (100 unless set, at most 500) and ?offset= page
 // through. Each says where it was last seen, what it says of itself, how
-// many times it tried to come online and how many failed.
+// many times it tried to come online and how many failed; and, where it is
+// an AP's scan radio making client tests (0121), which AP's (tester).
 func (s *Server) clientList(w http.ResponseWriter, r *http.Request, c call) error {
 	q := r.URL.Query()
 	limit, offset := 100, 0
@@ -269,10 +270,14 @@ func (s *Server) clientList(w http.ResponseWriter, r *http.Request, c call) erro
 		APName  string `json:"ap_name"`
 		Maker   string `json:"maker,omitempty"`
 		Private bool   `json:"private,omitempty"`
+		// The AP whose scan radio it is, by name, where it is one making
+		// client tests (0121) and no device of anyone's.
+		Tester string `json:"tester,omitempty"`
 	}
 	out := []entry{}
+	own := testClients(c.state)
 	for _, cl := range list {
-		e := entry{Client: cl}
+		e := entry{Client: cl, Tester: testerOf(c, own, cl.MAC)}
 		if n, ok := t.Node(cl.AP); ok {
 			e.APName = n.Name
 		}
