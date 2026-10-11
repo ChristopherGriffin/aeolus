@@ -339,8 +339,9 @@ func (s *Server) apRadios(state *change.State, t *hierarchy.Tree, ref apRef, abo
 	r := apRadios{ref: ref, can: map[string]map[int]bool{}, serves: map[string][]string{}, channels: map[string]int{}, setBelow: map[string]apRef{}}
 	var facts struct {
 		Radios []struct {
-			Band    string   `json:"band"`
-			HTModes []string `json:"htmodes"`
+			Band     string   `json:"band"`
+			HTModes  []string `json:"htmodes"`
+			Reserved bool     `json:"reserved"`
 		} `json:"radios"`
 	}
 	if raw := state.Facts[ref.ID]; len(raw) > 0 {
@@ -350,7 +351,9 @@ func (s *Server) apRadios(state *change.State, t *hierarchy.Tree, ref apRef, abo
 	}
 	for _, fr := range facts.Radios {
 		can := radio.Can(fr.HTModes)
-		if len(can) == 0 {
+		// A radio another service owns serves no one (0081): no band's
+		// settings are its.
+		if len(can) == 0 || fr.Reserved {
 			continue
 		}
 		serves := radio.Serves(fr.Band, fr.HTModes)

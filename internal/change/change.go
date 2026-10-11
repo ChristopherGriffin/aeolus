@@ -67,6 +67,10 @@ const (
 	Enroll   Kind = "enroll"
 	RemoveAP Kind = "remove-ap"
 
+	// An AP saying again what it is, where that has changed since it
+	// enrolled or last said (0122).
+	Facts Kind = "facts"
+
 	// Per-user keys (0014, 0070).
 	AddKey    Kind = "add-key"
 	SetKey    Kind = "set-key"
@@ -175,8 +179,9 @@ type State struct {
 	Org     *hierarchy.Org
 	Access  *access.Access
 	Library *library.Library
-	// Facts holds what each AP reported about itself when it enrolled
-	// (0033), for the person deciding whether to adopt it.
+	// Facts holds what each AP last said of itself: when it enrolled
+	// (0033), for the person deciding whether to adopt it, and again
+	// whenever that changed (0122).
 	Facts map[hierarchy.NodeID]json.RawMessage
 	// Keys are the per-user keys (0070).
 	Keys *keys.Store
@@ -205,6 +210,7 @@ var (
 	ErrTwoForms    = errors.New("a set or unset takes one field (path) or several (values, paths), not both")
 	ErrNoAccount   = errors.New("change needs an account")
 	ErrNoTokenID   = errors.New("change needs a token ID")
+	ErrNoFacts     = errors.New("facts needs what the AP said of itself")
 	ErrUseAssign   = errors.New("service folders are set with assign-services")
 	ErrNotAFolder  = errors.New("roles are granted on folders, not APs")
 	ErrBuiltins    = errors.New("the built-in folders already exist")
@@ -259,7 +265,7 @@ func Apply(s *State, op Op) (*State, Effect, error) {
 		}
 	case AddAccount, IssueToken, RevokeToken, GrantRole, RevokeRole:
 		eff, err = applyAccess(s, op)
-	case Enroll, RemoveAP:
+	case Enroll, RemoveAP, Facts:
 		eff, err = applyAP(s, op)
 	case AddKey, SetKey, RemoveKey:
 		eff, err = applyKey(s, op)
@@ -333,6 +339,10 @@ func validate(op Op) error {
 	case Enroll:
 		if op.TokenID == "" {
 			return ErrNoTokenID
+		}
+	case Facts:
+		if len(op.Value) == 0 {
+			return ErrNoFacts
 		}
 	case RemoveAP:
 	case AddKey, SetKey, RemoveKey:

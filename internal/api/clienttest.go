@@ -35,8 +35,9 @@ type clientTestAsk struct {
 // 802.1X needs a user the test does not have.
 var testable = map[string]bool{"open": true, "owe": true, "wpa2-psk": true, "wpa3-sae": true, "wpa2-wpa3": true}
 
-// scanRadio says whether an AP said, when it enrolled, that it has a radio
-// another service owns (0081): the one a client test borrows.
+// scanRadio says whether an AP says it has a radio another service owns
+// (0081): the one a client test borrows. It says so when it enrolls, and
+// again when it gains one (0122).
 func scanRadio(state *change.State, ap hierarchy.NodeID) bool {
 	var f struct {
 		Radios []struct {

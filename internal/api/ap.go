@@ -8,8 +8,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
@@ -145,6 +148,86 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("enrolled", "ap", id, "name", name, "source", f.Source)
 	writeJSON(w, http.StatusCreated, map[string]any{"ap": id, "name": name, "token": plain, "config": "/v1/ap/config"})
+}
+
+// factsSaid is when each AP last changed what it says it is, so one whose
+// facts keep changing, a radio coming and going, fills no log (0122).
+type factsSaid struct {
+	mu sync.Mutex
+	at map[hierarchy.NodeID]time.Time
+}
+
+// factsEvery is how often an AP's facts may change.
+const factsEvery = 10 * time.Minute
+
+// soon says how long an AP must wait before its facts may change again:
+// none where they may now, which it then notes as changed.
+func (f *factsSaid) soon(ap hierarchy.NodeID, now time.Time) time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if left := factsEvery - now.Sub(f.at[ap]); left > 0 {
+		return left
+	}
+	if f.at == nil {
+		f.at = map[hierarchy.NodeID]time.Time{}
+	}
+	f.at[ap] = now
+	return 0
+}
+
+// sameJSON says whether two JSON values are the same, whatever the order of
+// their objects' keys.
+func sameJSON(a, b []byte) bool {
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
+}
+
+// apFacts takes what an AP says of itself, again (0122): the same as it
+// enrolled with, as it is now. A radio it has gained, a scan radio another
+// service now owns, the modes a newer driver gives, a newer OpenWrt: the
+// manager knew none of it, having asked once. Where it differs from what
+// the manager has, the manager records it, in its own name as an
+// enrollment is (0036). Where it came from stays where it enrolled from.
+func (s *Server) apFacts(w http.ResponseWriter, r *http.Request, c apCall) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxEnrollBody)
+	var f facts
+	if err := readJSON(r, &f); err != nil {
+		return err
+	}
+	if err := f.check(); err != nil {
+		return err
+	}
+	if apID(f.MAC) != c.ap {
+		return badRequest("mac: the one this AP enrolled with, which it is known by")
+	}
+	state := s.log.Snapshot()
+	if state == nil {
+		return change.ErrNoOrg
+	}
+	var old facts
+	_ = json.Unmarshal(state.Facts[c.ap], &old)
+	f.Source = old.Source
+	raw, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	if sameJSON(raw, state.Facts[c.ap]) {
+		writeJSON(w, http.StatusOK, map[string]any{"changed": false})
+		return nil
+	}
+	if left := s.said.soon(c.ap, time.Now()); left > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(left.Seconds())+1))
+		return &apiError{http.StatusTooManyRequests, "what this AP is changed less than 10 minutes ago: say it again later"}
+	}
+	if _, err := s.log.Commit(change.SystemActor, "the AP said what it is again", change.Op{Kind: change.Facts, Node: c.ap, Value: raw}); err != nil {
+		return err
+	}
+	slog.Info("facts changed", "ap", c.ap)
+	writeJSON(w, http.StatusOK, map[string]any{"changed": true})
+	return nil
 }
 
 // apCall is one request from an authenticated AP.
