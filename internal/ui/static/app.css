@@ -257,6 +257,12 @@ details.fold > table.list { margin-bottom: 8px; }
 .attempt .attemptlinks { padding: 0 0 10px; }
 .testother { margin-left: -18px; }
 p.pad { padding: 4px 20px 16px; margin: 0; }
+td.nowrap { white-space: nowrap; }
+.radiochips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.chip.radio .mono { font-family: var(--mono); font-weight: 600; }
+td.rowacts { text-align: right; white-space: nowrap; }
+td.rowacts .button { margin-left: 6px; opacity: 0.75; }
+td.rowacts .button:hover, td.rowacts .button:focus-visible { opacity: 1; }
 
 /* An AP's health (0119): its processor and memory as two lines. */
 .healthchart .cpu { fill: none; stroke: var(--accent); stroke-width: 1.6; }
