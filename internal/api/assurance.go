@@ -39,6 +39,11 @@ const (
 	assureWindow = 24 * time.Hour
 	// assureKeep is how long a client test is kept.
 	assureKeep = 30 * 24 * time.Hour
+	// assureSlack is how much sooner than its wait a test may be asked:
+	// the manager looks once a minute, and a look that comes a moment
+	// short of the wait would else put the test off a whole minute, every
+	// time, so that every 15 minutes were every 16.
+	assureSlack = 10 * time.Second
 )
 
 // assureCombo is one thing tested: a network, the AP it is joined on, the
@@ -425,36 +430,40 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 				}
 			}
 		}
+		// The first of an order that can be asked: one that cannot, as its
+		// AP has not said its BSSIDs yet, does not hold up the others.
+		pick := func(order []assureCombo) (clientTestAsk, *assureCombo) {
+			for i := range order {
+				c := order[i]
+				ask, err := s.clientTestOf(state, ap, c.Network, c.On, c.Band, speed, func(hierarchy.NodeID) bool { return true })
+				if err == nil {
+					return ask, &c
+				}
+				slog.Debug("assurance: a test cannot be asked", "ap", ap, "network", c.Network, "on", c.On, "band", c.Band, "err", err)
+			}
+			return clientTestAsk{}, nil
+		}
 		// What a round asked by hand (0129) has not had asked since comes
 		// before anything on the schedule, and waits for no turn.
-		var order []assureCombo
-		if inRound {
-			for _, c := range s.roundCombos(state, ap, docs) {
-				if at[c].Before(rnd.At) {
-					order = append(order, c)
-				}
-			}
-		}
-		if len(order) == 0 {
-			// On the schedule, no sooner than any wait could end.
-			if !scheduled || (last != nil && now.Sub(last.At) < min(every, assureRetry)) {
-				continue
-			}
-			if order = scheduledOrder(ap, s.assureCombos(state, ap, docs), verdicts, last, at, every, now); len(order) == 0 {
-				continue
-			}
-		}
-		// The first of them that can be asked: one that cannot, as its AP
-		// has not said its BSSIDs yet, does not hold up the others.
 		var ask clientTestAsk
 		var next *assureCombo
-		for i := range order {
-			c := order[i]
-			if ask, err = s.clientTestOf(state, ap, c.Network, c.On, c.Band, speed, func(hierarchy.NodeID) bool { return true }); err == nil {
-				next = &c
-				break
+		if inRound {
+			var due []assureCombo
+			for _, c := range s.roundCombos(state, ap, docs) {
+				if at[c].Before(rnd.At) {
+					due = append(due, c)
+				}
 			}
-			slog.Debug("assurance: a test cannot be asked", "ap", ap, "network", c.Network, "on", c.On, "band", c.Band, "err", err)
+			ask, next = pick(due)
+		}
+		// Nothing of a round to ask, or nothing of it that can be asked
+		// now: the schedule's turn, which a round does not hold up. On the
+		// schedule, no sooner than any wait could end.
+		if next == nil {
+			if !scheduled || (last != nil && now.Sub(last.At) < min(every, assureRetry)-assureSlack) {
+				continue
+			}
+			ask, next = pick(scheduledOrder(ap, s.assureCombos(state, ap, docs), verdicts, last, at, every, now))
 		}
 		if next == nil {
 			continue
@@ -506,7 +515,7 @@ func scheduledOrder(ap hierarchy.NodeID, combos []assureCombo, verdicts map[assu
 			wait = min(every, assureRetry)
 			order = []assureCombo{last.combo()}
 		}
-		if now.Sub(last.At) < wait {
+		if now.Sub(last.At) < wait-assureSlack {
 			return nil
 		}
 	}
@@ -616,6 +625,7 @@ type assuranceTester struct {
 	Air     bool             `json:"air"`      // it has a scan radio, and tests through the air
 	Wire    bool             `json:"wire"`     // it is asked for tests over the wire, and can make them (0128)
 	CanWire bool             `json:"can_wire"` // its agent can test over the wire, asked on a schedule or not
+	Round   int              `json:"round"`    // how many things it tests in a round asked by hand (0129)
 }
 
 // assuranceCheck is one thing tested by one AP, and what its tests of the
@@ -761,26 +771,31 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 			things = len(combos)
 		}
 		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed, Things: things,
-			Air: scanRadio(c.state, id), Wire: wire && canWire, CanWire: canWire})
+			Air: scanRadio(c.state, id), Wire: wire && canWire, CanWire: canWire, Round: len(could)})
 		if one, ok := s.rounds.of(t, id, now); ok {
 			if inRound == nil || one.At.After(inRound.At) {
-				inRound = &roundView{round: one}
-				// A round asked at a folder above is named only to one who
-				// may view that folder, as the tree names it to no other.
+				// A round asked at a folder above is said to have been
+				// asked, and when: its folder's name and who asked it only
+				// to one who may view that folder, as the tree names it to
+				// no other.
+				inRound = &roundView{round: round{Node: one.Node, At: one.At}}
 				if roleOn(c, change.Locations, t, one.Node) >= access.Viewer {
-					inRound.Name = name(one.Node)
+					inRound.Name, inRound.By = name(one.Node), one.By
 				}
 			}
 			if one.At.Equal(inRound.At) && one.Node == inRound.Node {
 				inRound.Of += len(could)
-				// Each thing once, by its latest test: the tests come newest
-				// first, and one that failed may have been asked again.
-				counted := map[assureCombo]bool{}
-				for _, r := range list {
-					if hierarchy.NodeID(r.AP) != id || r.Actor != change.SystemActor || r.At.Before(one.At) || counted[r.combo()] || !slices.Contains(could, r.combo()) {
-						continue
+				// Each thing once, by the first test of it since the round
+				// was asked, which is the round's: the tests come newest
+				// first, and the schedule may have come to the thing again.
+				first := map[assureCombo]*testRecord{}
+				for i := range list {
+					r := &list[i]
+					if hierarchy.NodeID(r.AP) == id && r.Actor == change.SystemActor && !r.At.Before(one.At) && slices.Contains(could, r.combo()) {
+						first[r.combo()] = r
 					}
-					counted[r.combo()] = true
+				}
+				for _, r := range first {
 					inRound.Asked++
 					if !r.open() {
 						inRound.Done++

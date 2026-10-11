@@ -21,12 +21,14 @@
 - **It needs operator at that node.** It is refused where no AP there can test anything.
 - **The manager asks the tests as it asks those on a schedule,** in its own name, one of an AP at a time, and none while one is open there, the AP has not called in, or it does not run its current config.
   - **What a round has not had asked since comes before the schedule's turn,** and waits for none: the next is asked as soon as the last is done.
+  - **What of a round cannot be asked for now does not hold the schedule up:** a thing on an AP that has not said its BSSIDs yet, say. The schedule has its turn as if there were no round.
   - **Each thing is asked once.** One that fails is not tried again by the round; the schedule's own second try (0123) is the schedule's.
 - **A round is worked at for an hour.** What is left of it then, as of an AP that never called in, is let go.
 - **A later round at the same node takes the place of the earlier.** An AP below two rounds is in the later.
 - **Rounds are kept in the manager's memory, not its log:** asking one changes nothing that is configured. A manager that restarts forgets a round under way, and whoever asked asks again.
 - **A round's tests count as any others:** in what is tested, in the tests listed, and for what is failing and its alert (0123).
-- **The Assurance tab has the button,** "Test everything now", and says how the round is going: how many things, how many tested, and when it is done.
+- **The Assurance tab has the button,** "Test everything now", and says how the round is going: how many things, how many tested, and when it is done. A thing counts by the round's own test of it, whatever the schedule asks after. Another round can be asked while one is under way, as after something was put right; where what is left cannot be asked for, the tab says so.
+- **Who asked a round, and the name of the folder it was asked at, are said to one who may view that folder.** Someone who may view only what is below sees that a round is on, and how far it has got with what they may view.
 - **An AP that can test only when asked is shown with the others:** one with no scan radio whose folders ask for no tests over the wire. It says it tests in a round.
 - **`POST /v1/assurance/round`** asks one; `GET /v1/assurance` says how it goes, in `round`. Claude and other clients ask through `ask_assurance_round`.
 
@@ -34,7 +36,7 @@
 
 - **A site is checked in about a minute a thing for each AP,** the APs side by side: five networks over the wire in five or six minutes, however many APs.
 - **A round on a site with scan radios borrows them** for half a minute a thing (0121), one after another, for as long as the round lasts there.
-- **A network that fails in a round is seen in the tab at once,** and is an alert only once it has failed twice running (0123): on a schedule that is minutes later; with none, only if a second round finds it so.
+- **A network that fails in a round is seen in the tab at once,** and is an alert only once it has failed twice running (0123): on a schedule, when its turn there comes, which for the round's last thing on an AP is two minutes later; with none, only if a second round finds it so.
 - **Each test over the wire takes an address and gives it back** (0128): a round asks a DHCP server once for each AP on each network.
 - **A manager restarted mid-round leaves it half done.** What was tested stays.
 

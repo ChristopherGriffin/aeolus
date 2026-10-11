@@ -125,10 +125,15 @@ func span(d time.Duration) string {
 }
 
 // scanRadioChanges is what happened to an AP's scan radio between two
-// reports (0126): it went deaf and airscan brought it back, as airscan's
-// count of the times it bound its driver again says, or did not; it hears
-// again; airscan stopped answering, or answers again; the radio went, or
-// is back.
+// reports (0126): it went deaf and airscan bound its driver again, as
+// airscan's count of the times it did says, and brought it back, or has
+// not yet looked, or did not; it hears again; airscan stopped answering,
+// or answers again; the radio went, or is back.
+//
+// airscan counts a bind as it makes it, and says whether it helped only
+// after its next look, half a minute later: a report between the two says
+// the driver was bound and no more, and the one after says how it went. A
+// radio a client test has (lent) is the test's doing, and no event.
 func scanRadioChanges(old, cur *scanRadioState, at func(kind, format string, args ...any) conditions.APEvent) []conditions.APEvent {
 	if old == nil || cur == nil {
 		return nil
@@ -140,33 +145,52 @@ func scanRadioChanges(old, cur *scanRadioState, at func(kind, format string, arg
 		return *p
 	}
 	var out []conditions.APEvent
+	say := func(format string, args ...any) { out = append(out, at("scan-radio", format, args...)) }
 	// airscan counts from when it started: a count that fell is another
-	// airscan's, and says nothing of what happened in between.
+	// airscan's, and says nothing of what happened in between, nor does
+	// its count of failures, which starts again with it.
+	same := old.Heals != nil && cur.Heals != nil && *cur.Heals >= *old.Heals
 	more := 0
-	if old.Heals != nil && cur.Heals != nil {
+	if same {
 		more = *cur.Heals - *old.Heals
 	}
-	switch {
-	case more > 0 && n(cur.HealFailed) > 0:
-		out = append(out, at("scan-radio", "its scan radio went deaf, and binding its driver again has not brought it back"))
-	case more == 1:
-		out = append(out, at("scan-radio", "its scan radio went deaf, and airscan brought it back by binding its driver again"))
-	case more > 1:
-		out = append(out, at("scan-radio", "its scan radio went deaf %d times, and airscan brought it back each time by binding its driver again", more))
-	case n(old.HealFailed) > 0 && cur.HealFailed != nil && *cur.HealFailed == 0:
-		out = append(out, at("scan-radio", "its scan radio hears again"))
+	// It hears, and has looked since it last bound the driver.
+	back := n(cur.HealFailed) == 0 && n(cur.Networks) > 0 && cur.LookedAgo != nil && cur.HealedAgo != nil && *cur.LookedAgo < *cur.HealedAgo
+	failing, failed := n(old.HealFailed) > 0, n(cur.HealFailed) > 0
+	times := ""
+	if more > 1 {
+		times = fmt.Sprintf(" %d times", more)
 	}
 	switch {
-	case old.State != "missing" && cur.State == "missing":
-		out = append(out, at("scan-radio", "airscan, which runs its scan radio, stopped answering"))
-	case old.State == "missing" && cur.State == "waiting":
-		out = append(out, at("scan-radio", "airscan answers again, and has no scan radio to use"))
-	case old.State == "missing":
-		out = append(out, at("scan-radio", "airscan answers again"))
-	case old.State != "waiting" && cur.State == "waiting":
-		out = append(out, at("scan-radio", "its scan radio is not there for airscan to use"))
-	case old.State == "waiting" && cur.State != "waiting":
-		out = append(out, at("scan-radio", "its scan radio is there again"))
+	case !same:
+	case failing && failed:
+		// Still deaf, and each try that does not help is no news.
+	case failing && cur.HealFailed != nil:
+		say("its scan radio hears again")
+	case more > 0 && failed:
+		say("its scan radio went deaf%s, and binding its driver again has not brought it back", times)
+	case more > 0 && back && more == 1:
+		say("its scan radio went deaf, and airscan brought it back by binding its driver again")
+	case more > 0 && back:
+		say("its scan radio went deaf%s, and airscan brought it back each time by binding its driver again", times)
+	case more > 0:
+		say("its scan radio went deaf%s, and airscan bound its driver again; it has not looked since", times)
+	case failed:
+		say("binding its scan radio's driver again did not bring it back")
+	}
+	if old.State != "lent" && cur.State != "lent" {
+		switch {
+		case old.State != "missing" && cur.State == "missing":
+			say("airscan, which runs its scan radio, stopped answering")
+		case old.State == "missing" && cur.State == "waiting":
+			say("airscan answers again, and has no scan radio to use")
+		case old.State == "missing" && cur.State != "missing":
+			say("airscan answers again")
+		case old.State != "waiting" && cur.State == "waiting":
+			say("its scan radio is not there for airscan to use")
+		case old.State == "waiting" && cur.State != "waiting":
+			say("its scan radio is there again")
+		}
 	}
 	return out
 }
