@@ -137,6 +137,10 @@ printf('credentials: an ID the AP has no section for %J, its section under anoth
 	ct.credentials(asks('office'), ifaces, radios), ct.credentials(asks('lab', 'Renamed'), ifaces, radios),
 	ct.credentials(asks(null), ifaces, radios), asks('Not An ID'));
 
+// A client on a DFS channel, or looking at one.
+printf('dfs: channel 132 %J, 36 and 149 %J, 2.4 GHz and 6 GHz %J, 48 with 52 %J, none %J\n',
+	ct.dfs([5660]), ct.dfs([5180, 5745]), ct.dfs([2412, 5955, 6115]), ct.dfs([5240, 5260]), ct.dfs(null));
+
 // What a test's findings come to, and how each reads in a line.
 let found = () => ({
 	ssid: 'Aeolus Lab', joined_ms: 636, dhcp: { ms: 284, address: '192.168.20.108' },

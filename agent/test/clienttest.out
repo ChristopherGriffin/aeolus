@@ -102,6 +102,7 @@ between: looking at clients true, idle true, sweeping false, scanning false, no 
 between: a scan due in 3 s false, in 4 s true, a sweep due now false, 10 s late false, long past true, nothing said of the next true
 credentials: by ID { "encryption": "sae", "key": "the lab one", "ppsk": null }, another network with the SSID { "encryption": "none", "key": null, "ppsk": null }, an ID with a hyphen { "encryption": "psk2", "key": "two", "ppsk": "1" }
 credentials: an ID the AP has no section for null, its section under another SSID null, no ID { "encryption": "psk2", "key": "made by hand", "ppsk": null }, an ID that is none null
+dfs: channel 132 true, 36 and 149 false, 2.4 GHz and 6 GHz false, 48 with 52 true, none false
 all of it: passed, stage done, reason ""
    passed: joined in 0.6 s, address in 0.3 s, gateway 4 ms, DNS 42 ms, 21 down / 22.1 up Mbit/s
 no speed server: passed, stage done, reason ""

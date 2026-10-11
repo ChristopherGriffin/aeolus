@@ -9,14 +9,23 @@
 // The scan radio is airscan's. It is taken only while airscan is between
 // its jobs, looking at clients, never while it sweeps the spectrum or
 // scans, or is about to. It is held for under a minute, and given back
-// whatever happens.
+// whatever happens. An airscan that lends its radio is asked for it, and
+// runs on: it keeps its place in its own round, and the test costs it no
+// scan or sweep. One that does not is stopped, and started again after.
 //
 // A scan radio that has been a client can go deaf (the C-360's,
 // 2026-10-11): at once, where it was taken mid-sweep, or at airscan's next
 // sweep of the spectrum, some of the time. So the test is not done until
 // airscan has swept and looked again; and a radio that then hears nothing,
 // not even this AP's own networks, has its driver bound again, which is
-// what brings it back.
+// what brings it back. An airscan that sees to a deaf radio itself is left
+// to: the test asks it for a look, and waits for no sweep.
+//
+// It is being a client on a DFS channel that does it, every time, within
+// half a minute, sweep or no sweep (six of six on the C-360's, and never
+// off DFS). So a test that had the radio on a DFS channel, on loan from
+// airscan, binds its driver again before it gives it back: airscan never
+// has a deaf radio, and the result says what was done.
 //
 // The client's traffic is its own: its address is the only one on its
 // interface, its routes are ones only a socket bound to that interface
@@ -43,6 +52,7 @@ const FREE_WAIT = 120;     // seconds it waits for airscan to be between its job
 const CONNECT_WAIT = 20;   // seconds to be let on to the network
 const SPEED_SECONDS = 5;   // seconds measured each way, after one to warm up
 const STREAMS = 3;         // connections at once each way
+const LOAN = 120;          // seconds the radio is asked of an airscan that lends it
 const HEAR_WAIT = 30;      // seconds airscan is given, the radio back, to hear the air again
 const SWEEP_WAIT = 90;     // and to sweep the spectrum, which it does next
 const BOUND_WAIT = 40;     // seconds a driver bound again is given to bring its radio up
@@ -102,23 +112,73 @@ function credentials(want) {
 	return ct.credentials(want, ifaces, radios);
 }
 
-// free waits until airscan is between its jobs, with none about to start,
-// and says whether it is.
+// bind_again binds the scan radio's driver again: its firmware starts
+// afresh, and its phy comes back under a new name. Only for a radio on PCI,
+// by its address there, as airscan names it: no other radio is the driver's
+// to lose. Whoever calls it has airscan off the radio. It says whether the
+// radio came up.
+function bind_again(addr) {
+	if (type(addr) != 'string' || !match(addr, /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/))
+		return false;
+	let dev = `/sys/bus/pci/devices/${addr}`;
+	let driver = fs.readlink(dev + '/driver');
+	if (!driver)
+		return false;
+	driver = '/sys/bus/pci/drivers/' + fs.basename(driver);
+	for (let phy in fs.lsdir(dev + '/ieee80211') ?? [])
+		for (let ifn in fs.lsdir('/sys/class/net') ?? [])
+			if (trim(fs.readfile(`/sys/class/net/${ifn}/phy80211/name`) ?? '') == phy)
+				run('iw', 'dev', ifn, 'del');
+	fs.writefile(driver + '/unbind', addr);
+	sleep(3000);
+	fs.writefile(driver + '/bind', addr);
+	let up = false;
+	for (let i = 0; i < BOUND_WAIT * 2 && !up; i++) {
+		sleep(500);
+		up = length(fs.lsdir(dev + '/ieee80211') ?? []) > 0;
+	}
+	sleep(2000);
+	return up;
+}
+
+// can says whether airscan says it does a thing: "lend" its radio, or
+// "heal" one that has gone deaf.
+function can(what) {
+	return index(bus.call('airscan', 'status')?.features ?? [], what) >= 0;
+}
+
+let lent = false;   // the radio is on loan from an airscan that runs on
+
+// free waits until airscan can spare the radio, and says whether it can.
+// One that lends is asked for it, and says no while it scans or sweeps; the
+// radio is then free once it says it is lent. One that does not lend is
+// waited for until it is between its jobs, with none about to start.
 function free() {
-	let from = now();
+	let from = now(), lends = can('lend');
 	while (now() - from < FREE_WAIT) {
-		if (ct.between(bus.call('airscan', 'status'), time()))
+		if (lends) {
+			if (bus.call('airscan', 'lend', { seconds: LOAN, to: 'an Aeolus client test' })?.lent) {
+				for (let i = 0; i < 20 && bus.call('airscan', 'status')?.state != 'lent'; i++)
+					sleep(250);
+				lent = true;
+				return true;
+			}
+		}
+		else if (ct.between(bus.call('airscan', 'status'), time()))
 			return true;
 		sleep(500);
 	}
 	return false;
 }
 
-// take takes the scan radio from airscan and makes the client's interface
-// on it; give_back undoes it all and starts airscan again.
+// take takes the scan radio from airscan, stopping one that did not lend
+// it, and makes the client's interface on it; give_back undoes it all, and
+// airscan has its radio again.
 function take(phy) {
-	run('/etc/init.d/airscan', 'stop');
-	sleep(1500);
+	if (!lent) {
+		run('/etc/init.d/airscan', 'stop');
+		sleep(1500);
+	}
 	for (let ifn in fs.lsdir('/sys/class/net') ?? [])
 		if (trim(fs.readfile(`/sys/class/net/${ifn}/phy80211/name`) ?? '') == phy)
 			run('iw', 'dev', ifn, 'del');
@@ -129,7 +189,12 @@ function take(phy) {
 	return run('ip', 'link', 'set', IF, 'up');
 }
 
-function give_back() {
+// give_back gives the radio back to airscan, whatever the test left on it
+// removed. again is the radio's PCI address where its driver is to be bound
+// again first, which is done only inside a loan: airscan then has no
+// interface on the radio and runs no job on it. It says whether that
+// brought the radio up.
+function give_back(again) {
 	let pid = trim(fs.readfile(`${DIR}/wpa.pid`) ?? '');
 	if (match(pid, /^[0-9]+$/))
 		run('kill', pid);
@@ -138,7 +203,15 @@ function give_back() {
 		run('iw', 'dev', IF, 'del');
 	for (let f in ['wpa.conf', 'wpa.pid', 'lease', 'udhcpc.sh', 'ctl'])
 		fs.unlink(`${DIR}/${f}`);
-	run('/etc/init.d/airscan', 'start');
+	let up = null;
+	if (lent) {
+		if (again)
+			up = bind_again(again);
+		bus.call('airscan', 'reclaim');
+	}
+	else
+		run('/etc/init.d/airscan', 'start');
+	return up;
 }
 
 // ctl_open is the test's socket to wpa_supplicant's control interface,
@@ -416,17 +489,22 @@ function swept(from) {
 }
 
 // heard_after is how many networks the scan radio hears once airscan has
-// it back: by airscan's first look, and then, where it sweeps the
-// spectrum, by a look asked for after its sweep, as it is the sweep a
-// radio that has been a client goes deaf at. Null where that look was not
-// seen: no look at all, no sweep in the time given, or none when asked,
-// twice. What was heard before the sweep is not what is heard after it.
+// it back. An airscan that was stopped starts with a look and, where it
+// sweeps the spectrum, a sweep: the count is of a look asked for after that
+// sweep, as it is the sweep a radio that has been a client goes deaf at.
+// One that lent the radio ran on, and sweeps in its own time, seeing to a
+// deaf radio itself: the count is of a look asked for now. Null where the
+// look was not seen: no look at all, no sweep in the time given, or none
+// when asked, twice. What was heard before a sweep is not what is heard
+// after it.
 function heard_after(taken) {
-	let first = looked(taken, HEAR_WAIT);
-	if (first == 0 || !sweeps())
-		return first;
-	if (!swept(taken))
-		return null;
+	if (!lent) {
+		let first = looked(taken, HEAR_WAIT);
+		if (first == 0 || !sweeps())
+			return first;
+		if (!swept(taken))
+			return null;
+	}
 	for (let tries = 0; tries < 2; tries++) {
 		let asked = time();
 		bus.call('airscan', 'scan');
@@ -438,32 +516,12 @@ function heard_after(taken) {
 }
 
 // rebind binds the scan radio's driver again, which is what brings a deaf
-// one back, and starts airscan on it. Only for a radio on PCI, by its
-// address there, as airscan names it: no other radio is the driver's to
-// lose. It says whether the radio came up.
+// one back, with airscan stopped for it and started on it after. It says
+// whether the radio came up.
 function rebind(addr) {
-	if (type(addr) != 'string' || !match(addr, /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/))
-		return false;
-	let dev = `/sys/bus/pci/devices/${addr}`;
-	let driver = fs.readlink(dev + '/driver');
-	if (!driver)
-		return false;
-	driver = '/sys/bus/pci/drivers/' + fs.basename(driver);
 	run('/etc/init.d/airscan', 'stop');
 	sleep(1000);
-	for (let phy in fs.lsdir(dev + '/ieee80211') ?? [])
-		for (let ifn in fs.lsdir('/sys/class/net') ?? [])
-			if (trim(fs.readfile(`/sys/class/net/${ifn}/phy80211/name`) ?? '') == phy)
-				run('iw', 'dev', ifn, 'del');
-	fs.writefile(driver + '/unbind', addr);
-	sleep(3000);
-	fs.writefile(driver + '/bind', addr);
-	let up = false;
-	for (let i = 0; i < BOUND_WAIT * 2 && !up; i++) {
-		sleep(500);
-		up = length(fs.lsdir(dev + '/ieee80211') ?? []) > 0;
-	}
-	sleep(2000);
+	let up = bind_again(addr);
 	run('/etc/init.d/airscan', 'start');
 	return up;
 }
@@ -538,30 +596,49 @@ function main() {
 		res.stopped = { stage: 'find', why: 'the test broke: ' + e };
 		note('the test broke: %s', e);
 	}
-	give_back();
+	// A radio that was a client on a DFS channel, or looked at one, goes
+	// deaf within half a minute: inside a loan its driver is bound again
+	// before airscan has it back.
+	let after_dfs = lent && ct.dfs(tgt.freqs) ? addr : null;
+	let bound = give_back(after_dfs);
 
 	// The radio is airscan's again. One that hears nothing after the test,
-	// or was not seen to hear, has its driver bound again.
+	// or was not seen to hear, has its driver bound again: by an airscan
+	// that sees to it itself, which the test waits for, or else by the test.
+	let heals = can('heal');
 	let after = heard_after(taken);
 	if (before) {
 		let radio = { before: before.count, after: after ?? 0 };
 		if (was_deaf)
 			radio.was_deaf = true;
+		if (after_dfs) {
+			radio.after_dfs = true;
+			if (bound)
+				radio.rebound = true;
+		}
 		if (after == null || after == 0) {
 			if (after == null) {
 				radio.unseen = true;
 				note('after the test airscan made no look to say the scan radio still hears: binding its driver again');
 			} else {
 				radio.deaf = true;
-				note('after the test the scan radio hears nothing, where it heard %d networks before: binding its driver again', before.count);
+				note('after the test the scan radio hears nothing, where it heard %d networks before: %s', before.count,
+					heals ? 'airscan binds its driver again' : 'binding its driver again');
 			}
-			let at = time();
-			if (rebind(addr)) {
+			let at = time(), again = null;
+			if (heals && after == 0) {
+				// its look once the driver is bound again, which is newer
+				// than the one that heard nothing
+				again = looked((heard_now()?.time ?? at) + 1, BOUND_WAIT + HEAR_WAIT);
+				if (again > 0)
+					radio.rebound = true;
+			}
+			if (!(again > 0) && rebind(addr)) {
 				radio.rebound = true;
-				let again = looked(at, HEAR_WAIT);
-				if (again != null)
-					radio.again = again;
+				again = looked(at, HEAR_WAIT);
 			}
+			if (again != null)
+				radio.again = again;
 			if (radio.again > 0)
 				log('the scan radio hears %d networks, its driver bound again', radio.again);
 			else
