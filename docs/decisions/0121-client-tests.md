@@ -48,6 +48,7 @@
   - IPv6 is off on the interface, so a router's advertisement gives the AP itself no route.
 - **The test is not done until the scan radio is seen to hear again.** A scan radio that has been a client can go deaf, at once or at airscan's next sweep of the spectrum (see Tried). So, the radio given back, the test waits for airscan's first look, then for the sweep it makes next, and asks for a look after it.
   - **A scan radio that then hears nothing, not even the AP's own networks, is deaf,** and its driver is bound again, which is what brings it back. The result says so, and how many networks it hears after.
+  - **One not seen to hear is treated the same:** where airscan makes no look, no sweep in a minute and a half, or no look when asked twice. What it heard before the sweep says nothing of after it.
   - **Only a radio on PCI is bound again,** by its own address there, as airscan names it. No other radio is unbound with it.
   - **One already deaf when a test is asked** is bound again first, and the result says that too.
 

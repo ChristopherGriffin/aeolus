@@ -216,6 +216,7 @@ type testScanning struct {
 	After   int  `json:"after"`
 	WasDeaf bool `json:"was_deaf,omitempty"`
 	Deaf    bool `json:"deaf,omitempty"`
+	Unseen  bool `json:"unseen,omitempty"`
 	Rebound bool `json:"rebound,omitempty"`
 	Again   *int `json:"again,omitempty"`
 }

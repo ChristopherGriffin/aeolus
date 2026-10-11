@@ -397,20 +397,44 @@ function looked(from, wait) {
 	return null;
 }
 
-// swept waits for the sweep of the spectrum airscan makes once it has the
-// radio back, and says whether it made it. Where it sweeps none, there is
-// none to wait for.
-function swept(from) {
+// sweeps says whether airscan sweeps the spectrum at all.
+function sweeps() {
 	let s = bus.call('airscan', 'status');
-	if (!s?.spectral_supported || !(s.config?.spectral_interval > 0))
-		return false;
+	return !!s?.spectral_supported && s.config?.spectral_interval > 0;
+}
+
+// swept waits for the sweep of the spectrum airscan makes once it has the
+// radio back, and says whether it made it.
+function swept(from) {
 	for (let i = 0; i < SWEEP_WAIT; i++) {
-		s = bus.call('airscan', 'status');
+		let s = bus.call('airscan', 'status');
 		if (s?.last?.spectral >= from && s.state in ['clients', 'idle'])
 			return true;
 		sleep(1000);
 	}
 	return false;
+}
+
+// heard_after is how many networks the scan radio hears once airscan has
+// it back: by airscan's first look, and then, where it sweeps the
+// spectrum, by a look asked for after its sweep, as it is the sweep a
+// radio that has been a client goes deaf at. Null where that look was not
+// seen: no look at all, no sweep in the time given, or none when asked,
+// twice. What was heard before the sweep is not what is heard after it.
+function heard_after(taken) {
+	let first = looked(taken, HEAR_WAIT);
+	if (first == 0 || !sweeps())
+		return first;
+	if (!swept(taken))
+		return null;
+	for (let tries = 0; tries < 2; tries++) {
+		let asked = time();
+		bus.call('airscan', 'scan');
+		let n = looked(asked, HEAR_WAIT);
+		if (n != null)
+			return n;
+	}
+	return null;
 }
 
 // rebind binds the scan radio's driver again, which is what brings a deaf
@@ -516,21 +540,21 @@ function main() {
 	}
 	give_back();
 
-	// The radio is airscan's again: its first look, and then the one asked
-	// for after its sweep, say whether it still hears the air.
-	let after = looked(taken, HEAR_WAIT);
-	if (after != 0 && swept(taken)) {
-		let asked = time();
-		bus.call('airscan', 'scan');
-		after = looked(asked, HEAR_WAIT) ?? after;
-	}
-	if (before && after != null) {
-		let radio = { before: before.count, after: after };
+	// The radio is airscan's again. One that hears nothing after the test,
+	// or was not seen to hear, has its driver bound again.
+	let after = heard_after(taken);
+	if (before) {
+		let radio = { before: before.count, after: after ?? 0 };
 		if (was_deaf)
 			radio.was_deaf = true;
-		if (after == 0) {
-			radio.deaf = true;
-			note('after the test the scan radio hears nothing, where it heard %d networks before: binding its driver again', before.count);
+		if (after == null || after == 0) {
+			if (after == null) {
+				radio.unseen = true;
+				note('after the test airscan made no look to say the scan radio still hears: binding its driver again');
+			} else {
+				radio.deaf = true;
+				note('after the test the scan radio hears nothing, where it heard %d networks before: binding its driver again', before.count);
+			}
 			let at = time();
 			if (rebind(addr)) {
 				radio.rebound = true;
