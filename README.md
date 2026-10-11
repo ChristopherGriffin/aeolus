@@ -175,6 +175,7 @@ Each milestone ends in something checkable before the next starts.
 | [0119](docs/decisions/0119-ap-health-and-history.md) | An AP's own health, and what happened to it |
 | [0120](docs/decisions/0120-dfs-after-a-look.md) | DFS channels after a look |
 | [0121](docs/decisions/0121-client-tests.md) | A client test from the scan radio |
+| [0122](docs/decisions/0122-an-ap-says-again-what-it-is.md) | An AP says again what it is |
 
 ## Open questions
 

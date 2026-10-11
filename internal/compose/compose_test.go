@@ -379,6 +379,14 @@ func TestWidthTheRadioCannotDoIsAProblem(t *testing.T) {
 	if !contains(res.Problems, "radio.5g.width: this AP's radio cannot use 160 MHz; it can use 20, 40, 80 MHz") {
 		t.Fatalf("problems = %v", res.Problems)
 	}
+	// A radio another service owns (0081) serves no one: what it can do is
+	// not what the band can.
+	s.Facts["gate-ap"] = json.RawMessage(`{"radios":[{"radio":"radio0","band":"5g","htmodes":["HT20","HT40","VHT20","VHT40","VHT80"]},{"radio":"radio2","band":"5g","htmodes":["HE20","HE40","HE80","HE160"],"reserved":true}]}`)
+	res, err = AP(s, sch, "gate-ap", nil)
+	must(t, err)
+	if !contains(res.Problems, "radio.5g.width: this AP's radio cannot use 160 MHz; it can use 20, 40, 80 MHz") {
+		t.Fatalf("with a scan radio that can: %v", res.Problems)
+	}
 	// An AP that reported nothing about its radios is not judged.
 	s.Facts["gate-ap"] = nil
 	if res, _ := AP(s, sch, "gate-ap", nil); len(res.Problems) != 0 {

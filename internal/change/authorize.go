@@ -149,6 +149,8 @@ func Authorize(s *State, actor string, op Op) error {
 		return need(access.Admin, op.Tree, op.Node)
 	case Enroll:
 		return fmt.Errorf("%w: APs enroll themselves, through POST /v1/enroll", ErrForbidden)
+	case Facts:
+		return fmt.Errorf("%w: an AP says what it is itself, through POST /v1/ap/facts", ErrForbidden)
 	case RemoveAP:
 		return need(access.Operator, Locations, op.Node)
 	case IssueToken:
@@ -190,6 +192,8 @@ func authorizeSystem(s *State, op Op) error {
 			return ErrFull
 		}
 		return nil
+	case Facts:
+		return nil
 	}
-	return fmt.Errorf("%w: the manager itself may only add built-in folders, enroll APs into Landing Zone, and make a new kind of AP's template", ErrForbidden)
+	return fmt.Errorf("%w: the manager itself may only add built-in folders, enroll APs into Landing Zone, record what an AP says it is, and make a new kind of AP's template", ErrForbidden)
 }
