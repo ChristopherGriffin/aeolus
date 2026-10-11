@@ -106,6 +106,7 @@ config device
 	list ports 'wan'
 	option ipv6 '0'
 	option priority '4096'
+	option hello_time '2'
 
 config interface 'lan'
 	option device 'br-lan.1'

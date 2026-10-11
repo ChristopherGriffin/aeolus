@@ -7,7 +7,8 @@
 //
 // Aeolus only touches what it owns (0040): the radio options intent names,
 // the bridge-vlan entries and enabled of the ports intent names (0053),
-// usteer's band_steering_interval and ssid_list (0050), all of snmpd's
+// spanning tree on the uplink's bridge, with a hello time where it has
+// none (0095), usteer's band_steering_interval and ssid_list (0050), all of snmpd's
 // config (0052), sections named aeolus_ (in the firewall, 0054, and in its
 // own package, the prober's plan, 0059), and the time zone, NTP and syslog
 // settings. It takes OpenWrt's internet pool out of the time servers, and
