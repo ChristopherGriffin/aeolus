@@ -457,6 +457,15 @@ func TestDocumentRulesTieFieldsTogether(t *testing.T) {
 	if err := s.CheckDocument(noPass); err == nil {
 		t.Error("WPA2 network without a passphrase passed")
 	}
+	// With each device's passphrase from the RADIUS server, the network
+	// needs none of its own (0115); with that off, it does again.
+	sweet := noPass["network"].(map[string]any)["sweet"].(map[string]any)
+	sweet["radius"] = map[string]any{"mac_auth": true, "passphrases": true}
+	must(t, s.CheckDocument(noPass))
+	sweet["radius"] = map[string]any{"mac_auth": true, "passphrases": false}
+	if err := s.CheckDocument(noPass); err == nil {
+		t.Error("WPA2 network without a passphrase, and none from RADIUS, passed")
+	}
 	noVNI := complete()
 	delete(noVNI["network"].(map[string]any)["sweet"].(map[string]any)["transport"].(map[string]any)["primary"].(map[string]any), "vni")
 	if err := s.CheckDocument(noVNI); err == nil {

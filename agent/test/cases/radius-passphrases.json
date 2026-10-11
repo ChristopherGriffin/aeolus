@@ -1,0 +1,31 @@
+{
+	"about": "Passphrases from the RADIUS server (0115): a WPA2 network with MAC authentication whose devices each join with the passphrase the server at 192.168.20.106 gives for their MAC. OpenWrt's ppsk is set, which has hostapd require the server's Tunnel-Password, and no key is written, though the network still has a passphrase of its own from before: hostapd would not use it. The server may put a device in VLAN 30, r30, as with MAC authentication alone.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		},
+		"eap": true
+	},
+	"intent": {
+		"system": { "country": "US", "poll": 60 },
+		"network": {
+			"things": {
+				"ssid": "Aeolus Things",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"radius": {
+					"mac_auth": true,
+					"passphrases": true,
+					"auth_server": "192.168.20.106",
+					"auth_secret": "fixture-radius-secret",
+					"vlans": [30]
+				},
+				"transport": { "primary": { "type": "vlan", "vlan": 20 } }
+			}
+		}
+	},
+	"errors": []
+}

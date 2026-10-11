@@ -91,6 +91,7 @@ var Coverage = map[string]string{
 	"network.*.radius.acct_secret":       "",
 	"network.*.radius.nas_id":            "",
 	"network.*.radius.mac_auth":          "",
+	"network.*.radius.passphrases":       "",
 	"network.*.radius.vlans":             "",
 	"network.*.radius.vlan_required":     "",
 	"network.*.radius.das.client":        "",
@@ -837,7 +838,23 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 			k.add("%s: encryption is %q, want %q for %s", where, got, want, security)
 		}
 	}
-	if needsKey[security] {
+	// Passphrases from the RADIUS server (0115): OpenWrt's ppsk, and no key
+	// of the network's own, which hostapd would not use. Anywhere else, no
+	// ppsk: it would refuse every device the server gives no passphrase.
+	rad := obj(n, "radius")
+	ppsk := security == "wpa2-psk" && rad["mac_auth"] == true && rad["passphrases"] == true
+	got, _ := s.Option("ppsk")
+	switch {
+	case ppsk && got != "1":
+		k.add("%s: ppsk is %q, want 1: each device's passphrase is the RADIUS server's", where, got)
+	case !ppsk && got != "" && got != "0":
+		k.add("%s: ppsk is %q, but the network takes no passphrases from a RADIUS server", where, got)
+	}
+	if ppsk {
+		if _, ok := s.Option("key"); ok {
+			k.add("%s: a key is set, but each device's passphrase is the RADIUS server's", where)
+		}
+	} else if needsKey[security] {
 		pass, _ := n["passphrase"].(string)
 		if key, _ := s.Option("key"); key != pass {
 			k.add("%s: key does not match the passphrase", where)
