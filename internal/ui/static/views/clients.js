@@ -55,7 +55,7 @@ function controls(all, folder, draw) {
 	};
 	const ssids = [...new Set(all.map((c) => c.ssid).filter(Boolean))].sort();
 	const aps = [...new Map(all.map((c) => [c.ap.id, c.ap.name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-	const q = h('input', { type: 'search', placeholder: 'Name, MAC or address', value: view.q, 'data-kept': true, oninput: () => { view.q = q.value; draw(); } });
+	const q = h('input', { type: 'search', placeholder: 'Name, user, MAC or address', value: view.q, 'data-kept': true, oninput: () => { view.q = q.value; draw(); } });
 	return h('div', { class: 'filters' },
 		pick('network', 'Every network', ssids.map((s) => [s, s])),
 		folder && pick('ap', 'Every AP', aps),
@@ -81,7 +81,7 @@ const COLUMNS = [
 function table(ctx, all, folder, draw, out) {
 	const q = view.q.trim().toLowerCase();
 	const shown = all.filter((c) => (!view.network || c.ssid === view.network) && (!view.ap || c.ap.id === view.ap) &&
-		(!q || [c.host, c.mac, c.address, c.ssid, c.maker, c.kind, c.os].some((x) => (x || '').toLowerCase().includes(q))));
+		(!q || [c.host, c.mac, c.address, c.ssid, c.maker, c.kind, c.os, c.user].some((x) => (x || '').toLowerCase().includes(q))));
 	const col = COLUMNS.find(([k]) => k === view.sort) || COLUMNS.find(([k]) => k === 'connected');
 	shown.sort((a, b) => {
 		const x = col[2](a), y = col[2](b);
@@ -94,7 +94,8 @@ function table(ctx, all, folder, draw, out) {
 		h('tr', null, head),
 		shown.map((c) => h('tr', null,
 			h('td', null, h('a', { href: '#', class: 'clientlink', title: 'Its journey: sessions, roams and issues over the last day', onclick: (e) => { e.preventDefault(); out.scrollIntoView({ block: 'nearest' }); journeyPanel(out, c.mac); } },
-				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac), who(c),
+				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac),
+					c.user && h('div', { class: 'sub', title: 'who it signed in as, by 802.1X' }, 'signed in as ', h('strong', null, c.user)), who(c),
 					h('div', { class: 'rowbuttons' }, reconnectButton(ctx, c, out), blockButton(ctx, c, out))),
 			folder && h('td', null, link(`/aps/${encodeURIComponent(c.ap.id)}`, c.ap.name)),
 			h('td', null, c.ssid || '—', c.vlan && h('div', { class: 'sub', title: vlanBy(c) }, `VLAN ${c.vlan}`)),

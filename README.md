@@ -166,6 +166,7 @@ Each milestone ends in something checkable before the next starts.
 | [0110](docs/decisions/0110-top-clients.md) | The clients that moved the most |
 | [0111](docs/decisions/0111-radius-vlans-and-disconnect.md) | VLANs from RADIUS, and disconnects from a NAC |
 | [0112](docs/decisions/0112-mac-authentication.md) | MAC authentication, for devices that cannot sign in |
+| [0113](docs/decisions/0113-who-signed-in.md) | Who a client signed in as |
 
 ## Open questions
 

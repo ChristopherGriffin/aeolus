@@ -506,7 +506,9 @@ type wifiClient struct {
 	// What it said of itself in DHCP, and the 802.11 features its
 	// association showed (0067).
 	// The VLAN a per-user key put it in, if any (0070).
-	VLAN        *int   `json:"vlan"`
+	VLAN *int `json:"vlan"`
+	// Who it signed in as on WPA Enterprise (0113), as hostapd has it.
+	User        string `json:"user,omitempty"`
 	VendorClass string `json:"vendor_class"`
 	Params      string `json:"params"`
 	Gen         string `json:"gen"`
@@ -548,7 +550,7 @@ var clientDHCP = map[string]bool{"": true, "ok": true, "static": true, "none": t
 
 // check holds a client to what the prober writes.
 func (c wifiClient) check() error {
-	bad := badRequest("clients: each has a MAC, a network ID or none, an SSID of at most 32 bytes, a band (2g, 5g or 6g), a signal from -150 to 50 dBm, rates up to 100000 Mbit/s, MCS up to 31 and up to 16 streams, counts not negative, an IPv4 address or none, a printable host name of at most 64 characters, and a DHCP verdict (ok, static, none or unknown)")
+	bad := badRequest("clients: each has a MAC, a network ID or none, an SSID of at most 32 bytes, a band (2g, 5g or 6g), a signal from -150 to 50 dBm, rates up to 100000 Mbit/s, MCS up to 31 and up to 16 streams, counts not negative, an IPv4 address or none, a printable host name of at most 64 characters, a DHCP verdict (ok, static, none or unknown), and a printable user name of at most 64 characters")
 	inRange := func(p *int, lo, hi int) bool { return p == nil || (*p >= lo && *p <= hi) }
 	rate := func(p *float64) bool { return p == nil || (*p >= 0 && *p <= 100000) }
 	ip := net.ParseIP(c.Address)
@@ -558,7 +560,7 @@ func (c wifiClient) check() error {
 		c.RxBytes < 0 || c.TxBytes < 0 || c.RxPackets < 0 || c.TxPackets < 0 || c.TxRetries < 0 || c.TxFailed < 0 || c.Connected < 0 || c.InactiveMS < 0 ||
 		(c.Address != "" && (ip == nil || ip.To4() == nil)) || len(c.Host) > 64 || !printable(c.Host) || !clientDHCP[c.DHCP] ||
 		len(c.VendorClass) > 64 || !printable(c.VendorClass) || !paramsRE.MatchString(c.Params) || !gens[c.Gen] ||
-		(c.VLAN != nil && (*c.VLAN < 1 || *c.VLAN > 4094)) {
+		(c.VLAN != nil && (*c.VLAN < 1 || *c.VLAN > 4094)) || len(c.User) > 64 || !printable(c.User) {
 		return bad
 	}
 	return nil
