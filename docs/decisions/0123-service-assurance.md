@@ -47,11 +47,12 @@
 
 - **A Locations folder has an Assurance tab:**
   - **the schedule,** with each AP that has a scan radio, how often it is asked, how many things it tests in turn and so how long a round is; and its editor: how often, with speed or not, and the speed server;
-  - **what is tested:** each thing an AP is asked for in turn, with how many of its tests of the day passed, when the last was, and a chip for the last or for "failing"; the failing first. A line opens to its latest test, drawn as on the AP's page (0121);
+  - **what is tested:** each thing an AP is asked for in turn, with how many of its tests of the day passed, when the last was, and a chip for the last or for "failing"; the failing first. A line opens to how it did over the day, a mark for each test, green or red, with how long it took to be let on, to get an address and to look a name up across those that passed; and to its latest test, drawn as on the AP's page (0121);
   - **the tests,** the latest fifty, by hand or on the schedule.
 - **`GET /v1/assurance`** gives the same, and Claude and other clients read it through `get_assurance`.
 - **A person sees only the APs they may view,** as testers and as where a test joined. A test that joined on one they may not is left out, and in its own AP's list of actions says neither which AP nor its BSSIDs.
 - **An AP's page keeps its own client tests** (0121), where one is asked by hand.
+- **A folder's Overview has a tile for it** where an AP below can test: how many of the things tested passed their last test, and how many are failing.
 
 ### Kept
 
@@ -74,6 +75,6 @@
 ## Not done here
 
 - **A test's speed held against what the network should give,** and an alert when it falls.
-- **How a thing did over a week:** only the counts of the time asked for are shown.
+- **How a thing did over a week, drawn:** its tests of the day are a row of marks and the span of their times, no more.
 - **An AP's own Assurance tab.**
 - **Tests of the uplink alone,** from an AP with no scan radio: its gateway, DNS and the speed server over the wire.

@@ -184,6 +184,12 @@ details.fold > table.list { margin-bottom: 8px; }
 .attempt table.steps td:first-child, .attempt table.steps td:nth-child(2) { white-space: nowrap; }
 .attempt table.steps tr.failed td { background: #FBEDEB; }
 .attemptlinks { padding: 0 20px 10px 38px; margin: 0; }
+/* How a thing tested did over the day (0123): a mark a test, oldest first. */
+.runs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 2px 0 10px; }
+.runs .marks { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.runs .mark { width: 8px; height: 16px; border-radius: 2px; background: var(--line); }
+.runs .mark.ok { background: var(--ok, #2e8b57); }
+.runs .mark.bad { background: var(--bad, #c0392b); }
 /* A client test (0121): its form, and what it measured, a line each. */
 .testform .row { border-top: 0; }
 .testform .row .value { font-family: inherit; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

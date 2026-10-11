@@ -546,14 +546,56 @@ type assuranceCheck struct {
 	Passed     int                `json:"passed"`
 	Failed     int                `json:"failed"`
 	Last       *conditions.Action `json:"last,omitempty"`
+	Runs       []assuranceRun     `json:"runs,omitempty"`
+}
+
+// assuranceRun is one test of a thing in brief, for how it did over the
+// time asked: when, whether it passed, where it stopped if not, and how
+// long each step took, in ms, with its speed in Mbit/s where measured.
+type assuranceRun struct {
+	At        time.Time `json:"at"`
+	Passed    bool      `json:"passed"`
+	Stage     string    `json:"stage,omitempty"`
+	JoinedMS  int64     `json:"joined_ms,omitempty"`
+	DHCPMS    int64     `json:"dhcp_ms,omitempty"`
+	GatewayMS *float64  `json:"gateway_ms,omitempty"`
+	DNSMS     *int64    `json:"dns_ms,omitempty"`
+	Down      *float64  `json:"down,omitempty"`
+	Up        *float64  `json:"up,omitempty"`
+}
+
+// assuranceRunsMost is how many tests of a thing are given in brief.
+const assuranceRunsMost = 48
+
+// runOf is a test in brief.
+func runOf(r testRecord) assuranceRun {
+	d := r.detail
+	out := assuranceRun{At: r.At, Passed: d.Outcome == "passed", JoinedMS: d.JoinedMS}
+	if !out.Passed {
+		out.Stage = d.Stage
+	}
+	if d.DHCP != nil {
+		out.DHCPMS = d.DHCP.MS
+	}
+	if d.Gateway != nil {
+		out.GatewayMS = d.Gateway.Avg
+	}
+	if d.DNS != nil {
+		out.DNSMS = d.DNS.MS
+	}
+	if d.Speed != nil {
+		out.Down, out.Up = d.Speed.Down, d.Speed.Up
+	}
+	return out
 }
 
 // assurance is the client tests of the APs the caller may view, below one
 // Locations node where ?under= names it, over ?hours= (24 unless set, at
 // most 720): GET /v1/assurance. testers are the APs with a scan radio;
 // checks, each thing one of them is asked for in turn, or was, or that is
-// failing, with what its tests come to, the failing first; tests, the
-// latest 50 of them, by hand or on the schedule, newest first.
+// failing, with what its tests come to and the latest 48 of them in brief
+// (runs), the failing first; tests, the latest 50 of them, by hand or on
+// the schedule, newest first.
 func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error {
 	t := c.state.Org.Locations
 	under := hierarchy.NodeID(r.URL.Query().Get("under"))
@@ -628,6 +670,17 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 				if ch.SSID == "" {
 					ch.SSID = v.last.ask.SSID
 				}
+				// Its tests of the time asked, in brief, the oldest first.
+				for i := range list {
+					r := list[i]
+					if len(ch.Runs) >= assuranceRunsMost || r.At.Before(from) {
+						break
+					}
+					if r.ran() && hierarchy.NodeID(r.AP) == k.tester && r.combo() == k.combo {
+						ch.Runs = append(ch.Runs, runOf(r))
+					}
+				}
+				sort.SliceStable(ch.Runs, func(i, j int) bool { return ch.Runs[i].At.Before(ch.Runs[j].At) })
 			}
 			checks = append(checks, ch)
 		}
