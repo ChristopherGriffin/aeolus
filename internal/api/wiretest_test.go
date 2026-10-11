@@ -128,8 +128,10 @@ func TestClientTestOverTheWire(t *testing.T) {
 	if got := f.api.assure(f.now()); len(got) != 0 {
 		t.Fatalf("asked with no scan radio and no wire: %v", got)
 	}
+	// It is shown as one that can test, and is asked for nothing in turn.
 	_, view := f.do("GET", "/v1/assurance", "griff", nil)
-	if len(view["testers"].([]any)) != 0 {
+	if tr := view["testers"].([]any); len(tr) != 1 || tr[0].(map[string]any)["ap"] != plain[0] || tr[0].(map[string]any)["every"] != float64(0) ||
+		tr[0].(map[string]any)["wire"] != false || tr[0].(map[string]any)["can_wire"] != true || tr[0].(map[string]any)["things"] != float64(1) {
 		t.Fatalf("testers with no wire = %v", view["testers"])
 	}
 	change(map[string]any{"kind": "set", "tree": "locations", "node": "office", "path": "assurance.tests.wire", "value": true})
@@ -141,7 +143,7 @@ func TestClientTestOverTheWire(t *testing.T) {
 	}
 	_, view = f.do("GET", "/v1/assurance", "griff", nil)
 	testers := view["testers"].([]any)
-	if tr := testers[0].(map[string]any); len(testers) != 1 || tr["ap"] != plain[0] || tr["things"] != float64(1) || tr["wire"] != true || tr["air"] != false {
+	if tr := testers[0].(map[string]any); len(testers) != 1 || tr["ap"] != plain[0] || tr["things"] != float64(1) || tr["wire"] != true || tr["air"] != false || tr["every"] != float64(15) {
 		t.Fatalf("testers = %v", testers)
 	}
 	fail := func() {

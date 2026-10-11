@@ -47,6 +47,7 @@ type Server struct {
 	install *Install        // what it hands out to an AP installing from it (0083); nil if nothing
 	arrive  arrivals        // the times given to attempts from APs whose clocks are unset (0118)
 	said    factsSaid       // when each AP last changed what it says it is (0122)
+	rounds  rounds          // the rounds of tests asked by hand that are being worked at (0129)
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
@@ -83,6 +84,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/aps", s.auth(s.aps))
 	mux.Handle("GET /v1/alerts", s.auth(s.alertsList))
 	mux.Handle("GET /v1/assurance", s.auth(s.assurance))
+	mux.Handle("POST /v1/assurance/round", s.auth(s.askRound))
 	mux.Handle("GET /v1/alerts/history", s.auth(s.alertHistory))
 	mux.Handle("GET /v1/airspace", s.auth(s.airspaceList))
 	mux.Handle("GET /v1/usage", s.auth(s.usageView))
