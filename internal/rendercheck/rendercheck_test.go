@@ -1285,14 +1285,22 @@ func TestRRM(t *testing.T) {
 	if got := check(policy, set); strings.Contains(got, "aeolus_rrm") {
 		t.Errorf("the policy set, and written: %s", got)
 	}
-	// On an AP with a scan radio, it stays off whatever the config says: its
-	// scans are the serving radios' own, which never scan there (0081).
+	// On an AP with a scan radio, the serving radios never scan (0081): the
+	// section must tell the daemon to listen through that radio (0116), and
+	// on an AP without one it must not, or the daemon would hear nothing.
 	scan := "package wireless\nconfig wifi-device 'radio2'\n\toption band '6g'\n\toption disabled '1'\n\toption airscan '1'\n"
-	if got := check(on, scan+section); !strings.Contains(got, "aeolus.aeolus_rrm: the AP has a scan radio, where the serving radios never scan (0081), but radio resource management's section is there") {
-		t.Errorf("on, with a scan radio and the section: %s", got)
+	through := section + "\toption scan 'airscan'\n"
+	if got := check(on, scan+through); strings.Contains(got, "aeolus_rrm") {
+		t.Errorf("on, with a scan radio, listening through it: %s", got)
 	}
-	if got := check(on, scan+"package aeolus\n"); strings.Contains(got, "aeolus_rrm") {
+	if got := check(on, scan+section); !strings.Contains(got, `aeolus.aeolus_rrm: scan is "", want airscan: the AP has a scan radio, where the serving radios never scan (0081)`) {
+		t.Errorf("on, with a scan radio, its serving radios left to scan: %s", got)
+	}
+	if got := check(on, scan+"package aeolus\n"); !strings.Contains(got, "radio resource management is on, but its section is missing") {
 		t.Errorf("on, with a scan radio and no section: %s", got)
+	}
+	if got := check(on, through); !strings.Contains(got, `aeolus.aeolus_rrm: scan is "airscan", but the AP has no scan radio to listen through`) {
+		t.Errorf("on, listening through a scan radio the AP does not have: %s", got)
 	}
 }
 

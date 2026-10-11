@@ -185,6 +185,76 @@ function visits(band, own, dfs, set) {
 	return out;
 }
 
+// printable is an SSID as the manager takes it: printable ASCII, anything
+// else a ?, at most 32 bytes; null for a hidden network, whose SSID is
+// empty or all zero bytes. An SSID of question marks is one, not hidden.
+function printable(d) {
+	let s = '', hidden = true;
+	for (let i = 0; i < length(d ?? '') && i < 32; i++) {
+		let c = ord(d, i);
+		if (c != 0)
+			hidden = false;
+		s += c >= 32 && c < 127 ? chr(c) : '?';
+	}
+	return hidden ? null : s;
+}
+
+// swept sorts what a scan radio heard in one look (0116): list is airscan's
+// networks in the air, each { bssid, ssid, band, channel, signal, own,
+// hidden }. theirs maps the last five bytes of the BSSID of each
+// neighbour's radio, as its hellos give it, to { ap, band }: a radio makes
+// its networks' BSSIDs from one MAC, changing only the first byte. It
+// returns
+//
+//	aps       '<ap> <band>' -> the strongest signal one of that radio's
+//	          networks was heard at
+//	tails     the BSSID tails of the neighbours' radios heard
+//	others    [{ bssid, ssid, band, channel, signal }]: the networks that are
+//	          neither this AP's own nor a neighbour's, and have a name
+//	networks  '<band> <channel>' -> the signals of those, and of the
+//	          nameless ones, for the channels' ratings
+//
+// A radio beside the scan radio is heard louder than a signal is said: 0
+// dBm at most. What is not well formed is left out.
+function swept(list, theirs) {
+	let out = { aps: {}, tails: [], others: [], networks: {} };
+	let tails = {};
+	for (let e in (type(list) == 'array' ? list : [])) {
+		if (type(e) != 'object' || e.own || type(e.bssid) != 'string')
+			continue;
+		let bssid = lc(e.bssid);
+		if (!match(bssid, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/) || !(e.band in ['2g', '5g', '6g']) ||
+		    type(e.channel) != 'int' || e.channel < 1 || e.channel > 233 ||
+		    !(type(e.signal) in ['int', 'double']) || e.signal < -127)
+			continue;
+		let signal = min(0, e.signal);
+		let tail = substr(bssid, 3), t = theirs?.[tail];
+		if (t && t.band == e.band) {
+			let k = t.ap + ' ' + e.band;
+			out.aps[k] = max(out.aps[k] ?? -200, signal);
+			tails[tail] = true;
+			continue;
+		}
+		push(out.networks[e.band + ' ' + e.channel] ??= [], signal);
+		let ssid = e.hidden || type(e.ssid) != 'string' ? null : printable(e.ssid);
+		if (ssid)
+			push(out.others, { bssid: bssid, ssid: ssid, band: e.band, channel: e.channel, signal: signal });
+	}
+	out.tails = sort(keys(tails));
+	return out;
+}
+
+// around is the signals of the networks that count against a channel, from
+// swept's networks: those on it and, on 2.4 GHz, those up to three channels
+// away, 6 dB weaker for each channel between.
+function around(networks, band, channel) {
+	let out = [], reach = band == '2g' ? 3 : 0;
+	for (let d = -reach; d <= reach; d++)
+		for (let s in networks?.[band + ' ' + (channel + d)] ?? [])
+			push(out, s - 6 * (d < 0 ? -d : d));
+	return out;
+}
+
 // weight is how much another network counts against the channel it is
 // heard on: fully at -55 dBm or stronger, not at all at -95 or weaker.
 // (ucode divides whole numbers to a whole number, so 40.0.)
@@ -400,5 +470,5 @@ function power_step(signals, wanted, target, power, ceiling) {
 export {
 	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW, SUDDEN, NEAR, WINDOW, MARGIN, APC_STEP, APC_FLOOR, APC_ABOVE,
 	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits,
-	weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args, power_step
+	printable, swept, around, weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args, power_step
 };

@@ -528,18 +528,13 @@ func (k *checker) dfs(where string, r device, v string) {
 // rrm checks radio resource management (0073): on, the agent's package has
 // the daemon's section, which names the AP it advertises and holds the
 // policy for moves, defaults written out; otherwise there is none, and the
-// daemon stays idle. On an AP with a scan radio, it stays off whatever the
-// config says (0081): its scans are the serving radios' own, and there the
-// serving radios never scan.
+// daemon stays idle. On an AP with a scan radio, whose serving radios never
+// scan (0081), the section tells the daemon to listen through that radio,
+// airscan's (0116); on any other AP it must not, or the daemon would hear
+// nothing.
 func (k *checker) rrm(set, apc map[string]any) {
 	const where = "aeolus.aeolus_rrm"
 	s := k.c.Package("aeolus").Named("aeolus_rrm")
-	if set["enabled"] == true && k.scanRadio() {
-		if s != nil {
-			k.add("%s: the AP has a scan radio, where the serving radios never scan (0081), but radio resource management's section is there", where)
-		}
-		return
-	}
 	if set["enabled"] != true {
 		if s != nil {
 			k.add("%s: radio resource management is not on, but its section is there", where)
@@ -553,6 +548,12 @@ func (k *checker) rrm(set, apc map[string]any) {
 	k.option(where, s, "enabled", "1")
 	if k.ap != "" {
 		k.option(where, s, "ap", k.ap)
+	}
+	switch got, _ := s.Option("scan"); {
+	case k.scanRadio() && got != "airscan":
+		k.add("%s: scan is %q, want airscan: the AP has a scan radio, where the serving radios never scan (0081)", where, got)
+	case !k.scanRadio() && got != "":
+		k.add("%s: scan is %q, but the AP has no scan radio to listen through", where, got)
 	}
 	moves := "1"
 	if set["moves"] == false {

@@ -1092,16 +1092,18 @@ function stp(n, intent, facts, errors, needs) {
 // rrm turns radio resource management on (0073): the agent's daemon then
 // advertises this AP in its beacons, keeps neighbours with the others, and
 // moves its radios as the policy says, defaults written out. Off, there is
-// no section, and the daemon stays idle. It stays off on an AP with a scan
-// radio (0081): its scans are the serving radios' own, which there never scan.
+// no section, and the daemon stays idle. On an AP with a scan radio, whose
+// serving radios never scan (0081), the daemon is told to listen through
+// that radio instead, which airscan runs (0116).
 function rrm(a, w, intent, facts, keep) {
 	let r = intent.rrm;
-	if (r?.enabled != true || scan_radio(w))
+	if (r?.enabled != true)
 		return;
 	// Power control (0077) runs in the same daemon, with RRM's neighbours.
 	let p = intent.apc?.enabled == true ? intent.apc : null;
 	put(a, 'aeolus_rrm', 'rrm', {
 		enabled: 1, ap: facts.ap || null, moves: r.moves == false ? 0 : 1,
+		scan: scan_radio(w) ? 'airscan' : null,
 		window: r.window ?? '02:00-05:00', margin: r.margin ?? 20,
 		apc: p ? 1 : null, apc_neighbours: p ? p.neighbours ?? 3 : null, apc_target: p ? p.target ?? -70 : null,
 	});
