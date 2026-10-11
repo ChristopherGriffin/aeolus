@@ -1,5 +1,5 @@
 {
-	"about": "PumphouseAP with spanning tree turned off (0095): its br-lan ran RSTP, and the stp options go; the bridge priority the AP had set itself stays, Aeolus does not own it. uplink.bond is false too: its uplink, wan, is no bond, so there is nothing to take apart.",
+	"about": "PumphouseAP with spanning tree turned off (0095): its br-lan ran RSTP, and the stp options go; the bridge priority the AP had set itself stays, Aeolus does not own it, and so does the hello time, the agent's or the AP's own: without spanning tree it does nothing. uplink.bond is false too: its uplink, wan, is no bond, so there is nothing to take apart.",
 	"current": "pumphouse-current.json",
 	"facts": {
 		"uplink": "wan",
@@ -42,7 +42,8 @@
 				"ipv6": "0",
 				"stp": "1",
 				"stp_proto": "rstp",
-				"priority": "4096"
+				"priority": "4096",
+				"hello_time": "2"
 			}
 		}
 	},
