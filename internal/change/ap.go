@@ -3,6 +3,8 @@ package change
 import (
 	"bytes"
 	"fmt"
+	"slices"
+	"sort"
 
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
@@ -54,4 +56,60 @@ func applyAP(s *State, op Op) (Effect, error) {
 		return Effect{Before: map[string]string{"name": n.Name, "parent": string(n.Parent)}, Removed: removed}, nil
 	}
 	return Effect{}, fmt.Errorf("%w: %q", ErrUnknownKind, op.Kind)
+}
+
+// removeFolder takes away a folder that holds nothing (0125): no folder and
+// no AP below it, which the tree sees to, and nothing that still leans on
+// it. A Services folder some Locations node offers stays, and one with
+// per-user keys (0070); a Locations folder AP templates are made at stays
+// (0085); and the built-in folders stay (0032). What was set at it goes with
+// it, and the roles granted on it.
+func removeFolder(s *State, op Op) (Effect, error) {
+	t, err := tree(s.Org, op.Tree)
+	if err != nil {
+		return Effect{}, err
+	}
+	n, ok := t.Node(op.Node)
+	if !ok {
+		return Effect{}, fmt.Errorf("%w: %s", hierarchy.ErrNotFound, op.Node)
+	}
+	if op.Node == Sandbox || op.Node == LandingZone {
+		return Effect{}, fmt.Errorf("%w: %s is a built-in folder", hierarchy.ErrNotAFolder, op.Node)
+	}
+	var by []string
+	if op.Tree == Services {
+		offers := func(at hierarchy.NodeID, p hierarchy.Path, v hierarchy.Value) {
+			if list, ok := v.([]hierarchy.NodeID); ok && p == hierarchy.ServicesPath && slices.Contains(list, op.Node) && !slices.Contains(by, string(at)) {
+				by = append(by, string(at))
+			}
+		}
+		// Offered where it is set, or kept from before a break (0005).
+		s.Org.Locations.EachSet(offers)
+		s.Org.Locations.EachBase(offers)
+		for _, k := range s.Keys.All() {
+			if k.Folder == op.Node {
+				by = append(by, "per-user key "+k.Name)
+			}
+		}
+	} else {
+		for _, tm := range s.Library.Templates() {
+			if tm.At == op.Node {
+				by = append(by, "template "+tm.Name)
+			}
+		}
+	}
+	if len(by) > 0 {
+		sort.Strings(by)
+		return Effect{}, &InUseError{What: "folder " + n.Name, By: by}
+	}
+	removed, err := t.RemoveFolder(op.Node)
+	if err != nil {
+		return Effect{}, err
+	}
+	for _, g := range s.Access.Grants() {
+		if g.Tree == string(op.Tree) && g.Node == op.Node {
+			s.Access.Revoke(g)
+		}
+	}
+	return Effect{Before: map[string]string{"name": n.Name, "parent": string(n.Parent)}, Removed: removed}, nil
 }

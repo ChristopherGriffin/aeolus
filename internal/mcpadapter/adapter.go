@@ -97,7 +97,7 @@ func (c client) call(ctx context.Context, method, path string, body any) (any, e
 
 // Op is a change, as the model writes it.
 type Op struct {
-	Kind     string         `json:"kind" jsonschema:"one of: add-folder, add-ap, remove-ap, move, set, unset, lock, unlock, break-hierarchy, assign-services, add-account, grant, revoke, revoke-token, add-key, set-key, remove-key, add-template, edit-template, set-template, unset-template, remove-template. The library's concentrator kinds are retired (0085)."`
+	Kind     string         `json:"kind" jsonschema:"one of: add-folder, remove-folder, add-ap, remove-ap, move, set, unset, lock, unlock, break-hierarchy, assign-services, add-account, grant, revoke, revoke-token, add-key, set-key, remove-key, add-template, edit-template, set-template, unset-template, remove-template. The library's concentrator kinds are retired (0085)."`
 	Tree     string         `json:"tree,omitempty" jsonschema:"locations or services"`
 	Node     string         `json:"node,omitempty" jsonschema:"the folder or AP the change targets; for add-folder and add-ap, the new node's ID"`
 	Parent   string         `json:"parent,omitempty" jsonschema:"parent folder, for add-folder, add-ap and move; for add-template, the Locations folder (or the Org) it is made at, offered there and below"`
