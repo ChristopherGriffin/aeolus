@@ -55,6 +55,8 @@
   - **Aeolus-50, through its tunnel:** an address in 2.0 s, the gateway in 1.7 ms. Its DNS servers are on the internet, and did not answer until the datagram had its UDP checksum: something on the way drops one without.
   - **The 2.0 s is the DHCP server's.** With no second discover sent, the offer still came at 2.0 s: it looks whether the address is free first. Through the air the same server answers the scan radio in 0.3 s, as it keeps that lease.
 
+- **On the office AP (an OpenWrt One) and the pumphouse AP (an R7800), by hand, the same day:** both networks passed on each, on VLAN 20 of `eth0` and of `wan`, a switch's port, and through the tunnel. Each showed the same 2.0 s for an address, and a gateway answering ARP in 2 to 5 ms.
+
 ## Not done here
 
 - **A network on the uplink with no VLAN.**

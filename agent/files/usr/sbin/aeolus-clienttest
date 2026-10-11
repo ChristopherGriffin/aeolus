@@ -69,6 +69,8 @@ const SWEEP_WAIT = 90;     // and to sweep the spectrum, which it does next
 const BOUND_WAIT = 40;     // seconds a driver bound again is given to bring its radio up
 const WIRE_TRIES = 3;      // times a frame is sent over the wire before its answer is given up
 const WIRE_WAIT = 3;       // seconds a DHCP answer is waited for each time: a server may look before it offers
+const WIRE_BURST = 64;     // frames of other VLANs read in a row before the time is looked at
+const WIRE_ANSWERS = 8;    // ARP requests for its address it answers in one wait
 
 let bus = connect();
 openlog('aeolus-clienttest', LOG_PID, LOG_DAEMON);
@@ -631,11 +633,15 @@ function wire_tx(frame) {
 // wire_rx reads the next frame of the test's own VLAN, or null. The
 // uplink's port sees every VLAN: the tag the kernel keeps beside each frame
 // (PACKET_AUXDATA) says whose it is, as for the prober (0061).
+//
+// It reads no more than a few frames of other VLANs in a row before it
+// says there is none for now, so that whoever waits looks at the time: a
+// trunk's other VLANs may send ARP as fast as it can be read.
 function wire_rx() {
 	if (!wire.vlan)
 		return wire.sock.recv(2048, socket.MSG_DONTWAIT);
 	let m;
-	while ((m = wire.sock.recvmsg(2048, 256, socket.MSG_DONTWAIT)) != null) {
+	for (let i = 0; i < WIRE_BURST && (m = wire.sock.recvmsg(2048, 256, socket.MSG_DONTWAIT)) != null; i++) {
 		let aux = filter(m.ancillary ?? [], x => x.type == socket.PACKET_AUXDATA)[0]?.data;
 		let tagged = aux != null && (aux.status & 0x10) != 0;   // TP_STATUS_VLAN_VALID
 		if (wire.tagged ? tagged && (aux.vlan_tci & 0xfff) == wire.vlan : !tagged)
@@ -647,24 +653,30 @@ function wire_rx() {
 // wire_wait reads what comes in for up to secs, and gives the first thing
 // got makes of a frame. All the while it answers ARP for the address the
 // test was given, so that what answers the test can find it.
+//
+// However fast frames come, it looks at the time between them, and it
+// answers ARP no more than a few times in a wait: a storm of requests does
+// not keep it, nor make it one.
 function wire_wait(secs, got) {
-	let until = now() + within(secs);
+	let until = now() + within(secs), answered = 0;
 	for (;;) {
-		let f;
-		while ((f = wire_rx()) != null) {
+		let f = wire_rx();
+		if (f != null) {
 			let a = wire.held ? wt.arp_answer(f, wire.src, wire.held) : null;
 			if (a) {
-				wire_tx(a);
-				continue;
+				if (answered++ < WIRE_ANSWERS)
+					wire_tx(a);
+			} else {
+				let r = got(f);
+				if (r != null)
+					return r;
 			}
-			let r = got(f);
-			if (r != null)
-				return r;
 		}
 		let left = until - now();
 		if (left <= 0)
 			return null;
-		socket.poll(int(left * 1000) + 1, [wire.sock, socket.POLLIN]);
+		if (f == null)
+			socket.poll(min(int(left * 1000) + 1, 250), [wire.sock, socket.POLLIN]);
 	}
 }
 

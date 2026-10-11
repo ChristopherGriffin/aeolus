@@ -666,7 +666,10 @@ func runOf(r testRecord) assuranceRun {
 		out.DHCPMS = d.DHCP.MS
 	}
 	if d.Gateway != nil {
-		out.GatewayMS = d.Gateway.Avg
+		// Its pings, or over the wire (0128) its ARP answer.
+		if out.GatewayMS = d.Gateway.Avg; out.GatewayMS == nil {
+			out.GatewayMS = d.Gateway.ARPMS
+		}
 	}
 	if d.DNS != nil {
 		out.DNSMS = d.DNS.MS

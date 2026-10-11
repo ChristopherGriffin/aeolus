@@ -65,7 +65,7 @@
 - **The AP has no scan radio for half a minute each time,** two or three where airscan must be stopped (0121): radio resource management hears nothing new for that long.
 - **A test on a DFS channel costs the scan radio a driver restart** each time (0121).
 - **Each test is a client on the network:** a DHCP lease, a line in the client history of the AP it joined (0118), under the scan radio's own MAC and the name `aeolus-test`.
-- **Only what an AP with a scan radio can reach is tested.** A site with none has an empty tab, which says so.
+- **Only what an AP with a scan radio can reach is tested.** A site with none has an empty tab, which says so. Since then a site with none has what its clients themselves found (0127), and any AP can test a network over the wire (0128), on a schedule or in a round asked by hand (0129).
 - **A network that signs clients in by 802.1X is tested once it has a test user** (0124), and left out until then.
 
 ## Tried
