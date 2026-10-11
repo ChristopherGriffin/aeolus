@@ -9,7 +9,7 @@ import { get } from '../api.js';
 import { size } from '../format.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
-const W = 480, H = 120, TOP = 8, BOTTOM = 18;
+const W = 480, H = 106, TOP = 8, BOTTOM = 4;
 
 function svg(tag, attrs, ...kids) {
 	const el = document.createElementNS(SVG, tag);

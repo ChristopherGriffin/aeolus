@@ -180,8 +180,16 @@ table.testers td { padding: 7px 20px 7px 0; }
 table.testers td:first-child { padding-left: 20px; font-weight: 600; width: 190px; }
 .roundline { padding: 0 20px 12px; margin: 0; }
 /* An AP's state in a line; and the two halves of what is seldom asked. */
-.status .grow { flex: 1; }
-.status .detail { white-space: nowrap; }
+.status { flex-wrap: wrap; row-gap: 6px; }
+.status .grow { flex: 1 1 240px; }
+/* A report from a while ago: its tiles are paler, and say when. */
+.tilesnote { margin: 0 0 6px; }
+.tiles.stale .tile { opacity: 0.6; }
+.tile .tbig { white-space: nowrap; }
+.tile .tsub { overflow-wrap: anywhere; }
+/* A list whose last cell may run long, as what came of an action. */
+table.list.wraps td { white-space: normal; overflow-wrap: anywhere; }
+table.list.wraps .chip { white-space: normal; height: auto; }
 .grid2.inpanel { padding: 0 0 12px; margin: 0; }
 /* A panel that is a log: closed until asked for. */
 details.logpanel > summary { list-style: none; cursor: pointer; display: flex; padding: 0; }
@@ -260,7 +268,7 @@ td.nowrap { white-space: nowrap; }
 /* Editing (M6 part 2) */
 .controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 select { height: 34px; padding: 0 8px; border: 1px solid #C9CEC6; border-radius: 8px; background: var(--panel); font: inherit; font-size: 14px; color: var(--ink); }
-nav.pagetabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 4px 0 16px; }
+nav.pagetabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: 4px 0 16px; }
 nav.pagetabs a { padding: 10px 16px; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 nav.pagetabs a:hover { text-decoration: none; color: var(--ink); }
 nav.pagetabs a.on { color: var(--ink); border-bottom-color: var(--accent); }
@@ -346,6 +354,7 @@ div.field.start input[type=number] { height: 34px; width: 110px; padding: 0 10px
 .usage .clients { fill: none; stroke: var(--warn); stroke-width: 1.5; }
 .usage .base { stroke: var(--line-2); }
 .usagekey { padding: 0 20px 6px; }
+.usage .axis { font-size: 10px; fill: var(--ink-2); }
 .usageaxis { display: flex; justify-content: space-between; padding: 2px 20px 8px; font-size: 12px; color: var(--muted); }
 /* An AP's connectivity strip (0108): a cell a bucket. */
 .strip svg { vertical-align: middle; }
