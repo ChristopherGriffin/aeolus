@@ -42,7 +42,8 @@ export async function networksTab(ctx, id, page) {
 	const [d, at, reports, relayed] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || []),
 		org ? get('/v1/dhcp/relayed').catch(() => null) : null]);
 	const lib = tunnelsAt(page.fields);
-	const bandsHere = new Set((page.hardware?.bands || []).map((b) => b.band));
+	// The bands some AP here has a radio for: one a folder only offers ahead of its APs is not here yet.
+	const bandsHere = new Set((page.hardware?.bands || []).filter((b) => !b.ahead).map((b) => b.band));
 	const writable = at.folders.filter((f) => f.canEdit);
 	const addBox = h('div', { class: 'edit flush' });
 	// The APs that say they have no usteer, which would refuse band steering.
