@@ -94,7 +94,7 @@ func TestAssuranceRound(t *testing.T) {
 	}
 	var p clientTestAsk
 	json.Unmarshal(got[0].Params, &p)
-	if p.Network != "sweet" || p.Band != "wire" || p.On != plain[0] {
+	if p.Network != "sweet" || p.Band != "wire" || p.On != plain[0] || !p.Round {
 		t.Fatalf("asked for %s", got[0].Params)
 	}
 	if again := f.api.assure(f.now()); len(again) != 0 {
@@ -260,7 +260,7 @@ func TestAssuranceRoundBesideASchedule(t *testing.T) {
 	*f.skew = 16 * time.Minute
 	say()
 	turn := f.api.assure(f.now())
-	if len(turn) != 1 || turn[0].AP != scanner[0] {
+	if len(turn) != 1 || turn[0].AP != scanner[0] || strings.Contains(string(turn[0].Params), "round") {
 		t.Fatalf("the schedule, held up by a round: %v", turn)
 	}
 	// That test is open, and is the schedule's: the round has what it had.

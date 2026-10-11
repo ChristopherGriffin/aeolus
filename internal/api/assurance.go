@@ -454,7 +454,9 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 					due = append(due, c)
 				}
 			}
-			ask, next = pick(due)
+			if ask, next = pick(due); next != nil {
+				ask.Round = true
+			}
 		}
 		// Nothing of a round to ask, or nothing of it that can be asked
 		// now: the schedule's turn, which a round does not hold up. On the

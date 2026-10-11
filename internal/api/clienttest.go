@@ -36,6 +36,9 @@ type clientTestAsk struct {
 	Speed   string   `json:"speed,omitempty"`
 	EAP     *testEAP `json:"eap,omitempty"`
 	AP      string   `json:"ap,omitempty"`
+	// Round says the manager asked it for a round asked by hand (0129),
+	// not in its turn on a schedule: for whoever reads it back.
+	Round bool `json:"round,omitempty"`
 }
 
 // wireBand is what a test over the wire has for a band (0128): not through

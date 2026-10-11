@@ -174,7 +174,7 @@ export function testLine(a, name, from) {
 			h('span', { class: 'when', title: when(a.at) }, ago(a.at)),
 			h('span', { class: 'who' }, p.ssid || p.network || 'a network'),
 			h('span', { class: 'grow sub' }, [p.band === WIRE ? `from ${on}` : `on ${on}`, p.band && bandName(p.band), from && p.on !== a.ap && `from ${name(a.ap)}`,
-				a.actor === 'aeolus' ? 'on the schedule' : `asked by ${a.actor}`,
+				a.actor === 'aeolus' ? (p.round ? 'in a round asked by hand' : 'on the schedule') : `asked by ${a.actor}`,
 				a.detail?.outcome === 'failed' && a.detail.reason].filter(Boolean).join(' · ')),
 			chip(a)),
 		opened(a));
@@ -267,11 +267,28 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 			box.replaceChildren(h('div', { class: 'error' }, err.message));
 		}
 	});
+	// A round of this AP alone (0129): every thing it can test, once, now.
+	const all = h('button', { type: 'button', class: 'button', disabled: busy,
+		title: 'This AP tests each thing it can once, now, one after another: through the air where it has a scan radio, and each of its networks over the wire' },
+	'Test everything now');
+	all.addEventListener('click', async () => {
+		all.disabled = true;
+		box.replaceChildren();
+		try {
+			const r = await post('/v1/assurance/round', { under: id });
+			flash(`A round asked of ${page.node.name}: ${r.things} thing${r.things === 1 ? '' : 's'} to test, one at a time from its next poll.`, 60);
+			hurry(600);
+			redrawNow();
+		} catch (err) {
+			all.disabled = false;
+			box.replaceChildren(h('div', { class: 'error' }, err.message));
+		}
+	});
 	const form = canAct && (nets.length
 		? h('div', { class: 'testform', 'data-editing': 'false' },
 			h('div', { class: 'row' }, h('div', { class: 'label' }, 'Test'), h('div', { class: 'value' }, net, where, bandSeg)),
 			how,
-			h('div', { class: 'actions' }, run))
+			h('div', { class: 'actions' }, run, ' ', all))
 		: h('p', { class: 'sub' }, 'This AP offers no network to test.'));
 
 	return h('section', { class: 'panel' },
