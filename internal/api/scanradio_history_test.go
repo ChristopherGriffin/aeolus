@@ -88,9 +88,29 @@ func TestScanRadioHistory(t *testing.T) {
 		{map[string]any{"state": "waiting"}, "its scan radio is not there for airscan to use"},
 		{map[string]any{"state": "lent"}, ""},
 		{hears(0, 0), ""},
-		// The driver bound, and the radio gone after: both are said.
+		// The driver bound, and the radio gone after: both are said. And
+		// once it is back and has looked, that the bind brought it back.
 		{map[string]any{"state": "waiting", "heals": 1, "heal_failed": 0, "healed_ago": 30},
 			"its scan radio is not there for airscan to use\nits scan radio went deaf, and airscan bound its driver again; it has not looked since"},
+		{hears(1, 0), "its scan radio is there again\nairscan brought its scan radio back by binding its driver again"},
+		// A report between a bind and the look after it, and then one after
+		// a bind that worked: how it went is said either way.
+		{map[string]any{"state": "healing", "networks": 40, "looked_ago": 30, "heals": 2, "heal_failed": 0, "healed_ago": 5}, "its scan radio went deaf, and airscan bound its driver again; it has not looked since"},
+		{hears(2, 0), "airscan brought its scan radio back by binding its driver again"},
+		{hears(2, 0), ""},
+		// airscan gone while a test had its radio is said when it is seen.
+		{map[string]any{"state": "lent"}, ""},
+		{map[string]any{"state": "missing"}, "airscan, which runs its scan radio, stopped answering"},
+		{map[string]any{"state": "missing"}, ""},
+		// An airscan that lends its radio is answering.
+		{map[string]any{"state": "lent", "networks": 40, "looked_ago": 20, "heals": 0, "heal_failed": 0}, "airscan answers again"},
+		{hears(0, 0), ""},
+		// A bind that did not help; the radio back another way, as by a
+		// test's bind, with airscan's count as it was; and a later bind
+		// that does not help either is said again.
+		{deaf(1, 1), "its scan radio went deaf, and binding its driver again has not brought it back"},
+		{map[string]any{"state": "clients", "networks": 40, "looked_ago": 5, "heals": 1, "heal_failed": 1, "healed_ago": 300}, "its scan radio hears again"},
+		{deaf(2, 2), "its scan radio went deaf, and binding its driver again has not brought it back"},
 	}
 	for i, s := range steps {
 		before := history()

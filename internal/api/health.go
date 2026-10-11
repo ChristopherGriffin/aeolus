@@ -132,8 +132,11 @@ func span(d time.Duration) string {
 //
 // airscan counts a bind as it makes it, and says whether it helped only
 // after its next look, half a minute later: a report between the two says
-// the driver was bound and no more, and the one after says how it went. A
-// radio a client test has (lent) is the test's doing, and no event.
+// the driver was bound and no more, and the one after says how it went,
+// either way. Its count of binds that did not help stays as it was until a
+// bind of its own helps, though the radio came back another way, as by a
+// client test's bind: the radio is deaf still only while its latest look
+// also heard nothing.
 func scanRadioChanges(old, cur *scanRadioState, at func(kind, format string, args ...any) conditions.APEvent) []conditions.APEvent {
 	if old == nil || cur == nil {
 		return nil
@@ -146,39 +149,52 @@ func scanRadioChanges(old, cur *scanRadioState, at func(kind, format string, arg
 	}
 	var out []conditions.APEvent
 	say := func(format string, args ...any) { out = append(out, at("scan-radio", format, args...)) }
+	// It has looked since it last bound the driver.
+	looked := func(r *scanRadioState) bool {
+		return r.LookedAgo != nil && r.HealedAgo != nil && *r.LookedAgo < *r.HealedAgo
+	}
+	// A bind did not help, and it hears nothing still.
+	deaf := func(r *scanRadioState) bool { return n(r.HealFailed) > 0 && n(r.Networks) == 0 }
 	// airscan counts from when it started: a count that fell is another
-	// airscan's, and says nothing of what happened in between, nor does
-	// its count of failures, which starts again with it.
+	// airscan's, and says nothing of what happened in between.
 	same := old.Heals != nil && cur.Heals != nil && *cur.Heals >= *old.Heals
 	more := 0
 	if same {
 		more = *cur.Heals - *old.Heals
 	}
-	// It hears, and has looked since it last bound the driver.
-	back := n(cur.HealFailed) == 0 && n(cur.Networks) > 0 && cur.LookedAgo != nil && cur.HealedAgo != nil && *cur.LookedAgo < *cur.HealedAgo
-	failing, failed := n(old.HealFailed) > 0, n(cur.HealFailed) > 0
+	back := n(cur.HealFailed) == 0 && n(cur.Networks) > 0 && looked(cur)
 	times := ""
 	if more > 1 {
 		times = fmt.Sprintf(" %d times", more)
 	}
 	switch {
 	case !same:
-	case failing && failed:
+	case deaf(old) && deaf(cur):
 		// Still deaf, and each try that does not help is no news.
-	case failing && cur.HealFailed != nil:
+	case deaf(old) && n(cur.Networks) > 0:
 		say("its scan radio hears again")
-	case more > 0 && failed:
+	case deaf(old):
+	case more > 0 && deaf(cur):
 		say("its scan radio went deaf%s, and binding its driver again has not brought it back", times)
 	case more > 0 && back && more == 1:
 		say("its scan radio went deaf, and airscan brought it back by binding its driver again")
 	case more > 0 && back:
 		say("its scan radio went deaf%s, and airscan brought it back each time by binding its driver again", times)
+	case more > 0 && looked(cur):
+		say("its scan radio went deaf%s, and airscan bound its driver again", times)
 	case more > 0:
 		say("its scan radio went deaf%s, and airscan bound its driver again; it has not looked since", times)
-	case failed:
+	case deaf(cur):
 		say("binding its scan radio's driver again did not bring it back")
+	case back && old.HealedAgo != nil && n(old.HealFailed) == 0 && !looked(old):
+		// The last report was between the bind and the look.
+		say("airscan brought its scan radio back by binding its driver again")
 	}
-	if old.State != "lent" && cur.State != "lent" {
+	// A radio a client test has, with airscan stopped for it (0121), says
+	// nothing of airscan or of the radio: only that state does, and no
+	// counts with it. One airscan lends is airscan answering, and the
+	// radio there.
+	if !(cur.State == "lent" && cur.Heals == nil) {
 		switch {
 		case old.State != "missing" && cur.State == "missing":
 			say("airscan, which runs its scan radio, stopped answering")
