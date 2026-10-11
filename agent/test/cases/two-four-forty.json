@@ -1,0 +1,21 @@
+{
+	"about": "2.4 GHz at 40 MHz on an automatic channel, kept to the channels that do not overlap (0117). At 40 MHz a channel takes the one four above it too, from 1 to 6, or four below from 7 up, so of 1 to 11 only one stands clear of the rest: channel 1, with 5. The list hostapd picks from is that one channel.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		}
+	},
+	"intent": {
+		"system": { "country": "US", "poll": 60 },
+		"radio": {
+			"2g": { "channel": "auto", "width": 40, "channels": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "non_overlapping": true },
+			"5g": { "channel": "auto" }
+		},
+		"network": {
+			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1", "transport": { "primary": { "type": "vlan", "vlan": 20 } } }
+		}
+	}
+}

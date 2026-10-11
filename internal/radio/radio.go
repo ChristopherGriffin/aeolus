@@ -230,13 +230,55 @@ func SixGHzEncryption(security string) (string, bool) {
 	return "", false
 }
 
+// Pair2G is the channel a 2.4 GHz channel is joined with at 40 MHz (0117):
+// the one four above for 1 to 6, the one four below from 7 up, as OpenWrt
+// joins a channel that is set, and as radio resource management moves to
+// one.
+func Pair2G(channel int) int {
+	if channel < 7 {
+		return channel + 4
+	}
+	return channel - 4
+}
+
+// usable2G is Usable on 2.4 GHz, whose channels overlap and come in no
+// blocks: the set itself, or with spread only those far enough apart not to
+// overlap, taken from the lowest. At 20 MHz that is five apart, as 1, 6 and
+// 11 are. At 40 MHz a channel takes its pair too, and two such are apart
+// when their middles are eight channels apart: 1 with 5, and 13 with 9.
+func usable2G(set []int, width int, spread bool) []int {
+	out := slices.Clone(set)
+	slices.Sort(out)
+	out = slices.Compact(out)
+	if !spread {
+		return out
+	}
+	// Twice the middle, to stay in whole numbers.
+	middle, gap := func(c int) int { return 2 * c }, 10
+	if width > 20 {
+		middle, gap = func(c int) int { return c + Pair2G(c) }, 16
+	}
+	var kept []int
+	for _, c := range out {
+		if len(kept) == 0 || middle(c)-middle(kept[len(kept)-1]) >= gap {
+			kept = append(kept, c)
+		}
+	}
+	return kept
+}
+
 // Usable is what an automatic channel on a band may be, the list hostapd is
 // given (0075, 0087): the channels of the set's whole blocks at the width,
 // outside radar where it is avoided; on 6 GHz, with psc, only preferred
 // scanning channels; and with spread, one channel to a block, each block
 // apart from the others, so radios on different channels never share one.
-// A spread block's channel is its first that may be used. Sorted.
+// A spread block's channel is its first that may be used. On 2.4 GHz, which
+// has no blocks, spread keeps the channels that do not overlap (0117).
+// Sorted.
 func Usable(band string, set []int, width int, avoidRadar, psc, spread bool) []int {
+	if band == "2g" {
+		return usable2G(set, width, spread)
+	}
 	whole := Whole(band, set, width, avoidRadar)
 	psc = psc && band == "6g" // preferred scanning channels are 6 GHz's
 	ok := func(c int) bool { return !psc || PSC(c) }

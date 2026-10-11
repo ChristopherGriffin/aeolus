@@ -131,6 +131,39 @@ func TestSixGHz(t *testing.T) {
 
 // Usable (0087): preferred scanning channels only, and one channel to a
 // block, so 160 MHz radios on different channels never share a block.
+// 2.4 GHz has no blocks (0117): the set as it is, or with spread the
+// channels of it that do not overlap at the width.
+func TestUsable2G(t *testing.T) {
+	all11 := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+	all13 := append(slices.Clone(all11), 12, 13)
+	for _, c := range []struct {
+		name   string
+		set    []int
+		width  int
+		spread bool
+		want   []int
+	}{
+		{"the set as it is", []int{11, 1, 6}, 20, false, []int{1, 6, 11}},
+		{"the set as it is, at 40", []int{1, 6, 11}, 40, false, []int{1, 6, 11}},
+		{"apart, at 20, of 1 to 11", all11, 20, true, []int{1, 6, 11}},
+		{"apart, at 20, of 1 to 13", all13, 20, true, []int{1, 6, 11}},
+		{"apart, at 20, of 3 4 8 9", []int{3, 4, 8, 9}, 20, true, []int{3, 8}},
+		{"apart, at 40, of 1 6 11", []int{1, 6, 11}, 40, true, []int{1}},
+		{"apart, at 40, of 1 to 11", all11, 40, true, []int{1}},
+		{"apart, at 40, of 1 to 13", all13, 40, true, []int{1, 13}},
+		{"apart, at 40, of 6 11 13", []int{6, 11, 13}, 40, true, []int{6}},
+	} {
+		if got := Usable("2g", c.set, c.width, false, false, c.spread); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	for c, want := range map[int]int{1: 5, 6: 10, 7: 3, 11: 7, 13: 9} {
+		if got := Pair2G(c); got != want {
+			t.Errorf("channel %d is joined with %d, want %d", c, got, want)
+		}
+	}
+}
+
 func TestUsable(t *testing.T) {
 	for _, c := range []struct {
 		name        string

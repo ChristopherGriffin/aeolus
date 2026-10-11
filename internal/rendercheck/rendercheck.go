@@ -321,19 +321,20 @@ func (k *checker) radios(doc map[string]any) []device {
 	return out
 }
 
-// auto2g are the channels an automatic 2.4 GHz radio picks from: the only
-// ones that do not overlap (0045).
-var auto2g = []string{"1", "6", "11"}
+// auto2g are the channels an automatic 2.4 GHz radio picks from where no
+// set is given: the three that do not overlap at 20 MHz (0045).
+var auto2g = []int{1, 6, 11}
 
 var htmodeRE = regexp.MustCompile(`^(NOHT|HT|VHT|HE|EHT)([0-9]*)$`)
 
 // autoChannels are the channels an automatic channel may be, as UCI lists
 // them (0075): the set's, at the radio's width, in whole blocks; unset, on
-// 2.4 GHz, 1, 6 and 11.
+// 2.4 GHz, 1, 6 and 11. On 6 GHz, and on 2.4 GHz, they may be kept to those
+// that do not overlap (0087, 0117).
 func autoChannels(r device, set map[string]any) []string {
 	list, ok := set["channels"].([]any)
 	psc := r.band == "6g" && set["psc"] == true // preferred scanning channels only (0087)
-	spread := r.band == "6g" && set["non_overlapping"] == true
+	spread := (r.band == "6g" || r.band == "2g") && set["non_overlapping"] == true
 	var chans []int
 	switch {
 	case ok:
@@ -342,10 +343,10 @@ func autoChannels(r device, set map[string]any) []string {
 				chans = append(chans, int(f))
 			}
 		}
+	case r.band == "2g":
+		chans = auto2g
 	case psc || spread:
 		chans = radio.Channels6
-	case r.band == "2g":
-		return auto2g
 	default:
 		return nil
 	}

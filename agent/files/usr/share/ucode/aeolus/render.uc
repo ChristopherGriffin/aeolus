@@ -211,12 +211,36 @@ function whole(band, set, width) {
 	return map(sort(out, (a, b) => a - b), c => '' + c);
 }
 
+// pair2g is the channel a 2.4 GHz channel is joined with at 40 MHz (0117):
+// four above for 1 to 6, four below from 7 up, as OpenWrt joins a set one.
+function pair2g(c) {
+	return c < 7 ? c + 4 : c - 4;
+}
+
+// usable2g is usable on 2.4 GHz, which has no blocks: the set, or with
+// spread the channels of it that do not overlap at the width, from the
+// lowest: five apart at 20 MHz; at 40 MHz, their middles eight apart.
+function usable2g(set, width, spread) {
+	let list = uniq(sort(map(set, c => +c), (a, b) => a - b));
+	if (!spread)
+		return map(list, c => '' + c);
+	// Twice the middle, to stay in whole numbers.
+	let middle = c => width > 20 ? c + pair2g(c) : 2 * c, gap = width > 20 ? 16 : 10;
+	let out = [];
+	for (let c in list)
+		if (!length(out) || middle(c) - middle(out[length(out) - 1]) >= gap)
+			push(out, c);
+	return map(out, c => '' + c);
+}
+
 // usable is what an automatic channel may be, as internal/radio's Usable
 // has it (0075, 0087): the set's whole blocks at the width; on 6 GHz, with
 // only_psc, preferred scanning channels alone; and with spread, one channel
 // to a block, the blocks apart, so radios on different channels never share
 // one. As strings for UCI.
 function usable(band, set, width, only_psc, spread) {
+	if (band == '2g')
+		return usable2g(set, width, spread);
 	let list = map(whole(band, set, width), c => +c);
 	only_psc = only_psc && band == '6g';
 	let ok = c => !only_psc || psc(c);
@@ -297,12 +321,13 @@ function radios(w, intent, facts) {
 			// width; unset, on 2.4 GHz, one of 1, 6 and 11, the only ones that
 			// do not overlap (0045).
 			// On 6 GHz, it may be kept to preferred scanning channels, and to
-			// one channel a block (0087).
+			// one channel a block (0087); on 2.4 GHz, to the channels that
+			// do not overlap at the width (0117).
 			let width = int(match(s.htmode ?? '', /([0-9]+)$/)?.[1] ?? 20);
 			let only_psc = s.band == '6g' && set.psc === true;
-			let spread = s.band == '6g' && set.non_overlapping === true;
-			let base = set.channels ?? (only_psc || spread ? CHANNELS6 : null);
-			let list = set.channel != 'auto' ? [] : base ? usable(s.band, base, width, only_psc, spread) : s.band == '2g' ? ['1', '6', '11'] : [];
+			let spread = s.band in ['6g', '2g'] && set.non_overlapping === true;
+			let base = set.channels ?? (s.band == '2g' ? [1, 6, 11] : only_psc || spread ? CHANNELS6 : null);
+			let list = set.channel != 'auto' || !base ? [] : usable(s.band, base, width, only_psc, spread);
 			if (length(list))
 				s.channels = list;
 			else
