@@ -83,9 +83,9 @@ type kindPort struct {
 }
 
 // kinds are the kinds of AP the Org has, by the boards its APs said they
-// are when they enrolled, each with the ports one of them last reported.
-// At most three APs of a board are asked: where none of those has reported
-// its ports, the kind has none to show yet.
+// are when they enrolled, each with the ports one of them last reported:
+// the first of its APs, by ID, that has reported any. Where none has, the
+// kind has no ports to show yet.
 func (s *Server) kinds(state *change.State) ([]kindView, error) {
 	by := map[string][]hierarchy.NodeID{}
 	for id := range state.Facts {
@@ -104,7 +104,7 @@ func (s *Server) kinds(state *change.State) ([]kindView, error) {
 				break
 			}
 		}
-		for _, id := range aps[:min(len(aps), 3)] {
+		for _, id := range aps {
 			l, err := s.conds.Latest(id)
 			if err != nil {
 				return nil, err

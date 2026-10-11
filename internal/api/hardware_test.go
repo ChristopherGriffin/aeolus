@@ -373,8 +373,10 @@ func TestAnEmptyFolderHasTheOrgsKinds(t *testing.T) {
 		map[string]any{"name": "eth0", "up": true, "carrier": true, "uplink": true},
 		map[string]any{"name": "eth1", "up": true, "carrier": false},
 	})
-	// Two of another kind: the first has reported no ports, the second has.
-	enroll("Quiet", "02:00:00:00:00:1b", "netgear,r7800", "Netgear R7800", nil)
+	// Several of another kind: only the last, by ID, has reported its ports.
+	for i, mac := range []string{"02:00:00:00:00:14", "02:00:00:00:00:15", "02:00:00:00:00:16", "02:00:00:00:00:1b"} {
+		enroll(fmt.Sprintf("Quiet%d", i), mac, "netgear,r7800", "Netgear R7800", nil)
+	}
 	enroll("Loud", "02:00:00:00:00:1c", "netgear,r7800", "Netgear R7800", []any{
 		map[string]any{"name": "wan", "up": true, "carrier": true, "uplink": true},
 		map[string]any{"name": "lan1", "up": true, "carrier": false},
