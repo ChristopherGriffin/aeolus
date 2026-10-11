@@ -170,6 +170,12 @@ func For(in Input) []Alert {
 	// A network that failed its last two client tests here (0123): tried as
 	// a client would, it does not work, whatever the AP says of itself.
 	for _, t := range in.Tests {
+		// Over the wire (0128): no radio had a part in it.
+		if t.Band == "wire" {
+			add(Warning, "client-test", fmt.Sprintf("%s does not work here over the wire, tried from this AP's uplink as a client would: it failed at %s: %s", t.SSID, t.Stage, t.Reason), t.Since)
+			out[len(out)-1].Key = fmt.Sprintf("client-test:%s:%s:%s", t.Network, t.Band, t.Tester)
+			continue
+		}
 		from := "from " + t.Tester
 		if t.Itself {
 			from = "from its own scan radio"

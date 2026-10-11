@@ -94,7 +94,7 @@
     },
     "assurance": {
       "x-aeolus-tree": "locations",
-      "description": "Service assurance (0123): the service tried from a client's side on a schedule, by the APs here that have a scan radio. The manager's own, never sent to APs.",
+      "description": "Service assurance (0123): the service tried from a client's side on a schedule, by the APs here that have a scan radio, and over the wire by any AP (0128). The manager's own, never sent to APs.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -103,7 +103,8 @@
           "additionalProperties": false,
           "properties": {
             "every": { "type": "integer", "enum": [0, 15, 30, 60, 180, 360, 720, 1440], "description": "How often, in minutes, an AP with a scan radio is asked for a client test (0121): each time another of its networks, on itself or on an AP it hears well, on one band. Unset or 0, none is asked on a schedule; 0 says so below a folder that sets one." },
-            "speed": { "type": "boolean", "default": false, "description": "On, a test on a schedule measures speed too, against the speed server, where one is set. Off, it stops at DNS: a speed measurement fills the air for ten seconds." }
+            "speed": { "type": "boolean", "default": false, "description": "On, a test on a schedule measures speed too, against the speed server, where one is set. Off, it stops at DNS: a speed measurement fills the air for ten seconds." },
+            "wire": { "type": "boolean", "default": false, "description": "On, every AP here is asked for tests over the wire too (0128), a scan radio or none: each of its networks in turn, from its own uplink, on the network's VLAN or into its tunnel: an address by DHCP, the gateway, a name looked up. It joins nothing and uses no radio." }
           }
         }
       }

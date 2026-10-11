@@ -16,7 +16,7 @@ import { testChip, testLine, testOpened } from './clienttest.js';
 
 // What the tab sets: how often, with speed or without, and the server a
 // speed is measured against, which is the APs' own setting (0121).
-const FIELDS = ['assurance.tests.every', 'assurance.tests.speed', 'system.speed_server'];
+const FIELDS = ['assurance.tests.every', 'assurance.tests.speed', 'assurance.tests.wire', 'system.speed_server'];
 const SECTIONS = [['Client tests on a schedule', FIELDS]];
 
 // The checks opened, by what they are of, so a redraw keeps them open.
@@ -28,10 +28,13 @@ function round(t) {
 	return m < 120 ? `${m} minutes` : m < 2880 ? `${Math.round(m / 60)} hours` : `${Math.round(m / 1440)} days`;
 }
 
+// tester says what an AP that tests is asked for: through the air, with its
+// scan radio; over the wire (0128), from its uplink; or both.
 function tester(t) {
-	if (!t.things) return `${t.name} has a scan radio, and offers no network a test can join.`;
-	if (!t.every) return `${t.name} has a scan radio, and is not asked for tests on a schedule. It could test ${t.things} thing${t.things === 1 ? '' : 's'} in turn.`;
-	return `${t.name} is asked for one ${value('assurance.tests.every', t.every)}${t.speed ? ', with speed' : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
+	const how = t.air && t.wire ? 'has a scan radio, and tests over the wire too' : t.wire ? 'tests over the wire, from its uplink' : 'has a scan radio';
+	if (!t.things) return `${t.name} ${how}, and offers no network a test can try.`;
+	if (!t.every) return `${t.name} ${how}, and is not asked for tests on a schedule. It could test ${t.things} thing${t.things === 1 ? '' : 's'} in turn.`;
+	return `${t.name} ${how}. It is asked for one test ${value('assurance.tests.every', t.every)}${t.speed && t.air ? ', with speed through the air' : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
 }
 
 const secs = (ms) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
@@ -155,10 +158,10 @@ export async function assuranceTab(ctx, here, page, edit) {
 		joins.length > 0 && h('p', { class: 'sub' }, 'Each client’s attempts, step by step, are under Clients, Everyone seen.')));
 
 	out.push(h('section', { class: 'panel' },
-		h('h2', null, 'Client tests on a schedule', h('span', { class: 'note' }, 'an AP with a scan radio joins its networks as a client would, in turn, and says how each step went')),
+		h('h2', null, 'Client tests on a schedule', h('span', { class: 'note' }, 'an AP with a scan radio joins its networks as a client would, in turn, and says how each step went; over the wire, any AP asks each for an address, its gateway and a name')),
 		testers.length
 			? h('ul', { class: 'plain' }, testers.map((t) => h('li', null, tester(t))))
-			: h('div', { class: 'banner info' }, 'No AP here has a scan radio, so none can test from a client’s side. A schedule set here waits for one.'),
+			: h('div', { class: 'banner info' }, 'No AP here has a scan radio to test through the air with, and none is asked for tests over the wire, which any AP can make: switch “Over the wire too” on in the schedule.'),
 		edit && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, page.fields, box,
 				{ sections: SECTIONS, heading: 'Edit the schedule', what: 'Client tests' }) }, 'Edit the schedule')),

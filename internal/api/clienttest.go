@@ -23,6 +23,10 @@ import (
 // hears; a band, or none for any; and an OpenSpeedTest server to measure
 // against, where one is set (system.speed_server). Network and On say what
 // was asked, for whoever reads it back; the AP does not read them.
+//
+// A test over the wire (0128) has wire for its band: it joins nothing, so
+// it has no BSSIDs, no user and no speed, and On is the AP itself. AP is
+// that AP's ID, which the MAC it tests from is made of.
 type clientTestAsk struct {
 	Network string   `json:"network"`
 	On      string   `json:"on,omitempty"`
@@ -31,6 +35,52 @@ type clientTestAsk struct {
 	Band    string   `json:"band,omitempty"`
 	Speed   string   `json:"speed,omitempty"`
 	EAP     *testEAP `json:"eap,omitempty"`
+	AP      string   `json:"ap,omitempty"`
+}
+
+// wireBand is what a test over the wire has for a band (0128): not through
+// the air at all, but from the AP's own uplink, on the network's VLAN or
+// into its tunnel.
+const wireBand = "wire"
+
+// wireTests says whether an AP's agent can test over the wire, as its
+// latest report says (0128).
+func (s *Server) wireTests(ap hierarchy.NodeID) bool {
+	st, err := s.conds.LatestState(ap)
+	if err != nil || st == nil {
+		return false
+	}
+	var rep struct {
+		WireTests bool `json:"wire_tests"`
+	}
+	return json.Unmarshal(st.Report, &rep) == nil && rep.WireTests
+}
+
+// wireTestOf makes what an AP is told to test over the wire: one of the
+// networks it offers, from itself. Any AP whose agent can, a scan radio or
+// none; and any network, however it is secured, as the test joins nothing.
+func (s *Server) wireTestOf(state *change.State, ap hierarchy.NodeID, network, on string) (clientTestAsk, error) {
+	var ask clientTestAsk
+	if on != "" && on != string(ap) {
+		return ask, badRequest("on: a test over the wire is made from the AP itself, and joins no other")
+	}
+	if !s.wireTests(ap) {
+		return ask, badRequest("this AP's agent has not said it can test over the wire: it is older than that, or has not reported yet")
+	}
+	res, err := s.compose(state, ap, s.reveal)
+	if err != nil {
+		return ask, err
+	}
+	if res.Unassigned {
+		return ask, badRequest("this AP is in no folder yet, and offers no network to test")
+	}
+	nets, _ := res.Doc["network"].(map[string]any)
+	n, ok := nets[network].(map[string]any)
+	if !ok {
+		return ask, badRequest("network: one of the networks this AP offers")
+	}
+	ssid, _ := n["ssid"].(string)
+	return clientTestAsk{Network: network, On: string(ap), SSID: ssid, Band: wireBand, AP: string(ap)}, nil
 }
 
 // testEAP is the user a test signs in as, on a network that signs clients
@@ -186,6 +236,9 @@ func (s *Server) clientTestFor(c call, ap hierarchy.NodeID, network, on, band st
 func (s *Server) clientTestOf(state *change.State, ap hierarchy.NodeID, network, on, band string, speed bool, may func(hierarchy.NodeID) bool) (clientTestAsk, error) {
 	var ask clientTestAsk
 	t := state.Org.Locations
+	if band == wireBand {
+		return s.wireTestOf(state, ap, network, on)
+	}
 	if !scanRadio(state, ap) {
 		return ask, badRequest("a client test needs an AP with a scan radio, and this one has not said it has one")
 	}
@@ -206,7 +259,7 @@ func (s *Server) clientTestOf(state *change.State, ap hierarchy.NodeID, network,
 		return ask, badRequest("network %s %s", network, why)
 	}
 	if band != "" && !bands[band] {
-		return ask, badRequest("band: 2g, 5g or 6g, or none for any")
+		return ask, badRequest("band: 2g, 5g or 6g, none for any, or wire for a test over the wire")
 	}
 	ask = clientTestAsk{Network: network, On: on, SSID: ssid, Band: band}
 	ask.EAP, _ = testUser(state, ap, network)
@@ -273,6 +326,17 @@ type clientTest struct {
 	DNS       *testDNS      `json:"dns,omitempty"`
 	Speed     *testSpeed    `json:"speed,omitempty"`
 	ScanRadio *testScanning `json:"scan_radio,omitempty"`
+	Wire      *testWire     `json:"wire,omitempty"`
+}
+
+// testWire is where a test over the wire was made (0128): the device, the
+// uplink's port or a tunnel's own; the VLAN, and whether the port carries
+// it tagged; or the tunnel's VNI.
+type testWire struct {
+	Device string `json:"device"`
+	VLAN   int    `json:"vlan,omitempty"`
+	Tagged *bool  `json:"tagged,omitempty"`
+	VNI    *int   `json:"vni,omitempty"`
 }
 
 type testHeard struct {
@@ -318,8 +382,9 @@ type testPing struct {
 	Min     *float64 `json:"min"`
 	Avg     *float64 `json:"avg"`
 	Max     *float64 `json:"max"`
-	ARP     *bool    `json:"arp,omitempty"` // whether it answered ARP; absent where the test did not look
-	MAC     string   `json:"mac,omitempty"` // its MAC, where it did: it is there, though it answer no ping
+	ARP     *bool    `json:"arp,omitempty"`    // whether it answered ARP; absent where the test did not look
+	MAC     string   `json:"mac,omitempty"`    // its MAC, where it did: it is there, though it answer no ping
+	ARPMS   *float64 `json:"arp_ms,omitempty"` // how long its ARP answer took, where the test timed it (0128)
 }
 
 type testDNS struct {
@@ -365,7 +430,7 @@ func (t *clientTest) check() error {
 		return bad("an outcome, passed or failed, and the stage it stopped at")
 	}
 	if !words(t.Reason, 200) || !words(t.Summary, 300) || len(t.SSID) > 32 || !printable(t.SSID) ||
-		(t.Band != "" && !bands[t.Band]) || (t.BSSID != "" && !macRE.MatchString(t.BSSID)) || (t.Client != "" && !macRE.MatchString(t.Client)) ||
+		(t.Band != "" && t.Band != wireBand && !bands[t.Band]) || (t.BSSID != "" && !macRE.MatchString(t.BSSID)) || (t.Client != "" && !macRE.MatchString(t.Client)) ||
 		t.Channel < 0 || t.Channel > 233 || !span(t.WaitedMS) || !span(t.JoinedMS) || !span(t.TookMS) {
 		return bad("its network, where it joined it, its reason and its times")
 	}
@@ -395,7 +460,7 @@ func (t *clientTest) check() error {
 			}
 		}
 	}
-	if g := t.Gateway; g != nil && (!ip(g.Address) || g.Sent < 0 || g.Sent > 100 || g.Got < 0 || g.Got > g.Sent || !millis(g.Min) || !millis(g.Avg) || !millis(g.Max) ||
+	if g := t.Gateway; g != nil && (!ip(g.Address) || g.Sent < 0 || g.Sent > 100 || g.Got < 0 || g.Got > g.Sent || !millis(g.Min) || !millis(g.Avg) || !millis(g.Max) || !millis(g.ARPMS) ||
 		(g.MAC != "" && !macRE.MatchString(g.MAC))) {
 		return bad("a gateway is its address, the pings sent and answered, their times in ms, and its MAC where it answered ARP")
 	}
@@ -405,6 +470,9 @@ func (t *clientTest) check() error {
 	}
 	if sp := t.Speed; sp != nil && (!words(sp.Server, 280) || !speed(sp.Down) || !speed(sp.Up) || !words(sp.Error, 120)) {
 		return bad("a speed is the server and Mbit/s down and up, or why not")
+	}
+	if w := t.Wire; w != nil && (w.Device == "" || !words(w.Device, 15) || w.VLAN < 0 || w.VLAN > 4094 || (w.VNI != nil && (*w.VNI < 0 || *w.VNI > 16777215))) {
+		return bad("a wire is its device, and the VLAN or the VNI it carries")
 	}
 	if r := t.ScanRadio; r != nil && (r.Before < 0 || r.Before > 100_000 || r.After < 0 || r.After > 100_000 ||
 		(r.Again != nil && (*r.Again < 0 || *r.Again > 100_000))) {

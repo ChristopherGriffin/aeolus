@@ -83,13 +83,13 @@ func (r testRecord) failed() bool { return r.ran() && r.detail.Outcome != "passe
 func (r testRecord) open() bool { return r.State == "pending" || r.State == "running" }
 
 // assureSettings are an AP's, from its folders: how often it is asked for
-// a test, none for never, and whether a test on a schedule measures speed.
-func assureSettings(state *change.State, ap hierarchy.NodeID) (time.Duration, bool) {
+// a test, none for never; whether a test on a schedule measures speed; and
+// whether its networks are tested over the wire too (0128).
+func assureSettings(state *change.State, ap hierarchy.NodeID) (every time.Duration, speed, wire bool) {
 	cfg, err := state.Org.ResolveAP(ap)
 	if err != nil || cfg.Unassigned {
-		return 0, false
+		return 0, false, false
 	}
-	var every time.Duration
 	if r, ok := cfg.Location["assurance.tests.every"]; ok {
 		switch v := r.Value.(type) {
 		case float64:
@@ -102,18 +102,62 @@ func assureSettings(state *change.State, ap hierarchy.NodeID) (time.Duration, bo
 			}
 		}
 	}
-	speed := false
 	if r, ok := cfg.Location["assurance.tests.speed"]; ok {
 		speed, _ = r.Value.(bool)
 	}
-	return every, speed
+	if r, ok := cfg.Location["assurance.tests.wire"]; ok {
+		wire, _ = r.Value.(bool)
+	}
+	return every, speed, wire
 }
 
-// assureCombos are what an AP with a scan radio tests, in the order it
-// takes them: each network it offers that a test can join, on itself and
+// tester says whether an AP can be asked for client tests on a schedule:
+// it has a scan radio to test through the air with (0121), or its folders
+// ask for tests over the wire and its agent can make them (0128).
+func (s *Server) tester(state *change.State, ap hierarchy.NodeID) bool {
+	if scanRadio(state, ap) {
+		return true
+	}
+	_, _, wire := assureSettings(state, ap)
+	return wire && s.wireTests(ap)
+}
+
+// assureCombos are what an AP tests, in the order it takes them. One with
+// a scan radio: each network it offers that a test can join, on itself and
 // on each AP it hears well enough that offers it too, on each band the
-// network is on there.
+// network is on there. One whose folders ask for tests over the wire, and
+// whose agent can make them (0128): each network it offers, over the wire,
+// after those.
 func (s *Server) assureCombos(state *change.State, ap hierarchy.NodeID, docs map[hierarchy.NodeID]map[string]any) []assureCombo {
+	var out []assureCombo
+	if scanRadio(state, ap) {
+		out = s.airCombos(state, ap, docs)
+	}
+	if _, _, wire := assureSettings(state, ap); wire && s.wireTests(ap) {
+		if _, ok := docs[ap]; !ok {
+			var nets map[string]any
+			if res, err := s.compose(state, ap, s.reveal); err == nil && !res.Unassigned {
+				nets, _ = res.Doc["network"].(map[string]any)
+			}
+			docs[ap] = nets
+		}
+		ids := make([]string, 0, len(docs[ap]))
+		for id := range docs[ap] {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			// Not one turned off here (0012).
+			if n, _ := docs[ap][id].(map[string]any); n["enabled"] != false {
+				out = append(out, assureCombo{Network: id, On: string(ap), Band: wireBand})
+			}
+		}
+	}
+	return out
+}
+
+// airCombos are what an AP with a scan radio tests through the air.
+func (s *Server) airCombos(state *change.State, ap hierarchy.NodeID, docs map[hierarchy.NodeID]map[string]any) []assureCombo {
 	doc := func(id hierarchy.NodeID) map[string]any {
 		if d, ok := docs[id]; ok {
 			return d
@@ -228,8 +272,8 @@ func (s *Server) assureRounds(state *change.State, docs map[hierarchy.NodeID]map
 	rounds := map[hierarchy.NodeID]time.Duration{}
 	window := assureWindow
 	for _, ap := range state.Org.Locations.APs() {
-		every, _ := assureSettings(state, ap)
-		if every <= 0 || !scanRadio(state, ap) {
+		every, _, _ := assureSettings(state, ap)
+		if every <= 0 || !s.tester(state, ap) {
 			continue
 		}
 		rounds[ap] = every * time.Duration(max(1, len(s.assureCombos(state, ap, docs))))
@@ -329,8 +373,8 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 	verdicts := assureVerdicts(list, time.Time{})
 	var asked []conditions.Action
 	for _, ap := range state.Org.Locations.APs() {
-		every, speed := assureSettings(state, ap)
-		if every <= 0 || !scanRadio(state, ap) {
+		every, speed, _ := assureSettings(state, ap)
+		if every <= 0 || !s.tester(state, ap) {
 			continue
 		}
 		l, err := s.conds.Latest(ap)
@@ -528,6 +572,8 @@ type assuranceTester struct {
 	Every  int              `json:"every"` // minutes; 0 where it is not asked on a schedule
 	Speed  bool             `json:"speed"`
 	Things int              `json:"things"` // how many things it tests in turn
+	Air    bool             `json:"air"`    // it has a scan radio, and tests through the air
+	Wire   bool             `json:"wire"`   // it is asked for tests over the wire, and can make them (0128)
 }
 
 // assuranceCheck is one thing tested by one AP, and what its tests of the
@@ -646,16 +692,17 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		}
 	}
 	for _, id := range t.APs() {
-		if roleOn(c, change.Locations, t, id) < access.Viewer || !scanRadio(c.state, id) {
+		if roleOn(c, change.Locations, t, id) < access.Viewer || !s.tester(c.state, id) {
 			continue
 		}
 		if under != "" && under != id && !slices.Contains(t.Ancestry(id), under) {
 			continue
 		}
 		view[id] = true
-		every, speed := assureSettings(c.state, id)
+		every, speed, wire := assureSettings(c.state, id)
 		combos := s.assureCombos(c.state, id, docs)
-		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed, Things: len(combos)})
+		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed, Things: len(combos),
+			Air: scanRadio(c.state, id), Wire: wire && s.wireTests(id)})
 		ssid := func(network string) string {
 			n, _ := docs[id][network].(map[string]any)
 			v, _ := n["ssid"].(string)

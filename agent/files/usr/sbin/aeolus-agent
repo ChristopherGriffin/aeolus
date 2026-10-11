@@ -40,6 +40,7 @@ const PACKAGES_TOOL = '/usr/libexec/aeolus-packages';   // its packages, through
 const PACKAGES_DONE = '/usr/lib/aeolus/packages';      // gone after a sysupgrade, until they are back
 const RESTORE_EVERY = 3600;   // seconds between tries to install them again
 const GI_TOOL = '/usr/libexec/aeolus-gi';   // the 802.11ax guard interval, which OpenWrt has no option for (0089)
+const WIRE_LIB = '/usr/share/ucode/aeolus/wiretest.uc';   // with it, the client test can be made over the wire (0128)
 const TIME = '/var/run/aeolus/time.json';   // ntpd's word on the clock, from its hotplug (0069)
 const KEYS_VERSION = DIR + '/keys.version';  // the per-user keys the AP has (0070)
 const RRM_KEY = DIR + '/rrm.key';   // the key radio neighbours sign their hellos with (0073)
@@ -1509,6 +1510,9 @@ function state_report(running) {
 	if (radius && length(radius))
 		report.radius = slice(radius, 0, 64);
 	// Its scan radio, where it has one (0126).
+	// Its agent can make a client test over the wire (0128).
+	if (fs.access(WIRE_LIB))
+		report.wire_tests = true;
 	let scan = scan_radio_state();
 	if (scan)
 		report.scan_radio = scan;
@@ -1802,14 +1806,21 @@ function tests_done(token) {
 			if (match(p ?? '', /^[0-9]+$/) && fs.access('/proc/' + p))
 				system(['kill', p]);
 		}
+		// One over the wire (0128) had no radio, and leaves nothing behind
+		// but its socket, which went with it.
+		let wire = false;
+		try {
+			wire = json(read(CT_DIR + '/ask.json') ?? 'null')?.band == 'wire';
+		} catch (e) {
+		}
 		if (fs.access('/sys/class/net/aet-sta0'))
 			system(['iw', 'dev', 'aet-sta0', 'del']);
 		// Its passphrase file among what it left.
 		for (let f in ['wpa.conf', 'wpa.pid', 'lease', 'udhcpc.sh', 'ctl', 'stopped'])
 			fs.unlink(CT_DIR + '/' + f);
-		if (fs.access('/etc/init.d/airscan'))
+		if (!wire && fs.access('/etc/init.d/airscan'))
 			system('/etc/init.d/airscan start >/dev/null 2>&1');
-		out = { ok: false, result: 'the test did not finish; the scan radio was given back to airscan' };
+		out = { ok: false, result: wire ? 'the test did not finish' : 'the test did not finish; the scan radio was given back to airscan' };
 		note('the client test did not finish');
 	}
 	let d = http('POST', `/v1/ap/actions/${r.id}`, out, token);

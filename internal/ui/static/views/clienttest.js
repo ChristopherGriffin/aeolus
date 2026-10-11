@@ -3,6 +3,10 @@
 // chosen, and each step of its way online is timed. A form asks for one;
 // each test asked is a line that opens to its steps, drawn as a client's
 // own connection is (0118).
+//
+// Over the wire (0128) any AP can: from its own uplink, on the network's
+// VLAN or into its tunnel, it asks for an address, its gateway and a name
+// as a client would, and uses no radio. Such a test has wire for its band.
 
 import { h } from '../dom.js';
 import { get, post } from '../api.js';
@@ -23,6 +27,9 @@ const TESTABLE = new Set(['open', 'owe', 'wpa2-psk', 'wpa3-sae', 'wpa2-wpa3']);
 // network's test user, where it has one (0124).
 const ENTERPRISE = new Set(['wpa2-enterprise', 'wpa3-enterprise', 'wpa2-wpa3-enterprise']);
 const BANDS = [['', 'Any band'], ['2g', '2.4 GHz'], ['5g', '5 GHz'], ['6g', '6 GHz']];
+const WIRE = 'wire';
+// The stages a test over the wire has: it joins nothing.
+const WIRED = new Set(['dhcp', 'gateway', 'dns']);
 
 const took = (ms) => (ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 60000)} min`);
 const when = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -33,12 +40,19 @@ export function hasScanRadio(page) {
 	return (page.facts?.radios || []).some((r) => r.reserved);
 }
 
+// canWire says whether the AP's agent said it can test over the wire
+// (0128), in its latest report.
+export function canWire(cfg) {
+	return cfg?.condition?.state?.report?.wire_tests === true;
+}
+
 // chip says where a test stands: waiting for the AP, under way, passed and
 // how fast, or failed and at which stage.
 function chip(a) {
 	const d = a.detail;
 	if (a.state === 'pending') return h('span', { class: 'chip', title: 'It starts on the AP’s next poll, within about a minute' }, 'waiting for the AP');
-	if (a.state === 'running') return h('span', { class: 'chip warn', title: 'It waits for the scan radio to be between its own jobs, tests for under a minute, then sees that the scan radio hears again' }, 'testing');
+	if (a.state === 'running') return h('span', { class: 'chip warn', title: a.params?.band === WIRE ? 'It takes a few seconds; its result comes with the AP’s next poll'
+		: 'It waits for the scan radio to be between its own jobs, tests for under a minute, then sees that the scan radio hears again' }, 'testing');
 	if (a.state === 'expired') return h('span', { class: 'chip warn' }, 'expired: the AP did not finish it');
 	if (d?.outcome === 'passed') return h('span', { class: 'chip ok' }, d.took_ms ? `Passed in ${took(d.took_ms)}` : 'Passed');
 	return h('span', { class: 'chip bad' }, d?.stage ? `Failed at ${NAME[d.stage] || d.stage}` : 'Failed');
@@ -49,6 +63,7 @@ function rail(d) {
 	const steps = d.steps || [];
 	return h('div', { class: 'rail' }, STAGES.map(([k, name]) => {
 		const mine = steps.filter((e) => e.stage === k);
+		if (d.band === WIRE && !WIRED.has(k)) return null;
 		if (k === 'speed' && !d.speed && !mine.length) return null;
 		// A sign-in is a stage only of a network that signs clients in.
 		if (k === 'signin' && !mine.length && d.stage !== 'signin') return null;
@@ -74,7 +89,11 @@ function found(d) {
 	const g = d.gateway;
 	const n = d.dns;
 	const s = d.speed;
+	const w = d.wire;
 	return [
+		row('Tested', w && ['from ', h('span', { class: 'mono' }, d.client), `, a MAC of the test’s own, on ${w.device}`,
+			w.vlan ? `, VLAN ${w.vlan}${w.tagged === false ? ', which it carries untagged' : ''}` : w.vni != null ? `, the tunnel of VNI ${w.vni}` : '',
+			d.took_ms != null && ` · in ${took(d.took_ms)}`]),
 		row('Joined', d.bssid && [h('span', { class: 'mono' }, d.bssid), ` · ${bandName(d.band)}${d.channel ? `, channel ${d.channel}` : ''}`,
 			d.joined_ms != null && ` · let on after ${took(d.joined_ms)}`]),
 		row('Link', l && [[l.signal != null && `${l.signal} dBm`, l.tx && `sends at ${rate(l.tx)}`, l.rx && `hears at ${rate(l.rx)}`].filter(Boolean).join(' · '),
@@ -82,8 +101,10 @@ function found(d) {
 		row('Address', d.dhcp && [`${d.dhcp.address}/${d.dhcp.mask} in ${took(d.dhcp.ms)}`, d.dhcp.server && `from ${d.dhcp.server}`,
 			d.dhcp.router && `gateway ${d.dhcp.router}`, d.dhcp.dns?.length > 0 && `DNS ${d.dhcp.dns.join(', ')}`].filter(Boolean).join(' · ')),
 		row('Gateway', g && (g.got ? `${g.got} of ${g.sent} pings answered, in ${tenth(g.min)} to ${tenth(g.max)} ms, ${tenth(g.avg)} ms on average`
-			: g.mac ? `it is there, at ${g.mac}, and answers no ping: none of ${g.sent}`
-				: `none of ${g.sent} pings answered${g.arp === false ? ', nor ARP' : ''}`)),
+			: g.arp_ms != null ? `it answers ARP in ${tenth(g.arp_ms)} ms, at ${g.mac}`
+				: d.band === WIRE ? 'it does not answer ARP'
+					: g.mac ? `it is there, at ${g.mac}, and answers no ping: none of ${g.sent}`
+						: `none of ${g.sent} pings answered${g.arp === false ? ', nor ARP' : ''}`)),
 		row('DNS', n && (n.rcode == null ? `${n.server} did not answer for ${n.name}`
 			: n.rcode === 0 && n.answers ? `${n.server} gave ${n.name} as ${n.address || `${n.answers} records`} in ${n.ms} ms` : `${n.server} had no address for ${n.name} (code ${n.rcode})`)),
 		row('Speed', s && (s.error ? `not measured: ${s.error}` : `${s.down} Mbit/s down · ${s.up ?? '?'} Mbit/s up, to ${s.server.replace(/^[a-z]+:\/\//, '')}`)),
@@ -107,7 +128,8 @@ function deaf(radio) {
 function opened(a) {
 	const d = a.detail;
 	if (!d) return h('p', { class: 'sub' }, a.state === 'pending' || a.state === 'running'
-		? 'Its result follows when the AP has done it and has seen its scan radio hear again: one to three minutes after its next poll.'
+		? (a.params?.band === WIRE ? 'Its result follows on the AP’s poll after the one that starts it: it takes a few seconds, and uses no radio.'
+			: 'Its result follows when the AP has done it and has seen its scan radio hear again: one to three minutes after its next poll.')
 		: a.result || 'It left no result.');
 	const steps = d.steps || [];
 	const radio = d.scan_radio;
@@ -131,7 +153,8 @@ function opened(a) {
 			radio?.after_dfs && (radio.rebound ? 'The test had the scan radio on a DFS channel, after which it goes deaf, so its driver was bound again before airscan had it back. '
 				: 'The test had the scan radio on a DFS channel, after which it goes deaf, and its driver could not be bound again from here. '),
 			radio && !radio.deaf && !radio.unseen && `The scan radio heard ${radio.after} networks once airscan had it back (${radio.before} before). `,
-			d.client && h('a', { href: '#', class: 'clientlink', title: 'The same join, as the AP it joined recorded it',
+			d.band === WIRE && 'Over the wire it joins nothing: it shows what the network gives a client once it is on, an address, a gateway and names, and nothing of the air or the keys. Its address is new each time, as on a device’s first visit, and is given back. ',
+			d.client && d.band !== WIRE && h('a', { href: '#', class: 'clientlink', title: 'The same join, as the AP it joined recorded it',
 				onclick: (e) => { e.preventDefault(); journeyPanel(other, d.client); } }, `What the AP it joined saw of ${d.client}`),
 		]),
 		other);
@@ -150,7 +173,7 @@ export function testLine(a, name, from) {
 		h('summary', null,
 			h('span', { class: 'when', title: when(a.at) }, ago(a.at)),
 			h('span', { class: 'who' }, p.ssid || p.network || 'a network'),
-			h('span', { class: 'grow sub' }, [`on ${on}`, p.band && bandName(p.band), from && p.on !== a.ap && `from ${name(a.ap)}`,
+			h('span', { class: 'grow sub' }, [p.band === WIRE ? `from ${on}` : `on ${on}`, p.band && bandName(p.band), from && p.on !== a.ap && `from ${name(a.ap)}`,
 				a.actor === 'aeolus' ? 'on the schedule' : `asked by ${a.actor}`,
 				a.detail?.outcome === 'failed' && a.detail.reason].filter(Boolean).join(' · ')),
 			chip(a)),
@@ -183,35 +206,60 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 	const speed = page.fields?.['system.speed_server']?.value;
 	const busy = list.some((a) => a.state === 'pending' || a.state === 'running');
 	if (busy) hurry(20);
+	// What it can test with: its scan radio, through the air; its uplink,
+	// over the wire; or both.
+	const air = hasScanRadio(page), wire = canWire(cfg);
+	const bands = [...(air ? BANDS : []), ...(wire ? [[WIRE, 'Over the wire']] : [])];
+	if (!bands.some(([v]) => v === chosen.band)) chosen.band = bands[0]?.[0] ?? '';
 
 	const box = h('div', { class: 'edit' });
-	const net = h('select', { 'aria-label': 'Network to join' },
-		nets.map(([k, n]) => h('option', { value: k, disabled: !!can(n) }, `${n.ssid}${can(n) ? ` (${can(n)})` : ''}`)));
-	if (nets.some(([k, n]) => k === chosen.network && !can(n))) net.value = chosen.network;
-	else net.value = nets.find(([, n]) => !can(n))?.[0] ?? '';
+	// Over the wire a test joins nothing, so any network can be tested,
+	// however it is secured.
+	const net = h('select', { 'aria-label': 'Network to test' });
+	const fill = () => {
+		const ok = (n) => chosen.band === WIRE || !can(n);
+		net.replaceChildren(...nets.map(([k, n]) => h('option', { value: k, disabled: !ok(n) }, `${n.ssid}${ok(n) ? '' : ` (${can(n)})`}`)));
+		if (nets.some(([k, n]) => k === chosen.network && ok(n))) net.value = chosen.network;
+		else net.value = nets.find(([, n]) => ok(n))?.[0] ?? '';
+	};
 	const on = h('select', { 'aria-label': 'AP to join it on' },
 		h('option', { value: '' }, 'the strongest other AP it hears'),
 		h('option', { value: id }, 'this AP itself'),
 		near.map((n) => h('option', { value: n.ap }, `${ctx.name('locations', n.ap)}${n.bands?.some((b) => b.signal != null)
 			? ` (${n.bands.filter((b) => b.signal != null).map((b) => `${bandName(b.band)} ${b.signal} dBm`).join(', ')})` : ''}`)));
 	on.value = [...on.options].some((o) => o.value === chosen.on) ? chosen.on : '';
-	const bandSeg = h('span', { class: 'segmented', role: 'group', 'aria-label': 'Band' });
-	const paint = () => bandSeg.replaceChildren(...BANDS.map(([v, label]) => h('button', {
-		type: 'button', class: chosen.band === v ? 'on' : '', 'aria-pressed': chosen.band === v, onclick: () => { chosen.band = v; paint(); },
-	}, label)));
+	const bandSeg = h('span', { class: 'segmented', role: 'group', 'aria-label': 'Band, or the wire' });
+	const run = h('button', { type: 'button', class: 'button primary' });
+	const how = h('div', { class: 'sub' });
+	const where = h('span');
+	const paint = () => {
+		bandSeg.replaceChildren(...bands.map(([v, label]) => h('button', {
+			type: 'button', class: chosen.band === v ? 'on' : '', 'aria-pressed': chosen.band === v, onclick: () => { chosen.band = v; paint(); },
+		}, label)));
+		fill();
+		const wired = chosen.band === WIRE;
+		// Over the wire it is made from this AP, and joins no other.
+		where.replaceChildren(...(wired ? [' from this AP’s uplink '] : [' on ', on, ' ']));
+		how.textContent = wired ? 'From its uplink, on the network’s VLAN or into its tunnel, it asks for an address, its gateway and a name, as a client would. No radio is used, nothing is joined, and it takes a few seconds.'
+			: speed ? `Its speed is measured against ${String(speed).replace(/^[a-z]+:\/\//, '')}, the speed server set for this AP.`
+				: 'No speed server is set here (System › Client tests, or its folder’s Assurance tab), so it measures no speed: it joins, takes an address, and tries its gateway and DNS.';
+		run.disabled = busy || !net.value;
+		run.textContent = busy ? 'A test is under way' : 'Run the test';
+	};
 	paint();
 	net.addEventListener('change', () => { chosen.network = net.value; });
 	on.addEventListener('change', () => { chosen.on = on.value; });
-	const run = h('button', { type: 'button', class: 'button primary', disabled: busy || !net.value }, busy ? 'A test is under way' : 'Run the test');
 	run.addEventListener('click', async () => {
 		run.disabled = true;
 		box.replaceChildren();
 		try {
+			const wired = chosen.band === WIRE;
 			const body = { kind: 'client-test', network: net.value };
-			if (on.value) body.on = on.value;
+			if (on.value && !wired) body.on = on.value;
 			if (chosen.band) body.band = chosen.band;
 			await post(`/v1/aps/${enc}/actions`, body);
-			flash(`Client test asked of ${page.node.name}: it starts on its next poll, within about a minute, and takes one to three.`, 60);
+			flash(wired ? `Test over the wire asked of ${page.node.name}: it starts on its next poll, within about a minute, and its result comes with the one after.`
+				: `Client test asked of ${page.node.name}: it starts on its next poll, within about a minute, and takes one to three.`, 60);
 			hurry(240);
 			redrawNow();
 		} catch (err) {
@@ -221,15 +269,14 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 	});
 	const form = canAct && (nets.length
 		? h('div', { class: 'testform', 'data-editing': 'false' },
-			h('div', { class: 'row' }, h('div', { class: 'label' }, 'Join'), h('div', { class: 'value' }, net, ' on ', on, ' ', bandSeg)),
-			h('div', { class: 'sub' }, speed
-				? `Its speed is measured against ${String(speed).replace(/^[a-z]+:\/\//, '')}, the speed server set for this AP.`
-				: 'No speed server is set here (System › Client tests, or its folder’s Assurance tab), so it measures no speed: it joins, takes an address, and tries its gateway and DNS.'),
+			h('div', { class: 'row' }, h('div', { class: 'label' }, 'Test'), h('div', { class: 'value' }, net, where, bandSeg)),
+			how,
 			h('div', { class: 'actions' }, run))
 		: h('p', { class: 'sub' }, 'This AP offers no network to test.'));
 
 	return h('section', { class: 'panel' },
-		h('h2', null, 'Client tests', h('span', { class: 'note' }, 'its scan radio joins a network as a client would; the radio is borrowed from airscan for under a minute')),
+		h('h2', null, 'Client tests', h('span', { class: 'note' }, air ? `its scan radio joins a network as a client would; the radio is borrowed from airscan for under a minute${wire ? '. Or over the wire, with no radio' : ''}`
+			: 'over the wire: from its uplink it asks a network for an address, its gateway and a name, as a client would. It has no scan radio to join one through the air')),
 		form,
 		box,
 		list.length

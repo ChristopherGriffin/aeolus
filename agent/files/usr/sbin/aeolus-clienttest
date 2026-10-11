@@ -33,6 +33,13 @@
 // own traffic keeps to its uplink, and no neighbour takes the one for the
 // other: OpenWrt answers ARP only for the address of the interface asked.
 //
+// Asked for the wire and not a band (0128), it uses no radio at all: it
+// sends the frames of a client's first seconds, DHCP, the ARP for its
+// gateway and a DNS lookup, from the uplink's port on the network's VLAN,
+// or into its tunnel, from a MAC of the test's own, and reads the answers
+// from a packet socket that keeps nothing else. The AP takes no address and
+// makes no interface. Any AP can, a scan radio or none.
+//
 //	aeolus-clienttest <what is asked, a JSON file> <where the result goes>
 //
 // The agent starts it for a client-test action, and reports the result.
@@ -41,10 +48,13 @@
 
 import * as fs from 'fs';
 import * as socket from 'socket';
+import * as math from 'math';
 import { cursor } from 'uci';
 import { connect } from 'ubus';
 import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING } from 'log';
 import * as ct from 'aeolus.clienttest';
+import * as wt from 'aeolus.wiretest';
+import * as uplinks from 'aeolus.uplink';   // not uplink: a local of that name would hide it
 
 const IF = 'aet-sta0';
 const DIR = '/var/run/aeolus/clienttest';
@@ -57,6 +67,8 @@ const HEAR_WAIT = 30;      // seconds airscan is given, the radio back, to hear 
 const LONGEST = 450;       // seconds the whole of it may take: the agent gives it 480 before it takes it for dead
 const SWEEP_WAIT = 90;     // and to sweep the spectrum, which it does next
 const BOUND_WAIT = 40;     // seconds a driver bound again is given to bring its radio up
+const WIRE_TRIES = 3;      // times a frame is sent over the wire before its answer is given up
+const WIRE_WAIT = 3;       // seconds a DHCP answer is waited for each time: a server may look before it offers
 
 let bus = connect();
 openlog('aeolus-clienttest', LOG_PID, LOG_DAEMON);
@@ -567,6 +579,246 @@ function rebind(addr) {
 	return up;
 }
 
+// ---- over the wire (0128) ----
+
+// The wire a test is made on: where says it, sock sends and hears on it,
+// src is the test's MAC there; held and lease, once it has an address.
+let wire = null;
+
+// wire_where is the wire the network's clients' frames take from this AP.
+function wire_where(want) {
+	let c = cursor(), names = [], iface = null, sw = null;
+	c.foreach('wireless', 'wifi-device', d => push(names, 'aeolus_' + replace(want.network, '-', '_') + '_' + d['.name']));
+	c.foreach('wireless', 'wifi-iface', i => {
+		if (!iface && i.mode == 'ap' && (i['.name'] in names) && type(i.network) == 'string')
+			iface = i.network;
+	});
+	if (!iface)
+		return { why: 'this AP does not offer that network' };
+	let dev = c.get('network', iface, 'device');
+	c.foreach('aeolus', 'switch', s => {
+		if (s.bridge && s.bridge == dev)
+			sw = s;
+	});
+	return wt.where(dev, sw, sw ? fs.lsdir(`/sys/class/net/${dev}/brif`) : null,
+		v => c.get_all('aeolus', 'aeolus_watch' + v), uplinks.path_out(uplinks.ports(c)));
+}
+
+// wire_open opens a packet socket on the wire's device that keeps only
+// what is the test's.
+function wire_open(w, src) {
+	let s = socket.create(socket.AF_PACKET, socket.SOCK_RAW, 0);
+	if (!s)
+		return null;
+	let prog = wt.bpf(src);
+	if (!s.bind({ family: socket.AF_PACKET, protocol: 3, address: '00:00:00:00:00:00', interface: w.device }) ||
+	    !s.setopt(socket.SOL_SOCKET, socket.SO_ATTACH_FILTER, { len: length(prog), filter: prog })) {
+		s.close();
+		return null;
+	}
+	if (w.vlan)
+		s.setopt(socket.SOL_PACKET, socket.PACKET_AUXDATA, 1);
+	// What arrived before the filter took hold goes.
+	while (s.recv(2048, socket.MSG_DONTWAIT) != null)
+		;
+	return s;
+}
+
+function wire_tx(frame) {
+	return wire.sock.send(wt.with_tag(frame, wire.vlan, wire.tagged));
+}
+
+// wire_rx reads the next frame of the test's own VLAN, or null. The
+// uplink's port sees every VLAN: the tag the kernel keeps beside each frame
+// (PACKET_AUXDATA) says whose it is, as for the prober (0061).
+function wire_rx() {
+	if (!wire.vlan)
+		return wire.sock.recv(2048, socket.MSG_DONTWAIT);
+	let m;
+	while ((m = wire.sock.recvmsg(2048, 256, socket.MSG_DONTWAIT)) != null) {
+		let aux = filter(m.ancillary ?? [], x => x.type == socket.PACKET_AUXDATA)[0]?.data;
+		let tagged = aux != null && (aux.status & 0x10) != 0;   // TP_STATUS_VLAN_VALID
+		if (wire.tagged ? tagged && (aux.vlan_tci & 0xfff) == wire.vlan : !tagged)
+			return m.data;
+	}
+	return null;
+}
+
+// wire_wait reads what comes in for up to secs, and gives the first thing
+// got makes of a frame. All the while it answers ARP for the address the
+// test was given, so that what answers the test can find it.
+function wire_wait(secs, got) {
+	let until = now() + within(secs);
+	for (;;) {
+		let f;
+		while ((f = wire_rx()) != null) {
+			let a = wire.held ? wt.arp_answer(f, wire.src, wire.held) : null;
+			if (a) {
+				wire_tx(a);
+				continue;
+			}
+			let r = got(f);
+			if (r != null)
+				return r;
+		}
+		let left = until - now();
+		if (left <= 0)
+			return null;
+		socket.poll(int(left * 1000) + 1, [wire.sock, socket.POLLIN]);
+	}
+}
+
+// wire_dhcp takes an address as a client does: discover, offer, request,
+// acknowledgement. It says where it stopped, or null with res.dhcp set.
+function wire_dhcp(res) {
+	let from = now(), xid = math.rand() & 0x7fffffff, offer = null, ack = null;
+	let by = (r) => r.server ?? 'a server that did not say who it is';
+	for (let i = 0; i < WIRE_TRIES && !offer; i++) {
+		wire_tx(wt.dhcp(wire.src, 'discover', xid));
+		step('dhcp', 'asks for an address (discover)');
+		offer = wire_wait(WIRE_WAIT, f => {
+			let r = wt.dhcp_reply(f, xid, wire.src);
+			return r?.type == 'offer' ? r : null;
+		});
+	}
+	if (!offer) {
+		step('dhcp', 'no answer to its DHCP requests', false);
+		return { stage: 'dhcp', why: 'no DHCP server gave it an address' };
+	}
+	step('dhcp', `offered ${offer.address} by ${by(offer)}`);
+	for (let i = 0; i < WIRE_TRIES && !ack; i++) {
+		wire_tx(wt.dhcp(wire.src, 'request', xid, { requested: offer.address, server: offer.server }));
+		step('dhcp', 'asks to use the address (request)');
+		ack = wire_wait(WIRE_WAIT, f => {
+			let r = wt.dhcp_reply(f, xid, wire.src);
+			return r && r.type != 'offer' ? r : null;
+		});
+	}
+	if (!ack) {
+		step('dhcp', `no answer to its request for ${offer.address}`, false);
+		return { stage: 'dhcp', why: `a DHCP server offered ${offer.address} and never confirmed it` };
+	}
+	if (ack.type == 'nak') {
+		step('dhcp', `refused ${offer.address} by ${by(ack)}`, false);
+		return { stage: 'dhcp', why: `the DHCP server refused it ${offer.address}, which it had offered` };
+	}
+	let ms = int((now() - from) * 1000);
+	res.dhcp = { ms: ms, address: ack.address, mask: ack.mask, router: ack.router, dns: ack.dns, server: ack.server ?? offer.server, lease: ack.lease };
+	wire.held = ack.address;
+	wire.lease = res.dhcp;
+	step('dhcp', `given ${ack.address} by ${by(res.dhcp)}`, true, ms);
+	return null;
+}
+
+// wire_arp asks who has an address, and says its MAC and how long the
+// answer took, in ms; null where none came.
+function wire_arp(target) {
+	for (let i = 0; i < WIRE_TRIES; i++) {
+		let sent = now();
+		wire_tx(wt.arp_request(wire.src, wire.held, target));
+		let mac = wire_wait(1, f => {
+			let a = wt.arp_of(f);
+			return a && a.op == 2 && a.ip == target ? a.mac : null;
+		});
+		if (mac)
+			return { mac: mac, ms: int((now() - sent) * 10000 + 0.5) / 10.0 };
+	}
+	return null;
+}
+
+// wire_dns looks a name up at the first DNS server the lease named: on the
+// test's own subnet it is asked for by ARP, elsewhere through the gateway.
+function wire_dns(res, name, gw) {
+	let server = wire.lease.dns[0];
+	if (!server) {
+		step('dns', 'DHCP gave it no DNS server', false);
+		return;
+	}
+	res.dns = { server: server, name: name };
+	let near = wt.on_link(server, wire.lease);
+	let hop = !near || server == wire.lease.router ? gw?.mac : wire_arp(server)?.mac;
+	if (!hop) {
+		step('dns', near ? `${server}, its DNS server, does not answer ARP` : `${server}, its DNS server, is past a gateway that does not answer`, false);
+		return;
+	}
+	let id = math.rand() & 0xffff, port = 20000 + math.rand() % 40000, a = null, started = now();
+	for (let tries = 0; tries < 2 && !a; tries++) {
+		started = now();
+		wire_tx(wt.udp(wire.src, hop, wire.held, server, port, 53, ct.dns_query(id, name)));
+		a = wire_wait(1.5, f => {
+			let u = wt.udp_of(f, wire.held, port);
+			return u && u.sport == 53 ? ct.dns_answer(u.data, id) : null;
+		});
+	}
+	if (a) {
+		a.ms = int((now() - started) * 1000);
+		res.dns = { ...res.dns, ...a };
+	}
+	let found = a && a.rcode == 0 && a.answers > 0;
+	step('dns', !a ? `${server} does not answer for ${name}` : found ? `${server} answers ${name}: ${a.address ?? a.answers + ' records'}` : `${server} has no address for ${name} (code ${a.rcode})`,
+		!!found, a?.ms);
+}
+
+// wire_main is the test over the wire: an address, the gateway, a name
+// looked up, and the address given back.
+function wire_main(want) {
+	let res = { v: 1, outcome: 'failed', stage: 'find', reason: '', ssid: want.ssid, band: 'wire' };
+	let stop = (stage, why) => {
+		res.stopped = { stage: stage, why: why };
+		return res;
+	};
+	let w = wire_where(want);
+	if (w.why)
+		return stop('find', w.why);
+	let src = wt.test_mac(want.ap, w.vlan ?? w.vni);
+	res.wire = { device: w.device };
+	for (let k in ['vlan', 'tagged', 'vni'])
+		if (w[k] != null)
+			res.wire[k] = w[k];
+	let s = wire_open(w, src);
+	if (!s)
+		return stop('find', `${w.device} could not be opened to test on`);
+	wire = { ...w, sock: s, src: src, held: null, lease: null };
+	res.client = src;
+	log('testing %s over the wire, on %s%s', want.ssid, w.device, w.vlan ? ` VLAN ${w.vlan}` : '');
+	t0 = now();
+	try {
+		let stopped = wire_dhcp(res);
+		if (stopped)
+			res.stopped = stopped;
+		else {
+			let gw = null, router = wire.lease.router;
+			if (!router)
+				step('gateway', 'DHCP gave it no gateway', false);
+			else {
+				gw = wire_arp(router);
+				res.gateway = { address: router, sent: 0, got: 0, min: null, avg: null, max: null, arp: !!gw };
+				if (gw) {
+					res.gateway.mac = gw.mac;
+					res.gateway.arp_ms = gw.ms;
+				}
+				step('gateway', gw ? `${router}, its gateway, is there, at ${gw.mac}` : `${router}, its gateway, does not answer`, !!gw, gw?.ms);
+			}
+			wire_dns(res, want.dns_name, gw);
+			res.took_ms = since();
+			// The address goes back: to its server, where the test knows the
+			// way there, else to whoever hears.
+			let server = wire.lease.server;
+			if (server) {
+				let near = wt.on_link(server, wire.lease);
+				let dst = server == router || !near ? gw?.mac : null;
+				wire_tx(wt.dhcp(src, 'release', math.rand() & 0x7fffffff, { ciaddr: wire.held, server: server, to: server, dst: dst }));
+				step('dhcp', `gives ${wire.held} back`);
+			}
+		}
+	} catch (e) {
+		res.stopped = { stage: 'find', why: 'the test broke: ' + e };
+		note('the test broke: %s', e);
+	}
+	s.close();
+	return res;
+}
+
 function main() {
 	let res = { v: 1, outcome: 'failed', stage: 'find', reason: '' };
 	let stop = (stage, why) => {
@@ -580,6 +832,8 @@ function main() {
 	}
 	if (!want)
 		return stop('find', 'what was asked is not a test this agent knows');
+	if (want.band == 'wire')
+		return wire_main(want);
 	// What was asked holds a password, where the test signs in as a user
 	// (0124): it is read, and need not lie about.
 	if (want.eap)
