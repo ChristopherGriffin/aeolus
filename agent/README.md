@@ -11,6 +11,7 @@ The program that runs on each AP (0040). It's written in ucode. It ships as the 
 | `files/usr/share/ucode/aeolus/uciexport.uc` | Writes packages as `uci export` text. The same text is checked and then applied. |
 | `files/usr/sbin/aeolus-prober` | The prober (0059): it probes each tunnel's segment and its concentrator, which keeps the tunnel open too, and guards tunnel ports against loops. Its plan is the agent's UCI package, as the renderer made it. |
 | `files/usr/share/ucode/aeolus/probe.uc` | The prober's frames, kernel filters and verdicts: pure, so they are tested anywhere. |
+| `files/usr/share/ucode/aeolus/radius.uc` | The prober's RADIUS status request (0114), how its answers and hostapd's counts read, and the verdict: pure, so they are tested anywhere. |
 | `files/usr/sbin/aeolus-rrm` | Radio resource management (0073): it marks the AP's beacons as an Aeolus AP's, listens on its channels for the others, and exchanges signed hellos with its radio neighbours over the wire. It stays idle until Aeolus turns it on. |
 | `files/usr/share/ucode/aeolus/rrm.uc` | Its advert, HMAC-SHA256, hellos and choice of neighbours: pure, so they are tested anywhere. |
 | `files/etc/init.d/aeolus` | procd service: the agent, its key agent, the prober where ucode-mod-socket is installed, and radio resource management where ucode's nl80211, digest and socket modules are. It starts nothing until `aeolus-setup` has run, and after a sysupgrade it puts back a missing module first (0080). |
@@ -20,7 +21,7 @@ The program that runs on each AP (0040). It's written in ucode. It ships as the 
 | `openwrt/luci-app-aeolus/Makefile` | The page as a package: exactly the files under `luci/`. |
 | `web-install.sh` | The installer the manager serves at `/install` (0083), with the manager's URL filled in. |
 | `install.sh` | Installs the agent from a copy of this directory: copies the files, then runs `aeolus-setup`. |
-| `test/` | Test cases for the renderer: an intent, the config it starts from, and the UCI it must produce (`cases/*.uci`); `probe.uc`, which prints the prober's frames and verdicts, with `probe.out`, what it must print; and `rrm.uc` and `rrm.out`, the same for radio resource management. |
+| `test/` | Test cases for the renderer: an intent, the config it starts from, and the UCI it must produce (`cases/*.uci`); `probe.uc`, which prints the prober's frames and verdicts, with `probe.out`, what it must print; and `rrm.uc` and `rrm.out`, and `radius.uc` and `radius.out`, the same for radio resource management and for RADIUS status. |
 
 ## Install
 
@@ -68,7 +69,7 @@ make package/aeolus-agent/compile package/luci-app-aeolus/compile
 
 `internal/rendercheck` in the manager holds both halves of the contract:
 - Each `cases/*.uci` must pass the render check and leave every section Aeolus doesn't own unchanged. A radio another service owns must come out exactly as it went in (0081).
-- Where ucode is installed, the renderer must produce exactly that output, and `test/probe.uc` must print `test/probe.out`. CI builds ucode to run this.
+- Where ucode is installed, the renderer must produce exactly that output, and `test/probe.uc` must print `test/probe.out`, as `test/rrm.uc` and `test/radius.uc` must theirs. CI builds ucode to run this.
 
 To run one case by hand:
 

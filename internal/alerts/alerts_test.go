@@ -105,13 +105,18 @@ func TestFromTheReport(t *testing.T) {
 		},
 		"uplink_vlans": []any{map[string]any{"vlan": 30, "verdict": "silent"}, map[string]any{"vlan": 20, "verdict": "present"}},
 		"dhcp":         map[string]any{"guest": map[string]any{"answered": 0, "unanswered": 4}},
-		"time":         map[string]any{"synced": false},
+		"radius": []any{
+			map[string]any{"network": "staff", "server": "192.0.2.10", "verdict": "silent"},
+			map[string]any{"network": "lab", "server": "192.0.2.11", "verdict": "up"},
+			map[string]any{"network": "guest", "server": "192.0.2.12", "verdict": "unverified"},
+		},
+		"time": map[string]any{"synced": false},
 	}
 	raw, _ := json.Marshal(report)
 	in := Input{AP: "ap-1", Name: "C360-AP", Now: now, Poll: time.Minute, Version: 7, WantsAgent: "bbbb"}
 	in.Latest.Seen = seen(10*time.Second, 7)
 	in.Latest.State = &conditions.State{At: now.Add(-2 * time.Minute), Version: 7, Report: raw}
-	want := "critical:wireless-missing critical:no-transport critical:loop warning:agent-update warning:on-fallback warning:tunnel-down warning:vlan-silent warning:dhcp-silent info:clock"
+	want := "critical:wireless-missing critical:no-transport critical:loop critical:radius-silent warning:agent-update warning:on-fallback warning:tunnel-down warning:vlan-silent warning:dhcp-silent info:clock"
 	as := For(in)
 	if got := kinds(as); got != want {
 		t.Fatalf("alerts =\n%s\nwant\n%s", got, want)
