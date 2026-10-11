@@ -180,11 +180,12 @@ export function testLine(a, name, from) {
 	const on = !p.on ? 'the strongest other AP' : p.on === a.ap && from ? `${name(p.on)} itself` : name(p.on);
 	const d = h('details', { class: 'fold', open: open.has(a.id) },
 		h('summary', null,
-			h('span', { class: 'when', title: when(a.at) }, ago(a.at)),
+			h('span', { class: 'when short', title: when(a.at) }, ago(a.at)),
 			h('span', { class: 'who' }, p.ssid || p.network || 'a network'),
-			h('span', { class: 'grow sub' }, [p.band === WIRE ? `from ${on}` : `on ${on}`, p.band && bandName(p.band), from && p.on !== a.ap && `from ${name(a.ap)}`,
+			h('span', { class: 'grow sub', title: [from && p.on !== a.ap && `from ${name(a.ap)}`,
 				a.actor === 'aeolus' ? (p.round ? 'in a round asked by hand' : 'on the schedule') : `asked by ${a.actor}`,
-				a.detail?.outcome === 'failed' && a.detail.reason].filter(Boolean).join(' · ')),
+				a.detail?.outcome === 'failed' && a.detail.reason].filter(Boolean).join(' · ') },
+			[on, p.band && bandName(p.band)].filter(Boolean).join(' · ')),
 			chip(a)),
 		opened(a));
 	d.addEventListener('toggle', () => (d.open ? open.add(a.id) : open.delete(a.id)));
