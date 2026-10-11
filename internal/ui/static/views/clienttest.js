@@ -80,6 +80,20 @@ function way(d) {
 	return wayPath(d.way, { sub, main, lead, what: w ? 'The test’s way, over the wire' : 'The test’s way online' });
 }
 
+// seen is the same attempt as the AP the test joined recorded it (0132):
+// its way from the other side, which says, where the test heard nothing
+// back, whether its asking reached the AP and an answer came back through
+// it.
+function seen(d) {
+	const s = d.seen;
+	if (!s?.way?.length) return null;
+	const went = s.outcome === 'online' ? 'it came online' : s.outcome === 'connected' ? 'it was let on, and no more was seen of it'
+		: s.outcome === 'failed' ? 'it failed' : 'it left';
+	return h('div', { class: 'seen' },
+		h('div', { class: 'sub' }, `As ${s.name || 'the AP it joined'} recorded it: ${went}${s.reason ? `: ${s.reason}` : ''}.`),
+		wayPath(s.way, { what: `The same attempt, as ${s.name || 'the AP it joined'} recorded it` }));
+}
+
 // rate is one way of the link: how fast, and how it is sent.
 const rate = (r) => (r ? `${r.mbps} Mbit/s${r.how ? ` (${r.how.replace(/-/g, ' ')})` : ''}` : null);
 // legacy says the link ran at rates older than 802.11n, which say nothing
@@ -144,6 +158,7 @@ function opened(a) {
 	return h('div', { class: 'attempt' },
 		way(d),
 		d.reason && h('p', { class: 'why bad' }, `Why: ${d.reason}.`),
+		seen(d),
 		deaf(radio),
 		h('div', { class: 'testfound' }, found(d)),
 		steps.length > 0 && h('table', { class: 'list steps' },

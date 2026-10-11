@@ -89,12 +89,13 @@ func (s *Server) actionList(w http.ResponseWriter, r *http.Request, c call) erro
 	}
 	// A client test (0121) joined on an AP the caller may not view does not
 	// say which, nor its BSSIDs.
+	ways := s.waysOut(c)
 	for i, a := range list {
 		if a.Kind != "client-test" {
 			continue
 		}
 		// What it found, with its way online a point at a time (0130).
-		list[i] = withWay(a)
+		list[i] = ways.of(a)
 		var ask clientTestAsk
 		if json.Unmarshal(a.Params, &ask) != nil || ask.On == "" || roleOn(c, change.Locations, t, hierarchy.NodeID(ask.On)) >= access.Viewer {
 			continue

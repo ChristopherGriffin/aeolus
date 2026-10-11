@@ -766,11 +766,12 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		return string(id)
 	}
 	seen := map[assureKey]bool{}
+	ways := s.waysOut(c)
 	verdicts := assureVerdicts(list, from)
 	// Each thing's latest tests of the time asked, in brief: read once, as
 	// the tests are many.
 	runs := map[assureKey][]assuranceRun{}
-	ways := map[assureKey]*wayTally{}
+	tallies := map[assureKey]*wayTally{}
 	for _, r := range list {
 		if r.At.Before(from) || !r.ran() {
 			continue
@@ -779,14 +780,14 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		if len(runs[k]) < assuranceRunsMost {
 			runs[k] = append(runs[k], runOf(r))
 		}
-		if ways[k] == nil {
+		if tallies[k] == nil {
 			kind := wayAir
 			if r.detail.Band == wireBand {
 				kind = wayWire
 			}
-			ways[k] = newWayTally(kind)
+			tallies[k] = newWayTally(kind)
 		}
-		ways[k].add(testWay(r.detail))
+		tallies[k].add(testWay(r.detail))
 	}
 	// The round asked by hand that the APs shown are in (0129), the latest
 	// where they are in more than one, and how far it has got.
@@ -868,9 +869,9 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 					since := v.since
 					ch.Since = &since
 				}
-				last := withWay(v.last.Action)
+				last := ways.of(v.last.Action)
 				ch.Last = &last
-				if w := ways[k]; w != nil {
+				if w := tallies[k]; w != nil {
 					ch.Way = w.typical()
 				}
 				if ch.SSID == "" {
@@ -915,7 +916,7 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 	tests := []conditions.Action{}
 	for _, r := range list {
 		if view[hierarchy.NodeID(r.AP)] && may(r.ask.On) && !r.At.Before(from) && len(tests) < 50 {
-			tests = append(tests, withWay(r.Action))
+			tests = append(tests, ways.of(r.Action))
 		}
 	}
 	// And how the clients' own attempts to come online went (0127).

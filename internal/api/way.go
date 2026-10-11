@@ -3,8 +3,13 @@ package api
 import (
 	"encoding/json"
 	"slices"
+	"strings"
+	"time"
 
+	"github.com/ChristopherGriffin/aeolus/internal/access"
+	"github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/conditions"
+	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 )
 
 // The way online (0130): the points a client passes on its way online, in
@@ -347,11 +352,40 @@ func (t *wayTally) typical() []wayTypical {
 	return out
 }
 
-// withWay gives a client test's action back with its way among what it
-// found. The way is worked out as it is read, from what was kept, so a test
-// from before this has one too; any other action, or a test with nothing
-// found yet, comes back as it is.
-func withWay(a conditions.Action) conditions.Action {
+// testSeen is a test through the air as the AP it joined recorded it
+// (0118): the same attempt from the other side. Where a test hears nothing
+// back, this says whether its asking reached the AP, and whether an answer
+// came back through it.
+type testSeen struct {
+	AP      hierarchy.NodeID `json:"ap"`
+	Name    string           `json:"name"`
+	Started time.Time        `json:"started"`
+	Outcome string           `json:"outcome"`
+	Stage   string           `json:"stage"`
+	Reason  string           `json:"reason,omitempty"`
+	Way     []wayPoint       `json:"way"`
+}
+
+// testSeenSlack is how far the AP's time for the attempt may lie outside
+// the test's own, from asked to done: the two are by different clocks.
+const testSeenSlack = 5 * time.Second
+
+// waysOut gives client tests' actions back with their ways (0130), for one
+// caller. The BSSIDs' owners are read once, where a test needs them.
+type waysOut struct {
+	s      *Server
+	c      call
+	owners map[string]hierarchy.NodeID
+}
+
+func (s *Server) waysOut(c call) *waysOut { return &waysOut{s: s, c: c} }
+
+// of gives a client test's action back with its way among what it found,
+// and, for one through the air, the same attempt as the AP it joined
+// recorded it, where the caller may view that AP. Both are worked out as it
+// is read, from what was kept, so a test from before this has them too; any
+// other action, or a test with nothing found yet, comes back as it is.
+func (w *waysOut) of(a conditions.Action) conditions.Action {
 	if a.Kind != "client-test" || len(a.Detail) == 0 {
 		return a
 	}
@@ -360,8 +394,46 @@ func withWay(a conditions.Action) conditions.Action {
 		return a
 	}
 	d.Way, _ = testWay(&d)
+	d.Seen = w.seen(a, &d)
 	if raw, err := json.Marshal(d); err == nil {
 		a.Detail = raw
 	}
 	return a
+}
+
+// seen is the test's own attempt as the AP whose BSSID it joined recorded
+// it: that AP's attempt by the test's client, begun while the test was
+// being made, the latest of them. None for a test over the wire, which
+// joins nothing; for a BSSID that is no AP's here; for an AP the caller may
+// not view; or where the AP recorded none, as of a test that never reached
+// it.
+func (w *waysOut) seen(a conditions.Action, d *clientTest) *testSeen {
+	if d.Band == wireBand || d.BSSID == "" || d.Client == "" {
+		return nil
+	}
+	if w.owners == nil {
+		w.owners = w.s.fleetBSSIDs(w.c.state)
+	}
+	t := w.c.state.Org.Locations
+	ap, ok := w.owners[d.BSSID]
+	if !ok || roleOn(w.c, change.Locations, t, ap) < access.Viewer {
+		return nil
+	}
+	// From when it was asked to when it was done, or for as long as one
+	// may run.
+	end := a.At.Add(10 * time.Minute)
+	if a.DoneAt != nil {
+		end = *a.DoneAt
+	}
+	list, err := w.s.conds.Connections(strings.ToLower(d.Client), []hierarchy.NodeID{ap}, 1, end.Add(testSeenSlack))
+	if err != nil || len(list) == 0 || list[0].Started.Before(a.At.Add(-testSeenSlack)) {
+		return nil
+	}
+	cn := list[0]
+	out := &testSeen{AP: ap, Started: cn.Started, Outcome: cn.Outcome, Stage: cn.Stage, Reason: cn.Reason}
+	if n, ok := t.Node(ap); ok {
+		out.Name = n.Name
+	}
+	out.Way, _ = connWay(cn)
+	return out
 }

@@ -333,6 +333,9 @@ type clientTest struct {
 	// Way is its way online, a point at a time (0130): worked out by the
 	// manager as a test is read, and never kept, nor taken from an AP.
 	Way []wayPoint `json:"way,omitempty"`
+	// Seen is the same attempt as the AP it joined recorded it (0132): read
+	// with the test, for one who may view that AP, and never kept either.
+	Seen *testSeen `json:"seen,omitempty"`
 }
 
 // testWire is where a test over the wire was made (0128): the device, the
@@ -521,7 +524,7 @@ func clientTestDetail(raw json.RawMessage) (json.RawMessage, error) {
 			t.Steps[i].K = ""
 		}
 	}
-	t.Way = nil
+	t.Way, t.Seen = nil, nil
 	out, err := json.Marshal(t)
 	if err != nil {
 		return nil, fmt.Errorf("client test: %w", err)

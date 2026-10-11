@@ -180,6 +180,8 @@ details.fold > table.list { margin-bottom: 8px; }
 .way { container-type: inline-size; margin: 4px 0 12px; }
 .way .path .hop .main, .way .path .hop .sub { white-space: nowrap; }
 .way > .sub { margin-top: 6px; }
+.attempt .seen { margin: 0 0 10px; }
+.attempt .seen > .sub { margin-bottom: 2px; }
 @container (min-width: 520px) {
 	.way .path .hop { padding: 3px 8px 4px; }
 	.way .path .leg { width: 12px; margin: 0 8px 0 1px; }
