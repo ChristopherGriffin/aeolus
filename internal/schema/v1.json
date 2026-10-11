@@ -302,6 +302,7 @@
             "acct_secret": { "type": "string", "minLength": 1, "maxLength": 128, "writeOnly": true, "description": "Unset, the sign-in secret." },
             "nas_id": { "type": "string", "minLength": 1, "maxLength": 48, "pattern": "^[ -~]+$", "description": "The NAS-Identifier the APs give the server." },
             "mac_auth": { "type": "boolean", "default": false, "description": "On a network that is not WPA Enterprise: ask the server whether each device may join, by its MAC address, before it is let on (0112). For devices that cannot sign in themselves, such as printers and sensors. The server may put each in one of the VLANs below." },
+            "passphrases": { "type": "boolean", "default": false, "description": "With MAC authentication on a WPA2 network: each device joins with a passphrase of its own, the one the server gives for its MAC address as Tunnel-Password (0115). The network's own passphrase is not used, and a device the server gives none is refused." },
             "vlans": { "type": "array", "items": { "$ref": "#/$defs/vlan" }, "uniqueItems": true, "maxItems": 64, "description": "The VLANs the server may put a client in, by its Tunnel-Private-Group-ID (0111). Each is carried tagged on the uplink. A VLAN the server names that is not here is refused." },
             "vlan_required": { "type": "boolean", "default": false, "description": "Refuse a client the server puts in no VLAN. Unset, such a client is on the network's own transport." },
             "das": {
@@ -362,7 +363,7 @@
       },
       "required": ["ssid", "security", "transport"],
       "allOf": [
-        { "if": { "properties": { "security": { "enum": ["wpa2-psk", "wpa3-sae", "wpa2-wpa3"] } }, "required": ["security"] }, "then": { "required": ["passphrase"] } }
+        { "if": { "properties": { "security": { "enum": ["wpa2-psk", "wpa3-sae", "wpa2-wpa3"] }, "radius": { "not": { "properties": { "passphrases": { "const": true } }, "required": ["passphrases"] } } }, "required": ["security"] }, "then": { "required": ["passphrase"] } }
       ]
     },
     "transport": {

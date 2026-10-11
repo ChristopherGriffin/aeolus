@@ -376,7 +376,15 @@ function iface_options(net, radio, band, network, btm) {
 		device: radio, mode: 'ap', network: network, ssid: net.ssid,
 		encryption: (band == '6g' ? SIX_GHZ[net.security] : null) ?? ENCRYPTION[net.security] ?? 'none',
 	};
-	if (NEEDS_KEY[net.security])
+	// Each device's passphrase from the RADIUS server (0115), with MAC
+	// authentication on a WPA2 network: OpenWrt's ppsk, which has hostapd
+	// take the Tunnel-Password the server gives for the device's MAC, and
+	// refuse a device it gives none. The network's own passphrase is not
+	// used then, so none is written.
+	let ppsk = net.security == 'wpa2-psk' && net.radius?.mac_auth && net.radius?.passphrases;
+	if (ppsk)
+		o.ppsk = '1';
+	else if (NEEDS_KEY[net.security])
 		o.key = net.passphrase;
 	// WPA Enterprise: each client signs in against the RADIUS server, which
 	// accounting goes to as well where one is set (0098). On another

@@ -1096,3 +1096,43 @@ func TestMACAuthentication(t *testing.T) {
 		t.Fatalf("problems = %s", got)
 	}
 }
+
+// Passphrases from the RADIUS server (0115) go with MAC authentication on a
+// WPA2 network, without per-user keys or 802.11r.
+func TestPassphrasesFromRADIUS(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Services, Node: "household", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("network.sweet.security", "wpa2-psk")
+	set("network.sweet.passphrase", "a passphrase for sweet")
+	set("network.sweet.radius.passphrases", true)
+	if got := problems(); !strings.Contains(got, "passphrases from the RADIUS server need MAC authentication") {
+		t.Fatalf("without MAC authentication: %s", got)
+	}
+	set("network.sweet.radius.mac_auth", true)
+	set("network.sweet.radius.auth_server", "192.168.20.106")
+	set("network.sweet.radius.auth_secret", "radius-secret")
+	if got := problems(); strings.Contains(got, "passphrases") || strings.Contains(got, "RADIUS") {
+		t.Fatalf("as it should be: %s", got)
+	}
+	set("network.sweet.keys.vlans", []int{101})
+	set("network.sweet.roaming.ft", true)
+	got := problems()
+	if !strings.Contains(got, "per-user keys and passphrases from the RADIUS server are two ways") || !strings.Contains(got, "802.11r with passphrases from the RADIUS server is not rendered yet") {
+		t.Fatalf("with keys and 802.11r: %s", got)
+	}
+	set("network.sweet.security", "wpa2-wpa3")
+	if got := problems(); !strings.Contains(got, "passphrases from the RADIUS server are for a WPA2 network (wpa2-psk); wpa2-wpa3 is not rendered with them") {
+		t.Fatalf("WPA3: %s", got)
+	}
+}

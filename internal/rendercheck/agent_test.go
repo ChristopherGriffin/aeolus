@@ -475,6 +475,46 @@ func TestUnbondCheckCatchesALostVLAN(t *testing.T) {
 	t.Fatal("no unbond case")
 }
 
+// The check catches passphrases from the RADIUS server rendered badly
+// (0115): ppsk left off, so hostapd would take the network's own passphrase
+// from anyone; a key written beside it; and ppsk on a network that takes
+// none from a server, where it would refuse every device.
+func TestPassphrasesFromRADIUSCheck(t *testing.T) {
+	seen := 0
+	for _, c := range agentCases(t) {
+		var bad map[string]string
+		switch c.name {
+		case "radius-passphrases":
+			bad = map[string]string{
+				strings.Replace(c.golden, "\toption ppsk '1'\n", "\toption key 'fixture-passphrase-1'\n", 1): "ppsk is \"\", want 1",
+				strings.Replace(c.golden, "\toption ppsk '1'\n", "\toption ppsk '1'\n\toption key 'x'\n", 1): "a key is set, but each device's passphrase is the RADIUS server's",
+			}
+		case "mac-auth":
+			bad = map[string]string{
+				strings.Replace(c.golden, "\toption key 'fixture-passphrase-1'\n", "\toption key 'fixture-passphrase-1'\n\toption ppsk '1'\n", 1): "the network takes no passphrases from a RADIUS server",
+			}
+		default:
+			continue
+		}
+		seen++
+		for uciText, want := range bad {
+			if uciText == c.golden {
+				t.Fatalf("%s: nothing was changed for %q", c.name, want)
+			}
+			cfg, err := uci.Parse(uciText)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p := strings.Join(CheckAP(c.Intent, cfg, c.Facts.AP), "\n"); !strings.Contains(p, want) {
+				t.Errorf("%s: the check missed %q:\n%s", c.name, want, p)
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("%d of the 2 cases found", seen)
+	}
+}
+
 // A module imported whole (import * as name) is hidden, in a function, by a
 // local of the same name: a call through it compiles, and fails only when it
 // runs, with "left-hand side expression is not an array or object" (v0.57.0's
