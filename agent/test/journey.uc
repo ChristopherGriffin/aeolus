@@ -338,15 +338,25 @@ let said = (a, at, pri, rest) => {
 	if (e)
 		journey.on_log(a, e, at);
 };
-let handshake = (a, at) => {
-	said(a, at, 31, `STA ${STA} IEEE 802.11: authentication OK (open system)`);
-	said(a, at + 0.003, 30, `STA ${STA} IEEE 802.11: authenticated`);
+// associate is the association and the AP's first message, as hostapd
+// says them; handshake, those after open authentication, of which it says
+// "authenticated" twice over, once at debug: one step.
+let associate = (a, at) => {
 	said(a, at + 0.011, 31, `STA ${STA} IEEE 802.11: association OK (aid 1)`);
 	said(a, at + 0.016, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+	said(a, at + 0.016, 31, `STA ${STA} MLME: MLME-ASSOCIATE.indication(${STA})`);
+	said(a, at + 0.016, 31, `STA ${STA} IEEE 802.11: binding station to interface 'phy0-ap0'`);
 	said(a, at + 0.018, 31, `STA ${STA} WPA: event 1 notification`);
 	said(a, at + 0.018, 31, `STA ${STA} WPA: start authentication`);
 	said(a, at + 0.018, 31, `STA ${STA} IEEE 802.1X: unauthorizing port`);
 	said(a, at + 0.018, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+};
+let handshake = (a, at) => {
+	said(a, at, 31, `STA ${STA} IEEE 802.11: authentication OK (open system)`);
+	said(a, at, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`);
+	said(a, at, 31, `STA ${STA} MLME: MLME-DELETEKEYS.request(${STA})`);
+	said(a, at + 0.003, 30, `STA ${STA} IEEE 802.11: authenticated`);
+	associate(a, at);
 };
 
 // The right passphrase: four messages, and it is let on.
@@ -392,8 +402,8 @@ said(a, 18004.018, 31, `STA ${STA} WPA: PTKSTART: Retry limit 4 reached`);
 said(a, 18009.018, 30, `STA ${STA} IEEE 802.11: deauthenticated due to local deauth request`);
 show('no answer to the first message', a, 18009.1);
 
-// And one that answers the first and not the third, and is not seen to
-// leave.
+// And one that answers the first and not the third: the AP gives it up, and
+// sends it off five seconds on, as it always does. That failed.
 a = journey.begin(who, 19000, 1791702000000);
 handshake(a, 19000);
 said(a, 19000.032, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
@@ -401,7 +411,50 @@ said(a, 19000.032, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
 for (let i = 1; i < 4; i++)
 	said(a, 19000.032 + i, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
 said(a, 19004.032, 31, `STA ${STA} WPA: PTKINITNEGOTIATING: Retry limit 4 reached`);
-show('no answer to the third message', a, 19025);
+said(a, 19009.032, 30, `STA ${STA} IEEE 802.11: deauthenticated due to local deauth request`);
+show('no answer to the third message', a, 19009.1);
+
+// A client that goes of its own accord in the middle of it says so, which
+// hostapd passes on at debug only: it left, and failed nothing.
+a = journey.begin(who, 22000, 1791705000000);
+handshake(a, 22000);
+said(a, 22000.5, 31, `STA ${STA} WPA: event 3 notification`);
+said(a, 22000.5, 31, `STA ${STA} IEEE 802.1X: unauthorizing port`);
+said(a, 22000.5, 31, `STA ${STA} IEEE 802.11: deauthenticated`);
+said(a, 22000.5, 31, `STA ${STA} MLME: MLME-DEAUTHENTICATE.indication(${STA}, 3)`);
+printf('due once it said it left %J\n', journey.due(a, 22000.6));
+show('left in the middle of the handshake', a, 22000.6);
+
+// A wrong passphrase, and then the right one within the same attempt, as
+// a client that tries each key it has: let on, the first failed nothing.
+a = journey.begin(who, 23000, 1791706000000);
+handshake(a, 23000);
+said(a, 23000.033, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
+said(a, 23000.033, 29, `AP-STA-POSSIBLE-PSK-MISMATCH ${STA}`);
+said(a, 23001.018, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+said(a, 23001.030, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
+said(a, 23001.031, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
+said(a, 23001.036, 31, `STA ${STA} WPA: received EAPOL-Key frame (4/4 Pairwise)`);
+said(a, 23001.1, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
+said(a, 23001.1, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+show('wrong, and then right', a, 23032);
+
+// The AP gives a client up, and it joins again before it is sent off: the
+// tries of the second handshake are counted from one.
+a = journey.begin(who, 24000, 1791707000000);
+handshake(a, 24000);
+for (let i = 1; i < 4; i++)
+	said(a, 24000.018 + i, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+said(a, 24004.018, 31, `STA ${STA} WPA: PTKSTART: Retry limit 4 reached`);
+handshake(a, 24004.5);
+said(a, 24005.518, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+show('given up, and joined again', a, 24030);
+
+// An association the client does not acknowledge: said at debug, and read.
+a = journey.begin(who, 25000, 1791708000000);
+said(a, 25000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 25000.2, 31, `STA ${STA} IEEE 802.11: did not acknowledge association response`);
+show('association not acknowledged', a, 25021);
 
 // WPA3 with a wrong passphrase: hostapd says the commit and the confirm,
 // at debug, and nothing more. Without those lines there is no attempt.
@@ -411,14 +464,53 @@ said(a, 20000.032, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, 
 printf('due after 10 s %J, after 21 s %J\n', journey.due(a, 20010), journey.due(a, 20021));
 show('WPA3, a wrong passphrase', a, 20021);
 
-// WPA3 with the right one: the same two, and then it is authenticated.
+// WPA3 with the right one, as the C-360 logged it on 2026-10-11: the same
+// two, and then that it is authenticated, which hostapd says of WPA3 at
+// debug alone; it never says "authenticated" of it.
+let sae = (a, at) => {
+	said(a, at, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=126 (SAE_HASH_TO_ELEMENT))`);
+	said(a, at + 0.017, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
+	said(a, at + 0.017, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, unknown)`);
+	said(a, at + 0.017, 31, `STA ${STA} MLME: MLME-DELETEKEYS.request(${STA})`);
+};
 a = journey.begin(who, 21000, 1791704000000);
-said(a, 21000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=126 (SAE_HASH_TO_ELEMENT))`);
-said(a, 21000.032, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
-handshake(a, 21000.04);
-said(a, 21000.07, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
-said(a, 21000.07, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
-said(a, 21000.074, 31, `STA ${STA} WPA: received EAPOL-Key frame (4/4 Pairwise)`);
-said(a, 21000.13, 29, `AP-STA-CONNECTED ${STA} auth_alg=sae`);
-said(a, 21000.13, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+sae(a, 21000);
+associate(a, 21000.021);
+said(a, 21000.051, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
+said(a, 21000.051, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
+said(a, 21000.054, 31, `STA ${STA} WPA: received EAPOL-Key frame (4/4 Pairwise)`);
+said(a, 21000.055, 29, `AP-STA-CONNECTED ${STA} auth_alg=sae`);
+said(a, 21000.055, 31, `STA ${STA} IEEE 802.1X: authorizing port`);
+said(a, 21000.055, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+said(a, 21000.055, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
 show('WPA3, the right passphrase', a, 21031);
+
+// WPA3 with the right one, and then no association: it stopped there, and
+// its passphrase was not wrong.
+a = journey.begin(who, 26000, 1791709000000);
+sae(a, 26000);
+show('WPA3, authenticated and no more', a, 26021);
+
+// And as hostapd says a WPA3 join where it does not log at debug: nothing
+// of the authentication at all. Associated, it is taken as authenticated.
+a = journey.begin(who, 27000, 1791710000000);
+said(a, 27000, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 27000.021, 29, `AP-STA-CONNECTED ${STA} auth_alg=sae`);
+said(a, 27000.021, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+show('WPA3, with no debug lines', a, 27031);
+
+// When the log took a line in, on the daemon's clocks (logread -t): a line
+// logged 45 ms before the daemon took it up, one 6 ms before, one that
+// came in 3 ms after, one that says no time, and one whose time cannot be
+// right. The daemon took them up at 5000.5 s by its steady clock.
+for (let line in [
+	'<31>Oct 11 13:11:03 [1791742263.455] hostapd: phy0-ap1: STA 30:86:2d:03:17:f0 WPA: sending 1/4 msg of 4-Way Handshake',
+	'<31>Oct 11 13:11:03 [1791742263.494] hostapd: phy0-ap1: STA 30:86:2d:03:17:f0 WPA: received EAPOL-Key frame (2/4 Pairwise)',
+	'<31>Oct 11 13:11:03 [1791742263.503] hostapd: phy0-ap1: STA 30:86:2d:03:17:f0 WPA: sending 3/4 msg of 4-Way Handshake',
+	'<31>Oct 11 13:11:03 hostapd: phy0-ap1: STA 30:86:2d:03:17:f0 WPA: sending 3/4 msg of 4-Way Handshake',
+	'<31>Oct 11 13:10:53 [1791742253.500] hostapd: phy0-ap1: STA 30:86:2d:03:17:f0 WPA: sending 3/4 msg of 4-Way Handshake',
+	'<31>Oct 11 13:11:03 [1791742263.008] hostapd: phy0-ap1: STA 30:86:2d:03:17:f0 WPA: sending 3/4 msg of 4-Way Handshake',
+]) {
+	let t = journey.log_time(line, 5000.5, 1791742263500);
+	printf('log time %s: %.3f s, %d\n', match(line, /\[[0-9.]+\]/)?.[0] ?? 'none said', t[0], t[1]);
+}

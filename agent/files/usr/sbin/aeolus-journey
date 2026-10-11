@@ -49,7 +49,7 @@ for (let i = 0; i < length(ARGV); i++) {
 const SENT = out + '.sent';        // how far the agent got: { boot, seq }
 const PIDFILE = out + '.logread';  // the logread this daemon started
 const LOOK_EVERY = 10;             // seconds between looks at the Wi-Fi interfaces
-const CTL_SOCKET = out + '.ctl';    // this daemon's socket, which hostapd answers to
+const CTL_SOCKET = out + '.ctl';    // this daemon's sockets, which hostapd answers to: one a network
 const HOSTAPD_CTL = '/var/run/hostapd/';   // where hostapd's networks have their control sockets
 const DEBUG = 1, INFO = 2;         // hostapd's log levels: the lower, the more it says
 const WRITE_EVERY = 2;             // seconds between writes of the records, at most
@@ -93,7 +93,7 @@ function wall() {
 }
 
 let boot = wall();    // this run, so the agent tells its records from the last run's
-let bsses = {};       // a network's Wi-Fi interface, as hostapd names it -> { network, ssid, band, level }
+let bsses = {};       // a network's Wi-Fi interface, as hostapd names it -> { network, ssid, band, more }
 let fine = {};        // a network's interface -> whether hostapd took the asking for its debug lines
 let ifaces = {};      // an interface watched -> { sock, bss, index, wide }: a BSS, or a VLAN's interface on it
 let open = {};        // '<bss> <mac>' -> the attempt being followed
@@ -124,38 +124,43 @@ function packet(dev, prog) {
 }
 
 // hostapd_ctl sends one of hostapd's networks a command on its control
-// socket, and returns its answer: null where none comes in a fifth of a
-// second, false where the command could not be sent. hostapd answers to the
+// socket, and returns its answer: null where none comes in a tenth of a
+// second, false where the command could not be sent, as where hostapd
+// takes nothing in just now: it is not waited for. hostapd answers to the
 // asking socket's own path, as its own user, which must be able to write
-// there.
+// there; the path is the network's own, so an answer that comes late is
+// not taken for another's.
 function hostapd_ctl(bss, ask) {
 	let k = socket.create(socket.AF_UNIX, socket.SOCK_DGRAM);
 	if (!k)
 		return false;
-	fs.unlink(CTL_SOCKET);
+	let mine = CTL_SOCKET + '.' + bss;
+	fs.unlink(mine);
 	let answer = false;
-	if (k.bind({ path: CTL_SOCKET }) && fs.chmod(CTL_SOCKET, 0o666) && k.connect({ path: HOSTAPD_CTL + bss }) && k.send(ask) != null) {
-		socket.poll(200, [k, socket.POLLIN]);
+	if (k.bind({ path: mine }) && fs.chmod(mine, 0o666) && k.connect({ path: HOSTAPD_CTL + bss }) && k.send(ask, socket.MSG_DONTWAIT) != null) {
+		socket.poll(100, [k, socket.POLLIN]);
 		answer = k.recv(256, socket.MSG_DONTWAIT);
 	}
 	k.close();
-	fs.unlink(CTL_SOCKET);
+	fs.unlink(mine);
 	return answer;
 }
 
 // say_more asks hostapd for its debug lines of each network (0133). It is
 // asked on its control socket, which restarts nothing and drops no client,
 // and at every look, as hostapd goes back to what its config says each time
-// that is loaded. A radio the AP's own config has at debug or below is left
-// as it is. With back, each is put back to its radio's own level instead,
-// as the daemon stops.
+// that is loaded. Not every network is asked: see look. With back, those
+// that were asked are put back to hostapd's own level instead, as the
+// daemon stops.
 function say_more(back) {
 	let now_fine = [], not_fine = [];
 	for (let bss, b in bsses) {
-		if (b.level <= DEBUG)
+		if (!b.more || (back && !fine[bss]))
 			continue;
-		let took = match(hostapd_ctl(bss, 'SET logger_syslog_level ' + (back ? b.level : DEBUG)) || '', /^OK/) != null;
-		if (!back && fine[bss] !== took)
+		let took = match(hostapd_ctl(bss, 'SET logger_syslog_level ' + (back ? INFO : DEBUG)) || '', /^OK/) != null;
+		if (back)
+			continue;
+		if (fine[bss] !== took)
 			push(took ? now_fine : not_fine, bss);
 		fine[bss] = took;
 	}
@@ -181,12 +186,15 @@ function look() {
 			if (!i.ifname || (i.config?.mode ?? 'ap') != 'ap')
 				continue;
 			let n = filter(i.config?.network ?? [], x => match(x, /^aeolus_/))[0];
-			let level = v.config?.log_level;
 			bsses[i.ifname] = {
 				network: n ? replace(substr(n, 7), /_/g, '-') : '',
 				ssid: substr(replace('' + (i.config?.ssid ?? ''), /[^ -~]/g, '?'), 0, 32), band: v.config?.band ?? '',
-				// what its radio's config has hostapd log at: info, where it says nothing
-				level: type(level) in ['int', 'string'] && match('' + level, /^[0-4]$/) ? int(level) : INFO,
+				// Whether hostapd is asked for its debug lines there (0133).
+				// Not where the AP's own config says how much its radio
+				// logs: that is someone's choice. And not on a network that
+				// signs clients in by 802.1X: there the lines name each
+				// client's identity, and every word with the RADIUS server.
+				more: v.config?.log_level == null && !match('' + (i.config?.encryption ?? 'none'), /^(wpa|eap|8021x)/),
 			};
 			want[i.ifname] = i.ifname;
 		}
@@ -295,23 +303,16 @@ function write() {
 // on_log takes one of hostapd's log lines: a client's step, into the
 // attempt being followed, or the start of one. at is when the line reached
 // here, by the steady clock, and wall_at by the calendar's, in ms. The step
-// is timed by when the log took the line in, where the line says (logread
-// -t, "[seconds.ms]"), put on the steady clock by how far that is from
-// wall_at. A time that cannot be right, as where the clock was just set,
-// is passed over.
+// is timed by when the log took the line in, where the line says
+// (journey.log_time).
 function on_log(msg, at, wall_at) {
 	let line = rtrim(split(split(msg, '\n')[0], chr(0))[0], '\r ');
 	let e = journey.log_event(line);
 	if (!e || !bsses[e.bss])
 		return;
-	let said = match(line, /^<[0-9]+>[^\[]{0,24}\[([0-9]{1,12})\.([0-9]{3})\] /);
-	// How far the log's time is from when this batch of lines was taken
-	// up: before it, or a little after, for a line that came in meanwhile.
-	let off = said ? (+said[1] * 1000 + (+('1' + said[2]) - 1000)) - wall_at : 0;
-	if (off > -5000 && off < 5000) {
-		at += off / 1000;
-		wall_at += off;
-	}
+	let when = journey.log_time(line, at, wall_at);
+	at = when[0];
+	wall_at = when[1];
 	let key = e.bss + ' ' + e.mac, a = open[key];
 	if (!a) {
 		// A client leaving, or a line that only explains, begins nothing.

@@ -115,9 +115,11 @@ export function typicalPath(way, of) {
 		return {
 			top: name,
 			main: p.ms != null ? took(p.ms) : p.passed ? 'done' : p.stopped ? 'failed' : '—',
-			// Under it, its parts; or who stopped there, which matters more
-			// than the spread of the times; that is on hover.
-			sub: under || stopped || range,
+			// Under it, its parts, with how many stopped there where the
+			// parts do not say all of them, as with an attempt whose AP said
+			// no message; or who stopped there, which matters more than the
+			// spread of the times; that is on hover.
+			sub: under ? (p.stopped > p.parts.reduce((sum, m) => sum + (m.stopped || 0), 0) ? [under, h('span', { class: 'partsmore' }, stopped)] : under) : stopped || range,
 			state: p.stopped ? (p.passed ? 'warn' : 'bad') : p.passed ? 'ok' : null,
 			title: says,
 		};

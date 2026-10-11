@@ -105,7 +105,7 @@ func (c connRecord) check() error {
 		return bad("at most 64 steps and 8 places it was heard")
 	}
 	for _, e := range c.Events {
-		if e.T < 0 || e.T > 600000 || (e.Stage != "end" && e.Stage != "note" && !slices.Contains(connStages, e.Stage)) || e.What == "" || !shortText(e.What, 200) || !shortText(e.K, 16) ||
+		if e.T < 0 || e.T > 600000 || (e.Stage != "end" && e.Stage != "note" && !slices.Contains(connStages, e.Stage)) || e.What == "" || !shortText(e.What, 200) ||
 			!shortText(e.Server, 45) || !shortText(e.Router, 45) || !shortText(e.DNS, 140) || (e.Holder != "" && !macRE.MatchString(e.Holder)) ||
 			(e.MS != nil && (*e.MS < 0 || *e.MS > 600000)) {
 			return bad("each step has its time, its stage, and what happened in at most 200 printable characters")

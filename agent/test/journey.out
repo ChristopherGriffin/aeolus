@@ -40,12 +40,12 @@ log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "key", "what": "me
 log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "key", "what": "message 4 of 4 came from it", "ok": null, "k": "m4" }
 log null
 log null
-log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "key", "what": "gave up: message 1 of 4 was sent 4 times", "ok": null, "stalled": "it gave no answer the AP could use to message 1 of the key handshake, sent 4 times" }
-log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "key", "what": "gave up: message 3 of 4 was sent 4 times", "ok": null, "stalled": "it gave no answer the AP could use to message 3 of the key handshake, sent 4 times" }
+log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "key", "what": "gave up waiting for its answer", "ok": false, "gave": 1 }
+log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "key", "what": "gave up waiting for its answer", "ok": false, "gave": 3 }
 log { "bss": "phy0-ap2", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "starts WPA3 authentication (SAE commit)", "ok": null, "sae": "commit" }
 log { "bss": "phy0-ap2", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)", "ok": null, "sae": "confirm" }
 log null
-log null
+log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "authenticated", "ok": true }
 log null
 log null
 log null
@@ -160,7 +160,7 @@ left a second after asking for its gateway: left, stage dhcp, 6000 ms, reason "d
   { "t": 6000, "stage": "end", "what": "disconnected" }
 many steps: 48 kept, 12 more
 the four messages: connected, stage key, 31000 ms, reason "", address null, host null
-  { "t": 3, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 18, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
   { "t": 32, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
@@ -169,7 +169,7 @@ the four messages: connected, stage key, 31000 ms, reason "", address null, host
   { "t": 99, "stage": "key", "what": "let on to the network", "ok": true }
   { "t": 100, "stage": "key", "what": "key handshake completed", "ok": true }
 a wrong passphrase, a message at a time: failed, stage key, 9018 ms, reason "wrong passphrase", address null, host null
-  { "t": 3, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 18, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
   { "t": 33, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
@@ -183,19 +183,19 @@ a wrong passphrase, a message at a time: failed, stage key, 9018 ms, reason "wro
   { "t": 3018, "stage": "key", "what": "message 1 of 4 sent to it, try 4", "k": "m1" }
   { "t": 3033, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
   { "t": 3033, "stage": "key", "what": "wrong passphrase", "ok": false, "k": "m2" }
-  { "t": 4018, "stage": "key", "what": "gave up: message 1 of 4 was sent 4 times" }
+  { "t": 4018, "stage": "key", "what": "gave up: no answer it could use to its first message, sent 4 times", "ok": false }
   { "t": 9018, "stage": "end", "what": "deauthenticated due to local deauth request" }
-no answer to the first message: left, stage key, 9018 ms, reason "before it was let on: it gave no answer the AP could use to message 1 of the key handshake, sent 4 times", address null, host null
-  { "t": 3, "stage": "auth", "what": "authenticated", "ok": true }
+no answer to the first message: failed, stage key, 9018 ms, reason "no answer the AP could use to the first message of the key handshake, sent 4 times", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 18, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
   { "t": 1018, "stage": "key", "what": "message 1 of 4 sent to it, try 2", "k": "m1" }
   { "t": 2018, "stage": "key", "what": "message 1 of 4 sent to it, try 3", "k": "m1" }
   { "t": 3018, "stage": "key", "what": "message 1 of 4 sent to it, try 4", "k": "m1" }
-  { "t": 4018, "stage": "key", "what": "gave up: message 1 of 4 was sent 4 times" }
+  { "t": 4018, "stage": "key", "what": "gave up: no answer it could use to its first message, sent 4 times", "ok": false }
   { "t": 9018, "stage": "end", "what": "deauthenticated due to local deauth request" }
-no answer to the third message: failed, stage key, 25000 ms, reason "it gave no answer the AP could use to message 3 of the key handshake, sent 4 times", address null, host null
-  { "t": 3, "stage": "auth", "what": "authenticated", "ok": true }
+no answer to the third message: failed, stage key, 9032 ms, reason "no answer the AP could use to the third message of the key handshake, sent 4 times", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 18, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
   { "t": 32, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
@@ -203,19 +203,67 @@ no answer to the third message: failed, stage key, 25000 ms, reason "it gave no 
   { "t": 1032, "stage": "key", "what": "message 3 of 4 sent to it, try 2", "k": "m3" }
   { "t": 2032, "stage": "key", "what": "message 3 of 4 sent to it, try 3", "k": "m3" }
   { "t": 3032, "stage": "key", "what": "message 3 of 4 sent to it, try 4", "k": "m3" }
-  { "t": 4032, "stage": "key", "what": "gave up: message 3 of 4 was sent 4 times" }
+  { "t": 4032, "stage": "key", "what": "gave up: no answer it could use to its third message, sent 4 times", "ok": false }
+  { "t": 9032, "stage": "end", "what": "deauthenticated due to local deauth request" }
+due once it said it left true
+left in the middle of the handshake: left, stage key, 500 ms, reason "before it was let on: deauthenticated", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 18, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 500, "stage": "end", "what": "deauthenticated" }
+wrong, and then right: connected, stage key, 32000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 18, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 33, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
+  { "t": 33, "stage": "key", "what": "wrong passphrase", "ok": false, "k": "m2" }
+  { "t": 1018, "stage": "key", "what": "message 1 of 4 sent to it, try 2", "k": "m1" }
+  { "t": 1030, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
+  { "t": 1031, "stage": "key", "what": "message 3 of 4 sent to it", "k": "m3" }
+  { "t": 1036, "stage": "key", "what": "message 4 of 4 came from it", "k": "m4" }
+  { "t": 1100, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 1100, "stage": "key", "what": "key handshake completed", "ok": true }
+given up, and joined again: failed, stage key, 30000 ms, reason "no answer the AP could use to the first message of the key handshake, sent 4 times", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 18, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 1018, "stage": "key", "what": "message 1 of 4 sent to it, try 2", "k": "m1" }
+  { "t": 2018, "stage": "key", "what": "message 1 of 4 sent to it, try 3", "k": "m1" }
+  { "t": 3018, "stage": "key", "what": "message 1 of 4 sent to it, try 4", "k": "m1" }
+  { "t": 4018, "stage": "key", "what": "gave up: no answer it could use to its first message, sent 4 times", "ok": false }
+  { "t": 4500, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4516, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 4518, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 5518, "stage": "key", "what": "message 1 of 4 sent to it, try 2", "k": "m1" }
+association not acknowledged: failed, stage assoc, 21000 ms, reason "did not acknowledge the AP's answer", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 200, "stage": "assoc", "what": "did not acknowledge the AP's answer", "ok": false }
 due after 10 s false, after 21 s true
 WPA3, a wrong passphrase: failed, stage auth, 21000 ms, reason "its WPA3 confirm did not check out: a wrong passphrase", address null, host null
   { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
   { "t": 32, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
 WPA3, the right passphrase: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
-  { "t": 32, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
-  { "t": 43, "stage": "auth", "what": "authenticated", "ok": true }
-  { "t": 56, "stage": "assoc", "what": "associated", "ok": true }
-  { "t": 58, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
-  { "t": 70, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
-  { "t": 70, "stage": "key", "what": "message 3 of 4 sent to it", "k": "m3" }
-  { "t": 74, "stage": "key", "what": "message 4 of 4 came from it", "k": "m4" }
-  { "t": 130, "stage": "key", "what": "let on to the network", "ok": true }
-  { "t": 130, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 17, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 17, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 37, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 39, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 51, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
+  { "t": 51, "stage": "key", "what": "message 3 of 4 sent to it", "k": "m3" }
+  { "t": 54, "stage": "key", "what": "message 4 of 4 came from it", "k": "m4" }
+  { "t": 55, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 55, "stage": "key", "what": "key handshake completed", "ok": true }
+WPA3, authenticated and no more: failed, stage assoc, 21000 ms, reason "it was never let on", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 17, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 17, "stage": "auth", "what": "authenticated", "ok": true }
+WPA3, with no debug lines: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 21, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 21, "stage": "key", "what": "key handshake completed", "ok": true }
+log time [1791742263.455]: 5000.455 s, 1791742263455
+log time [1791742263.494]: 5000.494 s, 1791742263494
+log time [1791742263.503]: 5000.503 s, 1791742263503
+log time none said: 5000.500 s, 1791742263500
+log time [1791742253.500]: 5000.500 s, 1791742263500
+log time [1791742263.008]: 5000.008 s, 1791742263008

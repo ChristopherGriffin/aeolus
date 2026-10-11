@@ -57,6 +57,11 @@ func TestTheKeysAMessageAtATime(t *testing.T) {
 	again := func(t, n, try int) string {
 		return fmt.Sprintf(`{"t":%d,"stage":"key","what":"message %d of 4 sent to it, try %d","k":"m%d"}`, t, n, try, n)
 	}
+	// The AP giving the handshake up is a step of the keys that failed, and
+	// of no message.
+	gave := func(t int, which string) string {
+		return fmt.Sprintf(`{"t":%d,"stage":"key","what":"gave up: no answer it could use to its %s message, sent 4 times","ok":false}`, t, which)
+	}
 	for name, c := range map[string]struct {
 		outcome, stage, events string
 		want                   string
@@ -68,25 +73,26 @@ func TestTheKeysAMessageAtATime(t *testing.T) {
 		// A wrong one: the client's answer came each time, in 15 ms, and
 		// did not check out. Nothing after it was come to.
 		"a wrong passphrase": {"failed", "key", `[` + joined + `,` + wrong(33) + `,` + again(1018, 1, 2) + `,` + wrong(1033) + `,` +
-			again(2018, 1, 3) + `,` + wrong(2033) + `,` + again(3018, 1, 4) + `,` + wrong(3033) + `,
-			{"t":4018,"stage":"key","what":"gave up: message 1 of 4 was sent 4 times"},
+			again(2018, 1, 3) + `,` + wrong(2033) + `,` + again(3018, 1, 4) + `,` + wrong(3033) + `,` + gave(4018, "first") + `,
 			{"t":9018,"stage":"end","what":"deauthenticated due to local deauth request"}]`,
 			`key bad 4000 [m1 ok 2, m2 bad 15 "wrong passphrase", m3 none, m4 none]`},
-		// One that answered nothing, and was sent off: it failed nothing
-		// that is known, and its answer is what was waited for.
-		"no answer to the first": {"left", "key", `[` + joined + `,` + again(1018, 1, 2) + `,` + again(2018, 1, 3) + `,` + again(3018, 1, 4) + `,
-			{"t":4018,"stage":"key","what":"gave up: message 1 of 4 was sent 4 times"},
+		// One that answered nothing: the AP gave it up, which failed.
+		"no answer to the first": {"failed", "key", `[` + joined + `,` + again(1018, 1, 2) + `,` + again(2018, 1, 3) + `,` + again(3018, 1, 4) + `,` + gave(4018, "first") + `,
 			{"t":9018,"stage":"end","what":"deauthenticated due to local deauth request"}]`,
-			`key begun [m1 ok 2, m2 begun "no answer", m3 none, m4 none]`},
-		// The same, of an attempt that failed there.
+			`key bad 4000 [m1 ok 2, m2 bad "no answer", m3 none, m4 none]`},
+		// The same, of one never seen to be given up.
 		"no answer to the first, and never let on": {"failed", "key", `[` + joined + `,` + again(1018, 1, 2) + `]`,
 			`key bad 1000 [m1 ok 2, m2 bad "no answer", m3 none, m4 none]`},
 		// Its answer was right, and its last never came.
 		"no answer to the third": {"failed", "key", `[` + joined + `,
 			{"t":32,"stage":"key","what":"message 2 of 4 came from it","k":"m2"},
-			{"t":32,"stage":"key","what":"message 3 of 4 sent to it","k":"m3"},` + again(1032, 3, 2) + `,` + again(2032, 3, 3) + `,
-			{"t":4032,"stage":"key","what":"gave up: message 3 of 4 was sent 4 times"}]`,
+			{"t":32,"stage":"key","what":"message 3 of 4 sent to it","k":"m3"},` + again(1032, 3, 2) + `,` + again(2032, 3, 3) + `,` + gave(4032, "third") + `]`,
 			`key bad 4014 [m1 ok 2, m2 ok 14, m3 ok 0, m4 bad "no answer"]`},
+		// An answer that came, and that the AP neither took nor refused in
+		// words: it stopped there, in the time the answer took.
+		"an answer not gone on from": {"failed", "key", `[` + joined + `,
+			{"t":40,"stage":"key","what":"message 2 of 4 came from it","k":"m2"}]`,
+			`key bad 22 [m1 ok 2, m2 bad 22, m3 none, m4 none]`},
 		// A wrong answer, and then a right one on the next try: it went
 		// well, in what the last answer took.
 		"wrong, and then right": {"online", "key", `[` + joined + `,` + wrong(33) + `,` + again(1018, 1, 2) + `,
@@ -114,10 +120,10 @@ func TestTheKeysAMessageAtATime(t *testing.T) {
 			{"t":4,"stage":"assoc","what":"associated","ok":true},
 			{"t":31,"stage":"key","what":"let on to the network","ok":true}]`,
 			"key ok 27"},
-		// The handshake begun, and the client gone before its answer was
-		// due: the AP's first went, and no more is known.
+		// The handshake begun, and the client gone of its own accord before
+		// its answer: the AP's first went, and it failed nothing.
 		"left during it": {"left", "key", `[` + joined + `,
-			{"t":300,"stage":"end","what":"disassociated"}]`,
+			{"t":300,"stage":"end","what":"deauthenticated"}]`,
 			`key begun [m1 ok 2, m2 begun "no answer", m3 none, m4 none]`},
 	} {
 		way, _ := connWay(attemptOf(c.outcome, c.stage, c.events))

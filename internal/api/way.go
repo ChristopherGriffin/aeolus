@@ -314,6 +314,8 @@ const (
 // attempt's steps, where its AP said any of them: hostapd says them only
 // where it logs at debug, which aeolus-journey asks of it (0133). done says
 // the handshake was seen through, and failed that the attempt failed at it.
+// The keys' own time is then from the AP's first message to the keys in
+// place, where without the messages it is from the point before.
 //
 // A message went well where the handshake went on from it: one of the
 // AP's, where it was sent; the client's answer, where the AP sent its
@@ -395,6 +397,9 @@ func keyParts(events []connStep, done, failed bool) []wayPoint {
 				p.State, p.Said, p.MS = "bad", saidWrong, took[n]
 			case !seen[n]:
 				p.Said = saidNoAnswer
+			case p.State == "bad":
+				// It came, and the AP did not go on from it.
+				p.MS = took[n]
 			}
 		}
 		out[n] = p
