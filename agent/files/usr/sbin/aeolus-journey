@@ -597,6 +597,11 @@ function main() {
 	signal('SIGTERM', stop);
 	signal('SIGINT', stop);
 	fs.mkdir('/var/run/aeolus');
+	// A capture a run before this kept and never wrote the record of: no
+	// attempt is the manager's to hang it on.
+	for (let n in fs.lsdir(CAPTURES) ?? [])
+		if (match(n, /\.json\.wait$/))
+			fs.unlink(`${CAPTURES}/${n}`);
 	// A logread the last run left sends to a socket that is gone.
 	let old = logread_pid();
 	if (old)
