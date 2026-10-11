@@ -1,0 +1,268 @@
+// A capture of a client's failed attempt to come online (0135): the frames
+// of it the AP's radio heard and sent, and those that crossed its wire
+// side, as a file Wireshark opens. No I/O here: aeolus-journey listens,
+// keeps and writes.
+//
+// The radio's frames come from a monitor interface on the radio that
+// serves the client, with no flags, so the radio hears what it heard
+// before: management frames, but beacons, and the messages of the key
+// handshake and of an 802.1X sign-in (EAPOL), each with its radiotap header.
+// They are kept in a ring a radio, a few minutes back, and those of one
+// client are taken from it when its attempt fails. The wire side's are the
+// frames aeolus-journey already reads of a client it follows: DHCP, ARP,
+// DNS and a first connection.
+
+'use strict';
+
+import { assemble } from 'aeolus.journey';
+
+const SNAP = 2048;           // bytes kept of a frame: a management frame whole
+const RING_SECONDS = 180;    // how far back a radio's frames are kept
+const RING_BYTES = 1048576;  // and how much of them, at most
+const BEFORE = 10;           // seconds before an attempt's start taken with it, as the probes that led to it
+const AFTER = 2;             // and after its end
+const MOST = 600;            // frames at most in one capture
+const WIRE = 96;             // frames kept from the wire side of one attempt
+const LATE = 5000;           // ms at most a radio may hand a frame up after it heard it, and be put right
+const LINK_RADIO = 127;      // pcapng's link types: 802.11 with a radiotap header
+const LINK_WIRE = 1;         // and Ethernet
+
+// radio_filter is the kernel's filter for a monitor interface: management
+// frames but beacons; and data frames that carry EAPOL, whose LLC header
+// follows the 802.11 header, with a QoS field or none, and with the eight
+// bytes of a CCMP header before it where the frame was encrypted and the
+// radio left them in. Everything else is dropped in the kernel: on some
+// radios a monitor interface is handed every frame on the channel.
+function radio_filter() {
+	return assemble([
+		[0x30, 0, 0, 3],                  // A = the radiotap header's length: its high byte,
+		[0x64, 0, 0, 8],                  // shifted up,
+		[0x07, 0, 0, 0],                  // kept in X,
+		[0x30, 0, 0, 2],                  // and its low byte
+		[0x4c, 0, 0, 0],                  // with it
+		[0x07, 0, 0, 0],                  // X = where the 802.11 frame begins
+		[0x50, 0, 0, 0],                  // A = frame control's first byte
+		[0x54, 0, 0, 0x0c],               // its type
+		[0x15, 'management', 0, 0x00],
+		[0x15, 'data', 'drop', 0x08],
+		'management',
+		[0x50, 0, 0, 0],
+		[0x54, 0, 0, 0xf0],               // its subtype
+		[0x15, 'drop', 'keep', 0x80],     // a beacon goes
+		'data',
+		[0x48, 0, 0, 30],                 // the LLC header's protocol, after a header of 24 bytes
+		[0x15, 'keep', 0, 0x888e],
+		[0x48, 0, 0, 32],                 // of 26, with a QoS field
+		[0x15, 'keep', 0, 0x888e],
+		[0x48, 0, 0, 38],                 // and each with a CCMP header before it
+		[0x15, 'keep', 0, 0x888e],
+		[0x48, 0, 0, 40],
+		[0x15, 'keep', 'drop', 0x888e],
+		'keep',
+		[0x06, 0, 0, SNAP],
+		'drop',
+		[0x06, 0, 0, 0],
+	]);
+}
+
+function mac_text(s, at) {
+	return join(':', map([0, 1, 2, 3, 4, 5], i => sprintf('%02x', ord(s, at + i))));
+}
+
+function u32(s, at) {
+	return ord(s, at) | (ord(s, at + 1) << 8) | (ord(s, at + 2) << 16) | (ord(s, at + 3) * 16777216);
+}
+
+// header reads a frame's radiotap header: rt, where the 802.11 frame
+// begins; sum, whether it says the frame ends in its check sequence; and
+// heard, the radio's own time of a frame it heard, in microseconds on a
+// clock of its own, where it gives one. Null for what has no header.
+function header(m) {
+	if (length(m) < 8)
+		return null;
+	let rt = ord(m, 2) | (ord(m, 3) << 8);
+	if (rt < 8 || rt > length(m))
+		return null;
+	// What it has is said in a word, or several; then a time of eight
+	// bytes, on a boundary of eight, and its flags.
+	let at = 4, word = 0x80000000;
+	while (word >= 0x80000000 && at + 4 <= rt) {
+		word = u32(m, at);
+		at += 4;
+	}
+	let has = ord(m, 4), heard = null;
+	if (has & 1) {
+		at = (at + 7) & ~7;
+		if (at + 8 <= rt)
+			heard = u32(m, at) + u32(m, at + 4) * 4294967296;
+		at += 8;
+	}
+	return { rt: rt, heard: heard, sum: (has & 2) != 0 && at < rt && (ord(m, at) & 0x10) != 0 };
+}
+
+// addresses are the stations a frame from a monitor interface names: the
+// one it is for, the one that sent it, and its third, the network's or the
+// far end's. Null for a frame too short to have the first two.
+function addresses(m) {
+	if (length(m) < 8)
+		return null;
+	let rt = ord(m, 2) | (ord(m, 3) << 8);
+	if (rt < 8 || length(m) < rt + 16)
+		return null;
+	return [mac_text(m, rt + 4), mac_text(m, rt + 10), length(m) >= rt + 22 ? mac_text(m, rt + 16) : null];
+}
+
+// ring is a radio's frames, the latest last.
+function ring() {
+	return { list: [], bytes: 0 };
+}
+
+// ring_add keeps a frame a radio's monitor interface gave: when it came,
+// by the steady clock in seconds and by the calendar's in ms, and the
+// radio's own time of it where it gives one. What is older than
+// RING_SECONDS goes, and the oldest where the ring holds more than
+// RING_BYTES. A frame that names no station is not kept.
+function ring_add(r, at, wall, m) {
+	let a = addresses(m);
+	if (!a)
+		return;
+	push(r.list, { at: at, wall: wall, m: m, a: a, heard: header(m)?.heard });
+	r.bytes += length(m);
+	let gone = 0;
+	while (gone < length(r.list) - 1 && (at - r.list[gone].at > RING_SECONDS || r.bytes > RING_BYTES))
+		r.bytes -= length(r.list[gone++].m);
+	if (gone)
+		r.list = slice(r.list, gone);
+}
+
+// ring_of is a client's frames in a ring, from a time to a time by the
+// steady clock: those it sent, and those sent to it. MOST at the most, the
+// latest of them.
+function ring_of(r, mac, from, to) {
+	let out = filter(r.list, f => f.at >= from && f.at <= to && (f.a[0] == mac || f.a[1] == mac));
+	return length(out) > MOST ? slice(out, -MOST) : out;
+}
+
+function le16(n) {
+	return chr(n & 255, (n >> 8) & 255);
+}
+
+function le32(n) {
+	return chr(n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255);
+}
+
+// padded is bytes made up to a multiple of four, as pcapng has them.
+function padded(s) {
+	let more = (4 - length(s) % 4) % 4;
+	for (let i = 0; i < more; i++)
+		s += chr(0);
+	return s;
+}
+
+function block(type, body) {
+	let n = 12 + length(body);
+	return le32(type) + le32(n) + body + le32(n);
+}
+
+// An option: its code, its length and its value, padded.
+function option(code, value) {
+	return le16(code) + le16(length(value)) + padded(value);
+}
+
+// pcapng is a capture as a file: frames, each { wall, m, link }, link 0 for
+// one from the radio and 1 for one from the wire side, in the order given;
+// and what the two are named in it. Times are the calendar's, wall in ms,
+// written in microseconds, which a file's times are unless it says.
+function pcapng(radio, wire, frames) {
+	let out = block(0x0a0d0d0a, le32(0x1a2b3c4d) + le16(1) + le16(0) + le32(0xffffffff) + le32(0xffffffff) +
+		option(4, 'Aeolus') + option(0, ''));
+	let iface = (link, name) => block(1, le16(link) + le16(0) + le32(SNAP) + option(2, name) + option(0, ''));
+	out += iface(LINK_RADIO, radio) + iface(LINK_WIRE, wire);
+	for (let f in frames) {
+		let us = int(f.wall * 1000 + 0.5), hi = int(us / 4294967296), lo = us % 4294967296;
+		out += block(6, le32(f.link) + le32(hi) + le32(lo) + le32(length(f.m)) + le32(length(f.m)) + padded(f.m));
+	}
+	return out;
+}
+
+// The table a frame check sequence is worked out with: made when first
+// needed, as a capture is made seldom.
+let crc_table = null;
+
+// fcs is a frame check sequence, the CRC-32 of bytes from to, as it is
+// sent: low byte first.
+function fcs(s, from, to) {
+	if (!crc_table) {
+		crc_table = [];
+		for (let n = 0; n < 256; n++) {
+			let c = n;
+			for (let k = 0; k < 8; k++)
+				c = (c & 1) ? (0xedb88320 ^ (c >> 1)) : (c >> 1);
+			push(crc_table, c);
+		}
+	}
+	let c = 0xffffffff;
+	for (let i = from; i < to; i++)
+		c = crc_table[(c ^ ord(s, i)) & 255] ^ (c >> 8);
+	c = (c ^ 0xffffffff) & 0xffffffff;
+	return chr(c & 255, (c >> 8) & 255, (c >> 16) & 255, (c >> 24) & 255);
+}
+
+// tidy takes from a management frame what a radio left after it. Some
+// hand a frame up with its check sequence, and four bytes more, behind it,
+// and a radiotap header that does not say so (ath11k's monitor interface,
+// the C-360, 2026-10-11): Wireshark then reads them as part of the frame,
+// and calls it malformed. Where the bytes before the last four, or the last
+// eight, end in the check sequence of all that is before them, they go; a
+// frame whose header says it has a check sequence is as it says, and one
+// that is no management frame is left be, as its check sequence is not
+// always the frame's own.
+function tidy(m) {
+	let h = header(m), rt = h?.rt, n = length(m);
+	if (!h || h.sum || n < rt + 24 + 4 || (ord(m, rt) & 0x0c) != 0)
+		return m;
+	for (let more in [4, 0])
+		if (n - more - 4 >= rt + 24 && substr(m, n - more - 4, 4) == fcs(m, rt, n - more - 4))
+			return substr(m, 0, n - more - 4);
+	return m;
+}
+
+// capture is the file of one attempt, or null where nothing was kept of
+// it: the client's frames from its radio's ring, around the attempt, and
+// those kept from the wire side, each { at, wall, m }, in the order they
+// came. from and to are the attempt's start and end by the steady clock.
+//
+// A frame the radio heard is put at the radio's own time of it, where it
+// gives one. Some hand a frame up late: ath11k's monitor interface gave the
+// client's key messages a second after it heard them, the next message
+// already sent (the C-360, 2026-10-11), so by when they came the client
+// seems to answer a second late. The radio's clock is set against the
+// calendar's by the frame of those minutes that came soonest after it was
+// heard: one that came later than that by up to LATE ms is put back by as
+// much.
+function capture(r, mac, from, to, wire, radio_name, wire_name) {
+	let frames = [], least = null;
+	for (let f in r?.list ?? []) {
+		if (f.heard == null || f.at < from - BEFORE - 30 || f.at > to + AFTER + 30)
+			continue;
+		let after = f.wall - f.heard / 1000.0;
+		if (least == null || after < least)
+			least = after;
+	}
+	for (let f in (r ? ring_of(r, mac, from - BEFORE, to + AFTER) : [])) {
+		let late = f.heard != null ? f.wall - f.heard / 1000.0 - least : 0;
+		if (late <= 0 || late >= LATE)
+			late = 0;
+		push(frames, { at: f.at - late / 1000.0, wall: f.wall - late, m: tidy(f.m), link: 0, n: length(frames) });
+	}
+	for (let f in wire ?? [])
+		push(frames, { at: f.at, wall: f.wall, m: f.m, link: 1, n: length(frames) });
+	if (!length(frames))
+		return null;
+	// By when they came; two at once as they were kept.
+	frames = sort(frames, (a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : a.n - b.n);
+	let radio = length(filter(frames, f => f.link == 0));
+	return { frames: length(frames), radio: radio, wire: length(frames) - radio, file: pcapng(radio_name, wire_name, frames) };
+}
+
+export { SNAP, WIRE, radio_filter, header, addresses, ring, ring_add, ring_of, fcs, tidy, pcapng, capture };

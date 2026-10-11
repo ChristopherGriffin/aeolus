@@ -1,0 +1,45 @@
+the radio's filter has 23 steps
+a key message once the keys are in, encrypted: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+a null data frame: dropped; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+action: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+an acknowledgement: dropped; names null
+association request: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+authentication, from the client: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+authentication, with a long radiotap header: kept; names [ "30:86:2d:03:17:f0", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+beacon: dropped; names [ "ff:ff:ff:ff:ff:ff", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+data that is not EAPOL: dropped; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+deauthentication: kept; names [ "30:86:2d:03:17:f0", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+key message 1, to the client: kept; names [ "30:86:2d:03:17:f0", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+key message 2, with a QoS field: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+nothing but a radiotap header: dropped; names null
+probe request, to all: kept; names [ "ff:ff:ff:ff:ff:ff", "30:86:2d:03:17:f0", "ff:ff:ff:ff:ff:ff" ]
+the same with no QoS field: kept; names [ "30:86:2d:03:17:f0", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+too short for a header: kept; names null
+its check sequence: 1a71b10b, worked out 1a71b10b
+with its check sequence and four bytes more: 38 bytes of frame, 30 kept
+with its check sequence alone: 34 bytes of frame, 30 kept
+with neither: 30 bytes of frame, 30 kept
+its header saying it has one: 34 bytes of frame, 34 kept
+a short header, and both: 38 bytes of frame, 30 kept
+a data frame with the same behind it: 38 bytes of frame, 38 kept
+ring: 5 frames, 408 bytes
+the client's, from 105 to 107: 3; from 90: 4; another's: 1; no one's: 0
+a full ring: 513 frames, 1047546 bytes, the oldest from 1001.00
+of 700 frames of one client, 600 are given, from 1001.00
+capture: 5 frames, 4 from the radio, 1 from the wire side, 952 bytes
+  section: byte order 1a2b3c4d, version 1.0
+  interface: link type 127, at most 2048 bytes a frame
+  interface: link type 1, at most 2048 bytes a frame
+  frame: interface 0, at 1791744500000000 us, 82 bytes, begins 00001200
+  frame: interface 0, at 1791744505010000 us, 48 bytes, begins 00001200
+  frame: interface 0, at 1791744505012000 us, 86 bytes, begins 00003800
+  frame: interface 1, at 1791744505300000 us, 314 bytes, begins ffffffff
+  frame: interface 0, at 1791744506000000 us, 144 bytes, begins 00000d00
+nothing kept of a client: null
+no ring, and frames from the wire side alone: 1
+a header's time: { "rt": 16, "heard": 77000000, "sum": false }
+  frame 1: at 2000 us, begins 00001000
+  frame 2: at 20000 us, begins 00000d00
+  frame 3: at 32000 us, begins 00001000
+  frame 4: at 1020000 us, begins 00000d00
+three minutes on: 1 frames, the oldest from 290.000
