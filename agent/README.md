@@ -4,7 +4,7 @@ The program that runs on each AP (0040). It's written in ucode. It ships as the 
 
 | Path | What it is |
 |---|---|
-| `files/usr/sbin/aeolus-agent` | The agent. It enrolls, polls, renders, has the manager check the result, applies it with an automatic revert, and reports. |
+| `files/usr/sbin/aeolus-agent` | The agent. It enrolls, polls, renders, has the manager check the result, applies it with an automatic revert, and reports. It says again what the AP is when that changes (0122). |
 | `files/usr/sbin/aeolus-setup` | Joins the AP to a manager (0080): the agent's settings, the manager's certificate, the modules the agent needs and the optional packages, then it starts the agent. |
 | `files/usr/libexec/aeolus-enroll` | Joins the AP to a manager a person names (0083): it fetches the manager's certificate, checks its fingerprint, makes a manager's name resolvable past dnsmasq's rebind protection, and runs `aeolus-setup`. LuCI's Aeolus page runs it. |
 | `files/usr/share/ucode/aeolus/render.uc` | The renderer: intent plus the current UCI in, new UCI out. It's a pure function, so it can be tested anywhere. It leaves alone a radio another service owns, such as airscan's scan radio (0081). |

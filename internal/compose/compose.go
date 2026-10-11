@@ -207,13 +207,15 @@ func Hostname(name string) string {
 }
 
 // radioProblems refuses a width a radio cannot do, by the modes the AP
-// reported for it when it enrolled (0008). A band the AP did not report, or
-// reported without modes, is not checked.
+// says it has (0008, 0122). A band the AP did not report, or reported
+// without modes, is not checked; nor is a radio another service owns
+// (0081), which no band's settings reach.
 func radioProblems(doc map[string]any, facts json.RawMessage) []string {
 	var f struct {
 		Radios []struct {
-			Band    string   `json:"band"`
-			HTModes []string `json:"htmodes"`
+			Band     string   `json:"band"`
+			HTModes  []string `json:"htmodes"`
+			Reserved bool     `json:"reserved"`
 		} `json:"radios"`
 	}
 	if len(facts) == 0 || json.Unmarshal(facts, &f) != nil {
@@ -221,6 +223,9 @@ func radioProblems(doc map[string]any, facts json.RawMessage) []string {
 	}
 	widths := map[string]map[int]bool{} // band -> widths some radio of it can do
 	for _, r := range f.Radios {
+		if r.Reserved {
+			continue
+		}
 		if widths[r.Band] == nil {
 			widths[r.Band] = map[int]bool{}
 		}

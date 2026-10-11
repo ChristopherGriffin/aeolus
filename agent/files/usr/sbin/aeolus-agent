@@ -430,6 +430,36 @@ function current() {
 	return out;
 }
 
+// facts_again says what the AP is, again, where that has changed since it
+// last said (0122): a radio gained, a scan radio another service now owns,
+// the modes a newer driver gives, a newer OpenWrt. It looks every
+// FACTS_EVERY seconds, sooner until it has said once, and says only what
+// two looks running agree on, so a radio that is restarting is not taken
+// for one that is gone.
+const FACTS_EVERY = 300;
+let facts_said = null, facts_seen = null, facts_next = 0;
+
+function facts_again(token) {
+	if (time() < facts_next)
+		return;
+	facts_next = time() + (facts_said == null ? 60 : FACTS_EVERY);
+	let f = facts();
+	let now = sprintf('%J', f);
+	let steady = now == facts_seen;
+	facts_seen = now;
+	if (!steady || now == facts_said)
+		return;
+	let r = http('POST', '/v1/ap/facts', f, token);
+	// An older manager has no such route, and is not asked again.
+	if (r.status == 200 || r.status == 404) {
+		facts_said = now;
+		if (r.json?.changed)
+			log('facts: the manager has what this AP is now');
+	}
+	else if (r.status != 429)
+		fail('facts: %s', describe(r));
+}
+
 function running_version() {
 	let v = read(RUNNING);
 	return v != null && match(v, /^[0-9]+$/) ? int(v) : null;
@@ -1857,6 +1887,9 @@ function main() {
 			do_actions(token);
 		if (reached)
 			tests_done(token);
+		// What the AP is, where it has changed (0122).
+		if (reached)
+			facts_again(token);
 		// The bundle the manager names, where it isn't the one this AP runs.
 		let wanted = header(r, 'Aeolus-Agent');
 		if (reached && !trial && match(wanted ?? '', /^[0-9a-f]{64}$/) &&

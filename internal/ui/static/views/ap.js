@@ -191,7 +191,7 @@ function enrollment(facts) {
 			h('dt', null, 'All MACs'), h('dd', null, (facts.macs || []).join(', ')),
 			h('dt', null, 'Hostname'), h('dd', null, facts.hostname || '—'),
 			h('dt', null, 'Board'), h('dd', null, facts.board || '—'),
-			h('dt', null, 'Radios'), h('dd', null, (facts.radios || []).map((r) => `${r.radio} ${bandName(r.band)}: ${(r.htmodes || []).join(' ')}`).map((x) => h('div', null, x))),
+			h('dt', null, 'Radios'), h('dd', null, (facts.radios || []).map((r) => `${r.radio} ${bandName(r.band)}${r.reserved ? ', a scan radio Aeolus leaves to its own service' : ''}: ${(r.htmodes || []).join(' ')}`).map((x) => h('div', null, x))),
 			h('dt', null, 'Enrolled from'), h('dd', null, facts.source || '—')));
 }
 

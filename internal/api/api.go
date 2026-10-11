@@ -46,6 +46,7 @@ type Server struct {
 	agent   bundle.Bundle   // its own release's bundle
 	install *Install        // what it hands out to an AP installing from it (0083); nil if nothing
 	arrive  arrivals        // the times given to attempts from APs whose clocks are unset (0118)
+	said    factsSaid       // when each AP last changed what it says it is (0122)
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
@@ -113,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/ap/render", s.apAuth(s.render))
 	mux.Handle("POST /v1/ap/applied", s.apAuth(s.applied))
 	mux.Handle("POST /v1/ap/state", s.apAuth(s.state))
+	mux.Handle("POST /v1/ap/facts", s.apAuth(s.apFacts))
 	mux.Handle("POST /v1/ap/connections", s.apAuth(s.connections))
 	mux.Handle("GET /v1/ap/keys", s.apAuth(s.apKeys))
 	mux.Handle("GET /v1/ap/actions", s.apAuth(s.apActions))

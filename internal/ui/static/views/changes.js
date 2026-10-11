@@ -58,6 +58,7 @@ function summary(ctx, op) {
 	case 'break-hierarchy': return `${op.tree} › ${node(op.node)}: break hierarchy`;
 	case 'assign-services': return `${node(op.node, 'locations')} offers ${(op.services || []).map((s) => node(s, 'services')).join(' + ') || 'nothing'}`;
 	case 'enroll': return `AP ${op.name} enrolled (${op.value?.mac || op.node})`;
+	case 'facts': return `AP ${node(op.node, 'locations')} said what it is again`;
 	case 'remove-ap': return `remove AP ${op.node}`;
 	case 'set-concentrator': return `library: set concentrator ${op.concentrator}`;
 	case 'remove-concentrator': return `library: remove concentrator ${op.concentrator}`;
