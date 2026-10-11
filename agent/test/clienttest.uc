@@ -19,11 +19,15 @@ printf('wanted named server %J\n', ct.wanted({ ssid: 'x', speed: 'http://zephyru
 let far = { name: 'Cloudflare', host: 'speed.cloudflare.com', port: 80, down: '/__down?bytes=50000000', up: '/__up', body: 4194304 };
 printf('wanted remote %J\n', ct.wanted({ ssid: 'x', speed: 'http://192.168.20.106', speed_remote: far })?.speed_remote);
 printf('wanted remote alone, unnamed %J\n', ct.wanted({ ssid: 'x', speed_remote: { host: 'speed.example.net', port: 8080, down: '/downloading', up: '/upload' } })?.speed_remote);
-// One whose host or paths are not plain is no test: they go into the
-// requests as they are.
-for (let bad in [{ ...far, host: 'bad host' }, { ...far, host: 'h\r\nX: y' }, { ...far, port: 0 }, { ...far, port: '80' }, { ...far, down: 'no-slash' },
-	{ ...far, down: '/a b' }, { ...far, up: '/up\r\nHost: other' }, { ...far, up: null }, { ...far, body: 12 }, { ...far, body: 99999999 }, 'cloudflare'])
-	printf('wanted remote %J: %J\n', bad, ct.wanted({ ssid: 'x', speed_remote: bad }));
+// One whose host or paths are not plain is not used, and the test is one
+// all the same: they go into the requests as they are, so nothing may
+// follow what was looked at, as after a zero byte.
+for (let bad in [{ ...far, host: 'bad host' }, { ...far, host: 'h\r\nX: y' }, { ...far, host: 'speed.example.net\u0000\r\nX: y' }, { ...far, port: 0 },
+	{ ...far, port: '80' }, { ...far, down: 'no-slash' }, { ...far, down: '/a b' }, { ...far, up: '/up\r\nHost: other' },
+	{ ...far, up: '/u\u0000\r\nX-Injected: 1\r\n\r\nGET /second HTTP/1.1' }, { ...far, up: null }, { ...far, body: 12 }, { ...far, body: 99999999 }, 'cloudflare']) {
+	let w = ct.wanted({ ssid: 'x', speed_remote: bad });
+	printf('wanted remote %J: a test %J, its remote server %J\n', bad, w != null, w?.speed_remote);
+}
 for (let bad in [null, {}, { ssid: '' }, { ssid: 'x', bssids: ['not one'] }, { ssid: 'x', band: '60g' }, { ssid: 'x', speed: 'https://secure.example' },
 	{ ssid: 'x', speed: 'http://host:99999' }, { ssid: 'x', speed: 'http://host/path' }, { ssid: 'x', dns_name: 'bad name' },
 	{ ssid: 'a name of more than thirty-two bytes' }])

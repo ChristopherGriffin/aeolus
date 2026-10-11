@@ -3,17 +3,19 @@ wanted least { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ ]
 wanted named server { "url": "http://zephyrus.symtus.com:3000/", "host": "zephyrus.symtus.com", "port": 3000 }
 wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }
 wanted remote alone, unnamed { "name": "speed.example.net", "host": "speed.example.net", "port": 8080, "down": "/downloading", "up": "/upload", "body": 33554432 }
-wanted remote { "name": "Cloudflare", "host": "bad host", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: null
-wanted remote { "name": "Cloudflare", "host": "h\r\nX: y", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: null
-wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 0, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: null
-wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": "80", "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: null
-wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "no-slash", "up": "/__up", "body": 4194304 }: null
-wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/a b", "up": "/__up", "body": 4194304 }: null
-wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/up\r\nHost: other", "body": 4194304 }: null
-wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": null, "body": 4194304 }: null
-wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 12 }: null
-wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 99999999 }: null
-wanted remote "cloudflare": null
+wanted remote { "name": "Cloudflare", "host": "bad host", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "h\r\nX: y", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.example.net\u0000\r\nX: y", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 0, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": "80", "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "no-slash", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/a b", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/up\r\nHost: other", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/u\u0000\r\nX-Injected: 1\r\n\r\nGET /second HTTP/1.1", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": null, "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 12 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 99999999 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote "cloudflare": a test true, its remote server { "name": "the remote server", "unusable": true }
 wanted null: null
 wanted { }: null
 wanted { "ssid": "" }: null

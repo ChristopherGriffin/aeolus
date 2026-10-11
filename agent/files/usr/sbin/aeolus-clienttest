@@ -120,9 +120,11 @@ function step(stage, what, ok, ms, k) {
 	// The same again is said once: a look made over and over for a network
 	// not found yet, or SAE's two authentications, each "found it".
 	let last = steps[length(steps) - 1];
-	if (last && last.stage == stage && last.what == what)
+	if (last && last.stage == stage && last.what == ct.plain(what, 160))
 		return;
-	let s = { t: since(), stage: stage, what: what };
+	// At most what the manager takes of a step: one it refused would hold
+	// the whole result back, and every test after it.
+	let s = { t: since(), stage: stage, what: ct.plain(what, 160) };
 	if (ok != null)
 		s.ok = ok;
 	if (ms != null)
@@ -336,32 +338,37 @@ function speed(addr, name, port, dir, how) {
 		for (let x in socks)
 			x.s.close();
 	};
-	// A connection, with what is asked of it sent. It is not waited on for
-	// longer than SPEED_CONNECT seconds: a server out on the internet that
-	// answers nothing would otherwise hold the test, and the scan radio
-	// with it, for minutes.
+	// A connection, with what is asked of it to send first: its requests,
+	// or the head of its first body. It is not waited on for longer than so
+	// many seconds: a server out on the internet that answers nothing would
+	// otherwise hold the test, and the scan radio with it, for minutes.
 	let why = null;
-	let open = () => {
+	let open = (wait) => {
 		let s = bound(socket.SOCK_STREAM | socket.SOCK_NONBLOCK);
 		if (!s) {
 			why = socket.error() ?? 'it cannot be reached';
 			return null;
 		}
 		if (!s.connect({ address: addr, port: port })) {
-			let ev = socket.poll(SPEED_CONNECT * 1000, [s, socket.POLLOUT]);
-			let err = s.getopt(socket.SOL_SOCKET, socket.SO_ERROR);
-			if (!((ev?.[0]?.[1] ?? 0) & socket.POLLOUT) || err) {
-				why = err == 111 ? 'Connection refused' : err == 113 || err == 101 ? 'No route to it' : err ? `it cannot be reached (error ${err})`
-					: `it does not answer within ${SPEED_CONNECT} s`;
+			// Begun, and waited for; or refused at once, as with no route.
+			let err = socket.error(true);
+			if (err == 115) {
+				let ev = socket.poll(wait * 1000, [s, socket.POLLOUT]);
+				err = s.getopt(socket.SOL_SOCKET, socket.SO_ERROR);
+				if (!err && !((ev?.[0]?.[1] ?? 0) & socket.POLLOUT))
+					err = -1;
+			}
+			if (err) {
+				why = err == 111 ? 'Connection refused' : err == 113 || err == 101 ? 'No route to it' : err > 0 ? `it cannot be reached (error ${err})`
+					: `it does not answer within ${wait} s`;
 				s.close();
 				return null;
 			}
 		}
-		s.send(dir == 'down' ? req : head);
-		return { s: s, left: BODY };
+		return { s: s, left: BODY, out: dir == 'down' ? req : head, moved: 0, said: null, first: '' };
 	};
 	for (let i = 0; i < STREAMS; i++) {
-		let x = open();
+		let x = open(SPEED_CONNECT);
 		if (!x) {
 			shut();
 			return { error: why };
@@ -370,10 +377,7 @@ function speed(addr, name, port, dir, how) {
 	}
 	let start = now(), bytes = 0, warm = null, warm_at = null, again = 0;
 	while (now() - start < SPEED_SECONDS + 1) {
-		// A server may close a connection after so many requests, or so
-		// many bytes: another is opened in its place, a few times over.
-		let events = dir == 'down' ? socket.POLLIN : socket.POLLOUT | socket.POLLIN;
-		let ev = socket.poll(200, ...map(socks, x => [x.s, events]));
+		let ev = socket.poll(200, ...map(socks, x => [x.s, dir == 'up' || length(x.out) ? socket.POLLOUT | socket.POLLIN : socket.POLLIN]));
 		for (let i = 0; i < length(ev ?? []); i++) {
 			if (!ev[i][1])
 				continue;
@@ -381,29 +385,61 @@ function speed(addr, name, port, dir, how) {
 			if (ev[i][1] & (socket.POLLIN | socket.POLLHUP | socket.POLLERR)) {
 				let d = x.s.recv(262144, socket.MSG_DONTWAIT);
 				if (d != null && !length(d)) {
+					// The server closed it, as some do after so many
+					// requests: another is opened in its place, where this
+					// one moved anything; one that moved nothing was refused.
 					x.s.close();
-					let y = ++again <= 16 ? open() : null;
+					let y = x.moved > 0 && ++again <= 64 ? open(1) : null;
 					if (!y) {
 						splice(socks, i, 1);
 						shut();
-						return { error: 'the server closed its connections' };
+						return { error: x.moved > 0 && again <= 64 ? why : 'the server closed its connections' };
 					}
 					socks[i] = y;
 					continue;
 				}
-				if (dir == 'down' && d != null)
-					bytes += length(d);
+				if (d != null) {
+					// How the server answered, by its first line: one that
+					// refuses is not measured, whatever bytes it sends.
+					if (x.said == null) {
+						x.first += substr(d, 0, 16);
+						let m = match(x.first, /^HTTP\/1\.[01] ([0-9]{3})/);
+						if (m)
+							x.said = int(m[1]);
+						else if (length(x.first) >= 12)
+							x.said = 0;
+						if (x.said != null && (x.said < 200 || x.said > 299)) {
+							shut();
+							return { error: x.said ? `the server answered ${x.said}` : 'it did not answer as a web server does' };
+						}
+					}
+					if (dir == 'down') {
+						bytes += length(d);
+						x.moved += length(d);
+					}
+				}
 			}
-			if (dir == 'down' || !(ev[i][1] & socket.POLLOUT))
+			if (!(ev[i][1] & socket.POLLOUT))
+				continue;
+			// What is to go first goes whole before anything else: a
+			// request, or a body's head, of which the socket took a part.
+			if (length(x.out)) {
+				let n = x.s.send(x.out, socket.MSG_DONTWAIT);
+				if (n > 0)
+					x.out = substr(x.out, n);
+				continue;
+			}
+			if (dir == 'down')
 				continue;
 			let want = min(x.left, length(chunk));
 			let n = x.s.send(want == length(chunk) ? chunk : substr(chunk, 0, want), socket.MSG_DONTWAIT);
 			if (n > 0) {
 				bytes += n;
+				x.moved += n;
 				x.left -= n;
 			}
 			if (x.left <= 0) {
-				x.s.send(head);
+				x.out = head;
 				x.left = BODY;
 			}
 		}
@@ -552,14 +588,19 @@ function measure(res, want) {
 	// name looked up of the network's own DNS server, as a client's would
 	// be. Its steps name their point, remote: they are no part of the
 	// local speed.
-	if (want.speed_remote) {
+	if (want.speed_remote?.unusable) {
+		// What the manager named is no server this agent can ask: said, and
+		// the test is no worse for it.
+		res.speed_remote = { server: want.speed_remote.name, error: 'this agent cannot use the server as the manager names it' };
+		step('speed', res.speed_remote.error, false, null, 'remote');
+	} else if (want.speed_remote) {
 		let far = want.speed_remote, addr = far.host;
 		res.speed_remote = { server: far.name };
 		if (length(iptoarr(addr) ?? []) != 4) {
 			let a = lease.dns[0] ? lookup(lease.dns[0], far.host) : null;
 			addr = a && a.rcode == 0 && a.answers > 0 ? a.address : null;
 			step('speed', !lease.dns[0] ? `no DNS server to ask for ${far.host}` : addr ? `${lease.dns[0]} answers ${far.host}: ${addr}`
-				: `${lease.dns[0]} has no address for ${far.host}`, !!addr, a?.ms, 'remote');
+				: !a ? `${lease.dns[0]} does not answer for ${far.host}` : `${lease.dns[0]} has no address for ${far.host}`, !!addr, a?.ms, 'remote');
 		}
 		if (!addr)
 			res.speed_remote.error = 'its name was not found';

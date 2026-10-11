@@ -94,14 +94,21 @@ function wanted(p) {
 	// port, with the path a GET of which gives bytes, the path a POST to
 	// which takes them, and how many bytes a POST carries. The test writes
 	// the host and the paths into its requests as they are, so one that is
-	// not plain is no test.
+	// not plain is not used.
 	if (p.speed_remote != null) {
 		let r = p.speed_remote;
-		let path = (v) => type(v) == 'string' && match(v, /^\/[A-Za-z0-9._~\/?&=%+-]{0,200}$/) != null;
-		if (type(r) != 'object' || type(r.host) != 'string' || !match(r.host, /^[A-Za-z0-9.-]{1,253}$/) || type(r.port) != 'int' || r.port < 1 || r.port > 65535 ||
+		// The whole of each, and nothing after what was looked at: a
+		// pattern stops at a zero byte, and the string does not.
+		let whole = (v, re) => type(v) == 'string' && length(match(v, re)?.[0] ?? '') == length(v);
+		let path = (v) => whole(v, /^\/[A-Za-z0-9._~\/?&=%+-]{0,200}$/);
+		let name = type(r?.name) == 'string' && length(r.name) ? replace(substr(r.name, 0, 64), /[^ -~]/g, '?') : null;
+		// One that cannot be used is said so, and fails no test: the rest
+		// of the test is what the network gives, whatever the manager named.
+		if (type(r) != 'object' || !whole(r.host, /^[A-Za-z0-9.-]{1,253}$/) || type(r.port) != 'int' || r.port < 1 || r.port > 65535 ||
 		    !path(r.down) || !path(r.up) || (r.body != null && (type(r.body) != 'int' || r.body < 65536 || r.body > SPEED_BODY)))
-			return null;
-		out.speed_remote = { name: type(r.name) == 'string' && length(r.name) ? replace(substr(r.name, 0, 64), /[^ -~]/g, '?') : r.host, host: r.host, port: r.port, down: r.down, up: r.up, body: r.body ?? SPEED_BODY };
+			out.speed_remote = { name: name ?? 'the remote server', unusable: true };
+		else
+			out.speed_remote = { name: name ?? r.host, host: r.host, port: r.port, down: r.down, up: r.up, body: r.body ?? SPEED_BODY };
 	}
 	if (p.dns_name != null) {
 		if (type(p.dns_name) != 'string' || !match(p.dns_name, /^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/))
