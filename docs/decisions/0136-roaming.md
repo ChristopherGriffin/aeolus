@@ -18,7 +18,7 @@
 - **hostapd says `authenticated`, at any level, of open authentication alone.** Of a fast transition and of WPA3 it says the authentication at debug. Where it does not log at debug, an attempt by either begins, in its log, at `associated`.
 - **Its words for a key made from a sign-in at another AP are two lines:** `OKC match for PMKID`, and then `PMKID found from PMKSA cache`, as of a key of its own. From its source; not seen.
 - **On a network that signs clients in by 802.1X hostapd is not asked for its debug lines (0133).** Of a roam there it says `associated`, the sign-in where there is one, and `auth_alg=`.
-- **On a network that signs clients in, each roam is a sign-in again, and nothing says it is a roam.** The same radio, with a user made for the trial, between the same two APs: `authenticated`, `associated`, `CTRL-EVENT-EAP-STARTED`, `CTRL-EVENT-EAP-SUCCESS2`, the key handshake completed, `AP-STA-CONNECTED … auth_alg=open`, `authenticated - EAP type: 25 (PEAP)`. 91 ms at the AP, the sign-in resumed from the one before. The client offered a key made from its first sign-in (OKC), and the AP signed it in again all the same: OpenWrt has hostapd keep no keys for such a network unless told to. hostapd's words for a key from before on such a network (`PMKID found from OKC`) are from its source, and were not seen.
+- **On a network that signs clients in, each roam is a sign-in again, and nothing says it is a roam.** The same radio, with a user made for the trial, between the same two APs: `authenticated`, `associated`, `CTRL-EVENT-EAP-STARTED`, `CTRL-EVENT-EAP-SUCCESS2`, the key handshake completed, `AP-STA-CONNECTED … auth_alg=open`, `authenticated - EAP type: 25 (PEAP)`. 91 ms at the AP, the sign-in resumed from the one before. The client offered a key made from its first sign-in (OKC), and the AP signed it in again all the same: OpenWrt has hostapd keep no keys for such a network unless told to. hostapd's words for a key from before on such a network (`OKC match for PMKID`, and then `PMKID found from PMKSA cache`) are from its source, and were not seen.
 - **What the AP sees is the end of a roam.** The client has left one AP, changed channel, and looked for the next before its first frame arrives: that part of the gap no AP sees.
 
 ## Decision
@@ -31,21 +31,34 @@
   - `on_ms`: from the first line its AP has of it to its being let on;
   - `began`: `assoc`, where that first line was its association and not its authentication, so that the time is short of what it took.
 - **An authentication is a new try:** what was known of the one before it in the same attempt, as that it was a fast transition, is not said of this one.
+  - **How often the AP asked for proof is of the attempt,** whichever try it was in, and is kept.
+  - **WPA3's exchange, and then open authentication, is one coming by WPA3's exchange.** An AP that still holds a client as on tells it to come back in a second, while it asks for proof; the client then authenticates openly, with the key its exchange just made. That key is no key from before, and the attempt is no `pmksa`. Seen of the same phone, at both kinds of AP: 1.3 and 1.4 s to be let on, a second of it the asking. Until 2026-10-11 such an attempt was `open` with a key from before, and its askings forgotten.
+  - **Let on, how it came is settled** once the client authenticates or associates again while it is still watched: it came as it did, with the time it took, and what it does then is in its steps. Until 2026-10-11 such an authentication cost the attempt its time, and its roam was listed as given up.
 - **The manager takes of `how` what it can:** a word it does not know is passed over, a value it cannot take costs `how` and not the attempt.
 - **The lines that say so are steps of the attempt,** in words: that it asked as one already on the network; that the AP still held it and asked for proof, and that none came; that its key from before was taken; that its keys came with the fast transition.
 - **Associated after a fast transition, a client is let on,** said or not.
-- **Associated, and nothing said after for twenty seconds, a client is let on.** A client that is to have keys has a handshake, which hostapd says completed, or gives up on and sends the client off, and of one that signs in it says the sign-in began: each at any level. Nothing at all is a client whose keys came with it, to an AP that still held it, where hostapd does not log at debug. Such an attempt was a failure, "it was never let on".
+- **Associated, and nothing said after for twenty seconds, a client is let on, where hostapd, asked, holds it so.** A client that is to have keys has a handshake, which hostapd says completed, or gives up on and sends the client off, and of one that signs in it says the sign-in began: each at any level. Nothing at all is a client whose keys came with it, to an AP that still held it, where hostapd does not log at debug. Such an attempt was a failure, "it was never let on".
+  - **Nothing at all is also a client that went of itself before its keys:** hostapd says a client's own leaving at debug alone, and of one it never let on it says no disconnection. So `aeolus-journey` asks hostapd for its clients (`get_clients`) before it makes the record: one hostapd holds as let on is on, and how strongly it is heard is read then; one it no longer has went, "gone, with nothing said of its going", which is no failure; one it has and has not let on was never let on. Where hostapd cannot be asked, the client is taken to be on.
+  - Since 2026-10-11. Before, each such client was let on unasked: wrong for one that went of itself in the seconds after hostapd started, before it was asked for its debug lines, when every client joins again.
 - **What hostapd says beside an attempt begins none:** a reassociation, the asking for proof, a key from before.
-- **A roam is an attempt by a client that asked as one already on the network, or came by a fast transition,** to an AP or a radio other than the one it was last let on at. One that asks again on the radio it is on is no roam.
+- **A roam is a client's attempt at an AP or a radio other than the one it was last let on at, on the network it was on there, moments after it was there.** One that asks again on the radio it is on is no roam.
+  - **Moments after:** it was let on there within five minutes before, or that AP reported, within the seven before, that it moved something through it (0110). An AP reports every five minutes, at its next poll after (0040): where it polls every minute, as it does unless `system.poll` says otherwise, a report of a client that was there until it moved is no older than six, and the time it took to move. An AP set to poll less often than every two minutes reports less often than every seven, and some of its clients' roams are then not seen.
+  - **A client that says it is already on the network needs no such proof:** one that asks by a reassociation, or comes by a fast transition, is roaming by its own word, from wherever it was last let on, however long before.
+  - **Until 2026-10-11 only those were roams.** A Galaxy S23 walked between three APs that day and was let on seven times, each time by an association as if for the first, with WPA3's exchange, on a network that offers 802.11r: not one was counted. Many a client roams so.
+  - **One not let on is a roam that failed** all the same: a client on one AP that tries the next and is refused.
+  - **One that authenticated, or began to, and went no further, with nothing refused, is given up and no failure:** a client that looked at the next AP and thought better of it, or was not heard there. It is counted with those the client gave up, apart from the roams. The same phone did so once in ten moves; counted as failures, such tries would have the tile say a sound network fails.
+  - A test's own client is in no count, and its own attempts are not marked: it goes from AP to AP as the tests have it.
+  - A client that leaves and is back within five to seven minutes at another AP is counted as roaming, though it may have been out of reach between.
   - Where it came from is where it was last let on, on any AP, however long before: read from its own attempts, an agent's from before this among them, which say only how each ended. A client with no attempt before has no such place, and its roam is one all the same.
 - **Its kind is how much it did again,** the least first:
   - `ft`, 802.11r: its keys came with it;
   - `okc` and `pmksa`: a key from before, and the four key messages;
   - `cached`: one of those two, on a network that signs clients in, where hostapd does not say which: a reassociation with no sign-in;
   - `keys`: a network with a passphrase, and the four messages, which is all there is to do;
-  - `full`: the sign-in again, or WPA3's exchange.
+  - `full`: the sign-in again, or WPA3's exchange. A hard roam, and named so on the screens.
 - **It is timed at the AP the client comes to,** from its authentication there, as hostapd's log has it, to its being let on.
   - **One whose AP has no line of its authentication is let on and not timed** (`began: assoc`): a fast transition on a network that signs clients in, where hostapd is not asked for its debug lines (0133), or on a radio whose `log_level` is someone's own. The millisecond from its association to its being connected is not what it took, and is in no typical time and never slow.
+  - **So is one let on by a record that has no time for it:** it went well, and is not timed.
 - **It went well, slowly, or not at all:** let on within 250 ms; let on after more; not let on, which is a failure; or given up by the client before anything was refused, which is counted apart.
   - 250 ms is Claude's, for a call in progress, and Griff's to change.
 - **`GET /v1/roaming`** is the roams of a time on the APs the caller may view: how many, failed and slow; the middle of their times; the same a kind at a time, with the least and the most; the latest fifty; and those that went badly, each with what its AP said: the reason it failed, or that the AP made it wait for proof.
@@ -58,9 +71,13 @@
 ## Not done
 
 - **Where a client came from is not read from its own frame.** A reassociation names the AP it leaves; with captures (0135) the frame is at hand, and the place could be exact, and known for the first roam too.
-- **A roam on a network that signs clients in is known as one only by its fast transition,** or where hostapd logs at debug. A reassociation there with a key from before, or with a sign-in again, is an attempt like any other. The frame would say.
-- **A fast transition back to an AP that still held the client, where hostapd does not log at debug, is let on and is no roam:** nothing says how it came.
+- **A client that moved nothing through its AP in the seven minutes before it left is not seen to roam,** unless it says so: an AP reports only the clients that moved something.
+- **A client that is let on with nothing said of how** (a fast transition back to an AP that still held it, where hostapd does not log at debug) has no kind of its own: where it is a roam, it is named for what its network would have had it do, the four messages, or a key from before.
+- **Each time a client on one AP tries another and is refused is a roam that failed:** one that tries over and over fills the list of those that went badly.
+- **A rejoin on an AP's other radio, as after Wi-Fi is set up again, is a roam** from the one radio to the other.
 - **A manager taken back to a release before this one refuses each record that says how the client came,** as it does any with a field it does not know: for the minute or two until its agents are taken back with it.
+- **The order of a client's attempts on different APs is by those APs' clocks.** Where two clocks differ by more than the time between two of its roams, the later is taken for the earlier, and one of the two is not seen as a roam.
+- **A client let on in silence is never seen online,** for it is let on when its record is made: what it sent meanwhile is in its steps, and its outcome is connected.
 - **The gap a client hears is longer than what is timed:** leaving, changing channel and looking are the client's own.
 - **No alert on roams that fail.**
 - **What is slow is one figure for every kind.** A fast transition past 50 ms is slow for what it is.

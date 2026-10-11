@@ -15,7 +15,7 @@ export const KIND = {
 	pmksa: ['PMK cache', 'A key this AP held from the client’s last time here: the four key messages, and no sign-in again'],
 	cached: ['PMK cached', 'A key from before, from this AP’s cache or made from a sign-in at another: the four key messages, and no sign-in again'],
 	keys: ['4-way', 'A network with a passphrase and no fast transition: the four key messages again, which is all there is to do'],
-	full: ['Full', 'Everything again: the sign-in, or WPA3’s exchange, and then the four key messages'],
+	full: ['Hard roam', 'A hard roam, everything again: the sign-in, or WPA3’s exchange, and then the four key messages'],
 };
 const kind = (k) => KIND[k]?.[0] || k;
 
@@ -49,7 +49,13 @@ export function roamingPanel(r) {
 	if (!r || !(r.roams || r.left)) return null;
 	const out = h('div');
 	const client = (m) => h('a', { href: '#', class: 'clientlink', title: 'Its journey, and each time it came online',
-		onclick: (e) => { e.preventDefault(); out.scrollIntoView({ block: 'nearest' }); journeyPanel(out, m.mac); } }, m.host || m.mac);
+		onclick: async (e) => {
+			e.preventDefault();
+			out.scrollIntoView({ block: 'nearest' });
+			await journeyPanel(out, m.mac);
+			// Folded while it was read, the panel shows none: see below.
+			if (!d.open) out.replaceChildren();
+		} }, m.host || m.mac);
 	const row = (m, more) => h('tr', { class: m.state === 'failed' ? 'failed' : '' },
 		h('td', { class: 'sub nowrap' }, ago(m.at)),
 		h('td', null, client(m)),
@@ -63,7 +69,7 @@ export function roamingPanel(r) {
 	const d = h('details', { class: 'panel logpanel', open },
 		h('summary', null, h('h2', null, 'Roaming', h('span', { class: 'note' },
 			[many(r.roams, 'roam'), r.typical_ms != null && `typically ${took(r.typical_ms)}`, r.failed > 0 && `${r.failed} failed`, r.slow > 0 && `${r.slow} slow`].filter(Boolean).join(' · ')))),
-		h('p', { class: 'sub pad' }, `${many(r.clients, 'client')} over the last ${r.hours} h. A roam is timed at the AP the client comes to, from its authentication there, as the AP’s log has it, to its being let on; past ${took(r.slow_over_ms)} it is called slow.${r.untimed ? ` ${r.untimed} ${r.untimed === 1 ? 'is' : 'are'} not timed: the AP’s log has no line of the authentication, as on a network that signs clients in.` : ''}${r.left ? ` ${r.left} more ${r.left === 1 ? 'was' : 'were'} given up by the client before it was let on.` : ''}${r.more ? ' There were more attempts than are read: these are of the latest.' : ''}`),
+		h('p', { class: 'sub pad' }, `${many(r.clients, 'client')} over the last ${r.hours} h. A roam is a client’s move to another AP, or another radio of one, on the same network, whether it says it is already on the network or joins as if for the first time. It is timed at the AP the client comes to, from its authentication there, as the AP’s log has it, to its being let on; past ${took(r.slow_over_ms)} it is called slow.${r.untimed ? ` ${r.untimed} ${r.untimed === 1 ? 'is' : 'are'} not timed: the AP’s log has no line of the authentication, as on a network that signs clients in.` : ''}${r.left ? ` ${r.left} more ${r.left === 1 ? 'was' : 'were'} given up by the client before it was let on.` : ''}${r.more ? ' There were more attempts than are read: these are of the latest.' : ''}`),
 		r.kinds.length > 0 && h('table', { class: 'list' },
 			h('tr', null, ['Kind', 'Roams', 'Typical', 'Fastest', 'Slowest', 'Slow', 'Failed'].map((t) => h('th', null, t))),
 			r.kinds.map((k) => h('tr', null,

@@ -638,6 +638,19 @@ show('a roam by fast transition, with no debug lines', a, 31031);
 a = journey.begin(who, 31500, 1791714500000);
 said(a, 31500.000, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 show('associated, and nothing said after', a, 31521);
+// hostapd is asked of such a client before its record is made (the daemon
+// does): one it holds as let on is on, as where it could not be asked; one
+// it no longer has went without a word, as a client does that goes of
+// itself before its keys, which hostapd says at debug alone; one it has
+// and has not let on was never let on.
+for (let held in ['on', 'gone', 'off']) {
+	a = journey.begin(who, 31500, 1791714500000);
+	said(a, 31500.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+	said(a, 31500.004, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+	printf('silent, before hostapd is asked: %J\n', journey.silent(a));
+	a.held = held;
+	show(`associated, and nothing said after; hostapd, asked, has it ${held}`, a, 31521);
+}
 // Not so where its keys were begun and nothing came of them.
 a = journey.begin(who, 31600, 1791714600000);
 said(a, 31600.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
@@ -693,6 +706,65 @@ said(a, 33000.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 said(a, 33000.012, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
 said(a, 33000.030, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
 show('a roam with a key from another AP', a, 33031);
+
+// A phone back at an AP it left twenty seconds before, which still holds it
+// as on (a Galaxy S23 at the C-360, 2026-10-11): WPA3's exchange; the AP
+// asks the client it remembers for proof, and has the phone come back in a
+// second; the phone then authenticates openly with the key the exchange
+// made, and is taken. It came by WPA3's exchange, after five askings, and
+// with no key from before; and it did not say it was already on the network.
+a = journey.begin(who, 33200, 1791716200000);
+said(a, 33200.000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=126 (SAE_HASH_TO_ELEMENT))`);
+said(a, 33200.027, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
+said(a, 33200.027, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, unknown)`);
+said(a, 33200.027, 31, `STA ${STA} WPA: event 0 notification`);
+for (let n = 1; n <= 5; n++)
+	said(a, 33200.034 + (n - 1) * 0.2, 31, `STA ${STA} IEEE 802.11: association SA Query attempt ${n}`);
+said(a, 33201.064, 31, `STA ${STA} IEEE 802.11: association SA Query timed out`);
+said(a, 33201.079, 31, `STA ${STA} IEEE 802.11: authentication OK (open system)`);
+said(a, 33201.079, 31, `STA ${STA} WPA: event 0 notification`);
+said(a, 33201.079, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`);
+said(a, 33201.079, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 33201.083, 31, `STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`);
+said(a, 33201.150, 31, `STA ${STA} IEEE 802.11: association OK (aid 1)`);
+said(a, 33201.155, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 33201.155, 31, `STA ${STA} MLME: MLME-ASSOCIATE.indication(${STA})`);
+said(a, 33201.156, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+said(a, 33201.296, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
+said(a, 33201.296, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
+said(a, 33201.302, 31, `STA ${STA} WPA: received EAPOL-Key frame (4/4 Pairwise)`);
+said(a, 33201.303, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+said(a, 33201.303, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+show("a phone back by WPA3's exchange at an AP that still held it", a, 33232);
+// A fast transition given up for open authentication keeps how often the AP
+// asked for proof, and is no fast transition.
+a = journey.begin(who, 33300, 1791716300000);
+said(a, 33300.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, FT)`);
+said(a, 33300.010, 31, `STA ${STA} IEEE 802.11: association SA Query attempt 1`);
+said(a, 33300.210, 31, `STA ${STA} IEEE 802.11: association SA Query attempt 2`);
+said(a, 33301.020, 31, `STA ${STA} IEEE 802.11: association SA Query timed out`);
+said(a, 33301.030, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`);
+said(a, 33301.030, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 33301.040, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 33301.300, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
+show('a fast transition given up for open authentication, after the AP asked for proof', a, 33332);
+
+// Let on by a fast transition, and WPA3's exchange again ten seconds
+// later, while it is still watched: how it came is as it came, and the time
+// it took is kept; what it did then is in its steps.
+a = journey.begin(who, 33500, 1791716500000);
+said(a, 33500.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, FT)`);
+said(a, 33500.016, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 33500.017, 29, `AP-STA-CONNECTED ${STA} auth_alg=ft`);
+said(a, 33500.017, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
+said(a, 33510.000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))`);
+said(a, 33510.040, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
+said(a, 33510.060, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 33510.061, 31, `STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`);
+said(a, 33510.080, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+said(a, 33510.080, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+printf('silent, once let on: %J\n', journey.silent(a));
+show('let on by a fast transition, and authenticated again while watched', a, 33541);
 
 // When the log took a line in, on the daemon's clocks (logread -t): a line
 // logged 45 ms before the daemon took it up, one 6 ms before, one that
