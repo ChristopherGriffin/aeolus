@@ -28,9 +28,9 @@
 ### What is tested
 
 - **One thing each time: a network, on an AP, on a band.**
-  - **The networks** are the AP's own that a test can join (0121).
+  - **The networks** are the AP's own that a test can join (0121), and that are not turned off there (0012).
   - **The APs** are itself, and each AP it keeps as a radio neighbour (0073) and hears at -75 dBm or better on the band. Weaker, a test fails for the distance and says nothing of the service.
-  - **The bands** are those the network is on, on that AP.
+  - **The bands** are those the network is on, on that AP. An AP where the network is turned off is not tested for it.
 - **The thing tested longest ago is next,** so each comes round in turn, and a new one is first.
 - **A thing that fails is tried again in two minutes,** not in its turn: one failure may be one bad try.
 - **A thing that failed twice running is failing.** It is then tested every other time, turn about with the rest, so its mending is seen within two rounds of the schedule.
@@ -39,8 +39,8 @@
 ### The alert
 
 - **A network that is failing on an AP is a warning on that AP** (0099): the AP it was joined on, not the one that tried. It says the network, the band, which AP's scan radio tried it, where the latest test stopped and why, and since when.
-- **Tests asked by hand count as those on the schedule do.**
-- **It ends when a test of the same thing passes.** It also ends three rounds of the schedule and an hour after the last test of it, or an hour after it where the AP is asked for none: a verdict nobody is checking is not kept up.
+- **Tests asked by hand count as those on the schedule do.** One asked of "the strongest AP" counts for the AP whose BSSID it joined, where that is an AP here, and for none where it is not.
+- **It ends when a test of the same thing passes.** It also ends three rounds of the AP's schedule and an hour after the last test of it, a round being how often it is asked times how many things it tests; or an hour after it where the AP is asked for none. A verdict nobody is checking is not kept up.
 - **It goes where the folder's alerts go** (0101), as any other.
 
 ### What is shown
@@ -50,6 +50,7 @@
   - **what is tested:** each thing an AP is asked for in turn, with how many of its tests of the day passed, when the last was, and a chip for the last or for "failing"; the failing first. A line opens to its latest test, drawn as on the AP's page (0121);
   - **the tests,** the latest fifty, by hand or on the schedule.
 - **`GET /v1/assurance`** gives the same, and Claude and other clients read it through `get_assurance`.
+- **A person sees only the APs they may view,** as testers and as where a test joined. A test that joined on one they may not is left out, and in its own AP's list of actions says neither which AP nor its BSSIDs.
 - **An AP's page keeps its own client tests** (0121), where one is asked by hand.
 
 ### Kept

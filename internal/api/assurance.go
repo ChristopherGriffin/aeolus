@@ -34,7 +34,8 @@ const (
 	// assureRetry is how soon a test that failed for the first time is
 	// made again, to tell a network that does not work from one bad try.
 	assureRetry = 2 * time.Minute
-	// assureWindow is how far back the tests count for what is failing.
+	// assureWindow is how far back the tests count for what is failing, at
+	// the least: further where an AP's round is long, to three rounds of it.
 	assureWindow = 24 * time.Hour
 	// assureKeep is how long a client test is kept.
 	assureKeep = 30 * 24 * time.Hour
@@ -172,12 +173,13 @@ func (s *Server) assureCombos(state *change.State, ap hierarchy.NodeID, docs map
 	for _, id := range ids {
 		n, _ := mine[id].(map[string]any)
 		sec, _ := n["security"].(string)
-		if rad, _ := n["radius"].(map[string]any); !testable[sec] || rad["passphrases"] == true {
+		// Not one turned off here (0012), nor one a test cannot join.
+		if rad, _ := n["radius"].(map[string]any); !testable[sec] || rad["passphrases"] == true || n["enabled"] == false {
 			continue
 		}
 		for _, p := range places {
 			theirs, _ := doc(p.ap)[id].(map[string]any)
-			if theirs == nil || theirs["ssid"] != n["ssid"] {
+			if theirs == nil || theirs["ssid"] != n["ssid"] || theirs["enabled"] == false {
 				continue
 			}
 			for _, band := range []string{"2g", "5g", "6g"} {
@@ -219,12 +221,30 @@ func servingBands(state *change.State, ap hierarchy.NodeID) []string {
 	return out
 }
 
+// assureRounds is how long each AP that is asked for tests takes to come
+// back to the same thing, how often it is asked times how many things it
+// tests, and how far back the tests must be read for three rounds of the
+// longest: a day at the least, and no further than tests are kept.
+func (s *Server) assureRounds(state *change.State, docs map[hierarchy.NodeID]map[string]any) (map[hierarchy.NodeID]time.Duration, time.Duration) {
+	rounds := map[hierarchy.NodeID]time.Duration{}
+	window := assureWindow
+	for _, ap := range state.Org.Locations.APs() {
+		every, _ := assureSettings(state, ap)
+		if every <= 0 || !scanRadio(state, ap) {
+			continue
+		}
+		rounds[ap] = every * time.Duration(max(1, len(s.assureCombos(state, ap, docs))))
+		window = max(window, min(3*rounds[ap]+time.Hour, assureKeep))
+	}
+	return rounds, window
+}
+
 // assureVerdict is what the tests of one thing, by one AP, come to.
 type assureVerdict struct {
 	last    *testRecord // the latest that was made
 	failing bool        // the latest two made both failed
 	since   time.Time   // when the first of the failures running was asked
-	passed  int
+	passed  int         // of those asked since the time counted from
 	failed  int
 }
 
@@ -236,8 +256,9 @@ type assureKey struct {
 
 // assureVerdicts reads the tests of a time, newest first, into what each
 // thing tested by each AP comes to. One failure is not yet a network that
-// does not work; two running are.
-func assureVerdicts(list []testRecord) map[assureKey]*assureVerdict {
+// does not work; two running are. Passes and failures are counted from a
+// time on, which may be later than the tests go back.
+func assureVerdicts(list []testRecord, from time.Time) map[assureKey]*assureVerdict {
 	out := map[assureKey]*assureVerdict{}
 	run := map[assureKey]int{}    // the failures running, from the latest back
 	ended := map[assureKey]bool{} // a test that passed has ended them
@@ -253,11 +274,15 @@ func assureVerdicts(list []testRecord) map[assureKey]*assureVerdict {
 			out[k] = v
 		}
 		if !r.failed() {
-			v.passed++
+			if !r.At.Before(from) {
+				v.passed++
+			}
 			ended[k] = true
 			continue
 		}
-		v.failed++
+		if !r.At.Before(from) {
+			v.failed++
+		}
 		if !ended[k] {
 			run[k]++
 			v.since = r.At
@@ -295,13 +320,14 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 	if state == nil {
 		return nil
 	}
-	list, err := s.tests(now.Add(-assureWindow))
+	docs := map[hierarchy.NodeID]map[string]any{}
+	_, window := s.assureRounds(state, docs)
+	list, err := s.tests(now.Add(-window))
 	if err != nil {
 		slog.Warn("assurance: cannot read the tests", "err", err)
 		return nil
 	}
-	verdicts := assureVerdicts(list)
-	docs := map[hierarchy.NodeID]map[string]any{}
+	verdicts := assureVerdicts(list, time.Time{})
 	var asked []conditions.Action
 	for _, ap := range state.Org.Locations.APs() {
 		every, speed := assureSettings(state, ap)
@@ -446,12 +472,14 @@ func (s *Server) Assure(ctx context.Context, every time.Duration) {
 // after the last of them.
 func (s *Server) failingTests(state *change.State, now time.Time) map[hierarchy.NodeID][]alerts.FailingTest {
 	out := map[hierarchy.NodeID][]alerts.FailingTest{}
-	list, err := s.tests(now.Add(-assureWindow))
+	rounds, window := s.assureRounds(state, map[hierarchy.NodeID]map[string]any{})
+	list, err := s.tests(now.Add(-window))
 	if err != nil {
 		return out
 	}
 	t := state.Org.Locations
-	for k, v := range assureVerdicts(list) {
+	var owners map[string]hierarchy.NodeID // whose each BSSID is, read once if it is needed
+	for k, v := range assureVerdicts(list, time.Time{}) {
 		if !v.failing {
 			continue
 		}
@@ -459,14 +487,23 @@ func (s *Server) failingTests(state *change.State, now time.Time) map[hierarchy.
 		if !ok {
 			continue
 		}
-		if every, _ := assureSettings(state, k.tester); every <= 0 && now.Sub(v.last.At) > time.Hour {
-			continue
-		} else if every > 0 && now.Sub(v.last.At) > 3*every+time.Hour {
+		// A verdict stands for three rounds of the AP's schedule and an hour
+		// after its last test, or for an hour where it is asked for none.
+		if now.Sub(v.last.At) > 3*rounds[k.tester]+time.Hour {
 			continue
 		}
 		on := hierarchy.NodeID(k.combo.On)
-		if _, ok := t.Node(on); !ok {
-			on = k.tester // the strongest AP it heard, whichever that was
+		if k.combo.On == "" {
+			// The strongest AP it heard: the one whose BSSID it joined, or
+			// tried to. One that is no AP's here is nobody's alert.
+			if owners == nil {
+				owners = s.fleetBSSIDs(state)
+			}
+			if on, ok = owners[v.last.detail.BSSID]; !ok {
+				continue
+			}
+		} else if _, ok := t.Node(on); !ok {
+			continue
 		}
 		since := v.since
 		out[on] = append(out[on], alerts.FailingTest{
@@ -530,14 +567,23 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		hours = n
 	}
 	now := time.Now()
-	list, err := s.tests(now.Add(-time.Duration(hours) * time.Hour))
+	from := now.Add(-time.Duration(hours) * time.Hour)
+	docs := map[hierarchy.NodeID]map[string]any{}
+	// What is failing is worked out as an alert is, over three rounds of
+	// the schedule; the counts and the tests listed are of the time asked.
+	_, window := s.assureRounds(c.state, docs)
+	list, err := s.tests(now.Add(-max(window, now.Sub(from))))
 	if err != nil {
 		return err
+	}
+	// An AP the caller may not view is shown neither as a tester nor as
+	// where a test joined: not its name, nor its BSSIDs.
+	may := func(id string) bool {
+		return id == "" || roleOn(c, change.Locations, t, hierarchy.NodeID(id)) >= access.Viewer
 	}
 	view := map[hierarchy.NodeID]bool{}
 	testers := []assuranceTester{}
 	checks := []assuranceCheck{}
-	docs := map[hierarchy.NodeID]map[string]any{}
 	name := func(id hierarchy.NodeID) string {
 		if n, ok := t.Node(id); ok {
 			return n.Name
@@ -545,7 +591,7 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		return string(id)
 	}
 	seen := map[assureKey]bool{}
-	verdicts := assureVerdicts(list)
+	verdicts := assureVerdicts(list, from)
 	for _, id := range t.APs() {
 		if roleOn(c, change.Locations, t, id) < access.Viewer || !scanRadio(c.state, id) {
 			continue
@@ -563,7 +609,7 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 			return v
 		}
 		add := func(k assureKey, scheduled bool) {
-			if seen[k] {
+			if seen[k] || !may(k.combo.On) {
 				return
 			}
 			seen[k] = true
@@ -618,7 +664,7 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 	})
 	tests := []conditions.Action{}
 	for _, r := range list {
-		if view[hierarchy.NodeID(r.AP)] && len(tests) < 50 {
+		if view[hierarchy.NodeID(r.AP)] && may(r.ask.On) && !r.At.Before(from) && len(tests) < 50 {
 			tests = append(tests, r.Action)
 		}
 	}

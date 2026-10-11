@@ -87,6 +87,19 @@ func (s *Server) actionList(w http.ResponseWriter, r *http.Request, c call) erro
 	if err != nil {
 		return err
 	}
+	// A client test (0121) joined on an AP the caller may not view does not
+	// say which, nor its BSSIDs.
+	for i, a := range list {
+		if a.Kind != "client-test" {
+			continue
+		}
+		var ask clientTestAsk
+		if json.Unmarshal(a.Params, &ask) != nil || ask.On == "" || roleOn(c, change.Locations, t, hierarchy.NodeID(ask.On)) >= access.Viewer {
+			continue
+		}
+		ask.On, ask.BSSIDs = "", nil
+		list[i].Params, _ = json.Marshal(ask)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"actions": list})
 	return nil
 }
