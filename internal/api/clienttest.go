@@ -330,6 +330,9 @@ type clientTest struct {
 	Speed     *testSpeed    `json:"speed,omitempty"`
 	ScanRadio *testScanning `json:"scan_radio,omitempty"`
 	Wire      *testWire     `json:"wire,omitempty"`
+	// Way is its way online, a point at a time (0130): worked out by the
+	// manager as a test is read, and never kept, nor taken from an AP.
+	Way []wayPoint `json:"way,omitempty"`
 }
 
 // testWire is where a test over the wire was made (0128): the device, the
@@ -355,7 +358,14 @@ type testStep struct {
 	What  string   `json:"what"`
 	OK    *bool    `json:"ok,omitempty"`
 	MS    *float64 `json:"ms,omitempty"`
+	// K names the point of the way the step belongs to, where that is not
+	// its stage (0130): over the wire, the offer of an address, and the
+	// address given back, which are steps of DHCP both.
+	K string `json:"k,omitempty"`
 }
+
+// The points a step may name.
+var testPoints = map[string]bool{"": true, "offer": true, "release": true}
 
 type testRate struct {
 	Mbps float64 `json:"mbps"`
@@ -446,7 +456,7 @@ func (t *clientTest) check() error {
 		}
 	}
 	for _, s := range t.Steps {
-		if !span(s.T) || !testStages[s.Stage] || s.What == "" || !words(s.What, 160) || !millis(s.MS) {
+		if !span(s.T) || !testStages[s.Stage] || s.What == "" || !words(s.What, 160) || !millis(s.MS) || !testPoints[s.K] {
 			return bad("a step is when, in ms, a stage and what happened, printable and at most 160 characters")
 		}
 	}
@@ -503,6 +513,7 @@ func clientTestDetail(raw json.RawMessage) (json.RawMessage, error) {
 	if t.Steps == nil {
 		t.Steps = []testStep{}
 	}
+	t.Way = nil
 	out, err := json.Marshal(t)
 	if err != nil {
 		return nil, fmt.Errorf("client test: %w", err)

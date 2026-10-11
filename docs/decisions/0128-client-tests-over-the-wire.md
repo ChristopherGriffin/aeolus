@@ -42,6 +42,8 @@
   - **A network that fails twice running is an alert on that AP,** as for the air, and says it was the wire.
 - **By hand, from the AP's page:** Client tests offers "Over the wire" beside the bands, and is there on an AP with no scan radio too.
 
+- **Its way is drawn a point at a time (0130):** the offer of an address and the address given apart, each with how long it took.
+
 ## Consequences
 
 - **An AP with no scan radio can say whether a network works behind it.** A site can be checked VLAN by VLAN before a client arrives.

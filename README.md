@@ -183,6 +183,7 @@ Each milestone ends in something checkable before the next starts.
 | [0127](docs/decisions/0127-how-clients-own-joins-go.md) | How the clients' own joins go |
 | [0128](docs/decisions/0128-client-tests-over-the-wire.md) | A client test over the wire |
 | [0129](docs/decisions/0129-a-round-of-tests-asked-now.md) | A round of tests, asked now |
+| [0130](docs/decisions/0130-the-way-online-a-point-at-a-time.md) | The way online, a point at a time |
 
 ## Open questions
 

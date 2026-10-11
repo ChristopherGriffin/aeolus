@@ -647,6 +647,10 @@ type assuranceCheck struct {
 	Failed     int                `json:"failed"`
 	Last       *conditions.Action `json:"last,omitempty"`
 	Runs       []assuranceRun     `json:"runs,omitempty"`
+	// Way is its tests' way online, a point at a time (0130): how many
+	// passed each, how long it typically took them, and how many stopped
+	// at it, over the tests of the time asked.
+	Way []wayTypical `json:"way,omitempty"`
 }
 
 // assuranceRun is one test of a thing in brief, for how it did over the
@@ -740,13 +744,23 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 	// Each thing's latest tests of the time asked, in brief: read once, as
 	// the tests are many.
 	runs := map[assureKey][]assuranceRun{}
+	ways := map[assureKey]*wayTally{}
 	for _, r := range list {
 		if r.At.Before(from) || !r.ran() {
 			continue
 		}
-		if k := (assureKey{tester: hierarchy.NodeID(r.AP), combo: r.combo()}); len(runs[k]) < assuranceRunsMost {
+		k := assureKey{tester: hierarchy.NodeID(r.AP), combo: r.combo()}
+		if len(runs[k]) < assuranceRunsMost {
 			runs[k] = append(runs[k], runOf(r))
 		}
+		if ways[k] == nil {
+			kind := wayAir
+			if r.detail.Band == wireBand {
+				kind = wayWire
+			}
+			ways[k] = newWayTally(kind)
+		}
+		ways[k].add(testWay(r.detail))
 	}
 	// The round asked by hand that the APs shown are in (0129), the latest
 	// where they are in more than one, and how far it has got.
@@ -826,8 +840,11 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 					since := v.since
 					ch.Since = &since
 				}
-				last := v.last.Action
+				last := withWay(v.last.Action)
 				ch.Last = &last
+				if w := ways[k]; w != nil {
+					ch.Way = w.typical()
+				}
 				if ch.SSID == "" {
 					ch.SSID = v.last.ask.SSID
 				}
@@ -870,7 +887,7 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 	tests := []conditions.Action{}
 	for _, r := range list {
 		if view[hierarchy.NodeID(r.AP)] && may(r.ask.On) && !r.At.Before(from) && len(tests) < 50 {
-			tests = append(tests, r.Action)
+			tests = append(tests, withWay(r.Action))
 		}
 	}
 	// And how the clients' own attempts to come online went (0127).

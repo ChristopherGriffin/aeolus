@@ -322,13 +322,15 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 	if err != nil {
 		return err
 	}
+	// Each with its AP's name, and its way online a point at a time (0130).
 	type entry struct {
 		conditions.Connection
-		APName string `json:"ap_name"`
+		APName string     `json:"ap_name"`
+		Way    []wayPoint `json:"way"`
 	}
 	out := []entry{}
 	for _, cn := range list {
-		e := entry{Connection: cn}
+		e := entry{Connection: cn, Way: connWay(cn)}
 		if n, ok := t.Node(cn.AP); ok {
 			e.APName = n.Name
 		}

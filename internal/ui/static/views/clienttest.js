@@ -13,6 +13,7 @@ import { get, post } from '../api.js';
 import { ago, bandName } from '../format.js';
 import { flash, hurry, redrawNow } from '../refresh.js';
 import { journeyPanel } from './journey.js';
+import { wayPath } from './way.js';
 
 // The stages of a test, in order, as they are named.
 const STAGES = [
@@ -28,8 +29,6 @@ const TESTABLE = new Set(['open', 'owe', 'wpa2-psk', 'wpa3-sae', 'wpa2-wpa3']);
 const ENTERPRISE = new Set(['wpa2-enterprise', 'wpa3-enterprise', 'wpa2-wpa3-enterprise']);
 const BANDS = [['', 'Any band'], ['2g', '2.4 GHz'], ['5g', '5 GHz'], ['6g', '6 GHz']];
 const WIRE = 'wire';
-// The stages a test over the wire has: it joins nothing.
-const WIRED = new Set(['dhcp', 'gateway', 'dns']);
 
 const took = (ms) => (ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 60000)} min`);
 const when = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -58,20 +57,25 @@ function chip(a) {
 	return h('span', { class: 'chip bad' }, d?.stage ? `Failed at ${NAME[d.stage] || d.stage}` : 'Failed');
 }
 
-// rail is the stages in a row, each marked: done, failed, or not reached.
-function rail(d) {
-	const steps = d.steps || [];
-	return h('div', { class: 'rail' }, STAGES.map(([k, name]) => {
-		const mine = steps.filter((e) => e.stage === k);
-		if (d.band === WIRE && !WIRED.has(k)) return null;
-		if (k === 'speed' && !d.speed && !mine.length) return null;
-		// A sign-in is a stage only of a network that signs clients in.
-		if (k === 'signin' && !mine.length && d.stage !== 'signin') return null;
-		const bad = mine.some((e) => e.ok === false) || (d.outcome === 'failed' && d.stage === k);
-		const ok = !bad && mine.some((e) => e.ok === true);
-		const [cls, says] = bad ? ['bad', 'failed'] : ok ? ['ok', 'done'] : ['idle', 'not reached'];
-		return h('span', { class: `chip ${cls}`, title: `${name}: ${says}` }, name);
-	}));
+// way is the test's way online, drawn (0130): each point with how long it
+// took, and under it what the test found there. Over the wire it starts
+// from where the test was made: the uplink's port and the VLAN, or the
+// tunnel.
+function way(d) {
+	const l = d.link, g = d.gateway, s = d.speed, w = d.wire;
+	const sub = {
+		find: [d.band && d.band !== WIRE && bandName(d.band), d.channel && `channel ${d.channel}`].filter(Boolean).join(', ') || null,
+		key: l?.signal != null ? `${l.signal} dBm` : null,
+		offer: d.dhcp?.server ? `by ${d.dhcp.server}` : null,
+		dhcp: d.dhcp?.address,
+		gateway: g && [g.address, !g.got && g.arp_ms == null && g.mac && 'no ping'].filter(Boolean).join(' · '),
+		dns: d.dns?.server,
+		speed: s && !s.error ? 'Mbit/s down, up' : null,
+	};
+	const main = { speed: s && !s.error ? `${s.down} · ${s.up ?? '?'}` : null };
+	const lead = w && [{ top: 'From', main: w.device, sub: w.vlan ? `VLAN ${w.vlan}` : w.vni != null ? `VNI ${w.vni}` : null,
+		title: `Made from ${w.device}${w.vlan ? `, on VLAN ${w.vlan}` : w.vni != null ? `, the tunnel of VNI ${w.vni}` : ''}, with a MAC of the test’s own` }];
+	return wayPath(d.way, { sub, main, lead, what: w ? 'The test’s way, over the wire' : 'The test’s way online' });
 }
 
 // rate is one way of the link: how fast, and how it is sent.
@@ -136,7 +140,7 @@ function opened(a) {
 	// The same join, as the AP it joined recorded it (0118), opens below.
 	const other = h('div', { class: 'testother' });
 	return h('div', { class: 'attempt' },
-		rail(d),
+		way(d),
 		d.reason && h('p', { class: 'why bad' }, `Why: ${d.reason}.`),
 		deaf(radio),
 		h('div', { class: 'testfound' }, found(d)),

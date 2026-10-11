@@ -176,7 +176,14 @@ details.fold > table.list { margin-bottom: 8px; }
 .subhead { margin: 0; padding: 14px 20px 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line-2); }
 .subhead .note { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .attempt { padding: 2px 20px 6px 38px; }
-.attempt .rail { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
+/* The way online, a point at a time (0130): drawn as a tunnel's path is. */
+.way { container-type: inline-size; margin: 4px 0 12px; }
+.way .path .hop .main, .way .path .hop .sub { white-space: nowrap; }
+.way > .sub { margin-top: 6px; }
+@container (min-width: 520px) {
+	.way .path .hop { padding: 3px 8px 4px; }
+	.way .path .leg { width: 12px; margin: 0 8px 0 1px; }
+}
 .attempt .why { margin: 0 0 10px; font-size: 14px; }
 .attempt .why.bad { color: #6B1A13; font-weight: 600; }
 .attempt table.steps { margin: 0 0 8px; }
