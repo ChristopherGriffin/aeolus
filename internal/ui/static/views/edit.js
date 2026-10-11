@@ -30,7 +30,7 @@ export function input(path, f, current) {
 	let el;
 	let read;
 	if (f.type === 'boolean') {
-		el = h('input', { type: 'checkbox', checked: current === true });
+		el = h('input', { type: 'checkbox', class: 'switch', role: 'switch', checked: current === true });
 		read = () => el.checked;
 	} else if (f['x-aeolus-enum'] === 'countries' && f['x-aeolus-countries']) {
 		// Countries by name, as tzselect offers them (0074). One set before

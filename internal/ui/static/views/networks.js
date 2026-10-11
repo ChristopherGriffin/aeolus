@@ -234,9 +234,10 @@ function steeringRow(ctx, n, box, noUsteer) {
 		h('div', { class: 'label' }, 'Band steering'),
 		h('div', { class: 'value' },
 			h('button', {
-				type: 'button', class: 'switch' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(on),
+				type: 'button', class: 'switch' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(on), 'aria-label': 'Band steering',
 				title: on ? 'Turn band steering off' : 'Turn band steering on', disabled: !n.canEdit || lockedAbove(n, k), onclick: flip,
-			}, h('span', { class: 'knob' }), on ? 'On' : 'Off'),
+			}),
+			h('span', { class: 'switchsays' }, on ? 'On' : 'Off'), ' ',
 			whence(ctx, n, field)));
 }
 
