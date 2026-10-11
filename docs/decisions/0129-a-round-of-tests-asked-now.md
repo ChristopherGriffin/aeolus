@@ -29,6 +29,8 @@
 - **A round's tests count as any others:** in what is tested, in the tests listed, and for what is failing and its alert (0123).
 - **The Assurance tab has the button,** "Test everything now", and says how the round is going: how many things, how many tested, and when it is done. A thing counts by the round's own test of it, whatever the schedule asks after. Another round can be asked while one is under way, as after something was put right; where what is left cannot be asked for, the tab says so.
 - **Who asked a round, and the name of the folder it was asked at, are said to one who may view that folder.** Someone who may view only what is below sees that a round is on, and how far it has got with what they may view.
+- **An AP's own page has the button too,** with its client tests (0121): a round of that AP alone.
+- **A test asked for a round says so** where it is listed, "in a round asked by hand", and not "on the schedule".
 - **An AP that can test only when asked is shown with the others:** one with no scan radio whose folders ask for no tests over the wire. It says it tests in a round.
 - **`POST /v1/assurance/round`** asks one; `GET /v1/assurance` says how it goes, in `round`. Claude and other clients ask through `ask_assurance_round`.
 
