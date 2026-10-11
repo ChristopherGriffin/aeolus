@@ -559,6 +559,8 @@ function switch_args(band, channel, width, mode, count) {
 		freq: f, center_freq1: f, bandwidth: w, sec_channel_offset: 0, ht: fam != 'NOHT',
 		vht: band == '5g' && fam in ['VHT', 'HE', 'EHT'], he: fam in ['HE', 'EHT'], bcn_count: count,
 	};
+	if (fam == 'EHT')
+		a.eht = true;
 	if (w <= 20)
 		return a;
 	if (band == '2g') {
@@ -577,6 +579,22 @@ function switch_args(band, channel, width, mode, count) {
 			return a;
 		}
 	return null;
+}
+
+// chan_switch is hostapd's CHAN_SWITCH command, as its control socket takes
+// it, for what switch_args gives (0120). It is how a radio goes to a channel
+// shared with radar: hostapd starts its networks again on the channel and
+// has them listen for radar first. Every generation the radio runs is
+// named, as hostapd keeps only those the command names.
+function chan_switch(a) {
+	let s = sprintf('CHAN_SWITCH %d %d', a.bcn_count, a.freq);
+	if (a.sec_channel_offset)
+		s += ' sec_channel_offset=' + a.sec_channel_offset;
+	s += ' center_freq1=' + a.center_freq1 + ' bandwidth=' + a.bandwidth;
+	for (let k in ['ht', 'vht', 'he', 'eht'])
+		if (a[k])
+			s += ' ' + k;
+	return s;
 }
 
 // power_step says how a radio's power should move (0077). signals are how
@@ -603,5 +621,5 @@ export {
 	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW, SUDDEN, NEAR, WINDOW, MARGIN, APC_STEP, APC_FLOOR, APC_ABOVE,
 	CAC_MOST, DFS_LOOKS, BARRED_FOR, dfs_states, clear, bar, barred, fallback, radar_reason, wanted,
 	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits,
-	printable, swept, around, weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args, power_step
+	printable, swept, around, weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args, chan_switch, power_step
 };

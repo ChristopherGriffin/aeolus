@@ -129,6 +129,15 @@ printf('switch 5g 161 vht80 %J\n', rrm.switch_args('5g', 161, 80, 'VHT80', 10));
 printf('switch 5g 165 40 %J\n', rrm.switch_args('5g', 165, 40, 'HE40', 10));
 printf('switch 5g 36 legacy %J\n', rrm.switch_args('5g', 36, 40, 'NOHT', 10));
 
+// hostapd's own command for a move to a channel shared with radar (0120):
+// to 52 at 40 MHz as the C-360 took it on 2026-10-10, and at 20 and 80 MHz;
+// a Wi-Fi 7 radio names that generation too.
+printf('chan switch 52 he40 %s\n', rrm.chan_switch(rrm.switch_args('5g', 52, 40, 'HE40', 10)));
+printf('chan switch 56 he40 %s\n', rrm.chan_switch(rrm.switch_args('5g', 56, 40, 'HE40', 10)));
+printf('chan switch 100 vht20 %s\n', rrm.chan_switch(rrm.switch_args('5g', 100, 20, 'VHT20', 10)));
+printf('chan switch 108 eht80 %s\n', rrm.chan_switch(rrm.switch_args('5g', 108, 80, 'EHT80', 10)));
+printf('chan switch 132 ht40 %s\n', rrm.chan_switch(rrm.switch_args('5g', 132, 40, 'HT40', 10)));
+
 // Power control (0077): looking for three neighbours, the weakest at -70 dBm.
 printf('power none heard %J\n', rrm.power_step([], 3, -70, 20, 26));
 printf('power two of three %J\n', rrm.power_step([-60, -65], 3, -70, 20, 26));
