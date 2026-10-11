@@ -303,7 +303,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 	out.push(h('section', { class: 'panel' },
 		h('h2', { title: 'Every client’s own attempts to come online, as the APs recorded them. A line opens to where they stopped; each client’s attempts, step by step, are under Clients, Everyone seen.' },
 			'Clients coming online', h('span', { class: 'note' }, stuck ? `${many(stuck, 'network')} failing · ${lately}` : lately)),
-		joins.length ? joins.map(joined) : h('p', { class: 'sub' }, 'None tried.')));
+		joins.length ? joins.map(joined) : h('p', { class: 'sub pad' }, 'None tried.')));
 
 	out.push(h('section', { class: 'panel' },
 		h('h2', { class: 'withcontrols', title: 'An AP with a scan radio joins its networks as a client would, in turn, and says how each step went. Over the wire, any AP asks each of its networks for an address, its gateway and a name.' },
@@ -322,7 +322,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 	out.push(h('section', { class: 'panel' },
 		h('h2', { title: 'Each thing an AP tests, the failing first, with a mark for each of its latest tests, twenty at the most. A line opens to what its tests come to and to its latest.' },
 			'What is tested', h('span', { class: 'note' }, checks.length ? (failing ? `${failing} failing · ${lately}` : lately) : '')),
-		checks.length ? checks.map((c) => check(ctx, c)) : h('p', { class: 'sub' }, 'Nothing yet.')));
+		checks.length ? checks.map((c) => check(ctx, c)) : h('p', { class: 'sub pad' }, 'Nothing yet.')));
 
 	// The tests themselves, newest first, are a log: closed until asked for.
 	const fold = (key, title, heading, note, body) => {
@@ -338,7 +338,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 	// one set here the way back to the folder above (0046). Folded too.
 	const set = asSet(page.fields || {});
 	const every = set['assurance.tests.every']?.value;
-	const which = OVER.find(([k]) => k === (set['assurance.tests.over']?.value || 'air'))[1];
+	const which = OVER.find(([k]) => k === (set['assurance.tests.over']?.value || 'air'))?.[1] ?? 'Wireless';
 	out.push(fold(`schedule/${here}`, 'How often the APs here are asked for a test, and which tests; where each setting comes from; and, for one set here, the way back to the folder above',
 		'Schedule', every ? `${value('assurance.tests.every', every)} · ${which.toLowerCase()}` : 'none',
 		fieldPanels(ctx, 'locations', here, only(page.fields, (p) => FIELDS.includes(p)), edit)));

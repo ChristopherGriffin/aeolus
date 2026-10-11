@@ -170,8 +170,9 @@ details.fold[open] > summary::before { transform: rotate(45deg); }
    for a dark ground: here it is ink. */
 details.fold > summary .who { display: inline; font-weight: 600; min-width: 150px; font-size: inherit; color: var(--ink); }
 details .when.short { width: 84px; }
-.marks.inline { display: inline-flex; gap: 2px; min-width: 0; overflow: hidden; margin-right: 6px; }
-.marks.inline .mark { width: 5px; height: 14px; border-radius: 1px; background: var(--line); }
+/* Where the line is narrow the oldest marks go: none is made thinner. */
+.marks.inline { display: inline-flex; gap: 2px; min-width: 0; overflow: hidden; justify-content: flex-end; margin-right: 6px; }
+.marks.inline .mark { flex: none; width: 5px; height: 14px; border-radius: 1px; background: var(--line); }
 .marks.inline .mark.ok { background: var(--ok, #2e8b57); }
 .marks.inline .mark.bad { background: var(--bad, #c0392b); }
 /* The APs that test, a line each; and how a round is going. */
