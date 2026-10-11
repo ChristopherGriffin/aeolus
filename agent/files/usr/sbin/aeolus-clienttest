@@ -95,6 +95,11 @@ function since() {
 function step(stage, what, ok, ms) {
 	if (length(steps) >= ct.STEPS)
 		return;
+	// The same again is said once: a look made over and over for a network
+	// not found yet, or SAE's two authentications, each "found it".
+	let last = steps[length(steps) - 1];
+	if (last && last.stage == stage && last.what == what)
+		return;
 	let s = { t: since(), stage: stage, what: what };
 	if (ok != null)
 		s.ok = ok;
@@ -196,6 +201,9 @@ function free() {
 // airscan has its radio again.
 function take(phy) {
 	if (!lent) {
+		// Said while it lasts, for whoever asks why airscan is silent: the
+		// agent, reporting how the scan radio is doing (0126).
+		fs.writefile(`${DIR}/stopped`, '1');
 		run('/etc/init.d/airscan', 'stop');
 		sleep(1500);
 	}
@@ -229,8 +237,10 @@ function give_back(again) {
 			up = bind_again(again);
 		bus.call('airscan', 'reclaim');
 	}
-	else
+	else {
 		run('/etc/init.d/airscan', 'start');
+		fs.unlink(`${DIR}/stopped`);
+	}
 	return up;
 }
 
@@ -548,10 +558,12 @@ function heard_after(taken) {
 // one back, with airscan stopped for it and started on it after. It says
 // whether the radio came up.
 function rebind(addr) {
+	fs.writefile(`${DIR}/stopped`, '1');
 	run('/etc/init.d/airscan', 'stop');
 	sleep(1000);
 	let up = bind_again(addr);
 	run('/etc/init.d/airscan', 'start');
+	fs.unlink(`${DIR}/stopped`);
 	return up;
 }
 

@@ -633,6 +633,17 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 	}
 	seen := map[assureKey]bool{}
 	verdicts := assureVerdicts(list, from)
+	// Each thing's latest tests of the time asked, in brief: read once, as
+	// the tests are many.
+	runs := map[assureKey][]assuranceRun{}
+	for _, r := range list {
+		if r.At.Before(from) || !r.ran() {
+			continue
+		}
+		if k := (assureKey{tester: hierarchy.NodeID(r.AP), combo: r.combo()}); len(runs[k]) < assuranceRunsMost {
+			runs[k] = append(runs[k], runOf(r))
+		}
+	}
 	for _, id := range t.APs() {
 		if roleOn(c, change.Locations, t, id) < access.Viewer || !scanRadio(c.state, id) {
 			continue
@@ -671,15 +682,7 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 					ch.SSID = v.last.ask.SSID
 				}
 				// Its tests of the time asked, in brief, the oldest first.
-				for i := range list {
-					r := list[i]
-					if len(ch.Runs) >= assuranceRunsMost || r.At.Before(from) {
-						break
-					}
-					if r.ran() && hierarchy.NodeID(r.AP) == k.tester && r.combo() == k.combo {
-						ch.Runs = append(ch.Runs, runOf(r))
-					}
-				}
+				ch.Runs = slices.Clone(runs[k])
 				sort.SliceStable(ch.Runs, func(i, j int) bool { return ch.Runs[i].At.Before(ch.Runs[j].At) })
 			}
 			checks = append(checks, ch)
