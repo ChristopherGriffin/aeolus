@@ -420,6 +420,36 @@ func TestAgentRRM(t *testing.T) {
 	}
 }
 
+// The prober's RADIUS status request, how its answers read, and how hostapd's
+// counts are read (0114), as the agent's own ucode works them out:
+// agent/test/radius.uc prints them, and radius.out is what it must print.
+// Its HMACs are RFC 2202's, and the request's was worked out with Python's
+// hmac too.
+func TestAgentRadius(t *testing.T) {
+	ucode, err := exec.LookPath("ucode")
+	if err != nil {
+		t.Skip("ucode is not installed; CI builds it (0040)")
+	}
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", "radius.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "radius.uc"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Errorf("the prober's RADIUS status works out other than radius.out says:\n%s", out)
+	}
+}
+
 // The check catches a bond taken apart badly (0096): a VLAN the second port
 // does not carry, which the AP would lose when that port is the path out,
 // and a bridge without spanning tree.

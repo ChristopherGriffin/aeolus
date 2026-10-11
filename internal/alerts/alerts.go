@@ -182,6 +182,11 @@ type report struct {
 		Answered   int `json:"answered"`
 		Unanswered int `json:"unanswered"`
 	} `json:"dhcp"`
+	Radius []struct {
+		Network string `json:"network"`
+		Server  string `json:"server"`
+		Verdict string `json:"verdict"`
+	} `json:"radius"`
 	Time *struct {
 		Synced *bool `json:"synced"`
 	} `json:"time"`
@@ -258,6 +263,13 @@ func fromReport(in Input, st *conditions.State) []Alert {
 	for _, net := range sortedKeys(r.DHCP) {
 		if d := r.DHCP[net]; d.Unanswered > 0 && d.Answered == 0 {
 			add(Warning, "dhcp-silent", net, fmt.Sprintf("DHCP on network %s: %d requests in the last 10 minutes, and nothing answered", net, d.Unanswered))
+		}
+	}
+	// A RADIUS server that does not answer this AP (0114): no one can sign
+	// in to the network through it.
+	for _, x := range r.Radius {
+		if x.Verdict == "silent" {
+			add(Critical, "radius-silent", x.Network, fmt.Sprintf("the RADIUS server %s does not answer this AP: no one can sign in to network %s here. It is down, cannot be reached, or does not know this AP or its secret", x.Server, x.Network))
 		}
 	}
 	// A network not one of the APs' broadcasting one of Aeolus's SSIDs: an

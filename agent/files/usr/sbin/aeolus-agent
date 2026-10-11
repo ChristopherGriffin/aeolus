@@ -1360,6 +1360,11 @@ function state_report(running) {
 	let clients = probes()?.clients;
 	if (clients && length(clients))
 		report.clients = slice(clients, 0, 256);
+	// The RADIUS servers its networks sign clients in against, as the prober
+	// finds them (0114).
+	let radius = probes()?.radius;
+	if (radius && length(radius))
+		report.radius = slice(radius, 0, 64);
 	// Its clock (0069).
 	report.time = time_state();
 	// The per-user keys it has (0070).

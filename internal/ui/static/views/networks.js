@@ -57,6 +57,7 @@ export async function networksTab(ctx, id, page) {
 		addBox,
 		steeringStatus(ctx, reports),
 		transportsStatus(reports),
+		radiusStatus(reports),
 		dhcpStatus(reports),
 		relayStatus(relayed),
 	];
@@ -362,6 +363,55 @@ function transportsStatus(reports) {
 			h('tr', null, ['AP', 'Network', 'Carried by', 'Primary', 'Fallback', 'Reported'].map((c) => h('th', null, c))),
 			rows));
 }
+
+// How each verdict of a network's RADIUS server is shown (0114).
+const RADIUS = {
+	up: ['ok', 'answering'], silent: ['bad', 'not answering'], unverified: ['idle', 'not checked'], unknown: ['idle', 'starting'],
+};
+
+// radiusStatus shows, for each network on each AP here that signs clients
+// in against a RADIUS server, how the server is doing from that AP (0114):
+// whether it answers the AP's status requests or its clients' sign-ins, how
+// fast and how long ago, and what it answered the sign-ins with since the
+// network was started. A server that doesn't answer is in red.
+function radiusStatus(reports) {
+	const rows = [];
+	for (const { ap, cfg } of reports) {
+		const st = cfg?.condition?.state;
+		for (const r of st?.report?.radius || []) {
+			const [cls, word] = RADIUS[r.verdict] || ['idle', r.verdict || 'not reported'];
+			rows.push(h('tr', null,
+				h('td', null, rows.length === 0 || rows[rows.length - 1].dataset.ap !== ap.id ? link(`/aps/${encodeURIComponent(ap.id)}`, ap.name) : null),
+				h('td', null, cfg.document?.network?.[r.network]?.ssid || r.network),
+				h('td', null, r.port === 1812 ? r.server : `${r.server} port ${r.port}`),
+				h('td', null,
+					h('span', { class: 'chip ' + cls, title: RADIUS_SAYS[r.verdict] || '' }, word),
+					r.verdict === 'silent' && h('div', { class: 'sub' }, 'down, out of reach, or it does not know this AP or its secret')),
+				h('td', null, r.answered_ago == null ? '—' : `${secondsAgo(r.answered_ago, st.at)}${r.rtt_ms != null ? `, in ${r.rtt_ms} ms` : ''}`),
+				h('td', null, r.requests
+					? [`${r.accepts} accepted, ${r.rejects} refused`,
+						(r.timeouts > 0 || r.bad > 0) && h('div', { class: 'sub' },
+							[r.timeouts > 0 && `${r.timeouts} timed out`, r.bad > 0 && `${r.bad} bad answer${r.bad === 1 ? '' : 's'}`].filter(Boolean).join(', '))]
+					: '—'),
+				h('td', null, ago(st.at))));
+			rows[rows.length - 1].dataset.ap = ap.id;
+		}
+	}
+	if (!rows.length) return null;
+	return h('section', { class: 'panel' },
+		h('h2', null, 'RADIUS on each AP', h('span', { class: 'note' }, 'the server each network signs clients in against, as each AP last reported; sign-ins are counted since the network started')),
+		h('table', { class: 'list' },
+			h('tr', null, ['AP', 'Network', 'Server', 'Status', 'Last answer', 'Sign-ins', 'Reported'].map((c) => h('th', null, c))),
+			rows));
+}
+
+// What each verdict means, on mouse-over.
+const RADIUS_SAYS = {
+	up: "It answers the AP's status requests, or answered a client's sign-in in the last minute and a half.",
+	silent: "Three status requests in a row went unanswered, or a client's sign-in timed out and none was answered since.",
+	unverified: "It takes no status requests, and no client has signed in lately: nothing says it is down.",
+	unknown: 'The AP has not asked it three times yet.',
+};
 
 // dhcpStatus shows, for each network on each AP here, what its Wi-Fi
 // clients' DHCP looks like (0065): the servers that answer, the requests of

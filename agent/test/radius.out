@@ -1,0 +1,25 @@
+able true
+hmac 1 9294727a3638bb1c13f48ef8158bfc9d
+hmac 2 750c783e6ab0b503eaa86e310a5db738
+request 0c2a00260102030405060708090a0b0c0d0e0f105012261f3dfacdba268183647b2175bcc47b
+accept "ok"
+accounting response "ok"
+reject "refused"
+another secret "bad"
+another id null
+too short null
+mib { "server": "192.168.20.106", "port": 1812, "requests": 10, "retransmissions": 0, "accepts": 1, "rejects": 0, "challenges": 9, "timeouts": 0, "bad": 0 }
+mib of a passphrase network null
+not asked yet: unknown
+asked twice, no answer: unknown
+answered 10 s ago: up
+answered 100 s ago, two misses since: up
+answered 130 s ago, three misses since: silent
+never answers status, no sign-ins: unverified
+never answers status, a sign-in answered 20 s ago: up
+never answers status, a sign-in answered 200 s ago: unverified
+never answers status, a sign-in timed out 30 s ago, the last answered 200 s ago: silent
+never answers status, a sign-in timed out 700 s ago: unverified
+never answers status, a sign-in timed out and was answered in the same read, 200 s ago: unverified
+answers status, and a sign-in timed out 30 s ago: up
+was answering, silent, and a sign-in is answered now: up

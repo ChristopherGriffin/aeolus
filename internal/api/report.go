@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
@@ -204,6 +205,8 @@ type stateReport struct {
 	DHCP map[string]dhcpState `json:"dhcp,omitempty"`
 	// Every Wi-Fi client on the AP (0066).
 	Clients []wifiClient `json:"clients,omitempty"`
+	// The RADIUS servers its networks sign clients in against (0114).
+	Radius []radiusState `json:"radius,omitempty"`
 	// Its clock (0069).
 	Time *timeState `json:"time,omitempty"`
 	// The per-user keys it has (0070): their version, and how many.
@@ -1251,6 +1254,48 @@ func (st *stateReport) check() error {
 		if err := c.check(); err != nil {
 			return err
 		}
+	}
+	if len(st.Radius) > 64 {
+		return badRequest("radius: at most 64")
+	}
+	for _, r := range st.Radius {
+		if err := r.check(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// radiusState is how the RADIUS server one network signs its clients in
+// against is doing, from the AP (0114). The prober asks it for its status
+// (RFC 5997) every 30 seconds, and reads from hostapd what it answered the
+// clients' own sign-ins with, since the network was started. Its verdict is
+// up (it answered a status request, or a sign-in, within three asks' time),
+// silent (three asks went unanswered, and it used to answer, or a sign-in
+// timed out meanwhile: it is down, unreachable, or does not know the AP or
+// its secret), unverified (it never answered a status request, and no
+// client has needed it lately) or unknown (not asked three times yet).
+type radiusState struct {
+	Network     string   `json:"network"`
+	Server      string   `json:"server"`
+	Port        int      `json:"port"`
+	Verdict     string   `json:"verdict"`
+	RTT         *float64 `json:"rtt_ms"`
+	AnsweredAgo *int64   `json:"answered_ago"`
+	Requests    int64    `json:"requests"`
+	Accepts     int64    `json:"accepts"`
+	Rejects     int64    `json:"rejects"`
+	Timeouts    int64    `json:"timeouts"`
+	Bad         int64    `json:"bad"`
+}
+
+var radiusVerdicts = map[string]bool{"up": true, "silent": true, "unverified": true, "unknown": true}
+
+func (r radiusState) check() error {
+	if !networkIDRE.MatchString(r.Network) || len(r.Server) < 1 || len(r.Server) > 253 || !printable(r.Server) || strings.ContainsAny(r.Server, " /") ||
+		r.Port < 1 || r.Port > 65535 || !radiusVerdicts[r.Verdict] || (r.RTT != nil && (*r.RTT < 0 || *r.RTT > 60000)) ||
+		(r.AnsweredAgo != nil && *r.AnsweredAgo < 0) || r.Requests < 0 || r.Accepts < 0 || r.Rejects < 0 || r.Timeouts < 0 || r.Bad < 0 {
+		return badRequest("radius: each is a network, its server and port, a verdict (up, silent, unverified or unknown), a round trip of up to 60000 ms, seconds since it answered, and counts not negative")
 	}
 	return nil
 }

@@ -93,9 +93,11 @@ function tunnelTrouble(cfg, base) {
 	const port = switchPort(r?.uplink_neighbor);
 	const vlans = (r?.uplink_vlans || []).map((v) => [v, uplinkJudgment(v, r.uplink_neighbor)[2]]).filter(([, says]) => says);
 	const dhcp = Object.entries(r?.dhcp || {}).sort().flatMap(([id, d]) => dhcpWarnings(ssid(id), d));
-	if (!down.length && !loops.length && !nets.length && !vlans.length && !dhcp.length) return null;
+	// A RADIUS server that does not answer this AP (0114).
+	const radius = (r?.radius || []).filter((x) => x.verdict === 'silent');
+	if (!down.length && !loops.length && !nets.length && !vlans.length && !dhcp.length && !radius.length) return null;
 	return h('div', { class: 'banner problems' },
-		h('strong', null, 'Its uplink, transports or DHCP need a look'),
+		h('strong', null, radius.length ? 'Its uplink, transports, sign-in or DHCP need a look' : 'Its uplink, transports or DHCP need a look'),
 		h('ul', null,
 			down.map((t) => h('li', null, `The tunnel to ${t.peer}, VNI ${t.vni}, is down: ${t.probe.underlay === false ? `${t.peer} cannot be reached` : `nothing on VNI ${t.vni} answers`}.`)),
 			loops.map((l) => h('li', null, `${l.port} is off its tunnels: VNI ${l.vni ?? '?'} loops.`)),
@@ -106,6 +108,7 @@ function tunnelTrouble(cfg, base) {
 				const users = vlanUsers(cfg.document, v.vlan);
 				return h('li', null, `${says}.${users.length ? ` ${users.join(', ')} ${users.length === 1 ? 'needs' : 'need'} it.` : ''}${port ? ` The AP is on ${port}.` : ''}`);
 			}),
+			radius.map((x) => h('li', null, `The RADIUS server ${x.server} does not answer this AP, so no one can sign in to ${ssid(x.network)} here: it is down, out of reach, or does not know this AP or its secret.`)),
 			dhcp.map((line) => h('li', null, line + '.'))),
 		h('div', null, link(`${base}/interfaces/tunnels`, 'Interfaces › Tunnels'), ' · ', link(`${base}/interfaces/ethernet`, 'Interfaces › Ethernet'), ' · ', link(`${base}/networks`, 'Networks')));
 }

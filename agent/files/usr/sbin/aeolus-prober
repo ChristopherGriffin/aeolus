@@ -49,6 +49,7 @@ import { cursor } from 'uci';
 import { connect } from 'ubus';
 import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING, LOG_ERR } from 'log';
 import * as probe from 'aeolus.probe';
+import * as radius from 'aeolus.radius';
 import * as uplinks from 'aeolus.uplink';   // not uplink: a local of that name would hide it
 
 // nl80211 says when each Wi-Fi client joined (0065). OpenWrt installs it; an
@@ -131,6 +132,15 @@ function list(v) {
 function now() {
 	let c = clock(true);
 	return c[0] + c[1] / 1e9;
+}
+
+function close(s) {
+	s?.close();
+}
+
+// tenth rounds a time in milliseconds to a tenth of one.
+function tenth(ms) {
+	return ms == null ? null : int(ms * 10 + 0.5) / 10.0;   // an int over an int would truncate
 }
 
 // What this run's echoes and loop guard frames carry, so their answers, and
@@ -290,6 +300,25 @@ let users = {};
 const HOSTAPD_CTL = '/var/run/hostapd/';
 const CTL_SOCKET = '/var/run/aeolus/hostapd-ctl';
 
+// hostapd_ctl asks one of hostapd's networks a question on its control
+// socket, and returns the answer, or null where none comes within 300 ms.
+// hostapd answers to the asking socket's own path, as its own user, which
+// must be able to write there.
+function hostapd_ctl(bss, ask) {
+	let k = socket.create(socket.AF_UNIX, socket.SOCK_DGRAM);
+	if (!k)
+		return null;
+	fs.unlink(CTL_SOCKET);
+	let answer = null;
+	if (k.bind({ path: CTL_SOCKET }) && fs.chmod(CTL_SOCKET, 0o666) && k.connect({ path: HOSTAPD_CTL + bss }) && k.send(ask) != null) {
+		socket.poll(300, [k, socket.POLLIN]);
+		answer = k.recv(8192, socket.MSG_DONTWAIT);
+	}
+	k.close();
+	fs.unlink(CTL_SOCKET);
+	return answer;
+}
+
 // signed_in asks hostapd who a client signed in as: its control socket
 // answers STA <mac> with the 802.1X session's user name, the one the RADIUS
 // server's Access-Accept gave, or else the identity the client showed.
@@ -297,27 +326,182 @@ const CTL_SOCKET = '/var/run/aeolus/hostapd-ctl';
 // C-360, 2026-10-10). Null for a client that signed in with no name, as on
 // a passphrase network, or where hostapd does not answer.
 function signed_in(bss, mac) {
-	let k = socket.create(socket.AF_UNIX, socket.SOCK_DGRAM);
-	if (!k)
+	let m = match(hostapd_ctl(bss, 'STA ' + mac) ?? '', /(^|\n)dot1xAuthSessionUserName=([^\n]*)/);
+	if (!m || !length(m[2]))
 		return null;
-	fs.unlink(CTL_SOCKET);
-	let user = null;
-	// hostapd answers to this socket's own path, as its own user: it must
-	// be able to write there.
-	if (k.bind({ path: CTL_SOCKET }) && fs.chmod(CTL_SOCKET, 0o666) && k.connect({ path: HOSTAPD_CTL + bss }) && k.send('STA ' + mac) != null) {
-		socket.poll(300, [k, socket.POLLIN]);
-		let m = match(k.recv(4096, socket.MSG_DONTWAIT) ?? '', /(^|\n)dot1xAuthSessionUserName=([^\n]*)/);
-		if (m && length(m[2])) {
-			user = '';
-			for (let i = 0; i < length(m[2]) && i < 64; i++) {
-				let c = ord(m[2], i);
-				user += c >= 32 && c < 127 ? chr(c) : '?';
+	let user = '';
+	for (let i = 0; i < length(m[2]) && i < 64; i++) {
+		let c = ord(m[2], i);
+		user += c >= 32 && c < 127 ? chr(c) : '?';
+	}
+	return user;
+}
+
+// The RADIUS servers the AP's networks sign clients in against (0114), by
+// server and port: { server, port, secret, networks, sock, id, auth, sent,
+// answered, rtt, misses, ever, next }. Each is asked for its status every
+// RADIUS_EVERY, and is silent once RADIUS_MISSES asks in a row go
+// unanswered.
+const RADIUS_EVERY = 30;
+const RADIUS_MISSES = 3;
+// How long a sign-in that timed out, with none answered since, keeps a
+// server that takes no status requests silent.
+const RADIUS_HOLD = 600;
+let rad = {};
+// What hostapd counted of each network's sign-ins when last read, and when
+// the server last answered one and last let one time out.
+let rad_nets = {};
+// The AP's Wi-Fi interfaces, as the last scan found them: { ifname, network }.
+let bsses = [];
+
+// radius_plan takes up the servers /etc/config/wireless names on Aeolus's
+// networks: a new one is asked at once, one no network names any more is
+// dropped.
+function radius_plan(at) {
+	// Without MD5 there is no asking.
+	if (!radius.able())
+		return;
+	let want = {};
+	cursor().foreach('wireless', 'wifi-iface', i => {
+		let n = filter(list(i.network), x => match(x, /^aeolus_/))[0];
+		if (!n || !i.auth_server || !i.auth_secret)
+			return;
+		let port = int(i.auth_port ?? '1812') || 1812, key = i.auth_server + ' ' + port;
+		want[key] ??= { server: i.auth_server, port: port, secret: i.auth_secret, networks: {} };
+		want[key].networks[replace(substr(n, 7), /_/g, '-')] = true;
+	});
+	for (let key in keys(rad))
+		if (!want[key]) {
+			close(rad[key].sock);
+			delete rad[key];
+		}
+	for (let key, w in want) {
+		let r = rad[key] ??= { server: w.server, port: w.port, sock: null, id: math.rand() & 255, misses: 0, ever: false, next: at };
+		r.secret = w.secret;
+		r.networks = w.networks;
+	}
+	for (let id in keys(rad_nets))
+		if (!length(filter(values(rad), r => r.networks[id])))
+			delete rad_nets[id];
+}
+
+// radius_ask sends a server a Status-Server request (RFC 5997). An ask
+// before it that went unanswered is a miss.
+function radius_ask(r, at) {
+	if (r.sent != null)
+		r.misses++;
+	r.sent = null;
+	if (!r.sock) {
+		// By address, or by name as the resolver has it now.
+		let to = { address: r.server, port: r.port };
+		if (!match(r.server, /^[0-9.]+$/) && index(r.server, ':') < 0) {
+			let found = socket.addrinfo(r.server, '' + r.port, { socktype: socket.SOCK_DGRAM })?.[0]?.addr;
+			if (!found) {
+				r.misses++;
+				return;
 			}
+			to = found;
+		}
+		r.sock = socket.create(index(to.address ?? '', ':') >= 0 ? socket.AF_INET6 : socket.AF_INET, socket.SOCK_DGRAM);
+		if (!r.sock?.connect(to)) {
+			close(r.sock);
+			r.sock = null;
+			r.misses++;
+			return;
 		}
 	}
-	k.close();
-	fs.unlink(CTL_SOCKET);
-	return user;
+	let f = fs.open('/dev/urandom', 'r');
+	r.auth = f?.read(16);
+	f?.close();
+	if (length(r.auth ?? '') != 16) {
+		r.auth = '';
+		for (let i = 0; i < 16; i++)
+			r.auth += chr(math.rand() & 255);
+	}
+	r.id = (r.id + 1) & 255;
+	if (r.sock.send(radius.status_request(r.id, r.auth, r.secret)) == null) {
+		// The route or the socket went: opened again at the next ask.
+		close(r.sock);
+		r.sock = null;
+		r.misses++;
+		return;
+	}
+	r.sent = at;
+}
+
+// on_radius reads a server's answers: one that fits the last ask and the
+// secret, whatever it says, shows the server is there and knows this AP.
+function on_radius(r, at) {
+	while (true) {
+		let reply = r.sock?.recv(4096, socket.MSG_DONTWAIT);
+		if (!length(reply ?? ''))
+			return;
+		if (r.sent == null || !(radius.status_answer(reply, r.id, r.auth, r.secret) in ['ok', 'refused']))
+			continue;
+		r.rtt = (at - r.sent) * 1000;
+		r.answered = at;
+		r.sent = null;
+		r.misses = 0;
+		r.ever = true;
+	}
+}
+
+// radius_counts reads, from hostapd, what each network's sign-ins got from
+// the server, summed over the network's radios, and notes when the counts
+// of answers and of timeouts grew. They start again when hostapd does.
+function radius_counts(at) {
+	let sum = {};
+	for (let b in bsses) {
+		if (!b.network || b.vlan || !length(filter(values(rad), r => r.networks[b.network])))
+			continue;
+		let m = radius.mib(hostapd_ctl(b.ifname, 'MIB'));
+		if (!m)
+			continue;
+		let s = sum[b.network] ??= { requests: 0, accepts: 0, rejects: 0, challenges: 0, timeouts: 0, bad: 0 };
+		for (let k in keys(s))
+			s[k] += m[k];
+	}
+	for (let id, s in sum) {
+		let n = rad_nets[id] ??= { counts: s };
+		let was = n.counts;
+		if (s.accepts + s.rejects + s.challenges > was.accepts + was.rejects + was.challenges)
+			n.answered = at;
+		if (s.timeouts > was.timeouts)
+			n.timed_out = at;
+		n.counts = s;
+	}
+}
+
+// radius_report says, for each network that signs clients in against a
+// RADIUS server (0114), how the server is doing from here: up, silent (it
+// is down, unreachable, or does not know this AP or its secret), unverified
+// (it takes no status requests, and no client has needed it lately) or
+// unknown (not asked three times yet), as aeolus.radius's verdict has it.
+function radius_report(at) {
+	let out = [];
+	for (let key in sort(keys(rad))) {
+		let r = rad[key];
+		for (let id in sort(keys(r.networks))) {
+			let n = rad_nets[id] ?? {};
+			let answered = max(r.answered ?? -1, n.answered ?? -1);
+			let verdict = radius.verdict(at, { answered: r.answered, signed: n.answered, timed_out: n.timed_out, misses: r.misses, ever: r.ever },
+				{ every: RADIUS_EVERY, misses: RADIUS_MISSES, hold: RADIUS_HOLD });
+			// Said in the log when it goes silent and when it is back.
+			if (r.said?.[id] != null && r.said[id] != verdict && 'silent' in [verdict, r.said[id]]) {
+				let how = verdict == 'silent' ? note : log;
+				how('RADIUS server %s for network %s: %s, was %s', r.server, id, verdict, r.said[id]);
+			}
+			r.said ??= {};
+			r.said[id] = verdict;
+			let c = n.counts ?? {};
+			push(out, {
+				network: id, server: r.server, port: r.port, verdict: verdict,
+				rtt_ms: tenth(r.rtt), answered_ago: answered >= 0 ? int(at - answered) : null,
+				requests: c.requests ?? 0, accepts: c.accepts ?? 0, rejects: c.rejects ?? 0, timeouts: c.timeouts ?? 0, bad: c.bad ?? 0,
+			});
+		}
+	}
+	return slice(out, 0, 64);
 }
 
 // heard notes that a frame came in on a watched VLAN (0064).
@@ -335,14 +519,6 @@ function peer_key(t) {
 	return t.start ? `${t.peer}%${t.start}` : t.peer;
 }
 
-function close(s) {
-	s?.close();
-}
-
-// tenth rounds a time in milliseconds to a tenth of one.
-function tenth(ms) {
-	return ms == null ? null : int(ms * 10 + 0.5) / 10.0;   // an int over an int would truncate
-}
 
 function filter_on(s, prog) {
 	return s.setopt(socket.SOL_SOCKET, socket.SO_ATTACH_FILTER, { len: length(prog), filter: prog });
@@ -1096,6 +1272,7 @@ function dhcp_scan(at) {
 	}
 	// Only the sessions still here are remembered.
 	users = known;
+	bsses = all;
 	for (let id, n in dw.nets)
 		for (let mac in keys(n.clients))
 			if (at - n.clients[mac].seen > STAY_GAP)
@@ -1391,7 +1568,7 @@ function results(at) {
 			st[name] = { put_back: s.put_back, failing: s.failing };
 	store(out, sprintf('%J\n', {
 		at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp, uplink: uplink,
-		dhcp: dhcp_results(at), clients: clients_report(at), starts: st,
+		dhcp: dhcp_results(at), clients: clients_report(at), starts: st, radius: radius_report(at),
 	}));
 }
 
@@ -1431,9 +1608,20 @@ function main() {
 			}
 			open_lldp();
 			dhcp_scan(at);
+			radius_plan(at);
 			keep_routes(p.starts, at);
 			next_plan = at + PLAN_EVERY;
 		}
+		let asked = false;
+		for (let k, r in rad)
+			if (at >= r.next) {
+				radius_ask(r, at);
+				r.next = at + RADIUS_EVERY;
+				asked = true;
+			}
+		// hostapd's own counts, as often as the servers are asked.
+		if (asked)
+			radius_counts(at);
 		for (let vni, t in tun)
 			if (at >= t.next) {
 				send_probes(t, at);
@@ -1471,6 +1659,8 @@ function main() {
 		for (let port, g in guards)
 			if (!loops[port])
 				due = min(due, g.next);
+		for (let k, r in rad)
+			due = min(due, r.next);
 		if (length(watch.vlans))
 			due = min(due, watch.sock ? watch.until : watch.next);
 		let wait = max(10, min(1000, int((due - now()) * 1000)));
@@ -1503,6 +1693,12 @@ function main() {
 			by_wifi[w.sock.fileno()] = ifn;
 			push(polls, [w.sock, socket.POLLIN]);
 		}
+		let by_rad = {};
+		for (let k, r in rad)
+			if (r.sock) {
+				by_rad[r.sock.fileno()] = k;
+				push(polls, [r.sock, socket.POLLIN]);
+			}
 		if (!length(polls)) {
 			sleep(wait);
 			continue;
@@ -1534,6 +1730,16 @@ function main() {
 				if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
 					close(w.sock);
 					delete dw.ifaces[by_wifi[fd]];
+				}
+			}
+			else if (by_rad[fd] != null && rad[by_rad[fd]]) {
+				let server = rad[by_rad[fd]];
+				on_radius(server, now());
+				// Its route or address went: the socket is opened again at
+				// the next ask.
+				if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
+					close(server.sock);
+					server.sock = null;
 				}
 			}
 			else if (by_lldp[fd] != null) {

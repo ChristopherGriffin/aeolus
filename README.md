@@ -167,6 +167,7 @@ Each milestone ends in something checkable before the next starts.
 | [0111](docs/decisions/0111-radius-vlans-and-disconnect.md) | VLANs from RADIUS, and disconnects from a NAC |
 | [0112](docs/decisions/0112-mac-authentication.md) | MAC authentication, for devices that cannot sign in |
 | [0113](docs/decisions/0113-who-signed-in.md) | Who a client signed in as |
+| [0114](docs/decisions/0114-radius-server-status.md) | Whether the RADIUS server answers |
 
 ## Open questions
 
