@@ -565,9 +565,16 @@ for (let line in [
 	`STA ${STA} RADIUS: invalid hex string (65 chars) in Tunnel-Password`,
 	`STA ${STA} RADIUS: VLAN ID 30`,
 	`CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER ${STA}`,
+	// What hostapd says beside an attempt, of how the client came (0136).
+	`STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`,
+	`STA ${STA} IEEE 802.11: association SA Query attempt 1`,
+	`STA ${STA} IEEE 802.11: association SA Query timed out`,
+	`STA ${STA} WPA: OKC match for PMKID`,
+	`STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`,
+	`STA ${STA} WPA: FT authentication already completed - do not start 4-way handshake`,
 ]) {
 	// At info, as hostapd says each of these but the key messages.
-	let e = journey.log_event(`<${match(line, /msg of 4-Way|EAPOL-Key frame|MLME/) ? 31 : 30}>Oct 11 12:43:13 hostapd: phy0-ap0: ${line}`);
+	let e = journey.log_event(`<${match(line, /msg of 4-Way|EAPOL-Key frame|MLME|SA Query|PMKID|FT authentication/) ? 31 : 30}>Oct 11 12:43:13 hostapd: phy0-ap0: ${line}`);
 	printf('%s: %s\n', e && journey.begins(e) ? 'begins an attempt' : 'begins nothing', replace(line, STA + ' ', ''));
 }
 // A device refused for the server's answer has that line for its record.
@@ -618,10 +625,47 @@ said(a, 30500.017, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
 show('back by a fast transition, to an AP that still held it', a, 30531);
 // The same where hostapd does not log at debug, as on a network that signs
 // clients in: its word for the client let on says how.
-a = journey.begin(who, 31000, 1791714000000);
+// The attempt begins at its association, the first line there is of it: its
+// time to be let on is from then, and says so.
+a = journey.begin(who, 31000.016, 1791714000016);
 said(a, 31000.016, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 said(a, 31000.017, 29, `AP-STA-CONNECTED ${STA} auth_alg=ft`);
 show('a roam by fast transition, with no debug lines', a, 31031);
+// And back that way to an AP that still held it, where hostapd does not
+// log at debug: associated, and not a word more, for there is no handshake
+// and no change to say. It is on: a client that is to have keys has a
+// handshake that completes, or is sent off, and each is said.
+a = journey.begin(who, 31500, 1791714500000);
+said(a, 31500.000, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+show('associated, and nothing said after', a, 31521);
+// Not so where its keys were begun and nothing came of them.
+a = journey.begin(who, 31600, 1791714600000);
+said(a, 31600.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 31600.004, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 31600.005, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+show('associated, its keys begun, and nothing after', a, 31621);
+// A fast transition that came to nothing, and then a join the usual way:
+// what was known of the first try is not said of the second.
+a = journey.begin(who, 31700, 1791714700000);
+said(a, 31700.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, FT)`);
+said(a, 31705.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`);
+said(a, 31705.002, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 31705.013, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 31705.014, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+said(a, 31709.100, 30, `STA ${STA} IEEE 802.11: deauthenticated due to local deauth request`);
+show('a fast transition given up, then the usual way, given up too', a, 31710);
+// WPA3's exchange again at an AP that still held the client: hostapd does
+// not say it connected, and its authentication is known all the same.
+a = journey.begin(who, 31800, 1791714800000);
+said(a, 31800.000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))`);
+said(a, 31800.040, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
+said(a, 31800.041, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, unknown)`);
+said(a, 31800.060, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 31800.060, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
+said(a, 31800.061, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+said(a, 31800.080, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+said(a, 31800.080, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+show("WPA3's exchange again, at an AP that still held it", a, 31831);
 // With a passphrase and no fast transition: open authentication, a
 // reassociation, and the four messages again.
 a = journey.begin(who, 32000, 1791715000000);
@@ -639,10 +683,12 @@ said(a, 32000.280, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
 said(a, 32000.281, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
 said(a, 32000.281, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
 show('a roam with a passphrase', a, 32031);
-// A key made from its sign-in at another AP (OKC), as hostapd words it.
+// A key made from its sign-in at another AP (OKC), as hostapd's source has
+// it say: that, and then that the key was found, as of one of its own.
 a = journey.begin(who, 33000, 1791716000000);
 said(a, 33000.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
-said(a, 33000.010, 31, `STA ${STA} WPA: PMKID found from OKC`);
+said(a, 33000.010, 31, `STA ${STA} WPA: OKC match for PMKID`);
+said(a, 33000.010, 31, `STA ${STA} WPA: PMKID found from PMKSA cache eap_type=25 vlan=0`);
 said(a, 33000.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 said(a, 33000.012, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
 said(a, 33000.030, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);

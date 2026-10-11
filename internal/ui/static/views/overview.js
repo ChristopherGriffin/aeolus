@@ -62,7 +62,7 @@ function roamed(r, panel) {
 	const sub = [`${r.roams} roam${r.roams === 1 ? '' : 's'} today`, r.failed > 0 && `${r.failed} failed`, r.slow > 0 && `${r.slow} slow`].filter(Boolean).join(' · ');
 	const many = r.failed >= 3 && r.failed * 10 >= r.roams;
 	const t = tile('Roaming', r.typical_ms != null ? took(r.typical_ms) : '—', sub, many ? 'bad' : r.failed || r.slow ? 'warn' : 'ok', '#');
-	t.title = 'How long a roam typically took, at the AP the client came to. Opens the roams below';
+	t.title = 'How long a roam typically took, at the AP the client came to, from its authentication there to its being let on. Opens the roams below';
 	t.addEventListener('click', (e) => { e.preventDefault(); showRoaming(panel); });
 	return t;
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"regexp"
@@ -43,42 +44,71 @@ var roamKinds = []string{roamFT, roamOKC, roamPMKSA, roamCached, roamKeys, roamF
 
 const (
 	// roamSlowMS is how long a roam may take at the AP it comes to, from
-	// the client's first frame there to its being let on, before it is
+	// the first line its AP has of it to its being let on, before it is
 	// called slow: a call in progress hears a gap of a quarter of a second.
 	roamSlowMS = 250
-	// roamingMost is how many attempts are read for the roams of a time.
-	roamingMost = 5000
 	// roamingLatest is how many roams are listed, the latest; and as many
 	// of those that failed or were slow.
 	roamingLatest = 50
+	// roamingBack is how far before the first roam looked at a client's
+	// attempts are read together, to know where each was before; one that
+	// was nowhere in that time is looked for by itself, however far back.
+	roamingBack = time.Hour
 )
+
+// roamingMost is how many attempts are read for the roams of a time, of
+// the APs asked about; and roamingPast how many of those clients' attempts
+// anywhere, to know where each was before.
+var roamingMost, roamingPast = 5000, 20000
 
 // connHow is how a client came, as its AP's record of the attempt has it
 // (0136): by a reassociation; its authentication, as hostapd names it (ft
 // for a fast transition, sae for WPA3, open); a key from before, from this
 // AP's own cache (pmksa) or made from a sign-in at another AP (okc); how
 // often the AP asked the client it still held to prove itself (SA Query);
-// and how long from its first frame to its being let on.
+// how long from the first line its AP has of it to its being let on; and,
+// where that first line was its association, as where hostapd says nothing
+// of an authentication (began: assoc), that the time is short of what it
+// took.
+//
+// It is read by itself, whatever else it holds: a later agent's word here
+// that this manager does not know costs that word, and a value it cannot
+// take costs how the client came, and neither the attempt's record.
 type connHow struct {
-	Re   bool   `json:"re,omitempty"`
-	Alg  string `json:"alg,omitempty"`
-	PMK  string `json:"pmk,omitempty"`
-	SAQ  int    `json:"saq,omitempty"`
-	OnMS *int   `json:"on_ms,omitempty"`
+	Re    bool   `json:"re,omitempty"`
+	Alg   string `json:"alg,omitempty"`
+	PMK   string `json:"pmk,omitempty"`
+	SAQ   int    `json:"saq,omitempty"`
+	OnMS  *int   `json:"on_ms,omitempty"`
+	Began string `json:"began,omitempty"`
+	bad   bool
 }
 
 var howAlgRE = regexp.MustCompile(`^[a-z0-9]{1,12}$`)
 
+func (h *connHow) UnmarshalJSON(b []byte) error {
+	type plain connHow
+	var p plain
+	if err := json.NewDecoder(bytes.NewReader(b)).Decode(&p); err != nil {
+		h.bad = true
+		return nil
+	}
+	*h = connHow(p)
+	return nil
+}
+
 func (h *connHow) ok() bool {
-	return (h.Alg == "" || howAlgRE.MatchString(h.Alg)) && (h.PMK == "" || h.PMK == "pmksa" || h.PMK == "okc") &&
-		h.SAQ >= 0 && h.SAQ <= 64 && (h.OnMS == nil || (*h.OnMS >= 0 && *h.OnMS <= 600000))
+	return !h.bad && (h.Alg == "" || howAlgRE.MatchString(h.Alg)) && (h.PMK == "" || h.PMK == "pmksa" || h.PMK == "okc") &&
+		h.SAQ >= 0 && h.SAQ <= 64 && (h.OnMS == nil || (*h.OnMS >= 0 && *h.OnMS <= 600000)) && (h.Began == "" || h.Began == "assoc")
 }
 
 // roam is one attempt that was a roam: who, when, to which AP and from
 // where, where that is known, of which kind, how long it took to be let
 // on, and how it went: ok, slow (let on, after more than roamSlowMS),
 // failed (not let on), or left (gone before it was let on, with nothing
-// refused, as a client that thought better of it).
+// refused, as a client that thought better of it). One whose AP has no
+// line of its authentication is let on with no time: what there is, from
+// its association, is not what it took.
 type roam struct {
 	ID        int64            `json:"id"`
 	At        time.Time        `json:"at"`
@@ -94,6 +124,7 @@ type roam struct {
 	FromBand  string           `json:"from_band,omitempty"`
 	Kind      string           `json:"kind"`
 	MS        *int             `json:"ms,omitempty"`
+	Untimed   bool             `json:"untimed,omitempty"`
 	State     string           `json:"state"`
 	Reason    string           `json:"reason,omitempty"`
 	SAQueries int              `json:"sa_queries,omitempty"`
@@ -109,12 +140,13 @@ type roamRecord struct {
 
 // roamKind is the kind of roam an attempt was, and whether it was one at
 // all: it came as a client already on the network, or by a fast transition,
-// which only such a client makes. signs says its network signs clients in
-// by 802.1X, where a client that did not sign in again came with a key from
-// before, though hostapd, logging less there (0133), does not say which.
-func roamKind(rec roamRecord, signs bool) (string, bool) {
+// which only such a client makes. signs says whether its network signs
+// clients in by 802.1X, where a client that did not sign in again came
+// with a key from before, though hostapd, logging less there (0133), does
+// not say which; it is asked only where that decides.
+func roamKind(rec roamRecord, signs func() bool) (string, bool) {
 	h := rec.How
-	if h == nil || !(h.Re || h.Alg == "ft") {
+	if h == nil || !h.ok() || !(h.Re || h.Alg == "ft") {
 		return "", false
 	}
 	signedIn := slices.ContainsFunc(rec.Events, func(e connStep) bool { return e.Stage == "signin" })
@@ -127,15 +159,26 @@ func roamKind(rec roamRecord, signs bool) (string, bool) {
 		return roamPMKSA, true
 	case signedIn || h.Alg == "sae":
 		return roamFull, true
-	case signs:
+	case signs():
 		return roamCached, true
 	}
 	return roamKeys, true
 }
 
+// letOn says whether an attempt was let on to its network: its record says
+// when, or, of an agent that did not say, it came online, was connected,
+// or failed at something that comes after.
+func letOn(cn conditions.Connection, rec roamRecord) bool {
+	if rec.How != nil && rec.How.ok() && rec.How.OnMS != nil {
+		return true
+	}
+	return cn.Outcome == "online" || cn.Outcome == "connected" ||
+		(cn.Outcome == "failed" && slices.Contains([]string{"dhcp", "gateway", "dns", "internet"}, cn.Stage))
+}
+
 // roamKindsView is the roams of one kind: how many, how many of them
-// failed and how many were slow, and of those let on the middle, the least
-// and the most of their times in ms.
+// failed and how many were slow, and of those let on and timed the middle,
+// the least and the most of their times in ms.
 type roamKindsView struct {
 	Kind   string `json:"kind"`
 	Roams  int    `json:"roams"`
@@ -157,13 +200,14 @@ type roamingView struct {
 	Failed  int             `json:"failed"`
 	Slow    int             `json:"slow"`
 	Left    int             `json:"left"`
+	Untimed int             `json:"untimed"`
 	Clients int             `json:"clients"`
 	MS      *int            `json:"typical_ms,omitempty"`
 	Kinds   []roamKindsView `json:"kinds"`
 	Latest  []roam          `json:"latest"`
 	Bad     []roam          `json:"bad"`
-	// More is set where there were more attempts in the time than are
-	// read: the counts are then of the latest of them.
+	// More is set where the APs asked about had more attempts in the time
+	// than are read: the counts are then of the latest of them.
 	More bool `json:"more,omitempty"`
 }
 
@@ -197,51 +241,70 @@ func (s *Server) signsIn(state *change.State) func(hierarchy.NodeID, string) boo
 	}
 }
 
-// roamSaid is what a client's own attempts say of one that came as a
-// client already on the network: of which kind, and how long it took to
-// be let on. It may have been on this very radio before: only the roams of
-// a time (GET /v1/roaming) know where each came from.
+// roamSaid is what a client's own attempts say of one that was a roam: of
+// which kind, and how long it took to be let on, where that is known.
 type roamSaid struct {
 	Kind string `json:"kind"`
 	MS   *int   `json:"ms,omitempty"`
 }
 
-// roamsOf reads the roams to the APs shown among attempts, which are the
-// latest first, as the store gives them, and are those of every AP: where
-// a client came from is where its attempt before was let on, another AP or
-// another radio of the same, whoever may see that one; and one that asked
-// again on the radio it was on is no roam. Where it came from is said only
-// of an AP the caller may view.
-func (s *Server) roamsOf(c call, list []conditions.Connection, shown map[hierarchy.NodeID]bool) []roam {
+// roamsAmong reads the roams among attempts, which are the caller's to
+// see, and gives them the latest first. An attempt is a roam where the
+// client came as one already on the network (roamKind) to an AP or a radio
+// other than the one it was last let on at; one that asked again on the
+// radio it was on is none. Where a client was before is read from its own
+// attempts on every AP, as the attempts given may leave out the APs it
+// came from: together back to an hour before the first of the roams, and
+// one by one further back for a client not seen in that time. It is named
+// only where it is an AP the caller may view.
+func (s *Server) roamsAmong(c call, list []conditions.Connection) ([]roam, error) {
 	t := c.state.Org.Locations
 	signsIn := s.signsIn(c.state)
+	type cand struct {
+		cn   conditions.Connection
+		rec  roamRecord
+		kind string
+	}
+	cands := map[int64]cand{}
+	macs := map[string]bool{}
+	var first time.Time
+	for _, cn := range list {
+		var rec roamRecord
+		if json.Unmarshal(cn.Record, &rec) != nil {
+			continue
+		}
+		kind, is := roamKind(rec, func() bool { return signsIn(cn.AP, cn.Network) })
+		if !is {
+			continue
+		}
+		cands[cn.ID] = cand{cn, rec, kind}
+		macs[cn.MAC] = true
+		if first.IsZero() || cn.Started.Before(first) {
+			first = cn.Started
+		}
+	}
+	if len(cands) == 0 {
+		return nil, nil
+	}
+	who := make([]string, 0, len(macs))
+	for mac := range macs {
+		who = append(who, mac)
+	}
+	past, err := s.conds.ConnectionsOfClients(who, first.Add(-roamingBack), roamingPast)
+	if err != nil {
+		return nil, err
+	}
 	type place struct {
 		ap        hierarchy.NodeID
 		bss, band string
 	}
 	last := map[string]place{}
 	var out []roam
-	for i := len(list) - 1; i >= 0; i-- {
-		cn := list[i]
-		var rec roamRecord
-		if json.Unmarshal(cn.Record, &rec) != nil {
-			continue
-		}
-		on := rec.How != nil && rec.How.OnMS != nil
-		here := place{cn.AP, rec.BSS, cn.Band}
-		before, known := last[cn.MAC]
-		if on {
-			last[cn.MAC] = here
-		}
-		if !shown[cn.AP] {
-			continue
-		}
-		kind, is := roamKind(rec, signsIn(cn.AP, cn.Network))
-		if !is || (known && before.ap == here.ap && before.bss == here.bss) {
-			continue
-		}
+	seen := map[int64]bool{}
+	emit := func(k cand, before place, known bool) {
+		cn, rec := k.cn, k.rec
 		r := roam{ID: cn.ID, At: cn.Started, MAC: cn.MAC, Host: rec.Host, AP: cn.AP, Network: cn.Network, SSID: cn.SSID, Band: cn.Band,
-			Kind: kind, SAQueries: rec.How.SAQ}
+			Kind: k.kind, SAQueries: rec.How.SAQ}
 		if n, ok := t.Node(cn.AP); ok {
 			r.APName = n.Name
 		}
@@ -249,7 +312,9 @@ func (s *Server) roamsOf(c call, list []conditions.Connection, shown map[hierarc
 			r.FromAP, r.FromName, r.FromBand = before.ap, n.Name, before.band
 		}
 		switch {
-		case on:
+		case rec.How.OnMS != nil && rec.How.Began == "assoc":
+			r.State, r.Untimed = "ok", true
+		case rec.How.OnMS != nil:
 			r.MS = rec.How.OnMS
 			r.State = "ok"
 			if *r.MS > roamSlowMS {
@@ -262,8 +327,67 @@ func (s *Server) roamsOf(c call, list []conditions.Connection, shown map[hierarc
 		}
 		out = append(out, r)
 	}
-	slices.Reverse(out)
-	return out
+	// earlier is where a client was let on before an attempt, however long
+	// before.
+	var failed error
+	earlier := func(cn conditions.Connection) (place, bool) {
+		prev, ok, err := s.conds.LastLetOn(cn.MAC, cn.Started)
+		if err != nil {
+			failed = err
+		}
+		var rec roamRecord
+		if !ok || json.Unmarshal(prev.Record, &rec) != nil {
+			return place{}, false
+		}
+		return place{prev.AP, rec.BSS, prev.Band}, true
+	}
+	// The oldest first: each client's place as it goes.
+	for i := len(past) - 1; i >= 0; i-- {
+		cn := past[i]
+		var rec roamRecord
+		if json.Unmarshal(cn.Record, &rec) != nil {
+			continue
+		}
+		here := place{cn.AP, rec.BSS, cn.Band}
+		before, known := last[cn.MAC]
+		if letOn(cn, rec) {
+			last[cn.MAC] = here
+		}
+		k, is := cands[cn.ID]
+		if !is {
+			continue
+		}
+		seen[cn.ID] = true
+		if !known {
+			before, known = earlier(cn)
+		}
+		if known && before.ap == here.ap && before.bss == here.bss {
+			continue
+		}
+		emit(k, before, known)
+	}
+	// One its client's attempts did not reach back to, as where there were
+	// more of them than are read.
+	for id, k := range cands {
+		if seen[id] {
+			continue
+		}
+		before, known := earlier(k.cn)
+		if known && before.ap == k.cn.AP && before.bss == k.rec.BSS {
+			continue
+		}
+		emit(k, before, known)
+	}
+	if failed != nil {
+		return nil, failed
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].At.Equal(out[j].At) {
+			return out[i].At.After(out[j].At)
+		}
+		return out[i].ID > out[j].ID
+	})
+	return out, nil
 }
 
 // roaming is the roams of the clients on the APs the caller may view,
@@ -279,29 +403,22 @@ func (s *Server) roaming(w http.ResponseWriter, r *http.Request, c call) error {
 		}
 		hours = n
 	}
-	shown := map[hierarchy.NodeID]bool{}
-	for _, id := range mayView(c, hierarchy.NodeID(q.Get("under"))) {
-		shown[id] = true
-	}
 	var tests []string
 	for mac := range testClients(c.state) {
 		tests = append(tests, mac)
 	}
-	// Every AP's, to know where each client was before: what is said is
-	// of the APs shown alone.
-	var list []conditions.Connection
-	if len(shown) > 0 {
-		var err error
-		list, err = s.conds.ConnectionsSince(time.Now().Add(-time.Duration(hours)*time.Hour), c.state.Org.Locations.APs(), tests, roamingMost+1)
-		if err != nil {
-			return err
-		}
-	}
 	view := roamingView{Hours: hours, SlowMS: roamSlowMS, Kinds: []roamKindsView{}, Latest: []roam{}, Bad: []roam{}}
+	list, err := s.conds.ConnectionsSince(time.Now().Add(-time.Duration(hours)*time.Hour), mayView(c, hierarchy.NodeID(q.Get("under"))), tests, roamingMost+1)
+	if err != nil {
+		return err
+	}
 	if len(list) > roamingMost {
 		list, view.More = list[:roamingMost], true
 	}
-	roams := s.roamsOf(c, list, shown)
+	roams, err := s.roamsAmong(c, list)
+	if err != nil {
+		return err
+	}
 	kinds := map[string]*roamKindsView{}
 	times := map[string][]int{}
 	var all []int
@@ -326,6 +443,9 @@ func (s *Server) roaming(w http.ResponseWriter, r *http.Request, c call) error {
 		case "slow":
 			view.Slow++
 			k.Slow++
+		}
+		if m.Untimed {
+			view.Untimed++
 		}
 		if m.MS != nil {
 			all = append(all, *m.MS)

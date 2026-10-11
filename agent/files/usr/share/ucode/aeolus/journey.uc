@@ -178,37 +178,39 @@ function fine(e, sub, t) {
 			return false;
 	}
 	if (sub == 'IEEE 802.11' && (m = match(t, /^(start )?SAE authentication \(RX (commit|confirm)/)))
-		return { ...e, stage: 'auth', sae: m[2], what: m[2] == 'commit' ? 'starts WPA3 authentication (SAE commit)' : 'sends its WPA3 confirm (SAE confirm)' };
+		return { ...e, stage: 'auth', sae: m[2], alg: 'sae', what: m[2] == 'commit' ? 'starts WPA3 authentication (SAE commit)' : 'sends its WPA3 confirm (SAE confirm)' };
 	// Said of every client as it is authenticated, however it came: of one
 	// by open authentication just before hostapd's own word for it. One
 	// that comes by a fast transition (802.11r) from another AP is said so
 	// here, and has no key handshake after.
 	if (sub == 'MLME' && (m = match(t, /^MLME-AUTHENTICATE\.indication\([0-9a-f:]+, ([A-Za-z_]+)\)/)))
 		return m[1] == 'FT' ? { ...e, stage: 'auth', what: 'authenticated, by a fast transition from another AP (802.11r)', ok: true, alg: 'ft' }
+			: m[1] == 'OPEN_SYSTEM' ? { ...e, stage: 'auth', what: 'authenticated', ok: true, alg: 'open' }
 			: { ...e, stage: 'auth', what: 'authenticated', ok: true };
 	if (sub == 'MLME' && match(t, /^MLME-AUTHENTICATE\.indication\(/))
 		return { ...e, stage: 'auth', what: 'authenticated', ok: true };
-	// How it came (0136). It asked to be taken over, as one that is on the
-	// network already, at another AP or this one: a roam.
+	// How it came (0136), each said beside an attempt's own steps (aside):
+	// none begins one. It asked to be taken over, as one that is on the
+	// network already, at another AP or this one.
 	if (sub == 'MLME' && match(t, /^MLME-REASSOCIATE\.indication\(/))
-		return { ...e, stage: 'assoc', what: 'it asked as one already on the network (a reassociation)', re: true };
+		return { ...e, stage: 'assoc', what: 'it asked as one already on the network (a reassociation)', re: true, aside: true };
 	// The AP still holds the client as on, and where management frames
 	// are protected (802.11w) asks the one it remembers to prove itself
 	// before it takes the newcomer: a second's wait for a client that
 	// left without a word and is back.
 	if (sub == 'IEEE 802.11' && (m = match(t, /^association SA Query attempt ([0-9]+)/)))
-		return { ...e, stage: 'assoc', what: 'the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)', saq: int(m[1]) };
+		return { ...e, stage: 'assoc', what: 'the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)', saq: int(m[1]), aside: true };
 	if (sub == 'IEEE 802.11' && match(t, /^association SA Query timed out/))
-		return { ...e, stage: 'assoc', what: 'no proof came, as from a client that had left: it is taken as new' };
-	// Its key from a sign-in before is taken, and it need not sign in
-	// again: one this AP holds from the client's last time here, or one
-	// made from its sign-in at another AP (opportunistic key caching).
-	if (sub == 'WPA' && match(t, /^PMKID found from OKC/))
-		return { ...e, stage: 'key', what: 'its key from its sign-in at another AP is taken here (OKC): no sign-in again', pmk: 'okc' };
+		return { ...e, stage: 'assoc', what: 'no proof came, as from a client that had left: it is taken as new', aside: true };
+	// Its key from a sign-in before is taken, as it asks to associate, and
+	// it need not sign in again: one this AP holds from the client's last
+	// time here, or one made from its sign-in at another AP (opportunistic
+	// key caching), of which hostapd says that first and the other after.
+	if (sub == 'WPA' && match(t, /^OKC match for PMKID/))
+		return { ...e, stage: 'assoc', what: 'its key from its sign-in at another AP is taken here (OKC): no sign-in again', pmk: 'okc', aside: true };
 	if (sub == 'WPA' && match(t, /^PMKID found from PMKSA cache/))
-		return { ...e, stage: 'key', what: 'its key from its last time here is still held (PMKSA cache): no sign-in again', pmk: 'pmksa' };
-	// A fast transition brings its keys with it. Of a client the AP still
-	// held as on, this is all hostapd says of it being on.
+		return { ...e, stage: 'assoc', what: 'its key from its last time here is still held (PMKSA cache): no sign-in again', pmk: 'pmksa', aside: true };
+	// A fast transition brings its keys with it, and no handshake follows.
 	if (sub == 'WPA' && match(t, /^FT authentication already completed/))
 		return { ...e, stage: 'key', what: 'its keys came with the fast transition: no handshake', ok: true, on: true, alg: 'ft' };
 	// What these say, the lines above or hostapd's own words do.
@@ -243,8 +245,10 @@ function log_event(line) {
 		// A line that is not known, kept as it reads: not one said at debug.
 		let kept = (as) => debug ? null : as;
 		if (sub == 'IEEE 802.11') {
+			// Said of open authentication alone: of WPA3's and of a fast
+			// transition hostapd has other words, at debug.
 			if (t == 'authenticated')
-				return { ...e, stage: 'auth', ok: true };
+				return { ...e, stage: 'auth', ok: true, alg: 'open' };
 			if (match(t, /^associated/))
 				return { ...e, stage: 'assoc', what: 'associated', ok: true };
 			if (match(t, /^(disassociated|deauthenticated)/))
@@ -445,7 +449,7 @@ function frame(f, out) {
 // authentication and no association before them, are not a client coming
 // online, and were each recorded as one that failed.
 function begins(e) {
-	return !e.end && (e.stage == 'auth' || e.stage == 'assoc' || e.starts === true);
+	return !e.end && !e.aside && (e.stage == 'auth' || e.stage == 'assoc' || e.starts === true);
 }
 
 // begin starts the record of an attempt: who, on which network, and when,
@@ -455,7 +459,7 @@ function begin(who, at, wall) {
 		bss: who.bss, mac: who.mac, network: who.network ?? '', ssid: who.ssid ?? '', band: who.band ?? '',
 		started: at, wall: wall, last: at, events: [], more: 0,
 		done: {}, failed: null, on: null, ended: null, left: null, online: null,
-		sent: {}, sae: null, how: {},
+		sent: {}, sae: null, how: {}, assoc: null, silent: false,
 		address: null, host: null, router: null, signal: null, probes: null,
 		dhcp: { asked: 0, first: null, offer: false, ack: false, nak: false },
 		arp: { asked: null, at: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
@@ -518,17 +522,29 @@ function on_log(a, e, at) {
 	}
 	if (e.sae)
 		a.sae = e.sae;
-	// How it came (0136): by a reassociation, by which authentication,
+	// How it came (0136): by which authentication, by a reassociation,
 	// with a key from before, and how often the AP asked the client it
-	// remembered to prove itself.
+	// remembered to prove itself. An authentication is a new try: what
+	// was known of the one before, as that it was a fast transition, is
+	// not said of this one.
+	if (e.stage == 'auth' && e.alg && e.alg != a.how.alg)
+		a.how = { alg: e.alg };
+	else if (e.alg)
+		a.how.alg = e.alg;
 	if (e.re)
 		a.how.re = true;
-	if (e.alg)
-		a.how.alg = e.alg;
+	// Of a key made from a sign-in elsewhere hostapd says that, and then
+	// that the key was found, as of one of its own: said once.
+	if (e.pmk == 'pmksa' && a.how.pmk == 'okc')
+		return;
 	if (e.pmk)
 		a.how.pmk = e.pmk;
 	if (e.saq)
-		a.how.saq = max(a.how.saq ?? 0, e.saq);
+		a.how.saq = min(64, max(a.how.saq ?? 0, e.saq));
+	// Whether anything is said after its association but what is said
+	// beside it: see record.
+	if (!e.aside)
+		a.silent = false;
 	step(a, at, e.stage ?? 'note', what, e.ok, e.k ? { k: e.k } : null);
 	if (e.stage && e.ok === true)
 		a.done[e.stage] = true;
@@ -537,6 +553,8 @@ function on_log(a, e, at) {
 	if (e.stage == 'assoc' && e.ok === true) {
 		a.done.auth = true;
 		a.sent = {};
+		a.assoc = at;
+		a.silent = true;
 		// By a fast transition its keys came with it: associated, it is
 		// on. hostapd says so only of a client it did not already hold as
 		// on: one that went without a word and is back by 802.11r has no
@@ -673,6 +691,23 @@ function due(a, at) {
 // with the stage it stopped at and why; left, gone of its own accord before
 // anything failed, wherever it had got to.
 function record(a, at) {
+	// Associated, and nothing said after: it is on. A client that is to
+	// have keys has a handshake, which hostapd says completed, or gives
+	// up on, sending the client off, and of one that signs in it says the
+	// sign-in began: each at any level. Nothing at all is a client whose
+	// keys came with it, by a fast transition, to an AP that still held
+	// it as on, of which hostapd then says no more, having no change to
+	// report; where it logs at debug it says the fast transition, and the
+	// client is let on by that.
+	if (a.on == null && a.ended == null && !a.failed && a.silent && a.assoc != null) {
+		a.on = a.assoc;
+		a.how.on_ms = max(0, int((a.assoc - a.started) * 1000 + 0.5));
+	}
+	// Where no line said its authentication, its time to be let on is
+	// from its association, and less than it took: said, for whoever
+	// would compare it with one timed from the authentication.
+	if (a.on != null && !length(filter(a.events, e => e.stage == 'auth')))
+		a.how.began = 'assoc';
 	let outcome, stage = null, reason = '';
 	let furthest = null;
 	for (let s in STAGES)

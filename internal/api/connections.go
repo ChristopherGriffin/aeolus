@@ -119,9 +119,6 @@ func (c connRecord) check() error {
 			return bad("where it was heard is this AP or another's address, a band or none, and a signal from -127 to 0 dBm")
 		}
 	}
-	if c.How != nil && !c.How.ok() {
-		return bad("how it came is a reassociation or none, an authentication's name, a key from pmksa or okc or none, and times of at most 10 minutes")
-	}
 	if (c.Address != "" && net.ParseIP(c.Address) == nil) || !shortText(c.Host, 64) || (c.Signal != nil && (*c.Signal < -127 || *c.Signal > 0)) {
 		return bad("an address is an IP address, a host name at most 64 printable characters, a signal from -127 to 0 dBm")
 	}
@@ -196,6 +193,11 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) e
 				why = err.Error()
 			}
 			continue
+		}
+		// How the client came (0136) that this manager cannot take, as a
+		// later agent's may be, is left out, and the attempt kept.
+		if rec.How != nil && !rec.How.ok() {
+			rec.How = nil
 		}
 		// A step that names a point this manager does not know, as a later
 		// agent's may, is kept without the name: the step still says what
@@ -348,15 +350,21 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 		Roam *roamSaid `json:"roam,omitempty"`
 	}
 	out := []entry{}
-	signsIn := s.signsIn(c.state)
+	// Which of them were roams: to an AP or a radio other than the one
+	// the client was last let on at.
+	roams, err := s.roamsAmong(c, list)
+	if err != nil {
+		return err
+	}
+	roamed := map[int64]roam{}
+	for _, m := range roams {
+		roamed[m.ID] = m
+	}
 	for _, cn := range list {
 		way, _ := connWay(cn)
 		e := entry{Connection: cn, Way: way}
-		var rec roamRecord
-		if json.Unmarshal(cn.Record, &rec) == nil {
-			if kind, is := roamKind(rec, signsIn(cn.AP, cn.Network)); is {
-				e.Roam = &roamSaid{Kind: kind, MS: rec.How.OnMS}
-			}
+		if m, ok := roamed[cn.ID]; ok {
+			e.Roam = &roamSaid{Kind: m.Kind, MS: m.MS}
 		}
 		if n, ok := t.Node(cn.AP); ok {
 			e.APName = n.Name

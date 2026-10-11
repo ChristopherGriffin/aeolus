@@ -116,7 +116,7 @@ export async function connectionsSection(mac) {
 				h('span', { class: 'grow sub' }, [c.ssid || c.network, bandName(c.band)].filter(Boolean).join(' · '),
 					c.outcome === 'failed' && c.reason ? ` · ${c.reason}` : '',
 					// It came as a client already on the network (0136).
-					c.roam && h('span', { class: 'roamed', title: `It came as a client already on the network, from another AP or radio. ${KIND[c.roam.kind]?.[1] || ''}` },
+					c.roam && h('span', { class: 'roamed', title: `A roam: it came as a client already on the network, from another AP or another radio. ${KIND[c.roam.kind]?.[1] || ''}` },
 						` · roam, ${KIND[c.roam.kind]?.[0] || c.roam.kind}${c.roam.ms != null ? `, ${roamTook(c.roam.ms)}` : ''}`)),
 				outcomeChip(c)),
 			steps(c),

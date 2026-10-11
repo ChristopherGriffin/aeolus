@@ -17,7 +17,7 @@ tcp data, in: narrow drops, wide drops; reads null
 tcp open over IPv6, in: narrow drops, wide keeps; reads { "kind": "tcp", "mac": "72:bb:66:12:2a:94", "what": "open", "address": "2001:db8:0:0:0:0:0:53", "port": 443, "own": "fe80:0:0:0:0:0:0:1" }
 tcp open, in: narrow drops, wide keeps; reads { "kind": "tcp", "mac": "72:bb:66:12:2a:94", "what": "open", "address": "17.253.144.10", "port": 80, "own": "192.168.20.61" }
 too short: narrow drops, wide drops; reads null
-log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "auth", "what": "authenticated", "ok": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "auth", "what": "authenticated", "ok": true, "alg": "open" }
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "assoc", "what": "associated", "ok": true }
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "let on to the network", "ok": true, "alg": "open", "on": true, "starts": true }
 log null
@@ -42,10 +42,10 @@ log null
 log null
 log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "key", "what": "gave up waiting for its answer", "ok": false, "gave": 1 }
 log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "key", "what": "gave up waiting for its answer", "ok": false, "gave": 3 }
-log { "bss": "phy0-ap2", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "starts WPA3 authentication (SAE commit)", "ok": null, "sae": "commit" }
-log { "bss": "phy0-ap2", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)", "ok": null, "sae": "confirm" }
+log { "bss": "phy0-ap2", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "starts WPA3 authentication (SAE commit)", "ok": null, "sae": "commit", "alg": "sae" }
+log { "bss": "phy0-ap2", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)", "ok": null, "sae": "confirm", "alg": "sae" }
 log null
-log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "authenticated", "ok": true }
+log { "bss": "phy0-ap1", "mac": "30:86:2d:03:17:f0", "stage": "auth", "what": "authenticated", "ok": true, "alg": "open" }
 log null
 log null
 log null
@@ -77,6 +77,7 @@ wrong passphrase: failed, stage key, 4200 ms, reason "wrong passphrase", address
   { "t": 5, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 1100, "stage": "key", "what": "wrong passphrase", "ok": false, "k": "m2" }
   { "t": 4200, "stage": "end", "what": "deauthenticated due to local deauth request" }
+  how it came: { "alg": "open" }
 due while watched false, after true
 no DHCP: failed, stage dhcp, 31000 ms, reason "no answer to its 2 DHCP requests", address null, host "Griffs-iPhone"
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
@@ -97,6 +98,7 @@ gateway silent: failed, stage gateway, 31000 ms, reason "192.168.20.1, its gatew
 due after 10 s false, after 21 s true
 stopped after authenticating: failed, stage assoc, 21000 ms, reason "it was never let on", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  how it came: { "alg": "open" }
 quiet: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
@@ -118,10 +120,12 @@ sign-in refused: failed, stage signin, 1600 ms, reason "the server refused the s
   { "t": 1500, "stage": "signin", "what": "the server refused the sign-in", "ok": false }
   { "t": 1500, "stage": "signin", "what": "authentication failed - EAP type: 25 (PEAP)", "ok": false }
   { "t": 1600, "stage": "end", "what": "disconnected" }
+  how it came: { "alg": "open" }
 left while associating: left, stage key, 400 ms, reason "before it was let on: disassociated", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 5, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 400, "stage": "end", "what": "disassociated" }
+  how it came: { "alg": "open" }
 left right after asking for an address: left, stage key, 1500 ms, reason "disconnected", address null, host "Griffs-iPhone"
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
@@ -196,6 +200,7 @@ a wrong passphrase, a message at a time: failed, stage key, 9018 ms, reason "wro
   { "t": 3033, "stage": "key", "what": "wrong passphrase", "ok": false, "k": "m2" }
   { "t": 4018, "stage": "key", "what": "gave up: no answer it could use to its first message, sent 4 times", "ok": false }
   { "t": 9018, "stage": "end", "what": "deauthenticated due to local deauth request" }
+  how it came: { "alg": "open" }
 no answer to the first message: failed, stage key, 9018 ms, reason "no answer the AP could use to the first message of the key handshake, sent 4 times", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
@@ -205,6 +210,7 @@ no answer to the first message: failed, stage key, 9018 ms, reason "no answer th
   { "t": 3018, "stage": "key", "what": "message 1 of 4 sent to it, try 4", "k": "m1" }
   { "t": 4018, "stage": "key", "what": "gave up: no answer it could use to its first message, sent 4 times", "ok": false }
   { "t": 9018, "stage": "end", "what": "deauthenticated due to local deauth request" }
+  how it came: { "alg": "open" }
 no answer to the third message: failed, stage key, 9032 ms, reason "no answer the AP could use to the third message of the key handshake, sent 4 times", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
@@ -216,12 +222,14 @@ no answer to the third message: failed, stage key, 9032 ms, reason "no answer th
   { "t": 3032, "stage": "key", "what": "message 3 of 4 sent to it, try 4", "k": "m3" }
   { "t": 4032, "stage": "key", "what": "gave up: no answer it could use to its third message, sent 4 times", "ok": false }
   { "t": 9032, "stage": "end", "what": "deauthenticated due to local deauth request" }
+  how it came: { "alg": "open" }
 due once it said it left true
 left in the middle of the handshake: left, stage key, 500 ms, reason "before it was let on: deauthenticated", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 18, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
   { "t": 500, "stage": "end", "what": "deauthenticated" }
+  how it came: { "alg": "open" }
 wrong, and then right: connected, stage key, 32000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
@@ -247,13 +255,16 @@ given up, and joined again: failed, stage key, 30000 ms, reason "no answer the A
   { "t": 4516, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 4518, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
   { "t": 5518, "stage": "key", "what": "message 1 of 4 sent to it, try 2", "k": "m1" }
+  how it came: { "alg": "open" }
 association not acknowledged: failed, stage assoc, 21000 ms, reason "did not acknowledge the AP's answer", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 200, "stage": "assoc", "what": "did not acknowledge the AP's answer", "ok": false }
+  how it came: { "alg": "open" }
 due after 10 s false, after 21 s true
 WPA3, a wrong passphrase: failed, stage auth, 21000 ms, reason "its WPA3 confirm did not check out: a wrong passphrase", address null, host null
   { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
   { "t": 32, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  how it came: { "alg": "sae" }
 WPA3, the right passphrase: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
   { "t": 17, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
@@ -270,16 +281,17 @@ WPA3, authenticated and no more: failed, stage assoc, 21000 ms, reason "it was n
   { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
   { "t": 17, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
   { "t": 17, "stage": "auth", "what": "authenticated", "ok": true }
+  how it came: { "alg": "sae" }
 WPA3, with no debug lines: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 21, "stage": "key", "what": "let on to the network", "ok": true }
   { "t": 21, "stage": "key", "what": "key handshake completed", "ok": true }
-  how it came: { "alg": "sae", "on_ms": 21 }
+  how it came: { "alg": "sae", "on_ms": 21, "began": "assoc" }
 back at an AP that still held it: connected, stage key, 32000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 13, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
   { "t": 1043, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
-  { "t": 1077, "stage": "key", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
+  { "t": 1077, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
   { "t": 1177, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 1177, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
   { "t": 1178, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
@@ -287,17 +299,17 @@ back at an AP that still held it: connected, stage key, 32000 ms, reason "", add
   { "t": 1193, "stage": "key", "what": "message 3 of 4 sent to it", "k": "m3" }
   { "t": 1197, "stage": "key", "what": "message 4 of 4 came from it", "k": "m4" }
   { "t": 1198, "stage": "key", "what": "key handshake completed", "ok": true }
-  how it came: { "saq": 5, "pmk": "pmksa", "re": true, "on_ms": 1198 }
+  how it came: { "alg": "open", "saq": 5, "pmk": "pmksa", "re": true, "on_ms": 1198 }
 back, with no debug lines: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 30, "stage": "key", "what": "key handshake completed", "ok": true }
-  how it came: { "on_ms": 30 }
+  how it came: { "alg": "open", "on_ms": 30 }
 back, with its keys said in words alone: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 30, "stage": "key", "what": "key handshake completed", "ok": true }
-  how it came: { "on_ms": 30 }
+  how it came: { "alg": "open", "on_ms": 30 }
 begins an attempt: STA IEEE 802.11: authenticated
 begins an attempt: STA MLME: MLME-AUTHENTICATE.indication(72:bb:66:12:2a:94, OPEN_SYSTEM)
 begins an attempt: STA IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))
@@ -315,6 +327,12 @@ begins an attempt: STA RADIUS: Invalid VLAN 30 received from RADIUS server
 begins an attempt: STA RADIUS: invalid hex string (65 chars) in Tunnel-Password
 begins nothing: STA RADIUS: VLAN ID 30
 begins an attempt: CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER 72:bb:66:12:2a:94
+begins nothing: STA MLME: MLME-REASSOCIATE.indication(72:bb:66:12:2a:94)
+begins nothing: STA IEEE 802.11: association SA Query attempt 1
+begins nothing: STA IEEE 802.11: association SA Query timed out
+begins nothing: STA WPA: OKC match for PMKID
+begins nothing: STA WPA: PMKID found from PMKSA cache eap_type=0 vlan=0
+begins nothing: STA WPA: FT authentication already completed - do not start 4-way handshake
 refused at authentication for the VLAN the server gave: failed, stage auth, 21000 ms, reason "it was never let on", address null, host null
   { "t": 0, "stage": "signin", "what": "Invalid VLAN 30 received from RADIUS server" }
 authenticated, and silent: given up after 20 s false, after 21 s true
@@ -340,10 +358,34 @@ back by a fast transition, to an AP that still held it: connected, stage assoc, 
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 17, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
   how it came: { "alg": "ft", "on_ms": 16, "re": true }
-a roam by fast transition, with no debug lines: connected, stage key, 31000 ms, reason "", address null, host null
-  { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
-  { "t": 17, "stage": "key", "what": "let on to the network", "ok": true }
-  how it came: { "alg": "ft", "on_ms": 17 }
+a roam by fast transition, with no debug lines: connected, stage key, 30984 ms, reason "", address null, host null
+  { "t": 0, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 1, "stage": "key", "what": "let on to the network", "ok": true }
+  how it came: { "alg": "ft", "on_ms": 1, "began": "assoc" }
+associated, and nothing said after: connected, stage assoc, 21000 ms, reason "", address null, host null
+  { "t": 0, "stage": "assoc", "what": "associated", "ok": true }
+  how it came: { "on_ms": 0, "began": "assoc" }
+associated, its keys begun, and nothing after: failed, stage key, 21000 ms, reason "it was never let on", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 5, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  how it came: { "alg": "open" }
+a fast transition given up, then the usual way, given up too: left, stage key, 9100 ms, reason "before it was let on: deauthenticated due to local deauth request", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated, by a fast transition from another AP (802.11r)", "ok": true }
+  { "t": 5000, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 5013, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 5014, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 9100, "stage": "end", "what": "deauthenticated due to local deauth request" }
+  how it came: { "alg": "open" }
+WPA3's exchange again, at an AP that still held it: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 41, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 60, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 60, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
+  { "t": 61, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 80, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "alg": "sae", "re": true, "on_ms": 80 }
 a roam with a passphrase: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 13, "stage": "assoc", "what": "associated", "ok": true }
@@ -354,14 +396,14 @@ a roam with a passphrase: connected, stage key, 31000 ms, reason "", address nul
   { "t": 33, "stage": "key", "what": "message 4 of 4 came from it", "k": "m4" }
   { "t": 280, "stage": "key", "what": "let on to the network", "ok": true }
   { "t": 281, "stage": "key", "what": "key handshake completed", "ok": true }
-  how it came: { "re": true, "alg": "open", "on_ms": 280 }
+  how it came: { "alg": "open", "re": true, "on_ms": 280 }
 a roam with a key from another AP: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
-  { "t": 10, "stage": "key", "what": "its key from its sign-in at another AP is taken here (OKC): no sign-in again" }
+  { "t": 10, "stage": "assoc", "what": "its key from its sign-in at another AP is taken here (OKC): no sign-in again" }
   { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 12, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
   { "t": 30, "stage": "key", "what": "let on to the network", "ok": true }
-  how it came: { "pmk": "okc", "re": true, "alg": "open", "on_ms": 30 }
+  how it came: { "alg": "open", "pmk": "okc", "re": true, "on_ms": 30 }
 log time [1791742263.455]: 5000.455 s, 1791742263455
 log time [1791742263.494]: 5000.494 s, 1791742263494
 log time [1791742263.503]: 5000.503 s, 1791742263503

@@ -56,14 +56,14 @@ export function roamingPanel(r) {
 		h('td', null, m.from_ap_name ? place(m.from_ap_name, m.from_band) : h('span', { class: 'sub' }, 'not known')),
 		h('td', null, place(m.ap_name || m.ap, m.band)),
 		h('td', { class: 'nowrap', title: KIND[m.kind]?.[1] || '' }, kind(m.kind)),
-		h('td', { class: 'mono nowrap' }, took(m.ms)),
+		h('td', { class: 'mono nowrap', title: m.untimed ? 'Let on, and not timed: its AP’s log has its association and nothing of its authentication, so what it took is not known' : null }, took(m.ms)),
 		h('td', null, what(m, r.slow_over_ms)),
 		more && h('td', { class: 'sub' }, why(m)));
 	const head = (more) => h('tr', null, ['When', 'Client', 'From', 'To', 'Kind', 'Took', '', ...(more ? ['What the AP said'] : [])].map((t) => h('th', null, t)));
 	const d = h('details', { class: 'panel logpanel', open },
 		h('summary', null, h('h2', null, 'Roaming', h('span', { class: 'note' },
 			[many(r.roams, 'roam'), r.typical_ms != null && `typically ${took(r.typical_ms)}`, r.failed > 0 && `${r.failed} failed`, r.slow > 0 && `${r.slow} slow`].filter(Boolean).join(' · ')))),
-		h('p', { class: 'sub pad' }, `${many(r.clients, 'client')} over the last ${r.hours} h. A roam is timed at the AP the client comes to, from its first frame there to its being let on; past ${took(r.slow_over_ms)} it is called slow.${r.left ? ` ${r.left} more ${r.left === 1 ? 'was' : 'were'} given up by the client before it was let on.` : ''}${r.more ? ' There were more attempts than are read: these are of the latest.' : ''}`),
+		h('p', { class: 'sub pad' }, `${many(r.clients, 'client')} over the last ${r.hours} h. A roam is timed at the AP the client comes to, from its authentication there, as the AP’s log has it, to its being let on; past ${took(r.slow_over_ms)} it is called slow.${r.untimed ? ` ${r.untimed} ${r.untimed === 1 ? 'is' : 'are'} not timed: the AP’s log has no line of the authentication, as on a network that signs clients in.` : ''}${r.left ? ` ${r.left} more ${r.left === 1 ? 'was' : 'were'} given up by the client before it was let on.` : ''}${r.more ? ' There were more attempts than are read: these are of the latest.' : ''}`),
 		r.kinds.length > 0 && h('table', { class: 'list' },
 			h('tr', null, ['Kind', 'Roams', 'Typical', 'Fastest', 'Slowest', 'Slow', 'Failed'].map((t) => h('th', null, t))),
 			r.kinds.map((k) => h('tr', null,
@@ -77,7 +77,12 @@ export function roamingPanel(r) {
 		h('h3', { class: 'subhead' }, 'Latest'),
 		h('table', { class: 'list' }, head(false), r.latest.slice(0, 15).map((m) => row(m, false))),
 		out);
-	d.addEventListener('toggle', () => { open = d.open; });
+	d.addEventListener('toggle', () => {
+		open = d.open;
+		// Folded, it shows no client's journey: one left open inside would
+		// hold the page from being drawn again, unseen.
+		if (!d.open) out.replaceChildren();
+	});
 	return d;
 }
 
