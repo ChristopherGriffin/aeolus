@@ -12,12 +12,18 @@
 - **The kernel's own STP is 802.1D, with no edge ports.** Every port, each Wi-Fi network's included, waits twice the forward delay before it forwards, every time it comes up. RSTP's edge ports forward at once, and ustp makes a port that hears no BPDUs an edge port by itself (AutoEdge).
 - **ustp is in OpenWrt's feed, not in its images.**
 - **ustp gives every bridge the default priority, 32768.** It does not read netifd's `priority`, which sets only the kernel's, unused with ustp. The AP cannot be made a bridge that never wins the root.
+- **netifd gives a bridge a hello time of 1 second, and ustp before 2026-05-27 forgets a neighbour after three of the bridge's own hello times,** whatever the neighbour's is. A switch speaks every 2 seconds, as the standard has it, so the AP has one second to spare, counted in whole seconds: for part of every few minutes it has none, and a hello a few ms late is enough.
+  - The AP then calls itself the root on both ports, until the next hello comes, some ms later. The switch takes the AP's port out of forwarding and back, and the whole network sees a topology change.
+  - Seen on the C-360 and the lab's Arista switch, 2026-10-11: about 60 times in seven hours, in runs 40 to 50 seconds apart. One was caught at both ends: the switch's hello 49 ms late, the AP root for 30 ms, the switch's port to it discarding, learning and forwarding again in a second. With a hello time of 2 on the AP's bridge, the next two late hellos changed nothing.
+  - ustp from 2026-05-27 (17c36be) keeps a neighbour for three of the standard's hello times, 6 seconds, whatever the bridge's own. OpenWrt 25.12's feed has the one before.
 - **A switch port with BPDU guard shuts itself** when the AP's first BPDU comes. The AP is then cut off until someone opens the port again, and no revert on the AP brings it back.
 
 ## Decision
 
 - **`uplink.stp`, true or false,** turns spanning tree on or off on the bridge the AP's uplink is in. Set per kind of AP it is `boards.<board>.uplink.stp` (0092), folded as the ports are. It is a template field (0085). Unset leaves the bridge as it is.
 - **On, the agent renders `stp '1'` and `stp_proto 'rstp'`** on the uplink's bridge device; off, it takes those two away. A bridge priority or timers the AP has set itself stay.
+- **On, it renders `hello_time '2'` too, where the bridge has none:** the standard's, and the switch's. With it, any ustp keeps a neighbour for 6 seconds. A hello time the AP has set itself stays, as its other timers do, and off leaves the one the agent set: without spanning tree it does nothing.
+  - The render check does not ask for it. An agent from before renders none, and its config is not refused for that.
 - **Without ustp, the agent installs it,** through the manager's feed cache (0069), with `aeolus-packages add ustp`:
   - in the background, tried again hourly while it will not install;
   - kept on the AP's package list, so a sysupgrade brings it back;

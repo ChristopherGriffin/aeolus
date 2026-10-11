@@ -1095,6 +1095,14 @@ function watches(cfg, intent, facts, keep) {
 // agent installs ustp; the render check holds the config until then. An
 // uplink in no bridge is one port, which cannot loop: there is nothing to
 // do. Unset leaves the bridge as it is.
+//
+// On, the bridge's hello time is 2 seconds where the AP has set none. Left
+// to netifd it is 1, and ustp before 2026-05-27 forgets a neighbour after
+// three of the bridge's own hello times, whatever the neighbour's is: with
+// a switch that speaks every 2 seconds, as the standard has it, one hello a
+// few ms late and the AP calls itself the root, until the next hello comes.
+// The switch then takes the AP's port out of forwarding and back, and the
+// whole network sees a topology change (0095).
 function stp(n, intent, facts, errors, needs) {
 	let on = intent.uplink?.stp;
 	if (on == null)
@@ -1114,6 +1122,7 @@ function stp(n, intent, facts, errors, needs) {
 	}
 	up.stp = '1';
 	up.stp_proto = 'rstp';
+	up.hello_time ??= '2';
 }
 
 // rrm turns radio resource management on (0073): the agent's daemon then
