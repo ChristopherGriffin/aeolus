@@ -31,7 +31,7 @@
   - **speed,** where a speed server is set: bytes fetched for five seconds and sent for five, over three connections at once, after a second to warm up.
 - **It joins with the network's own passphrase,** which the AP has, as it serves the network. So a test is of a network the AP itself offers.
   - It is read from Aeolus's own section for that network, found by the network's ID: another interface with the same SSID, made by hand or for another network, is not it.
-- **It can't yet join a network that signs clients in by 802.1X,** or one where each device has its own passphrase from RADIUS (0115): it has no user and no passphrase of its own.
+- **A network that signs clients in by 802.1X it joins as the network's test user,** where it has one (0124). It can't yet join one where each device has its own passphrase from RADIUS (0115): it has no passphrase of its own.
 - **Where it joins:** an AP of the tester's choosing, the testing AP itself among them, or else the strongest other AP the scan radio hears. A band may be asked for.
   - The manager gives the AP the BSSIDs of the AP to join, from that AP's own report.
   - The client keeps to those, and looks for them where the scan radio last heard them, or on every channel of the band where it did not: a look can miss a beacon, most of all on a DFS channel, where it may only listen.
@@ -122,7 +122,5 @@
 ## Not done here
 
 - **Saying in Aeolus that airscan brought a deaf radio back,** at a sweep after a test or at any other time. airscan logs it and counts it in its status; no report carries it yet.
-- **Networks that sign clients in by 802.1X,** which need a user for the test.
 - **A speed test to the AP itself and to the internet,** beside the one to a server on the premises.
-- **Tests on a schedule,** and an alert when one fails.
 - **HT and VHT for the C-360's scan radio on 5 GHz,** which is the port's (board data or driver), not Aeolus's.

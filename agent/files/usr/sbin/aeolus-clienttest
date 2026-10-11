@@ -565,6 +565,10 @@ function main() {
 	}
 	if (!want)
 		return stop('find', 'what was asked is not a test this agent knows');
+	// What was asked holds a password, where the test signs in as a user
+	// (0124): it is read, and need not lie about.
+	if (want.eap)
+		fs.unlink(ARGV[0]);
 	res.ssid = want.ssid;
 	let cred = credentials(want);
 	if (!cred)
@@ -588,7 +592,7 @@ function main() {
 	if (!tgt)
 		return stop('find', 'the scan radio does not hear that network from another AP');
 	res.heard = tgt.heard;
-	let sup = ct.supplicant(DIR, want.ssid, cred, tgt);
+	let sup = ct.supplicant(DIR, want.ssid, cred, tgt, want.eap);
 	if (!sup.conf)
 		return stop('key', sup.why);
 

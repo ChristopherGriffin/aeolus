@@ -1,5 +1,5 @@
-wanted { "ssid": "Aeolus Lab", "network": null, "bssids": [ "20:05:b6:01:8b:ec" ], "band": "5g", "speed": { "url": "http://192.168.20.106", "host": "192.168.20.106", "port": 80 }, "dns_name": "openwrt.org" }
-wanted least { "ssid": "Aeolus Lab", "network": null, "bssids": [ ], "band": null, "speed": null, "dns_name": "example.com" }
+wanted { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ "20:05:b6:01:8b:ec" ], "band": "5g", "speed": { "url": "http://192.168.20.106", "host": "192.168.20.106", "port": 80 }, "dns_name": "openwrt.org" }
+wanted least { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ ], "band": null, "speed": null, "dns_name": "example.com" }
 wanted named server { "url": "http://zephyrus.symtus.com:3000/", "host": "zephyrus.symtus.com", "port": 3000 }
 wanted null: null
 wanted { }: null
@@ -41,8 +41,8 @@ supplicant owe: [ "key_mgmt=OWE", "ieee80211w=2\n}\n" ]
 supplicant none: [ "key_mgmt=NONE\n}\n" ]
 supplicant psk-mixed+ccmp: [ "key_mgmt=WPA-PSK", "psk=\"a \"quoted\" passphrase\"\n}\n" ]
 supplicant no target: "ctrl_interface=/var/run/aeolus/clienttest/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=78\n\tscan_ssid=1\n\tkey_mgmt=NONE\n}\n"
-supplicant { "encryption": "wpa2", "key": "x" }: { "why": "it signs clients in by 802.1X, which the test cannot do yet" }
-supplicant { "encryption": "wpa3-mixed" }: { "why": "it signs clients in by 802.1X, which the test cannot do yet" }
+supplicant { "encryption": "wpa2", "key": "x" }: { "why": "it signs clients in by 802.1X, and the test was given no user to sign in as" }
+supplicant { "encryption": "wpa3-mixed" }: { "why": "it signs clients in by 802.1X, and the test was given no user to sign in as" }
 supplicant { "encryption": "psk2", "ppsk": "1" }: { "why": "each device has a passphrase of its own from RADIUS there, and the test has none" }
 supplicant { "encryption": "psk2" }: { "why": "this AP has no passphrase for it" }
 supplicant { "encryption": "psk2", "key": "short" }: { "why": "its passphrase is one the test cannot hand to wpa_supplicant" }
@@ -103,6 +103,20 @@ between: a scan due in 3 s false, in 4 s true, a sweep due now false, 10 s late 
 credentials: by ID { "encryption": "sae", "key": "the lab one", "ppsk": null }, another network with the SSID { "encryption": "none", "key": null, "ppsk": null }, an ID with a hyphen { "encryption": "psk2", "key": "two", "ppsk": "1" }
 credentials: an ID the AP has no section for null, its section under another SSID null, no ID { "encryption": "psk2", "key": "made by hand", "ppsk": null }, an ID that is none null
 dfs: channel 132 true, 36 and 149 false, 2.4 GHz and 6 GHz false, 48 with 52 true, none false
+wanted with a user { "method": "peap", "identity": "aeolus-test", "password": "a \"quoted\" pass" }
+wanted with a user: no password null, a method there is none of null, a name too long null
+enterprise wpa2: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n}\n" }
+enterprise wpa3: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP-SHA256\n\tieee80211w=2\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n}\n" }
+enterprise wpa3-mixed: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP WPA-EAP-SHA256\n\tieee80211w=1\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n}\n" }
+enterprise wpa: { "why": "its security, wpa, is one the test does not know" }
+enterprise by TTLS: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tkey_mgmt=WPA-EAP\n\teap=TTLS\n\tidentity=75\n\tpassword=70\n\tphase2=\"auth=PAP\"\n}\n" }
+enterprise with no user: { "why": "it signs clients in by 802.1X, and the test was given no user to sign in as" }
+eap event { "stage": "signin", "what": "sign-in started" }
+eap event null
+eap event { "stage": "signin", "what": "signs in by PEAP" }
+eap event null
+eap event { "stage": "signin", "what": "signed in", "ok": true }
+eap event { "stage": "signin", "what": "the sign-in was refused", "ok": false, "fail": true }
 all of it: passed, stage done, reason ""
    passed: joined in 0.6 s, address in 0.3 s, gateway 4 ms, DNS 42 ms, 21 down / 22.1 up Mbit/s
 no speed server: passed, stage done, reason ""
@@ -132,3 +146,5 @@ speed server unreachable: failed, stage speed, reason "the speed server: Connect
    failed at speed: the speed server: Connection refused
 a reason that is not plain text: failed, stage find, reason "caf?? a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on"
    failed at find: caf?? a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on
+the sign-in refused: failed, stage signin, reason "the sign-in was refused"
+   failed at signin: the sign-in was refused

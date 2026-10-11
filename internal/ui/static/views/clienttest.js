@@ -12,13 +12,16 @@ import { journeyPanel } from './journey.js';
 
 // The stages of a test, in order, as they are named.
 const STAGES = [
-	['find', 'Found'], ['auth', 'Authentication'], ['assoc', 'Association'], ['key', 'Keys'],
+	['find', 'Found'], ['auth', 'Authentication'], ['assoc', 'Association'], ['signin', 'Sign-in'], ['key', 'Keys'],
 	['dhcp', 'DHCP'], ['gateway', 'Gateway'], ['dns', 'DNS'], ['speed', 'Speed'],
 ];
 const NAME = Object.fromEntries(STAGES);
 // How a network may be secured for the test to join it: with the network's
 // own passphrase, or none.
 const TESTABLE = new Set(['open', 'owe', 'wpa2-psk', 'wpa3-sae', 'wpa2-wpa3']);
+// And those that sign each client in by 802.1X, which a test joins as the
+// network's test user, where it has one (0124).
+const ENTERPRISE = new Set(['wpa2-enterprise', 'wpa3-enterprise', 'wpa2-wpa3-enterprise']);
 const BANDS = [['', 'Any band'], ['2g', '2.4 GHz'], ['5g', '5 GHz'], ['6g', '6 GHz']];
 
 const took = (ms) => (ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 60000)} min`);
@@ -47,6 +50,8 @@ function rail(d) {
 	return h('div', { class: 'rail' }, STAGES.map(([k, name]) => {
 		const mine = steps.filter((e) => e.stage === k);
 		if (k === 'speed' && !d.speed && !mine.length) return null;
+		// A sign-in is a stage only of a network that signs clients in.
+		if (k === 'signin' && !mine.length && d.stage !== 'signin') return null;
 		const bad = mine.some((e) => e.ok === false) || (d.outcome === 'failed' && d.stage === k);
 		const ok = !bad && mine.some((e) => e.ok === true);
 		const [cls, says] = bad ? ['bad', 'failed'] : ok ? ['ok', 'done'] : ['idle', 'not reached'];
@@ -170,8 +175,9 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 	} catch { /* an older manager has none */ }
 	const name = (ap) => (ap === id ? `${page.node.name} itself` : ctx.name('locations', ap));
 	const nets = Object.entries(cfg.document?.network || {}).sort(([a], [b]) => a.localeCompare(b));
-	const can = (n) => (n.radius?.passphrases === true ? 'each device has its own passphrase'
-		: TESTABLE.has(n.security) ? '' : 'signs clients in by 802.1X');
+	const can = (n) => (n.radius?.passphrases === true ? 'each device has its own passphrase: not testable yet'
+		: ENTERPRISE.has(n.security) ? (n.radius?.test?.user ? '' : 'signs clients in by 802.1X: give it a test user, under Networks, to test it')
+			: TESTABLE.has(n.security) ? '' : 'not testable');
 	const near = (cfg.condition?.state?.report?.rrm?.neighbours || []).filter((n) => n.state !== 'down');
 	const speed = page.fields?.['system.speed_server']?.value;
 	const busy = list.some((a) => a.state === 'pending' || a.state === 'running');
@@ -179,7 +185,7 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 
 	const box = h('div', { class: 'edit' });
 	const net = h('select', { 'aria-label': 'Network to join' },
-		nets.map(([k, n]) => h('option', { value: k, disabled: !!can(n) }, `${n.ssid}${can(n) ? ` (${can(n)}: not testable yet)` : ''}`)));
+		nets.map(([k, n]) => h('option', { value: k, disabled: !!can(n) }, `${n.ssid}${can(n) ? ` (${can(n)})` : ''}`)));
 	if (nets.some(([k, n]) => k === chosen.network && !can(n))) net.value = chosen.network;
 	else net.value = nets.find(([, n]) => !can(n))?.[0] ?? '';
 	const on = h('select', { 'aria-label': 'AP to join it on' },

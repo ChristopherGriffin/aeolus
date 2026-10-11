@@ -5,7 +5,7 @@
 
 'use strict';
 
-const STAGES = ['find', 'auth', 'assoc', 'key', 'dhcp', 'gateway', 'dns', 'speed'];
+const STAGES = ['find', 'auth', 'assoc', 'signin', 'key', 'dhcp', 'gateway', 'dns', 'speed'];
 const STEPS = 40;      // steps a test's result keeps
 const HEARD = 8;       // and of the networks the scan radio heard before it
 
@@ -34,7 +34,9 @@ function hexstr(s) {
 }
 
 // wanted reads what a test is asked for, and returns it checked, or null:
-// the network's SSID, and its ID where the manager asks; the BSSIDs it may
+// the network's SSID, and its ID where the manager asks; the user it signs
+// in as, where the network signs clients in by 802.1X (0124): how, PEAP
+// with MSCHAPv2 or TTLS with PAP, a name and a password; the BSSIDs it may
 // join, an AP's own, or none for the
 // strongest other AP; a band, or none for any; an OpenSpeedTest server, as
 // a plain HTTP address with its host and, if it has one, its port, or none;
@@ -42,7 +44,14 @@ function hexstr(s) {
 function wanted(p) {
 	if (type(p) != 'object' || type(p.ssid) != 'string' || !length(p.ssid) || length(p.ssid) > 32)
 		return null;
-	let out = { ssid: p.ssid, network: null, bssids: [], band: null, speed: null, dns_name: 'example.com' };
+	let out = { ssid: p.ssid, network: null, eap: null, bssids: [], band: null, speed: null, dns_name: 'example.com' };
+	if (p.eap != null) {
+		let e = p.eap;
+		let said = (v) => type(v) == 'string' && length(v) >= 1 && length(v) <= 128;
+		if (type(e) != 'object' || !(e.method in ['peap', 'ttls']) || !said(e.identity) || !said(e.password))
+			return null;
+		out.eap = { method: e.method, identity: e.identity, password: e.password };
+	}
 	if (p.network != null) {
 		if (type(p.network) != 'string' || !match(p.network, /^[a-z][a-z0-9-]{0,31}$/))
 			return null;
@@ -162,10 +171,15 @@ function target(want, list) {
 
 // supplicant is wpa_supplicant's configuration to join a network as the AP
 // itself offers it: cred is { encryption, key, ppsk } from the AP's own
-// wireless config, tgt is target's. It returns { conf }, or { why } for a
-// network the test can't join: one that signs clients in by 802.1X, or
-// gives each device a passphrase of its own, or has none here.
-function supplicant(dir, ssid, cred, tgt) {
+// wireless config, tgt is target's, and eap the user to sign in as, where
+// the network signs clients in by 802.1X and the test was given one. It
+// returns { conf }, or { why } for a network the test can't join: one that
+// signs clients in and no user was given for, or gives each device a
+// passphrase of its own, or has none here.
+//
+// The RADIUS server's certificate is not checked: the test asks whether a
+// client is let on, not whom it trusts.
+function supplicant(dir, ssid, cred, tgt, eap) {
 	if (type(cred) != 'object')
 		return { why: 'this AP does not offer that network' };
 	let e = cred.encryption ?? 'none';
@@ -176,8 +190,25 @@ function supplicant(dir, ssid, cred, tgt) {
 		push(lines, 'scan_freq=' + join(' ', tgt.freqs), 'freq_list=' + join(' ', tgt.freqs));
 	if (cred.ppsk == '1')
 		return { why: 'each device has a passphrase of its own from RADIUS there, and the test has none' };
-	if (match(e, /^wpa/) || match(e, /eap/))
-		return { why: 'it signs clients in by 802.1X, which the test cannot do yet' };
+	let conf = () => ({ conf: `ctrl_interface=${dir}/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\t${join('\n\t', lines)}\n}\n` });
+	if (match(e, /^wpa/) || match(e, /eap/)) {
+		if (!eap)
+			return { why: 'it signs clients in by 802.1X, and the test was given no user to sign in as' };
+		// WPA2-Enterprise, WPA3-Enterprise, or both, as OpenWrt names them.
+		if (e == 'wpa3')
+			push(lines, 'key_mgmt=WPA-EAP-SHA256', 'ieee80211w=2');
+		else if (e == 'wpa3-mixed')
+			push(lines, 'key_mgmt=WPA-EAP WPA-EAP-SHA256', 'ieee80211w=1');
+		else if (match(e, /^wpa2/))
+			push(lines, 'key_mgmt=WPA-EAP');
+		else
+			return { why: 'its security, ' + e + ', is one the test does not know' };
+		// The name and the password in hex, as the SSID is: whatever is in
+		// them, wpa_supplicant reads them whole.
+		push(lines, 'eap=' + (eap.method == 'ttls' ? 'TTLS' : 'PEAP'), 'identity=' + hexstr(eap.identity), 'password=' + hexstr(eap.password),
+			'phase2="auth=' + (eap.method == 'ttls' ? 'PAP' : 'MSCHAPV2') + '"');
+		return conf();
+	}
 	// A passphrase goes between quotes. wpa_supplicant reads to the last
 	// quote on the line, so one that holds a quote is still read whole.
 	let quoted = (k) => type(k) == 'string' && length(k) >= 8 && length(k) <= 63 && index(k, '\n') < 0;
@@ -197,7 +228,7 @@ function supplicant(dir, ssid, cred, tgt) {
 		push(lines, 'key_mgmt=WPA-PSK', 'psk="' + cred.key + '"');
 	else
 		return { why: 'its security, ' + e + ', is one the test does not know' };
-	return { conf: `ctrl_interface=${dir}/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\t${join('\n\t', lines)}\n}\n` };
+	return conf();
 }
 
 // event reads one of wpa_supplicant's events as a step of the join, or
@@ -215,6 +246,15 @@ function event(line) {
 		return { stage: 'auth', what: 'authenticated', ok: true };
 	if (match(line, /^Associated with/))
 		return { stage: 'assoc', what: 'associated', ok: true };
+	// An 802.1X sign-in (0124), between association and the keys.
+	if (match(line, /^CTRL-EVENT-EAP-STARTED/))
+		return { stage: 'signin', what: 'sign-in started' };
+	if ((m = match(line, /^CTRL-EVENT-EAP-METHOD .*\(([A-Za-z0-9-]+)\) selected/)))
+		return { stage: 'signin', what: `signs in by ${m[1]}` };
+	if (match(line, /^CTRL-EVENT-EAP-SUCCESS/))
+		return { stage: 'signin', what: 'signed in', ok: true };
+	if (match(line, /^CTRL-EVENT-EAP-FAILURE/))
+		return { stage: 'signin', what: 'the sign-in was refused', ok: false, fail: true };
 	if (match(line, /^WPA: Key negotiation completed/))
 		return { stage: 'key', what: 'key handshake completed', ok: true };
 	if (match(line, /^CTRL-EVENT-CONNECTED/))

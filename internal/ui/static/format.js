@@ -43,6 +43,8 @@ const NETWORK = {
 	'radius.acct_server': 'Accounting server', 'radius.acct_port': 'Accounting port', 'radius.acct_secret': 'Accounting secret', 'radius.nas_id': 'NAS-Identifier',
 	'radius.mac_auth': 'MAC authentication', 'radius.passphrases': 'Passphrases from RADIUS', 'radius.vlans': 'VLANs RADIUS may assign', 'radius.vlan_required': 'Require a VLAN from RADIUS',
 	'radius.das.client': 'Disconnects from (NAC)', 'radius.das.secret': 'Disconnect secret', 'radius.das.port': 'Disconnect port',
+	'radius.test.user': 'Test user', 'radius.test.password': 'Test user’s password', 'radius.test.method': 'Test user signs in by',
+
 	'multicast_to_unicast': 'Multicast to unicast', 'band_steering': 'Band steering',
 	'roaming.ft': 'Fast roaming (11r)', 'roaming.rrm': 'Neighbor reports (11k)', 'roaming.btm': 'Steering (11v)',
 	'rate_limit.down_kbps': 'Download limit', 'rate_limit.up_kbps': 'Upload limit',
@@ -109,6 +111,7 @@ export function value(path, v, names) {
 	if (last === 'dtim') return `every ${v} beacon${v === 1 ? '' : 's'}`;
 	if (last === 'dfs') return v === 'avoid' ? 'avoided' : v === 'look-first' ? 'used after a look' : 'allowed';
 	if (path === 'system.agent') return v === 'current' ? "current: the manager's own" : String(v);
+	if (/\.radius\.test\.method$/.test(path)) return v === 'ttls' ? 'TTLS with PAP' : 'PEAP with MSCHAPv2';
 	if (path === 'assurance.tests.every') return v === 0 ? 'never' : v < 60 ? `every ${v} minutes` : v === 60 ? 'every hour' : v < 1440 ? `every ${v / 60} hours` : 'once a day';
 	if (path === 'rrm.window') return `${String(v).replace('-', '–')}, the AP's local time`;
 	if (path === 'rrm.margin') return `${v} rating points`;

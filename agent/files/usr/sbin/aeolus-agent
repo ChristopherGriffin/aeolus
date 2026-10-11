@@ -1727,7 +1727,9 @@ function client_test(a) {
 	fs.mkdir(CT_DIR);
 	fs.unlink(CT_DIR + '/result.json');
 	fs.unlink(CT_DIR + '/pid');
-	fs.writefile(CT_DIR + '/ask.json', sprintf('%J', a.params));
+	// For root alone: it holds a password, where the test signs in as a
+	// user (0124).
+	store(CT_DIR + '/ask.json', sprintf('%J', a.params), 0o600);
 	fs.writefile(CT_DIR + '/running', sprintf('%J', { id: a.id, at: time() }));
 	system(`setsid sh -c 'echo $$ > ${CT_DIR}/pid; exec ${CT_TOOL} ${CT_DIR}/ask.json ${CT_DIR}/result.json' </dev/null >/dev/null 2>&1 &`);
 	return { pending: true, result: 'started; its result follows' };

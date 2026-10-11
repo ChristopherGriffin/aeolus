@@ -27,7 +27,9 @@ const MORE = 'More settings';
 const SECTIONS = [
 	[null, ['ssid', 'security', 'passphrase', 'bands', 'enabled', 'hidden', 'isolation', 'multicast_to_unicast']],
 	['RADIUS', ['radius.mac_auth', 'radius.passphrases', 'radius.auth_server', 'radius.auth_port', 'radius.auth_secret', 'radius.acct_server', 'radius.acct_port', 'radius.acct_secret', 'radius.nas_id',
-		'radius.vlans', 'radius.vlan_required', 'radius.das.client', 'radius.das.secret', 'radius.das.port']],
+		'radius.vlans', 'radius.vlan_required', 'radius.das.client', 'radius.das.secret', 'radius.das.port',
+		// The user a client test signs in as (0124).
+		'radius.test.user', 'radius.test.password', 'radius.test.method']],
 	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
 	['Per-user keys', ['keys.vlans']],
 	['Traffic', [
@@ -661,7 +663,7 @@ function form(d, net, fields, folder, lib) {
 			for (const [path, r] of rows) {
 				if (path === `${prefix}radius.mac_auth`) r.row.hidden = enterprise;
 				else if (path === `${prefix}radius.passphrases`) r.row.hidden = !perDevice;
-				else if (path.startsWith(`${prefix}radius.das.`)) r.row.hidden = !enterprise;
+				else if (path.startsWith(`${prefix}radius.das.`) || path.startsWith(`${prefix}radius.test.`)) r.row.hidden = !enterprise;
 				else if (path.startsWith(`${prefix}radius.`)) r.row.hidden = !asked;
 				if (path === `${prefix}passphrase`) r.row.hidden = (!psk && security.value !== '') || (perDevice && !!each?.checked);
 			}

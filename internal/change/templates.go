@@ -34,6 +34,11 @@ const RoguesPrefix = "rogues."
 // the manager asks on a schedule (0123): the manager's too.
 const AssurancePrefix = "assurance."
 
+// TestPassword is the network field that holds the password a client test
+// signs in with (0124). It is the manager's: it goes to an AP with a test,
+// and is no part of an AP's config.
+const TestPassword = "radius.test.password"
+
 // TemplatePath is the Locations field that picks a board's template.
 func TemplatePath(board string) hierarchy.Path { return hierarchy.Path(TemplatesPrefix + board) }
 
@@ -339,6 +344,9 @@ func (s *State) ResolveAP(ap hierarchy.NodeID) (hierarchy.APConfig, error) {
 			strings.HasPrefix(string(p), AssurancePrefix) {
 			delete(cfg.Location, p)
 		}
+	}
+	for _, n := range cfg.Networks {
+		delete(n.Fields, TestPassword)
 	}
 	chain := s.Org.Locations.Chain(ap)
 	tm, at, ok := s.TemplateFor(ap)
