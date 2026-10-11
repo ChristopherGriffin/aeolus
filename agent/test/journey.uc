@@ -204,6 +204,9 @@ let show = (name, a, at) => {
 	printf('%s: %s, stage %s, %d ms, reason %J, address %J, host %J\n', name, r.outcome, r.stage, r.took_ms, r.reason, r.address, r.host);
 	for (let e in r.events)
 		printf('  %J\n', e);
+	// How it came, where anything is known of it (0136).
+	if (r.how)
+		printf('  how it came: %J\n', r.how);
 };
 
 // Online: joined, an address by DHCP, its gateway answers, a lookup and a
@@ -530,6 +533,54 @@ said(a, 29000.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
 said(a, 29000.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 said(a, 29000.030, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
 show('back, with no debug lines', a, 29031);
+
+// How a client came (0136), as hostapd said it on the C-360, 2026-10-11, of
+// its own scan radio roaming to it from the office AP. By a fast transition
+// (802.11r): authenticated as one, a reassociation, and its keys with it,
+// 17 ms from its first frame.
+a = journey.begin(who, 30000, 1791713000000);
+said(a, 30000.000, 31, `STA ${STA} IEEE 802.11: binding station to interface 'phy0-ap2'`);
+said(a, 30000.000, 31, `STA ${STA} IEEE 802.11: authentication OK (FT)`);
+said(a, 30000.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, FT)`);
+said(a, 30000.011, 31, `STA ${STA} IEEE 802.11: association OK (aid 1)`);
+said(a, 30000.016, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 30000.017, 29, `AP-STA-CONNECTED ${STA} auth_alg=ft`);
+said(a, 30000.017, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
+said(a, 30000.017, 31, `STA ${STA} IEEE 802.11: binding station to interface 'phy0-ap2'`);
+said(a, 30000.018, 31, `STA ${STA} WPA: event 6 notification`);
+said(a, 30000.018, 31, `STA ${STA} WPA: FT authentication already completed - do not start 4-way handshake`);
+show('a roam by fast transition', a, 30031);
+// The same where hostapd does not log at debug, as on a network that signs
+// clients in: its word for the client let on says how.
+a = journey.begin(who, 31000, 1791714000000);
+said(a, 31000.016, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 31000.017, 29, `AP-STA-CONNECTED ${STA} auth_alg=ft`);
+show('a roam by fast transition, with no debug lines', a, 31031);
+// With a passphrase and no fast transition: open authentication, a
+// reassociation, and the four messages again.
+a = journey.begin(who, 32000, 1791715000000);
+said(a, 32000.000, 31, `STA ${STA} IEEE 802.11: authentication OK (open system)`);
+said(a, 32000.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`);
+said(a, 32000.002, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 32000.009, 31, `STA ${STA} IEEE 802.11: association OK (aid 1)`);
+said(a, 32000.013, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 32000.013, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
+said(a, 32000.013, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+said(a, 32000.029, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
+said(a, 32000.029, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
+said(a, 32000.033, 31, `STA ${STA} WPA: received EAPOL-Key frame (4/4 Pairwise)`);
+said(a, 32000.280, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
+said(a, 32000.281, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+said(a, 32000.281, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+show('a roam with a passphrase', a, 32031);
+// A key made from its sign-in at another AP (OKC), as hostapd words it.
+a = journey.begin(who, 33000, 1791716000000);
+said(a, 33000.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 33000.010, 31, `STA ${STA} WPA: PMKID found from OKC`);
+said(a, 33000.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 33000.012, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
+said(a, 33000.030, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
+show('a roam with a key from another AP', a, 33031);
 
 // When the log took a line in, on the daemon's clocks (logread -t): a line
 // logged 45 ms before the daemon took it up, one 6 ms before, one that

@@ -179,9 +179,40 @@ function fine(e, sub, t) {
 	if (sub == 'IEEE 802.11' && (m = match(t, /^(start )?SAE authentication \(RX (commit|confirm)/)))
 		return { ...e, stage: 'auth', sae: m[2], what: m[2] == 'commit' ? 'starts WPA3 authentication (SAE commit)' : 'sends its WPA3 confirm (SAE confirm)' };
 	// Said of every client as it is authenticated, however it came: of one
-	// by open authentication just before hostapd's own word for it.
+	// by open authentication just before hostapd's own word for it. One
+	// that comes by a fast transition (802.11r) from another AP is said so
+	// here, and has no key handshake after.
+	if (sub == 'MLME' && (m = match(t, /^MLME-AUTHENTICATE\.indication\([0-9a-f:]+, ([A-Za-z_]+)\)/)))
+		return m[1] == 'FT' ? { ...e, stage: 'auth', what: 'authenticated, by a fast transition from another AP (802.11r)', ok: true, alg: 'ft' }
+			: { ...e, stage: 'auth', what: 'authenticated', ok: true };
 	if (sub == 'MLME' && match(t, /^MLME-AUTHENTICATE\.indication\(/))
 		return { ...e, stage: 'auth', what: 'authenticated', ok: true };
+	// How it came (0136). It asked to be taken over, as one that is on the
+	// network already, at another AP or this one: a roam.
+	if (sub == 'MLME' && match(t, /^MLME-REASSOCIATE\.indication\(/))
+		return { ...e, stage: 'assoc', what: 'it asked as one already on the network (a reassociation)', re: true };
+	// The AP still holds the client as on, and where management frames
+	// are protected (802.11w) asks the one it remembers to prove itself
+	// before it takes the newcomer: a second's wait for a client that
+	// left without a word and is back.
+	if (sub == 'IEEE 802.11' && (m = match(t, /^association SA Query attempt ([0-9]+)/)))
+		return { ...e, stage: 'assoc', what: 'the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)', saq: int(m[1]) };
+	if (sub == 'IEEE 802.11' && match(t, /^association SA Query timed out/))
+		return { ...e, stage: 'assoc', what: 'no proof came, as from a client that had left: it is taken as new' };
+	// Its key from a sign-in before is taken, and it need not sign in
+	// again: one this AP holds from the client's last time here, or one
+	// made from its sign-in at another AP (opportunistic key caching).
+	if (sub == 'WPA' && match(t, /^PMKID found from OKC/))
+		return { ...e, stage: 'key', what: 'its key from its sign-in at another AP is taken here (OKC): no sign-in again', pmk: 'okc' };
+	if (sub == 'WPA' && match(t, /^PMKID found from PMKSA cache/))
+		return { ...e, stage: 'key', what: 'its key from its last time here is still held (PMKSA cache): no sign-in again', pmk: 'pmksa' };
+	// A fast transition brings its keys with it. Of a client the AP still
+	// held as on, this is all hostapd says of it being on.
+	if (sub == 'WPA' && match(t, /^FT authentication already completed/))
+		return { ...e, stage: 'key', what: 'its keys came with the fast transition: no handshake', ok: true, on: true, alg: 'ft' };
+	// What these say, the lines above or hostapd's own words do.
+	if (sub == 'IEEE 802.11' && match(t, /^(authentication OK|association OK)/))
+		return false;
 	return null;
 }
 
@@ -257,6 +288,11 @@ function log_event(line) {
 	let e = { bss: bss, mac: c[2], stage: k[0], what: k[1], ok: k[2] };
 	if (k[3])
 		e.k = k[3];
+	// Let on, hostapd says how it was authenticated, at any level: ft for
+	// a fast transition, sae for WPA3, open for the rest.
+	let alg = c[1] == 'AP-STA-CONNECTED' ? match(c[3] ?? '', /auth_alg=([a-z0-9]{1,12})( |$)/) : null;
+	if (alg)
+		e.alg = alg[1];
 	if (c[1] == 'AP-STA-CONNECTED' || c[1] == 'EAPOL-4WAY-HS-COMPLETED')
 		e.on = true;
 	return e;
@@ -390,7 +426,7 @@ function begin(who, at, wall) {
 		bss: who.bss, mac: who.mac, network: who.network ?? '', ssid: who.ssid ?? '', band: who.band ?? '',
 		started: at, wall: wall, last: at, events: [], more: 0,
 		done: {}, failed: null, on: null, ended: null, left: null, online: null,
-		sent: {}, sae: null,
+		sent: {}, sae: null, how: {},
 		address: null, host: null, router: null, signal: null, probes: null,
 		dhcp: { asked: 0, first: null, offer: false, ack: false, nak: false },
 		arp: { asked: null, at: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
@@ -453,6 +489,17 @@ function on_log(a, e, at) {
 	}
 	if (e.sae)
 		a.sae = e.sae;
+	// How it came (0136): by a reassociation, by which authentication,
+	// with a key from before, and how often the AP asked the client it
+	// remembered to prove itself.
+	if (e.re)
+		a.how.re = true;
+	if (e.alg)
+		a.how.alg = e.alg;
+	if (e.pmk)
+		a.how.pmk = e.pmk;
+	if (e.saq)
+		a.how.saq = max(a.how.saq ?? 0, e.saq);
 	step(a, at, e.stage ?? 'note', what, e.ok, e.k ? { k: e.k } : null);
 	if (e.stage && e.ok === true)
 		a.done[e.stage] = true;
@@ -466,6 +513,7 @@ function on_log(a, e, at) {
 		a.failed = { stage: e.stage, why: why };
 	if (e.on && a.on == null) {
 		a.on = at;
+		a.how.on_ms = max(0, int((at - a.started) * 1000 + 0.5));
 		// Let on, what went wrong on the way was got over: as a wrong
 		// passphrase, and then the right one.
 		a.failed = null;
@@ -657,6 +705,9 @@ function record(a, at) {
 	for (let k in ['address', 'host', 'signal', 'probes'])
 		if (a[k] != null)
 			r[k] = a[k];
+	// How it came, where anything is known of it (0136).
+	if (length(a.how))
+		r.how = a.how;
 	return r;
 }
 

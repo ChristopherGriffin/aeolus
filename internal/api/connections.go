@@ -79,6 +79,9 @@ type connRecord struct {
 	Host    string      `json:"host,omitempty"`
 	Signal  *int        `json:"signal,omitempty"`
 	Probes  []connProbe `json:"probes,omitempty"`
+	// How the client came (0136): by a reassociation, a fast transition, a
+	// key from before, and how long it took to be let on.
+	How *connHow `json:"how,omitempty"`
 }
 
 func shortText(s string, n int) bool { return len(s) <= n && printable(s) }
@@ -115,6 +118,9 @@ func (c connRecord) check() error {
 		if (p.AP != "" && net.ParseIP(p.AP) == nil) || (p.Band != "" && p.Band != "2g" && p.Band != "5g" && p.Band != "6g") || p.Signal < -127 || p.Signal > 0 {
 			return bad("where it was heard is this AP or another's address, a band or none, and a signal from -127 to 0 dBm")
 		}
+	}
+	if c.How != nil && !c.How.ok() {
+		return bad("how it came is a reassociation or none, an authentication's name, a key from pmksa or okc or none, and times of at most 10 minutes")
 	}
 	if (c.Address != "" && net.ParseIP(c.Address) == nil) || !shortText(c.Host, 64) || (c.Signal != nil && (*c.Signal < -127 || *c.Signal > 0)) {
 		return bad("an address is an IP address, a host name at most 64 printable characters, a signal from -127 to 0 dBm")
@@ -337,11 +343,21 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 		conditions.Connection
 		APName string     `json:"ap_name"`
 		Way    []wayPoint `json:"way"`
+		// How it came, where it came as a client already on the network
+		// (0136): the kind of roam, and how long to be let on.
+		Roam *roamSaid `json:"roam,omitempty"`
 	}
 	out := []entry{}
+	signsIn := s.signsIn(c.state)
 	for _, cn := range list {
 		way, _ := connWay(cn)
 		e := entry{Connection: cn, Way: way}
+		var rec roamRecord
+		if json.Unmarshal(cn.Record, &rec) == nil {
+			if kind, is := roamKind(rec, signsIn(cn.AP, cn.Network)); is {
+				e.Roam = &roamSaid{Kind: kind, MS: rec.How.OnMS}
+			}
+		}
 		if n, ok := t.Node(cn.AP); ok {
 			e.APName = n.Name
 		}

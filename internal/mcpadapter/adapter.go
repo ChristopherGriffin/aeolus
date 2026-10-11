@@ -266,6 +266,18 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", "/v1/assurance?"+q.Encode(), nil)
 			return nil, out, err
 		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_roaming", Description: "Roaming (0136): the clients that moved from one AP to another, or from one radio of an AP to another, on the APs you can view, over the last hours (24 unless set, at most 720); with under, the APs below that Locations node. A roam is an attempt to come online by a client that came as one already on the network (a reassociation) or by a fast transition. roams, failed (not let on), slow (let on after more than slow_over_ms, 250), left (given up by the client before it was let on, not counted as roams), clients, and typical_ms, the middle of the times from a client's first frame at the AP it came to until it was let on. kinds: the same a kind at a time, with low_ms and high_ms: ft (802.11r, the keys come with it), okc (a key made from its sign-in at another AP), pmksa (a key the AP held from its last time there), cached (one of those two, on a network that signs clients in, where the AP does not say which), keys (a passphrase: the four key messages) and full (the sign-in or WPA3's exchange again). latest: the latest 50, each {id, at, mac, host, ap, ap_name, network, ssid, band, from_ap, from_ap_name, from_band, kind, ms, state, reason, sa_queries}, state being ok, slow, failed or left, from where the client's attempt before was let on, where that is known, and sa_queries how often the AP asked a client it still held to prove itself before taking it (802.11w), a second's wait. bad: those of them that are not ok. id is the attempt's, as get_client_connections lists it.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in usageIn) (*mcp.CallToolResult, any, error) {
+			q := url.Values{}
+			if in.Under != "" {
+				q.Set("under", in.Under)
+			}
+			if in.Hours > 0 {
+				q.Set("hours", fmt.Sprint(in.Hours))
+			}
+			out, err := c.call(ctx, "GET", "/v1/roaming?"+q.Encode(), nil)
+			return nil, out, err
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "ask_assurance_round", Description: "Ask every AP below a Locations folder, or one AP, for a round of client tests now (0129): each tests every thing it can, once, one at a time from its next poll, whatever its schedule or none: through the air where it has a scan radio (0121), and over the wire where its agent can (0128), whether a folder asks for that on a schedule or not. over says which tests, 0131: air, wire, or both, which it is unless said. For checking a site that was just built or changed. It needs operator there, and is refused where no AP there can test. A round takes about a minute a thing for each AP; what is not asked for within the hour is let go. Read how it goes with get_assurance: round says how many things, asked and done, and checks and tests what they found.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(false)}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in roundIn) (*mcp.CallToolResult, any, error) {
 			body := map[string]any{"under": in.Under}
