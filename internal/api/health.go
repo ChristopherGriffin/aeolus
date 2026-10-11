@@ -124,10 +124,58 @@ func span(d time.Duration) string {
 	return fmt.Sprintf("%d days", int(d.Hours()/24))
 }
 
+// scanRadioChanges is what happened to an AP's scan radio between two
+// reports (0126): it went deaf and airscan brought it back, as airscan's
+// count of the times it bound its driver again says, or did not; it hears
+// again; airscan stopped answering, or answers again; the radio went, or
+// is back.
+func scanRadioChanges(old, cur *scanRadioState, at func(kind, format string, args ...any) conditions.APEvent) []conditions.APEvent {
+	if old == nil || cur == nil {
+		return nil
+	}
+	n := func(p *int) int {
+		if p == nil {
+			return 0
+		}
+		return *p
+	}
+	var out []conditions.APEvent
+	// airscan counts from when it started: a count that fell is another
+	// airscan's, and says nothing of what happened in between.
+	more := 0
+	if old.Heals != nil && cur.Heals != nil {
+		more = *cur.Heals - *old.Heals
+	}
+	switch {
+	case more > 0 && n(cur.HealFailed) > 0:
+		out = append(out, at("scan-radio", "its scan radio went deaf, and binding its driver again has not brought it back"))
+	case more == 1:
+		out = append(out, at("scan-radio", "its scan radio went deaf, and airscan brought it back by binding its driver again"))
+	case more > 1:
+		out = append(out, at("scan-radio", "its scan radio went deaf %d times, and airscan brought it back each time by binding its driver again", more))
+	case n(old.HealFailed) > 0 && cur.HealFailed != nil && *cur.HealFailed == 0:
+		out = append(out, at("scan-radio", "its scan radio hears again"))
+	}
+	switch {
+	case old.State != "missing" && cur.State == "missing":
+		out = append(out, at("scan-radio", "airscan, which runs its scan radio, stopped answering"))
+	case old.State == "missing" && cur.State == "waiting":
+		out = append(out, at("scan-radio", "airscan answers again, and has no scan radio to use"))
+	case old.State == "missing":
+		out = append(out, at("scan-radio", "airscan answers again"))
+	case old.State != "waiting" && cur.State == "waiting":
+		out = append(out, at("scan-radio", "its scan radio is not there for airscan to use"))
+	case old.State == "waiting" && cur.State != "waiting":
+		out = append(out, at("scan-radio", "its scan radio is there again"))
+	}
+	return out
+}
+
 // changes is what happened to an AP between its last report and this one
 // (0119): a restart, a silence, another agent or firmware, a radio that
-// went down, came up or moved channel, and an uplink on another switch
-// port. An AP's first report is one too.
+// went down, came up or moved channel, an uplink on another switch port,
+// and what its scan radio went through (0126). An AP's first report is one
+// too.
 func changes(prev *conditions.State, now time.Time, cur *stateReport) []conditions.APEvent {
 	at := func(kind, format string, args ...any) conditions.APEvent {
 		return conditions.APEvent{At: now, Kind: kind, Text: fmt.Sprintf(format, args...)}
@@ -204,7 +252,7 @@ func changes(prev *conditions.State, now time.Time, cur *stateReport) []conditio
 	if a, b := port(old.UplinkNeighbor), port(cur.UplinkNeighbor); a != b && a != "" && b != "" {
 		out = append(out, at("uplink", "uplink moved from %s to %s", a, b))
 	}
-	return out
+	return append(out, scanRadioChanges(old.ScanRadio, cur.ScanRadio, at)...)
 }
 
 // apNode answers 404 for a node that is no AP the caller may view.

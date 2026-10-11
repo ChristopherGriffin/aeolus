@@ -35,5 +35,5 @@
 
 ## Not done here
 
-- **Each time the radio was brought back, in the AP's history.**
+- **Each time the radio was brought back, in the AP's history.** Done since: the history (0119) says when its scan radio went deaf and airscan brought it back, when binding its driver again did not help, when airscan stopped answering or the radio went, and when each was put right. It is told from one report to the next, so several times between two reports are one entry that says how many.
 - **Binding the driver again from the manager,** as an action.
