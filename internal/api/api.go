@@ -209,7 +209,8 @@ func status(err error) int {
 	case errors.Is(err, keys.ErrKeyExists), errors.Is(err, keys.ErrTooMany):
 		return http.StatusConflict
 	case errors.As(err, &le), errors.As(err, &be), errors.As(err, &ce), errors.Is(err, change.ErrInUse),
-		errors.Is(err, hierarchy.ErrExists), errors.Is(err, access.ErrExists), errors.Is(err, access.ErrRevoked):
+		errors.Is(err, hierarchy.ErrExists), errors.Is(err, access.ErrExists), errors.Is(err, access.ErrRevoked),
+		errors.Is(err, hierarchy.ErrNotEmpty):
 		return http.StatusConflict
 	case errors.As(err, &fe),
 		errors.Is(err, change.ErrUnknownKind), errors.Is(err, change.ErrUnknownTree),
@@ -221,7 +222,7 @@ func status(err error) int {
 		errors.Is(err, hierarchy.ErrBadParent), errors.Is(err, hierarchy.ErrAPsNotHere), errors.Is(err, hierarchy.ErrMoveRoot),
 		errors.Is(err, hierarchy.ErrCycle), errors.Is(err, hierarchy.ErrBreakRoot), errors.Is(err, hierarchy.ErrBroken),
 		errors.Is(err, hierarchy.ErrNotSetHere), errors.Is(err, hierarchy.ErrLockOnValue), errors.Is(err, hierarchy.ErrNotLocked),
-		errors.Is(err, hierarchy.ErrNotAnAP), errors.Is(err, access.ErrBadTokenArg),
+		errors.Is(err, hierarchy.ErrNotAnAP), errors.Is(err, hierarchy.ErrNotAFolder), errors.Is(err, access.ErrBadTokenArg),
 		errors.As(err, &pe), errors.Is(err, change.ErrNoTemplateID), errors.Is(err, change.ErrTemplateLevel),
 		errors.Is(err, change.ErrTemplateField), errors.Is(err, change.ErrTemplateName),
 		errors.Is(err, library.ErrTemplateID), errors.Is(err, library.ErrBoard), errors.Is(err, library.ErrNoBoards),

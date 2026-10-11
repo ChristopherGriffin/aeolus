@@ -7,13 +7,14 @@ import { h } from '../dom.js';
 import { group, value } from '../format.js';
 import { ask, confirm } from './confirm.js';
 
-// BUILT_IN are the folders every Org has (0032), which stay.
-const BUILT_IN = new Set(['sandbox', 'landing-zone']);
+// builtIn says whether a folder is one every Org has (0032), which stays:
+// Sandbox in both trees, Landing Zone in Locations.
+const builtIn = (tree, id) => id === 'sandbox' || (tree === 'locations' && id === 'landing-zone');
 
 // removable says whether the page may offer to remove node: a folder that
 // is not the Org's, not built in, and has nothing below it.
 export function removable(ctx, tree, node) {
-	return node.kind !== 'org' && !node.isolated && !BUILT_IN.has(node.id) && !ctx.trees[tree].list.some((n) => n.parent === node.id);
+	return node.kind !== 'org' && !node.isolated && !builtIn(tree, node.id) && !ctx.trees[tree].list.some((n) => n.parent === node.id);
 }
 
 // removeFolderButton offers to remove node ({ id, name }) from tree, its

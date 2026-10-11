@@ -461,11 +461,30 @@ func TestRemoveFolderThroughTheAPI(t *testing.T) {
 	if code, _ := remove("claude", "locations", "granted"); code != 403 {
 		t.Fatalf("an operator removed a folder with roles granted on it: %d", code)
 	}
-	if code, b := remove("claude", "locations", "office"); code == 200 {
-		t.Fatalf("a folder with an AP in it was removed: %v", b)
+	// What stays is the caller's to put right, not the manager's failure.
+	if code, b := remove("claude", "locations", "office"); code != 409 {
+		t.Fatalf("a folder with an AP in it: %d %v", code, b)
 	}
-	if code, b := remove("claude", "services", "household"); code == 200 {
-		t.Fatalf("a Services folder on offer was removed: %v", b)
+	if code, b := remove("griff", "services", "household"); code != 409 {
+		t.Fatalf("a Services folder on offer: %d %v", code, b)
+	}
+	if code, b := remove("griff", "locations", "symtus"); code != 400 {
+		t.Fatalf("the Org: %d %v", code, b)
+	}
+	// An admin of the folder alone, with no role where it hangs, does not
+	// decide what its parent holds.
+	if code, b := f.change("griff", map[string]any{"kind": "grant", "account": "tenant", "tree": "locations", "node": "granted", "role": "admin"}); code != 200 {
+		t.Fatalf("grant: %d %v", code, b)
+	}
+	if code, _ := remove("tenant", "locations", "granted"); code != 403 {
+		t.Fatalf("an admin of the folder alone removed it: %d", code)
+	}
+	// A Services folder that shares Landing Zone's ID is a folder like any.
+	if code, b := f.change("griff", map[string]any{"kind": "add-folder", "tree": "services", "node": "landing-zone", "name": "Lobby", "parent": "symtus"}); code != 200 {
+		t.Fatalf("add: %d %v", code, b)
+	}
+	if code, b := remove("griff", "services", "landing-zone"); code != 200 {
+		t.Fatalf("a Services folder named as Landing Zone is: %d %v", code, b)
 	}
 	code, b := remove("claude", "locations", "spare")
 	if code != 200 || len(b["reversioned"].([]any)) != 0 {

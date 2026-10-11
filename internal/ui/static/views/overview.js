@@ -28,8 +28,12 @@ function assured(a, base) {
 	const tried = a.checks.filter((c) => c.last?.detail);
 	const passed = tried.filter((c) => c.last.detail.outcome === 'passed').length;
 	const failing = a.checks.filter((c) => c.failing).length;
+	// With no AP asked for tests any more, what the last ones found is not
+	// how the service is now: only a thing still failing is said.
+	const asked = a.testers.some((t) => t.every);
+	if (!asked && !failing) return tile('Assurance', '—', 'no schedule set', '', `${base}/assurance`);
 	const sub = failing ? `${failing} failing`
-		: !tried.length ? (a.testers.some((t) => t.every) ? 'no test made yet' : 'no schedule set')
+		: !tried.length ? 'no test made yet'
 			: passed === tried.length ? 'tried as a client, all work' : `${tried.length - passed} failed its last test`;
 	return tile('Assurance', tried.length ? `${passed} of ${tried.length}` : '—', sub, failing ? 'bad' : passed < tried.length ? 'warn' : tried.length ? 'ok' : '', `${base}/assurance`);
 }
