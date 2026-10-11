@@ -269,6 +269,16 @@ function about(id, cond, facts, cfg) {
 		h('div', { class: 'grid2 inpanel' }, latest(cond, cfg), enrollment(facts))));
 }
 
+// agentSays is the agent release an AP runs, and where that is not the one
+// it should run, which that is.
+function agentSays(a) {
+	const short = (v) => (v || '').replace(/-[0-9a-f]{7,}$/, '');
+	const runs = short(a?.runs?.version), wants = short(a?.wants?.version);
+	if (!runs) return 'not said yet';
+	if (a.missing_pin) return `${runs} · its folder pins ${a.missing_pin}, which the manager no longer keeps`;
+	return a.runs.hash && a.runs.hash === a.wants?.hash || !wants ? runs : `${runs} · it should run ${wants}`;
+}
+
 function latest(cond, cfg) {
 	const c = cond.check;
 	const a = cond.apply;
@@ -284,6 +294,10 @@ function latest(cond, cfg) {
 			h('dt', null, 'Apply'),
 			h('dd', null, a ? `${a.ok ? 'worked' : 'failed'} · version ${a.version} · ${ago(a.at)}${a.checked ? '' : ' · NOT covered by an ok check'}` : 'none yet'),
 			a?.error && [h('dt', null, 'Error'), h('dd', null, a.error)],
+			// The agent release it runs (0079), and the one it should where
+			// that is another: a folder may pin one.
+			h('dt', null, 'Agent'),
+			h('dd', null, agentSays(cfg.agent)),
 			h('dt', null, 'Uptime'),
 			h('dd', null, cond.state?.report?.uptime != null ? uptime(cond.state.report.uptime) : '—'),
 			h('dt', null, 'OpenWrt'),

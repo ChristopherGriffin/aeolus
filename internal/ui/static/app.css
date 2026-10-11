@@ -260,6 +260,14 @@ details.fold > summary .capture.bad { color: #6B1A13; }
 .attempt .attemptlinks { padding: 0 0 10px; }
 .testother { margin-left: -18px; }
 p.pad { padding: 4px 20px 16px; margin: 0; }
+.radiochips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.chip.radio .mono { font-family: var(--mono); font-size: inherit; font-weight: 600; }
+a.chip.radio { text-decoration: none; }
+a.chip.radio:hover, a.chip.radio:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+td.rowacts { text-align: right; white-space: nowrap; }
+td.rowacts .button { margin-left: 6px; opacity: 0.75; }
+td.rowacts .button:hover, td.rowacts .button:focus-visible { opacity: 1; }
 
 /* An AP's health (0119): its processor and memory as two lines. */
 .healthchart .cpu { fill: none; stroke: var(--accent); stroke-width: 1.6; }
