@@ -21,7 +21,9 @@ export async function ask(box, op) {
 
 // confirm fills box with the preview p of op: lines say what it does, and
 // notes, shown when APs would apply it, say what applying means for them.
-export function confirm(ctx, box, op, p, lines, notes) {
+// done, where there is one, runs once the change is made, before the page
+// is drawn again: for a change after which the page is another's.
+export function confirm(ctx, box, op, p, lines, notes, done) {
 	const name = (id) => ctx.name('locations', id);
 	const problems = Object.entries(p.checks || {});
 	const affected = p.reversioned || [];
@@ -37,6 +39,7 @@ export function confirm(ctx, box, op, p, lines, notes) {
 			hurry(150);
 			const who = affected.length === 1 ? name(affected[0]) : `The ${affected.length} APs`;
 			flash(`Saved as change #${res.change.seq}. ${affected.length ? `${who} pick${affected.length === 1 ? 's' : ''} it up on the next poll, within about a minute.` : 'No AP\'s config changed.'}`);
+			done?.();
 			redrawNow();
 		} catch (e) {
 			apply.disabled = false;
