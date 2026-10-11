@@ -238,41 +238,83 @@ function table(ctx, rows) {
 // channels out, and the AP's best on each band, where its radio would move:
 // the best rated no neighbour uses, or where they use them all, the one
 // whose nearest user is furthest away. Then each AP's moves.
+//
+// Each band has a panel of its own, and in it each AP's channels open by
+// the arrow beside its name (Griff, 2026-10-10): one long table of every
+// AP's every channel was hard to read.
 export function ratingsSection(ctx, rows) {
-	return [ratingsPanel(ctx, rows), movesPanel(ctx, rows)];
+	return [...ratingsPanels(ctx, rows), movesPanel(ctx, rows)];
 }
 
-function ratingsPanel(ctx, rows) {
-	const name = (id) => ctx.name('locations', id);
-	const lines = rows.flatMap(({ ap, cfg }) => {
-		const r = cfg?.condition?.state?.report?.rrm;
-		const apLink = link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/ratings`, ap.name);
-		const none = (why) => [h('tr', null, h('td', null, apLink), h('td', { colspan: 9, class: 'sub' }, why))];
-		if (!cfg) return none('You cannot see this AP.');
-		if (!r) return none('Off, or not reported yet.');
-		if (!r.ratings?.length) return [...none('No channel rated yet.'), ...deaf(r, 9, null)];
-		return [...r.ratings.map((x, i) => h('tr', null,
-			h('td', null, i === 0 && apLink),
-			h('td', null, bandName(x.band)),
-			h('td', { class: 'mono' }, String(x.channel)),
-			h('td', { class: 'mono' }, String(x.cost)),
-			h('td', { class: 'mono' }, String(x.now)),
-			h('td', { class: 'mono' }, `${x.busy}%`),
-			h('td', { class: 'mono' }, x.noise != null ? `${x.noise} dBm` : '—'),
-			h('td', null, String(x.networks)),
-			h('td', null, `${x.ago} s ago`),
-			h('td', null,
-				x.own && h('span', { class: 'chip here' }, 'in use'), ' ',
-				x.best && h('span', { class: 'chip ok' }, x.blotted_by.length ? 'best (all used)' : 'best'),
-				x.blotted_by.length > 0 && h('div', { class: 'sub' }, `used by ${x.blotted_by.map(name).join(', ')}`)))), ...deaf(r, 9, null)];
+// The AP lists opened on the Ratings page, as '<band> <ap>', so a page
+// drawn again keeps them open.
+const opened = new Set();
+
+function ratingsPanels(ctx, rows) {
+	const note = 'lower is better; the rating is earned over many visits, now is the last few';
+	const apLink = (ap) => link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/ratings`, ap.name);
+	// What each AP has to show, or why it has nothing.
+	const of = rows.map(({ ap, cfg }) => {
+		const report = cfg?.condition?.state?.report, r = report?.rrm;
+		const why = !cfg ? 'You cannot see this AP.' : !r ? 'Off, or not reported yet.'
+			: !r.ratings?.length && !r.cannot_scan?.length ? 'No channel rated yet.' : null;
+		return { ap, report, r, why };
 	});
-	return h('section', { class: 'panel' },
-		h('h2', null, 'Channel ratings', h('span', { class: 'note' }, 'lower is better; the rating is earned over many visits, now is the last few')),
+	const panels = ['2g', '5g', '6g'].map((band) => {
+		const folds = of.filter((x) => !x.why).map((x) => ratingsFold(ctx, band, x, rows.length === 1)).filter(Boolean);
+		return folds.length > 0 && h('section', { class: 'panel' },
+			h('h2', null, `${bandName(band)} channel ratings`, h('span', { class: 'note' }, note)),
+			folds);
+	}).filter(Boolean);
+	const quiet = of.filter((x) => x.why);
+	if (!quiet.length && panels.length) return panels;
+	return [...panels, h('section', { class: 'panel' },
+		h('h2', null, 'Channel ratings', !panels.length && h('span', { class: 'note' }, note)),
 		rows.length
-			? h('table', { class: 'list' },
-				h('tr', null, ['AP', 'Band', 'Channel', 'Rating', 'Now', 'Busy', 'Noise', 'Networks', 'Last visit', ''].map((c) => h('th', null, c))),
-				lines)
-			: h('div', { class: 'sub' }, 'No APs here yet.'));
+			? h('table', { class: 'list' }, quiet.map((x) => h('tr', null, h('td', null, apLink(x.ap)), h('td', { class: 'sub' }, x.why))))
+			: h('div', { class: 'sub' }, 'No APs here yet.'))];
+}
+
+// ratingsFold is one AP's channels on one band, shut until its arrow is
+// pressed, or open where the page is the AP's own. Shut, it says the
+// channel the radio is on, the best there, and how many are rated. Null
+// where the AP has nothing on the band.
+function ratingsFold(ctx, band, { ap, report, r }, alone) {
+	const name = (id) => ctx.name('locations', id);
+	const list = (r.ratings || []).filter((x) => x.band === band);
+	const deafHere = { cannot_scan: (r.cannot_scan || []).filter((d) => d.band === band) };
+	if (!list.length && !deafHere.cannot_scan.length) return null;
+	const radio = (report?.radios || []).find((x) => x.band === band && x.up !== false && x.channel);
+	const best = list.find((x) => x.best);
+	const says = [
+		radio && `on channel ${radio.channel}${radio.width ? `, ${radio.width} MHz` : ''}`,
+		best && (best.own ? 'its channel rates best' : `channel ${best.channel} rates best`),
+		`${list.length} channel${list.length === 1 ? '' : 's'} rated`,
+	].filter(Boolean).join(' · ');
+	const key = `${band} ${ap.id}`;
+	const d = h('details', { class: 'fold', open: alone || opened.has(key) },
+		h('summary', null,
+			h('span', { class: 'who' }, ap.name),
+			h('span', { class: 'grow sub' }, says),
+			deafHere.cannot_scan.length > 0 && h('span', { class: 'chip warn' }, "can't scan"),
+			!alone && link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/ratings`, 'Its page')),
+		h('table', { class: 'list' },
+			list.length > 0 && h('tr', null, ['Channel', 'Rating', 'Now', 'Busy', 'Noise', 'Networks', 'Last visit', ''].map((c) => h('th', null, c))),
+			list.map((x) => h('tr', null,
+				h('td', { class: 'mono' }, String(x.channel)),
+				h('td', { class: 'mono' }, String(x.cost)),
+				h('td', { class: 'mono' }, String(x.now)),
+				h('td', { class: 'mono' }, `${x.busy}%`),
+				h('td', { class: 'mono' }, x.noise != null ? `${x.noise} dBm` : '—'),
+				h('td', null, String(x.networks)),
+				h('td', null, `${x.ago} s ago`),
+				h('td', null,
+					x.own && h('span', { class: 'chip here' }, 'in use'), ' ',
+					x.best && h('span', { class: 'chip ok' }, x.blotted_by.length ? 'best (all used)' : 'best'),
+					x.blotted_by.length > 0 && h('div', { class: 'sub' }, `used by ${x.blotted_by.map(name).join(', ')}`)))),
+			deaf(deafHere, 7, null)));
+	d.addEventListener('toggle', () => (d.open ? opened.add(key) : opened.delete(key)));
+	return d;
 }
 
 // Why a move was made, and what came of it, with its chip.

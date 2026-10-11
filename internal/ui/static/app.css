@@ -162,6 +162,15 @@ details .grow { flex-grow: 1; min-width: 0; }
 pre.uci { margin: 0; padding: 14px 20px; max-height: 480px; overflow: auto; background: #1E2227; color: #E6E8EA; font: 13px/1.5 var(--mono); }
 details ul.problems { margin: 0; padding: 4px 20px 12px 38px; color: #6B1A13; font-size: 14px; }
 
+/* A list that opens by the arrow beside its name: each AP's channels on
+   the Ratings page (Griff, 2026-10-10). */
+details.fold > summary::before { content: ''; width: 7px; height: 7px; flex-shrink: 0; margin: 0 4px 0 2px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform 0.12s; }
+details.fold[open] > summary::before { transform: rotate(45deg); }
+details.fold > summary .who { font-weight: 600; min-width: 150px; }
+details.fold > summary a { flex-shrink: 0; font-size: 13px; }
+details.fold > table.list { margin-bottom: 8px; }
+.panel > details.fold:first-of-type { border-top: 0; }
+
 /* Changes */
 .change { display: grid; grid-template-columns: 70px 170px 110px minmax(0, 1fr); gap: 12px; padding: 10px 20px; border-top: 1px solid var(--line-2); font-size: 14px; align-items: baseline; }
 .change .seq { font-family: var(--mono); color: var(--muted); }
