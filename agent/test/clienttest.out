@@ -1,5 +1,5 @@
-wanted { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ "20:05:b6:01:8b:ec" ], "band": "5g", "speed": { "url": "http://192.168.20.106", "host": "192.168.20.106", "port": 80 }, "dns_name": "openwrt.org" }
-wanted least { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ ], "band": null, "speed": null, "dns_name": "example.com" }
+wanted { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ "20:05:b6:01:8b:ec" ], "band": "5g", "speed": { "url": "http://192.168.20.106", "host": "192.168.20.106", "port": 80 }, "dns_name": "openwrt.org", "ap": null }
+wanted least { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ ], "band": null, "speed": null, "dns_name": "example.com", "ap": null }
 wanted named server { "url": "http://zephyrus.symtus.com:3000/", "host": "zephyrus.symtus.com", "port": 3000 }
 wanted null: null
 wanted { }: null

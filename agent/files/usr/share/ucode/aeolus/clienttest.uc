@@ -44,7 +44,7 @@ function hexstr(s) {
 function wanted(p) {
 	if (type(p) != 'object' || type(p.ssid) != 'string' || !length(p.ssid) || length(p.ssid) > 32)
 		return null;
-	let out = { ssid: p.ssid, network: null, eap: null, bssids: [], band: null, speed: null, dns_name: 'example.com' };
+	let out = { ssid: p.ssid, network: null, eap: null, bssids: [], band: null, speed: null, dns_name: 'example.com', ap: null };
 	if (p.eap != null) {
 		let e = p.eap;
 		let said = (v) => type(v) == 'string' && length(v) >= 1 && length(v) <= 128;
@@ -62,11 +62,21 @@ function wanted(p) {
 			return null;
 		push(out.bssids, lc(b));
 	}
+	// wire is no band: the test is made over the wire, not through the
+	// air (0128). It is made from a MAC that says which AP's it is, so it
+	// is told which AP this is.
 	if (p.band != null) {
-		if (!(p.band in ['2g', '5g', '6g']))
+		if (!(p.band in ['2g', '5g', '6g', 'wire']))
 			return null;
 		out.band = p.band;
 	}
+	if (p.ap != null) {
+		if (type(p.ap) != 'string' || !match(p.ap, /^ap-[0-9a-f]{12}$/))
+			return null;
+		out.ap = p.ap;
+	}
+	if (out.band == 'wire' && (!out.ap || !out.network || out.eap || length(p.bssids ?? [])))
+		return null;
 	if (p.speed != null) {
 		let m = type(p.speed) == 'string' ? match(p.speed, /^http:\/\/([A-Za-z0-9.-]{1,253})(:([0-9]{1,5}))?\/?$/) : null;
 		let port = int(m?.[3] ?? '80');
@@ -432,11 +442,13 @@ function summary(res) {
 	if (res.outcome != 'passed')
 		s = `failed at ${res.stage}: ${res.reason}`;
 	else {
-		let parts = [`joined in ${secs(res.joined_ms)}`];
+		let parts = [res.band == 'wire' ? 'over the wire' : `joined in ${secs(res.joined_ms)}`];
 		if (res.dhcp)
 			push(parts, `address in ${secs(res.dhcp.ms)}`);
 		if (res.gateway?.avg != null)
 			push(parts, sprintf('gateway %.0f ms', res.gateway.avg));
+		else if (res.gateway?.arp_ms != null)
+			push(parts, sprintf('gateway answers ARP in %.1f ms', res.gateway.arp_ms));
 		else if (res.gateway?.mac)
 			push(parts, 'gateway there, no ping');
 		if (res.dns?.ms != null)

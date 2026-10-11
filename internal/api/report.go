@@ -211,6 +211,8 @@ type stateReport struct {
 	Health *apHealth `json:"health,omitempty"`
 	// Its scan radio, where it has one (0126).
 	ScanRadio *scanRadioState `json:"scan_radio,omitempty"`
+	// Whether its agent can make a client test over the wire (0128).
+	WireTests bool `json:"wire_tests,omitempty"`
 	// Its clock (0069).
 	Time *timeState `json:"time,omitempty"`
 	// The per-user keys it has (0070): their version, and how many.

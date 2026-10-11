@@ -2,7 +2,8 @@
 
 import { h, icon } from './dom.js';
 
-const BANDS = { '2g': '2.4 GHz', '5g': '5 GHz', '6g': '6 GHz' };
+// wire is no band: a client test made over the wire has it for one (0128).
+const BANDS = { '2g': '2.4 GHz', '5g': '5 GHz', '6g': '6 GHz', 'wire': 'over the wire' };
 
 const SECURITY = {
 	'open': 'Open', 'owe': 'OWE (encrypted open)', 'wpa2-psk': 'WPA2',
@@ -60,7 +61,7 @@ const PORT_VNI = { tunnel: 'tunnel', vni: 'VNI', probe: 'probe address' };
 
 // group says which panel a field belongs in, and its label there.
 // Service assurance (0123): client tests on a schedule.
-const ASSURANCE = { 'tests.every': 'A client test', 'tests.speed': 'With its speed' };
+const ASSURANCE = { 'tests.every': 'A client test', 'tests.speed': 'With its speed', 'tests.wire': 'Over the wire too' };
 
 export function group(path) {
 	const p = path.split('.');

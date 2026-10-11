@@ -645,3 +645,32 @@ func TestAgentClientTest(t *testing.T) {
 		t.Errorf("the client test's parts print other than clienttest.out says:\n%s", out)
 	}
 }
+
+// A client test over the wire (0128): the MAC it is made from, the filter
+// its socket keeps to, its DHCP, ARP and DNS frames and how their answers
+// read, and which wire a network's frames take. agent/test/wiretest.uc
+// prints them; wiretest.out is what it must print.
+func TestAgentWireTest(t *testing.T) {
+	ucode, err := exec.LookPath("ucode")
+	if err != nil {
+		t.Skip("ucode is not installed; CI builds it (0040)")
+	}
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", "wiretest.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "wiretest.uc"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Errorf("the wire test's parts print other than wiretest.out says:\n%s", out)
+	}
+}
