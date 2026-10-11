@@ -224,8 +224,12 @@ function log_event(line) {
 			return kept(e);
 		}
 		if (sub == 'WPA') {
+			// Its keys in place, it is let on, said or not: of a client
+			// it still holds as on, as one that went without a word and
+			// is back, hostapd says the handshake and not that it is
+			// connected, which to it the client never ceased to be.
 			if (match(t, /^pairwise key handshake completed/))
-				return { ...e, stage: 'key', what: 'key handshake completed', ok: true };
+				return { ...e, stage: 'key', what: 'key handshake completed', ok: true, on: true };
 			if (match(t, /^group key handshake completed/))
 				return null;
 			return kept({ ...e, stage: 'key' });
@@ -253,7 +257,7 @@ function log_event(line) {
 	let e = { bss: bss, mac: c[2], stage: k[0], what: k[1], ok: k[2] };
 	if (k[3])
 		e.k = k[3];
-	if (c[1] == 'AP-STA-CONNECTED')
+	if (c[1] == 'AP-STA-CONNECTED' || c[1] == 'EAPOL-4WAY-HS-COMPLETED')
 		e.on = true;
 	return e;
 }

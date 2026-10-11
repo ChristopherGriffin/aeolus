@@ -499,6 +499,38 @@ said(a, 27000.021, 29, `AP-STA-CONNECTED ${STA} auth_alg=sae`);
 said(a, 27000.021, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
 show('WPA3, with no debug lines', a, 27031);
 
+// A client that comes back to an AP that still holds it as on, as one that
+// went to another AP without a word and returned within minutes (the
+// C-360, 2026-10-11, a network with protected management frames). The AP
+// asks the client it remembers to prove itself, five times in a second,
+// has no answer, and takes the newcomer; of the handshake that follows it
+// says that it completed, and not that the client is connected, which to
+// hostapd it never ceased to be. Its keys in place, it is let on.
+a = journey.begin(who, 28000, 1791711000000);
+said(a, 28000.000, 31, `STA ${STA} IEEE 802.11: authentication OK (open system)`);
+said(a, 28000.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`);
+said(a, 28000.001, 30, `STA ${STA} IEEE 802.11: authenticated`);
+for (let i = 0; i < 5; i++)
+	said(a, 28000.013 + i * 0.206, 31, `STA ${STA} IEEE 802.11: association SA Query attempt ${i + 1}`);
+said(a, 28001.043, 31, `STA ${STA} IEEE 802.11: association SA Query timed out`);
+said(a, 28001.077, 31, `STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`);
+said(a, 28001.077, 31, `STA ${STA} IEEE 802.11: association OK (aid 1)`);
+said(a, 28001.177, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 28001.177, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
+said(a, 28001.178, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+said(a, 28001.193, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
+said(a, 28001.193, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
+said(a, 28001.197, 31, `STA ${STA} WPA: received EAPOL-Key frame (4/4 Pairwise)`);
+said(a, 28001.198, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+said(a, 28001.198, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+show('back at an AP that still held it', a, 28032);
+// And so where hostapd does not log at debug, and says the one line.
+a = journey.begin(who, 29000, 1791712000000);
+said(a, 29000.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 29000.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 29000.030, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+show('back, with no debug lines', a, 29031);
+
 // When the log took a line in, on the daemon's clocks (logread -t): a line
 // logged 45 ms before the daemon took it up, one 6 ms before, one that
 // came in 3 ms after, one that says no time, and one whose time cannot be

@@ -21,8 +21,8 @@ log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "auth", "what": "a
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "assoc", "what": "associated", "ok": true }
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "let on to the network", "ok": true, "on": true }
 log null
-log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "key handshake completed", "ok": true }
-log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "key handshake completed", "ok": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "key handshake completed", "ok": true, "on": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "key handshake completed", "ok": true, "on": true }
 log null
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "wrong passphrase", "ok": false, "k": "m2" }
 log { "bss": "phy1-ap5", "mac": "72:bb:66:12:2a:94", "stage": "signin", "what": "signed in with PEAP", "ok": true }
@@ -261,6 +261,18 @@ WPA3, with no debug lines: connected, stage key, 31000 ms, reason "", address nu
   { "t": 0, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 21, "stage": "key", "what": "let on to the network", "ok": true }
   { "t": 21, "stage": "key", "what": "key handshake completed", "ok": true }
+back at an AP that still held it: connected, stage key, 32000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 1177, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 1178, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 1193, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
+  { "t": 1193, "stage": "key", "what": "message 3 of 4 sent to it", "k": "m3" }
+  { "t": 1197, "stage": "key", "what": "message 4 of 4 came from it", "k": "m4" }
+  { "t": 1198, "stage": "key", "what": "key handshake completed", "ok": true }
+back, with no debug lines: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 30, "stage": "key", "what": "key handshake completed", "ok": true }
 log time [1791742263.455]: 5000.455 s, 1791742263455
 log time [1791742263.494]: 5000.494 s, 1791742263494
 log time [1791742263.503]: 5000.503 s, 1791742263503
