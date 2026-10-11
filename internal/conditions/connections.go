@@ -47,8 +47,22 @@ CREATE TABLE clients (
 );
 CREATE INDEX clients_last ON clients (last_seen);`
 
+// connectionsAt gives each attempt the time the manager takes it to have
+// begun, at. started stays what its AP said, by its own clock: with its AP
+// and its client, that is what tells one attempt from another, and it is
+// the same however often the AP sends it. An AP whose clock is unset says a
+// time long gone; given the time it came in as started, a report sent
+// twice, as when the answer to the first was lost, was kept twice.
+const connectionsAt = `
+ALTER TABLE connections ADD COLUMN at INTEGER NOT NULL DEFAULT 0;
+UPDATE connections SET at = started;
+CREATE INDEX connections_at ON connections (mac, at);`
+
 // Connection is one attempt a client made to come online on an AP. Record
 // is what the AP sent of it: its steps, and what it learned of the client.
+// Started is when it began, as the manager takes it; Said is when its AP
+// said, in ms since 1970, which with the AP and the client tells it from
+// any other.
 type Connection struct {
 	ID      int64            `json:"id"`
 	AP      hierarchy.NodeID `json:"ap"`
@@ -65,6 +79,7 @@ type Connection struct {
 	// What it showed of the client, for the client's own row.
 	Host    string `json:"-"`
 	Address string `json:"-"`
+	Said    int64  `json:"-"`
 }
 
 // Client is a Wi-Fi client as last seen: where, and what it said of itself;
@@ -122,9 +137,13 @@ func (s *Store) RecordConnections(ap hierarchy.NodeID, list []Connection) (int, 
 	added := 0
 	for _, c := range list {
 		at := c.Started.UnixMilli()
-		res, err := tx.Exec(`INSERT OR IGNORE INTO connections (ap, mac, started, network, ssid, band, outcome, stage, reason, took_ms, record)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			string(ap), c.MAC, at, c.Network, c.SSID, c.Band, c.Outcome, c.Stage, c.Reason, c.TookMS, string(c.Record))
+		said := c.Said
+		if said == 0 {
+			said = at
+		}
+		res, err := tx.Exec(`INSERT OR IGNORE INTO connections (ap, mac, started, at, network, ssid, band, outcome, stage, reason, took_ms, record)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			string(ap), c.MAC, said, at, c.Network, c.SSID, c.Band, c.Outcome, c.Stage, c.Reason, c.TookMS, string(c.Record))
 		if err != nil {
 			return 0, err
 		}
@@ -227,8 +246,8 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 	if !before.IsZero() {
 		cut = before.UnixMilli()
 	}
-	rows, err := s.db.Query(`SELECT id, ap, mac, started, network, ssid, band, outcome, stage, reason, took_ms, record FROM connections
-		WHERE mac = ? AND started < ? AND ap IN (SELECT value FROM json_each(?)) ORDER BY started DESC, id DESC LIMIT ?`, mac, cut, string(ids), limit)
+	rows, err := s.db.Query(`SELECT id, ap, mac, at, network, ssid, band, outcome, stage, reason, took_ms, record FROM connections
+		WHERE mac = ? AND at < ? AND ap IN (SELECT value FROM json_each(?)) ORDER BY at DESC, id DESC LIMIT ?`, mac, cut, string(ids), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +273,7 @@ func (s *Store) TrimConnections(keep time.Duration) (int64, error) {
 	if _, err := s.db.Exec(`DELETE FROM ap_events WHERE at < ?`, s.now().Add(-keep).UnixMilli()); err != nil {
 		return 0, err
 	}
-	res, err := s.db.Exec(`DELETE FROM connections WHERE started < ?`, s.now().Add(-keep).UnixMilli())
+	res, err := s.db.Exec(`DELETE FROM connections WHERE at < ?`, s.now().Add(-keep).UnixMilli())
 	if err != nil {
 		return 0, err
 	}

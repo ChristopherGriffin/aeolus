@@ -202,6 +202,7 @@ function uptime() {
 // moves.
 function calm(r) {
 	r.survey = null;
+	r.load = null;   // what a scan radio's look took for its own channel's (0116)
 	r.hot = null;
 	r.hot_n = 0;
 	r.hot_sum = 0;

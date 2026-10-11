@@ -90,4 +90,31 @@ sign-in refused: failed, stage signin, 1600 ms, reason "the server refused the s
   { "t": 1500, "stage": "signin", "what": "the server refused the sign-in", "ok": false }
   { "t": 1500, "stage": "signin", "what": "authentication failed - EAP type: 25 (PEAP)", "ok": false }
   { "t": 1600, "stage": "end", "what": "disconnected" }
+left while associating: left, stage key, 400 ms, reason "before it was let on: disassociated", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 5, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 400, "stage": "end", "what": "disassociated" }
+left right after asking for an address: left, stage key, 1500 ms, reason "disconnected", address null, host "Griffs-iPhone"
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 200, "stage": "dhcp", "what": "asks for an address (discover)" }
+  { "t": 1500, "stage": "end", "what": "disconnected" }
+gave up on DHCP and left: failed, stage dhcp, 12000 ms, reason "no answer to its 2 DHCP requests, and it left", address null, host "Griffs-iPhone"
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 200, "stage": "dhcp", "what": "asks for an address (discover)" }
+  { "t": 4200, "stage": "dhcp", "what": "asks for an address (discover)" }
+  { "t": 12000, "stage": "end", "what": "disconnected" }
+gave up on its gateway and left: failed, stage gateway, 6000 ms, reason "192.168.20.1, its gateway, did not answer, and it left", address "192.168.20.61", host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 200, "stage": "dhcp", "what": "given 192.168.20.61", "ok": true, "server": "192.168.20.1", "router": "192.168.20.1", "dns": "192.168.20.1 9.9.9.9" }
+  { "t": 300, "stage": "gateway", "what": "asks who has 192.168.20.1, its gateway" }
+  { "t": 6000, "stage": "end", "what": "disconnected" }
 many steps: 48 kept, 12 more

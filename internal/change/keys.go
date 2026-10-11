@@ -27,7 +27,8 @@ var (
 	ErrNotPSK    = &keyError{"per-user keys need a wpa2-psk network"}
 	// ErrRADIUSKeys refuses a key on a network that takes each device's
 	// passphrase from its RADIUS server (0115): hostapd would take the key
-	// only from a device the server also gave a passphrase.
+	// only from a device the server also gave a passphrase. It is GuardIn's,
+	// for a new change, not Apply's.
 	ErrRADIUSKeys = &keyError{"per-user keys need a network with passphrases of its own; this one takes each device's from its RADIUS server (radius.passphrases)"}
 )
 
@@ -167,9 +168,7 @@ func networkFields(s *State, folder hierarchy.NodeID, network string) (map[strin
 }
 
 // keyNetwork checks that a Services folder offers a WPA2-PSK network, which
-// keys can belong to, and one that does not take each device's passphrase
-// from its RADIUS server instead (0115). As every key is checked after each
-// change, a network with keys can't be turned to that either.
+// keys can belong to.
 func keyNetwork(s *State, folder hierarchy.NodeID, network string) error {
 	n, ok := s.Org.Services.Node(folder)
 	if !ok || n.Kind == hierarchy.KindAP {
@@ -182,10 +181,48 @@ func keyNetwork(s *State, folder hierarchy.NodeID, network string) error {
 	if f["security"] != "wpa2-psk" {
 		return ErrNotPSK
 	}
-	if f["radius.passphrases"] == true {
-		return ErrRADIUSKeys
-	}
 	return nil
+}
+
+// GuardIn checks what only a new change must meet, as Guard does, where it
+// takes the state to tell: a network has per-user keys or takes each
+// device's passphrase from its RADIUS server, not both (0115). A key is
+// refused on a network that does; and a change in the Services tree is
+// refused if after it some key's network would. It is not Apply's to hold
+// to: a log from before the rule may have both, and must still replay.
+func GuardIn(s *State, op Op) error {
+	if s == nil {
+		return nil
+	}
+	switch op.Kind {
+	case AddKey, SetKey:
+		if f, ok := networkFields(s, op.Node, op.Network); ok && f["radius.passphrases"] == true {
+			return ErrRADIUSKeys
+		}
+		return nil
+	case RemoveKey:
+		return nil
+	}
+	if op.Tree != Services || s.Keys == nil || s.Keys.Len() == 0 {
+		return nil
+	}
+	next, _, err := Apply(s.Clone(), op)
+	if err != nil {
+		return nil // the change itself is refused, and says why
+	}
+	var by []string
+	for _, k := range next.Keys.All() {
+		if f, ok := networkFields(next, k.Folder, k.Network); ok && f["radius.passphrases"] == true {
+			by = append(by, k.ID)
+		}
+	}
+	if len(by) == 0 {
+		return nil
+	}
+	if len(by) > 8 {
+		by = append(by[:8], fmt.Sprintf("and %d more", len(by)-8))
+	}
+	return fmt.Errorf("the network's per-user keys are %w: %v. A network has keys, or takes each device's passphrase from its RADIUS server (radius.passphrases), not both", ErrInUse, by)
 }
 
 // offers says whether a network offers a VLAN to its keys.

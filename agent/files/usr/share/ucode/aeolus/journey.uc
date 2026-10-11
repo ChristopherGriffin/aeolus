@@ -18,6 +18,8 @@ const IDLE = 20;         // seconds without a step before a client not yet let o
 const LET_ON = 120;      // seconds at most to be let on
 const WATCH = 30;        // seconds a client is watched after it is let on
 const LINGER = 4;        // seconds more after it is online, for its first lookups and connection
+const GAVE_UP_DHCP = 8;  // seconds without an answer to DHCP before a client's leaving is a failure
+const GAVE_UP_GATEWAY = 4;   // and without one from its gateway
 
 function get16(s, at) {
 	return ord(s, at) << 8 | ord(s, at + 1);
@@ -67,12 +69,14 @@ function assemble(steps) {
 	return out;
 }
 
-// filter keeps, of what crosses a Wi-Fi interface, what tells how a client
-// comes online: ARP from a client, and an ARP answer going out to one; DHCP
-// both ways; and, wide, while a client is watched, DNS both ways (IPv4 and
-// IPv6, over UDP) and the frames that open a TCP connection. Narrow, when
-// no client is watched, it lets the AP's traffic be.
-function filter(wide) {
+// capture is the kernel filter that keeps, of what crosses a Wi-Fi
+// interface, what tells how a client comes online: ARP from a client, and
+// an ARP answer going out to one; DHCP both ways; and, wide, while a client
+// is watched, DNS both ways (IPv4 and IPv6, over UDP) and the frames that
+// open a TCP connection. Narrow, when no client is watched, it lets the AP's
+// traffic be. (Not filter: a function of that name here would hide ucode's
+// own, which record uses.)
+function capture(wide) {
 	return assemble([
 		[0x28, 0, 0, 12],               // A = EtherType
 		[0x15, 'arp', 0, 0x0806],
@@ -326,8 +330,8 @@ function begin(who, at, wall) {
 		started: at, wall: wall, last: at, events: [], more: 0,
 		done: {}, failed: null, on: null, ended: null, left: null, online: null,
 		address: null, host: null, router: null, signal: null, probes: null,
-		dhcp: { asked: 0, offer: false, ack: false, nak: false },
-		arp: { asked: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
+		dhcp: { asked: 0, first: null, offer: false, ack: false, nak: false },
+		arp: { asked: null, at: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
 		tcp: { opened: {}, kept: 0, answered: false },
 	};
 }
@@ -388,6 +392,7 @@ function on_frame(a, p, at) {
 	if (p.kind == 'dhcp') {
 		if (p.type in ['discover', 'request']) {
 			a.dhcp.asked++;
+			a.dhcp.first ??= at;
 			if (p.host)
 				a.host = p.host;
 			step(a, at, 'dhcp', p.type == 'discover' ? 'asks for an address (discover)' : 'asks to use the address (request)', null);
@@ -423,6 +428,7 @@ function on_frame(a, p, at) {
 			}
 			if (p.what == 'ask' && (a.arp.asked == null || p.about == a.router)) {
 				a.arp.asked = p.about;
+				a.arp.at ??= at;
 				step(a, at, 'gateway', 'asks who has ' + p.about + (p.about == a.router ? ', its gateway' : ''), null);
 			}
 		}
@@ -485,44 +491,62 @@ function due(a, at) {
 // and an answer from beyond itself; connected, let on, with nothing more
 // seen of it, as a device that keeps its address and says little; failed,
 // with the stage it stopped at and why; left, gone of its own accord before
-// anything failed.
+// anything failed, wherever it had got to.
 function record(a, at) {
 	let outcome, stage = null, reason = '';
 	let furthest = null;
 	for (let s in STAGES)
 		if (a.done[s])
 			furthest = s;
+	// Where a client not let on stopped: the stage after the last it got
+	// through. A network that signs clients in has that between association
+	// and the keys.
+	let signin = length(filter(a.events, e => e.stage == 'signin')) > 0;
+	let stopped = a.done.assoc ? (signin && !a.done.signin ? 'signin' : 'key') : a.done.auth ? 'assoc' : 'auth';
+	let no_dhcp = a.dhcp.nak ? 'the DHCP server refused its request'
+		: a.dhcp.offer ? 'an address was offered, and its request for it was not answered'
+		: 'no answer to its ' + a.dhcp.asked + (a.dhcp.asked == 1 ? ' DHCP request' : ' DHCP requests');
+	let no_gateway = a.arp.asked + (a.arp.asked == a.router ? ', its gateway,' : '') + ' did not answer';
 	if (a.failed) {
 		outcome = 'failed';
 		stage = a.failed.stage;
 		reason = a.failed.why;
-	} else if (a.on == null) {
-		// Where it stopped: the stage after the last it got through. A
-		// network that signs clients in has that between association and
-		// the keys.
-		outcome = 'failed';
-		let signin = length(filter(a.events, e => e.stage == 'signin')) > 0;
-		stage = a.done.assoc ? (signin && !a.done.signin ? 'signin' : 'key') : a.done.auth ? 'assoc' : 'auth';
-		reason = a.left ? 'it left before it was let on: ' + a.left : 'it was never let on';
 	} else if (a.online != null) {
 		outcome = 'online';
+	} else if (a.ended != null) {
+		// It left before it was seen online. That is a failure only where it
+		// had waited for an answer that never came; a client that goes of
+		// its own accord, as one that picks another AP, has failed nothing.
+		if (a.on != null && a.dhcp.asked > 0 && !a.dhcp.ack && a.ended - a.dhcp.first >= GAVE_UP_DHCP) {
+			outcome = 'failed';
+			stage = 'dhcp';
+			reason = no_dhcp + ', and it left';
+		} else if (a.on != null && a.address && a.arp.asked != null && !a.arp.answered && a.ended - a.arp.at >= GAVE_UP_GATEWAY) {
+			outcome = 'failed';
+			stage = 'gateway';
+			reason = no_gateway + ', and it left';
+		} else {
+			outcome = 'left';
+			if (a.on == null)
+				stage = stopped;
+			reason = a.on == null ? 'before it was let on: ' + (a.left ?? '') : a.left ?? '';
+		}
+	} else if (a.on == null) {
+		outcome = 'failed';
+		stage = stopped;
+		reason = 'it was never let on';
 	} else if (a.dhcp.asked > 0 && !a.dhcp.ack) {
 		outcome = 'failed';
 		stage = 'dhcp';
-		reason = a.dhcp.nak ? 'the DHCP server refused its request'
-			: a.dhcp.offer ? 'an address was offered, and its request for it was not answered'
-			: 'no answer to its ' + a.dhcp.asked + (a.dhcp.asked == 1 ? ' DHCP request' : ' DHCP requests');
+		reason = no_dhcp;
 	} else if (a.address && a.arp.asked != null && !a.arp.answered) {
 		outcome = 'failed';
 		stage = 'gateway';
-		reason = a.arp.asked + (a.arp.asked == a.router ? ', its gateway,' : '') + ' did not answer';
+		reason = no_gateway;
 	} else if (a.address && a.dns.asked > 0 && a.dns.answered == 0) {
 		outcome = 'failed';
 		stage = 'dns';
 		reason = 'no answer to its ' + a.dns.asked + (a.dns.asked == 1 ? ' DNS lookup' : ' DNS lookups');
-	} else if (a.ended != null) {
-		outcome = 'left';
-		reason = a.left ?? '';
 	} else {
 		outcome = 'connected';
 	}
@@ -541,4 +565,4 @@ function record(a, at) {
 	return r;
 }
 
-export { STAGES, WATCH, assemble, filter, log_event, frame, begin, on_log, on_frame, due, record };
+export { STAGES, WATCH, assemble, capture, log_event, frame, begin, on_log, on_frame, due, record };

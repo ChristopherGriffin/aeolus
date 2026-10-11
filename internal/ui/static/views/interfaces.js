@@ -69,7 +69,7 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 		let body;
 		const at = { node: id, nodeName: page.node.name, page, canEdit: !!edit,
 			parentName: page.node.parent ? ctx.name('locations', page.node.parent) : null };
-		if (view === 'ratings') body = ratingsSection(ctx, await rows());
+		if (view === 'ratings') body = ratingsSection(ctx, await rows(), !!ap);
 		else if (view === 'neighbours') body = neighboursSection(ctx, at, await rows());
 		else if (view === 'airspace') body = await airspaceSection(ctx, at);
 		else body = bandsSection(ctx, id, page, ap?.cfg?.condition?.state, await rows());

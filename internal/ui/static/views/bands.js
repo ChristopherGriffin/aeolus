@@ -421,15 +421,21 @@ function bandPanel(at, band, b) {
 		// lighter, as it is taken, not picked.
 		const forty = band === '2g' && width() > 20;
 		const colour = new Map();   // channel -> 'a' or 'b', its pair's
-		const takenBy = new Map();  // a channel taken -> the channel it is joined with
+		const takenBy = new Map();  // a channel taken -> the channels it is joined with
+		const shared = new Set();   // taken by two, of different colours: 7, with 3 and 11 picked
 		if (forty) {
 			const ones = manual ? (d.channel != null ? [d.channel] : []) : [...(marked ? goes : d.channels)].sort((x, y) => x - y);
 			ones.forEach((c, i) => colour.set(c, i % 2 ? 'b' : 'a'));
 			ones.forEach((c, i) => {
-				const q = pair2g(c);
-				if (colour.has(q)) return;
-				colour.set(q, i % 2 ? 'b' : 'a');
-				takenBy.set(q, c);
+				const q = pair2g(c), mine = i % 2 ? 'b' : 'a';
+				if (ones.includes(q)) return;   // picked itself: its own pair's colour
+				if (takenBy.has(q)) {
+					takenBy.get(q).push(c);
+					if (colour.get(q) !== mine) shared.add(q);
+					return;
+				}
+				takenBy.set(q, [c]);
+				colour.set(q, mine);
 			});
 		}
 		map.replaceChildren(...ranges(band, country).map((list) => {
@@ -460,10 +466,10 @@ function bandPanel(at, band, b) {
 					// has none (Griff, 2026-10-09).
 					return h('button', {
 						type: 'button',
-						class: `ch${isOn ? ' on' : ''}${taken ? ' on taken' : ''}${some ? ' part' : ''}${can ? '' : ' off'}${radar(band, c) ? ' dfs' : ''}${band === '6g' && psc(c) ? ' psc' : ''}${(marked && goes.has(c)) || (manual && d.channel === c) ? ' goes' : ''}`,
+						class: `ch${isOn ? ' on' : ''}${taken ? ' on taken' : ''}${taken && shared.has(c) ? ' shared' : ''}${some ? ' part' : ''}${can ? '' : ' off'}${radar(band, c) ? ' dfs' : ''}${band === '6g' && psc(c) ? ' psc' : ''}${(marked && goes.has(c)) || (manual && d.channel === c) ? ' goes' : ''}`,
 						disabled: d.mode === 'unset' || !editable(manual ? 'channel' : 'channels') || !can,
 						title: [why, band === '6g' && psc(c) && 'Preferred scanning channel', manual && d.channel === c && 'The channel',
-							forty && `At 40 MHz, with channel ${pair2g(c)}`, taken && `Taken with channel ${takenBy.get(c)}`,
+							forty && `At 40 MHz, with channel ${pair2g(c)}`, taken && `Taken with channel${takenBy.get(c).length > 1 ? 's' : ''} ${takenBy.get(c).join(' and ')}`,
 							marked && goes.has(c) && 'The APs go to this channel', aps.length && `Now: ${aps.join(', ')}`].filter(Boolean).join(' · '),
 						onclick: () => {
 							if (manual) d.channel = c;

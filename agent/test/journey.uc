@@ -128,7 +128,7 @@ let frames = {
 	'too short': [substr(eth(ALL, STA, 0x0800, zeros(10)), 0, 20), false],
 };
 
-let narrow = journey.filter(false), wide = journey.filter(true);
+let narrow = journey.capture(false), wide = journey.capture(true);
 printf('filter narrow %d steps, wide %d steps\n', length(narrow), length(wide));
 for (let name in sort(keys(frames))) {
 	let f = frames[name];
@@ -245,6 +245,35 @@ journey.on_log(a, journey.log_event(`hostapd: phy1-ap5: CTRL-EVENT-EAP-FAILURE2 
 journey.on_log(a, journey.log_event(`hostapd: phy1-ap5: STA ${STA} IEEE 802.1X: authentication failed - EAP type: 25 (PEAP)`), 8001.5);
 journey.on_log(a, journey.log_event(`hostapd: phy1-ap5: AP-STA-DISCONNECTED ${STA}`), 8001.6);
 show('sign-in refused', a, 8001.7);
+
+// A client that goes of its own accord has failed nothing: one that
+// leaves while associating, as one that picks another AP; and one that
+// leaves right after asking for an address.
+a = journey.begin(who, 10000, 1791693000000);
+log(a, 10000, `STA ${STA} IEEE 802.11: authenticated`);
+log(a, 10000.005, `STA ${STA} IEEE 802.11: associated (aid 7)`);
+log(a, 10000.4, `STA ${STA} IEEE 802.11: disassociated`);
+show('left while associating', a, 10000.5);
+a = journey.begin(who, 11000, 1791694000000);
+join_up(a, 11000);
+got(a, 11000.2, 'dhcp discover, in');
+log(a, 11001.5, `AP-STA-DISCONNECTED ${STA}`);
+show('left right after asking for an address', a, 11001.6);
+
+// One that waited for DHCP and then left did fail; and so one whose gateway
+// never answered.
+a = journey.begin(who, 12000, 1791695000000);
+join_up(a, 12000);
+got(a, 12000.2, 'dhcp discover, in');
+got(a, 12004.2, 'dhcp discover, in');
+log(a, 12012, `AP-STA-DISCONNECTED ${STA}`);
+show('gave up on DHCP and left', a, 12012.1);
+a = journey.begin(who, 13000, 1791696000000);
+join_up(a, 13000);
+got(a, 13000.2, 'dhcp ack, out');
+got(a, 13000.3, 'arp ask, in');
+log(a, 13006, `AP-STA-DISCONNECTED ${STA}`);
+show('gave up on its gateway and left', a, 13006.1);
 
 // More steps than are kept.
 a = journey.begin(who, 9000, 1791692000000);

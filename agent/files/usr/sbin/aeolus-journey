@@ -47,7 +47,7 @@ const LOOK_EVERY = 10;             // seconds between looks at the Wi-Fi interfa
 const WRITE_EVERY = 2;             // seconds between writes of the records, at most
 const KEPT = 128;                  // records kept for the agent; past that, the oldest go
 const OPEN = 256;                  // attempts followed at once
-const WIDE = journey.filter(true), NARROW = journey.filter(false);
+const WIDE = journey.capture(true), NARROW = journey.capture(false);
 
 let bus = connect();
 openlog('aeolus-journey', LOG_PID, LOG_DAEMON);

@@ -475,6 +475,45 @@ func TestUnbondCheckCatchesALostVLAN(t *testing.T) {
 	t.Fatal("no unbond case")
 }
 
+// A top-level function named as one of ucode's own hides it for the whole
+// file: a call meant for ucode's then runs the file's, with no error. In
+// aeolus/journey.uc a packet filter named filter made record count the
+// filter's steps for the client's sign-in steps, and a client that left
+// while associating was said to have stopped at its sign-in (v0.69.0).
+func TestAgentHidesNoBuiltin(t *testing.T) {
+	builtins := map[string]bool{}
+	for _, b := range strings.Fields(`print printf sprintf length index rindex substr split join keys values map filter sort reverse
+		push pop shift unshift splice slice uniq exists type int die ord chr hex uc lc trim ltrim rtrim replace match json include render
+		warn system trace proto sleep assert regexp wildcard sourcepath min max b64dec b64enc uchr time localtime gmtime timelocal timegm
+		clock hexdec hexenc gc loadstring loadfile call signal require iptoarr arrtoip getenv exit`) {
+		builtins[b] = true
+	}
+	decl := regexp.MustCompile(`^(?:export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	var files []string
+	for _, pattern := range []string{"files/usr/sbin/aeolus-*", "files/usr/libexec/aeolus-*", "files/usr/share/ucode/aeolus/*.uc"} {
+		m, _ := filepath.Glob(filepath.Join(agentDir, filepath.FromSlash(pattern)))
+		files = append(files, m...)
+	}
+	if len(files) < 8 {
+		t.Fatalf("only %d agent files found", len(files))
+	}
+	// The renderer's system and render are the settings it renders and the
+	// module's own entry: it runs no command and expands no template, so it
+	// calls neither of ucode's.
+	known := map[string]bool{"render.uc system": true, "render.uc render": true}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, l := range strings.Split(string(raw), "\n") {
+			if m := decl.FindStringSubmatch(l); m != nil && builtins[m[1]] && !known[filepath.Base(f)+" "+m[1]] {
+				t.Errorf("%s:%d: function %s hides ucode's own %s in this file", filepath.Base(f), i+1, m[1], m[1])
+			}
+		}
+	}
+}
+
 // A client coming online, as the AP records it (0118): what hostapd's log
 // lines mean, what the packet filter keeps and how each frame reads, and
 // the record made of an attempt. agent/test/journey.uc prints them, with
