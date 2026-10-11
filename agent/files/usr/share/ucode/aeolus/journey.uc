@@ -22,6 +22,7 @@ const EVENTS = 48;       // steps kept of one attempt
 const LOOKUPS = 4;       // DNS lookups kept of one attempt
 const CONNECTIONS = 2;   // first connections kept
 const IDLE = 20;         // seconds without a step before a client not yet let on is given up
+const SIGNIN_IDLE = 40;  // and before one that is signing in is: hostapd asks a second RADIUS server after 21 s without the first's answer, and waits 20 s for a client's
 const LET_ON = 120;      // seconds at most to be let on
 const WATCH = 30;        // seconds a client is watched after it is let on
 const LINGER = 4;        // seconds more after it is online, for its first lookups and connection
@@ -273,8 +274,17 @@ function log_event(line) {
 				return { ...e, stage: 'signin', ok: false };
 			return kept({ ...e, stage: 'signin' });
 		}
-		if (sub == 'RADIUS')
-			return match(t, /accounting session/) ? null : kept({ ...e, stage: 'signin' });
+		if (sub == 'RADIUS') {
+			if (match(t, /accounting session/))
+				return null;
+			// What the server's answer was refused for, of a device it is
+			// asked about before the AP answers its authentication (MAC
+			// authentication, a passphrase from RADIUS): hostapd then
+			// refuses it, and this is its only line. It begins an attempt.
+			if (match(t, /^(Invalid VLAN .* received from RADIUS server|invalid hex string .* in Tunnel-Password)/))
+				return { ...e, stage: 'signin', starts: true };
+			return kept({ ...e, stage: 'signin' });
+		}
 		return sub == 'MLME' ? null : kept(e);
 	}
 	let c = match(rest, /^([A-Z][A-Z0-9-]+) ([0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2})( .*)?$/);
@@ -295,6 +305,12 @@ function log_event(line) {
 		e.alg = alg[1];
 	if (c[1] == 'AP-STA-CONNECTED' || c[1] == 'EAPOL-4WAY-HS-COMPLETED')
 		e.on = true;
+	// hostapd says a client is connected only as it goes from not on to
+	// on: of one that is not being followed, that is a client that came,
+	// as one whose sign-in outlasted the wait for it. And a client refused
+	// for a password identifier the AP has not is said in this line alone.
+	if (c[1] == 'AP-STA-CONNECTED' || c[1] == 'CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER')
+		e.starts = true;
 	return e;
 }
 
@@ -421,13 +437,15 @@ function frame(f, out) {
 
 // begins says whether what hostapd said of a client that is not being
 // followed begins an attempt: its authentication, or its association,
-// which every client that comes has, said at any level. Nothing else
-// does. A client long on has its keys made again, or signs in again, by
-// 802.1X every hour unless set otherwise: the key messages and the
-// sign-in, with no authentication and no association before them, are not
-// a client coming online, and were each recorded as one that failed.
+// which every client that comes has, said at any level; and the few lines
+// that are all hostapd says of a client it refuses before those, or that
+// it says only of a client that came (starts). Nothing else does. A client
+// long on has its keys made again, or signs in again, by 802.1X every hour
+// unless set otherwise: the key messages and the sign-in, with no
+// authentication and no association before them, are not a client coming
+// online, and were each recorded as one that failed.
 function begins(e) {
-	return !e.end && (e.stage == 'auth' || e.stage == 'assoc');
+	return !e.end && (e.stage == 'auth' || e.stage == 'assoc' || e.starts === true);
 }
 
 // begin starts the record of an attempt: who, on which network, and when,
@@ -637,8 +655,13 @@ function on_frame(a, p, at) {
 function due(a, at) {
 	if (a.ended != null)
 		return true;
-	if (a.on == null)
-		return at - a.last > IDLE || at - a.started > LET_ON;
+	if (a.on == null) {
+		// A sign-in may say nothing for longer than anything else does:
+		// given up sooner, a client that then gets on has an attempt that
+		// failed for its record.
+		let signing = a.done.assoc && !a.done.signin && length(filter(a.events, e => e.stage == 'signin')) > 0;
+		return at - a.last > (signing ? SIGNIN_IDLE : IDLE) || at - a.started > LET_ON;
+	}
 	if (a.online != null && at - a.online >= LINGER)
 		return true;
 	return at - a.on > WATCH;
