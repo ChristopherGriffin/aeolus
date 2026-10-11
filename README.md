@@ -168,6 +168,7 @@ Each milestone ends in something checkable before the next starts.
 | [0112](docs/decisions/0112-mac-authentication.md) | MAC authentication, for devices that cannot sign in |
 | [0113](docs/decisions/0113-who-signed-in.md) | Who a client signed in as |
 | [0114](docs/decisions/0114-radius-server-status.md) | Whether the RADIUS server answers |
+| [0116](docs/decisions/0116-rrm-through-the-scan-radio.md) | Radio resource management listens through the scan radio |
 
 ## Open questions
 

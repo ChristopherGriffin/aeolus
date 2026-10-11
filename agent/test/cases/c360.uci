@@ -198,6 +198,13 @@ config watch 'aeolus_watch20'
 	option device 'eth0'
 	option tagged '1'
 
+config rrm 'aeolus_rrm'
+	option enabled '1'
+	option moves '1'
+	option scan 'airscan'
+	option window '02:00-05:00'
+	option margin '20'
+
 package usteer
 
 package snmpd

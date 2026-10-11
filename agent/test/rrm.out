@@ -75,3 +75,16 @@ power at the ceiling { "step": 0, "why": "ceiling", "count": 1, "weakest": -80 }
 power at the floor { "step": 0, "why": "floor", "count": 1, "weakest": -40 }
 power near the floor { "step": -2, "why": "above", "count": 1, "weakest": -40 }
 power ignores junk { "step": 0, "why": "target", "count": 2, "weakest": -66 }
+swept aps { "ap-2005b6018be0 2g": -30, "ap-2005b6018be0 5g": -44 }
+swept tails [ "05:b6:01:8b:e2", "05:b6:01:8b:e8" ]
+swept other { "bssid": "22:05:b6:01:8b:e2", "ssid": "a 5 GHz network with the 2.4 GHz", "band": "5g", "channel": 36, "signal": -70 }
+swept other { "bssid": "5c:83:6c:77:10:c0", "ssid": "Sweet Spot", "band": "2g", "channel": 1, "signal": -43 }
+swept other { "bssid": "5c:83:6c:77:10:c2", "ssid": "caf??", "band": "2g", "channel": 8, "signal": 0 }
+swept networks { "5g 36": [ -70 ], "2g 1": [ -43 ], "2g 3": [ -60 ], "2g 8": [ 0 ] }
+around 2g 1 [ -43, -72 ]
+around 2g 6 [ -78, -12 ]
+around 2g 11 [ -18 ]
+around 5g 36 [ -70 ]
+around 5g 40 [ ]
+swept nothing { "aps": { }, "tails": [ ], "others": [ ], "networks": { } }
+printable "Sweet Spot" null null "???"

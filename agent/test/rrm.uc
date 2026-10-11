@@ -136,3 +136,39 @@ printf('power at the ceiling %J\n', rrm.power_step([-80], 1, -70, 26, 26));
 printf('power at the floor %J\n', rrm.power_step([-40], 1, -70, 8, 26));
 printf('power near the floor %J\n', rrm.power_step([-40], 1, -70, 10, 26));
 printf('power ignores junk %J\n', rrm.power_step([-60, null, 'x', -66], 2, -70, 20, 26));
+
+// What a scan radio heard (0116), as airscan lists it: this AP's own
+// network, two of a neighbour's 2.4 GHz radio's networks and one of its 5 GHz
+// radio's, by the BSSIDs its hellos carry, and others: named, hidden, heard
+// louder than a signal is said, and ill formed.
+let theirs = {
+	'05:b6:01:8b:e2': { ap: 'ap-2005b6018be0', band: '2g' },
+	'05:b6:01:8b:e8': { ap: 'ap-2005b6018be0', band: '5g' },
+};
+let look = rrm.swept([
+	{ bssid: '36:86:2d:03:17:d0', ssid: 'test', band: '2g', channel: 6, signal: 4, own: true },
+	{ bssid: '20:05:B6:01:8B:E2', ssid: 'Aeolus Lab', band: '2g', channel: 1, signal: -31 },
+	{ bssid: '26:05:b6:01:8b:e2', ssid: 'Sweet Spot', band: '2g', channel: 1, signal: -30 },
+	{ bssid: '22:05:b6:01:8b:e8', ssid: 'Aeolus Lab', band: '5g', channel: 132, signal: -44 },
+	{ bssid: '22:05:b6:01:8b:e2', ssid: 'a 5 GHz network with the 2.4 GHz radio\'s tail', band: '5g', channel: 36, signal: -70 },
+	{ bssid: '5c:83:6c:77:10:c0', ssid: 'Sweet Spot', band: '2g', channel: 1, signal: -43 },
+	{ bssid: '5c:83:6c:77:10:c1', ssid: '', band: '2g', channel: 3, signal: -60, hidden: true },
+	{ bssid: '5c:83:6c:77:10:c2', ssid: 'caf\xc3\xa9', band: '2g', channel: 8, signal: 3 },
+	{ bssid: 'not a bssid', ssid: 'x', band: '2g', channel: 1, signal: -50 },
+	{ bssid: '5c:83:6c:77:10:c3', ssid: 'x', band: '60g', channel: 1, signal: -50 },
+	{ bssid: '5c:83:6c:77:10:c4', ssid: 'x', band: '2g', channel: 0, signal: -50 },
+	{ bssid: '5c:83:6c:77:10:c5', ssid: 'x', band: '2g', channel: 1, signal: null },
+	'junk',
+], theirs);
+printf('swept aps %J\n', look.aps);
+printf('swept tails %J\n', look.tails);
+for (let o in look.others)
+	printf('swept other %J\n', o);
+printf('swept networks %J\n', look.networks);
+printf('around 2g 1 %J\n', rrm.around(look.networks, '2g', 1));
+printf('around 2g 6 %J\n', rrm.around(look.networks, '2g', 6));
+printf('around 2g 11 %J\n', rrm.around(look.networks, '2g', 11));
+printf('around 5g 36 %J\n', rrm.around(look.networks, '5g', 36));
+printf('around 5g 40 %J\n', rrm.around(look.networks, '5g', 40));
+printf('swept nothing %J\n', rrm.swept(null, null));
+printf('printable %J %J %J %J\n', rrm.printable('Sweet Spot'), rrm.printable(''), rrm.printable('\x00\x00'), rrm.printable('???'));
