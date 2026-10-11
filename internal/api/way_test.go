@@ -140,14 +140,44 @@ func TestTheWayOfATest(t *testing.T) {
 			"dhcp none, gateway none, dns none"},
 		// A point this manager does not know is read as its stage.
 		"a step of a point not known": {`{"band":"wire","outcome":"passed","stage":"done","steps":[
-			{"t":1,"stage":"dhcp","k":"novel","what":"asks for an address (discover)"},
-			{"t":2312,"stage":"dhcp","what":"given 192.168.20.113","ok":true,"ms":2010}]}`,
+			{"t":1,"stage":"dhcp","what":"asks for an address (discover)"},
+			{"t":2312,"stage":"dhcp","k":"novel","what":"given 192.168.20.113","ok":true,"ms":2010}]}`,
 			"dhcp ok 2010, gateway none, dns none"},
+		// The offer is taken off a time that is DHCP's own: not off one
+		// read from when the steps came, where the step says no time.
+		"over the wire, the address with no time of its own": {`{"band":"wire","outcome":"passed","stage":"done","steps":[
+			{"t":1,"stage":"dhcp","k":"offer","what":"asks for an address (discover)"},
+			{"t":2003,"stage":"dhcp","k":"offer","what":"offered 192.168.20.113","ok":true},
+			{"t":2004,"stage":"dhcp","what":"asks to use the address (request)"},
+			{"t":2312,"stage":"dhcp","what":"given 192.168.20.113","ok":true}]}`,
+			"offer ok 2002, dhcp ok 308, gateway none, dns none"},
+		// And never below nothing, where the two disagree.
+		"over the wire, an offer longer than all of it": {`{"band":"wire","outcome":"passed","stage":"done","steps":[
+			{"t":1,"stage":"dhcp","k":"offer","what":"asks for an address (discover)"},
+			{"t":2003,"stage":"dhcp","k":"offer","what":"offered 192.168.20.113","ok":true},
+			{"t":2004,"stage":"dhcp","what":"asks to use the address (request)"},
+			{"t":2312,"stage":"dhcp","what":"given 192.168.20.113","ok":true,"ms":1500}]}`,
+			"offer ok 2002, dhcp ok 0, gateway none, dns none"},
+		// What it measured is taken for a point nothing was seen of, and
+		// for no other; and only where it found something: a gateway that
+		// answered, a name with an address.
+		"with no steps, and little found": {`{"band":"5g","outcome":"failed","stage":"gateway","steps":[],
+			"dhcp":{"ms":300,"address":"192.168.20.9","mask":24},"gateway":{"address":"192.168.20.1","sent":3,"got":0},
+			"dns":{"server":"192.168.20.254","name":"example.com","ms":41,"rcode":0,"answers":0}}`,
+			"find none, auth none, assoc none, key none, dhcp ok 300, gateway bad, dns none | gateway"},
+		"with no steps, and no such name": {`{"band":"5g","outcome":"passed","stage":"done","steps":[],
+			"gateway":{"address":"192.168.20.1","sent":3,"got":0,"mac":"28:e7:1d:ca:29:13"},
+			"dns":{"server":"192.168.20.254","name":"example.com","ms":41,"rcode":3,"answers":0}}`,
+			"find none, auth none, assoc none, key none, dhcp none, gateway ok, dns none"},
+		"an address begun, and one measured": {`{"band":"5g","outcome":"passed","stage":"done","steps":[
+			{"t":500,"stage":"dhcp","what":"asks for an address"}],
+			"dhcp":{"ms":300,"address":"192.168.20.9","mask":24}}`,
+			"find none, auth none, assoc none, key none, dhcp begun, gateway none, dns none"},
 		// All that is left of a test whose steps were not kept: what it
 		// measured.
 		"with no steps": {`{"band":"5g","outcome":"passed","stage":"done","steps":[],
 			"dhcp":{"ms":300,"address":"192.168.20.9","mask":24},"gateway":{"address":"192.168.20.1","sent":3,"got":3,"avg":4.2},
-			"dns":{"server":"192.168.20.254","name":"example.com","ms":41,"rcode":0}}`,
+			"dns":{"server":"192.168.20.254","name":"example.com","ms":41,"rcode":0,"answers":2}}`,
 			"find none, auth none, assoc none, key none, dhcp ok 300, gateway ok 4.2, dns ok 41"},
 		// Steps that came out of order take no time away: a point that
 		// ends before the one before it has none, and one that ends before
@@ -231,6 +261,20 @@ func TestTheWayOfAClient(t *testing.T) {
 			{"t":320,"stage":"dns","what":"asks for b.example"},
 			{"t":332,"stage":"dns","what":"answers b.example","ok":true,"ms":12}]`),
 			"auth ok, assoc ok 4, key ok 26, dhcp none, gateway none, dns ok 12, internet none"},
+		// And the other way about, the good answer first.
+		"a name found, and then one not": {attemptOf("online", "dns", `[`+joined+`,
+			{"t":300,"stage":"dns","what":"asks for b.example"},
+			{"t":312,"stage":"dns","what":"answers b.example","ok":true,"ms":12},
+			{"t":320,"stage":"dns","what":"asks for a.example"},
+			{"t":325,"stage":"dns","what":"no such name","ok":false,"ms":5}]`),
+			"auth ok, assoc ok 4, key ok 26, dhcp none, gateway none, dns ok 12, internet none"},
+		// Answers seen with no asking, and no time of their own, have no
+		// time: how long after its keys says nothing of the network.
+		"answers with no asking seen": {attemptOf("online", "internet", `[`+joined+`,
+			{"t":300,"stage":"gateway","what":"its gateway answers","ok":true},
+			{"t":400,"stage":"dns","what":"answers","ok":true},
+			{"t":500,"stage":"internet","what":"answers","ok":true}]`),
+			"auth ok, assoc ok 4, key ok 26, dhcp none, gateway ok, dns ok, internet ok"},
 		// A gateway that did not answer, and a client that got on all the
 		// same: the gateway went badly, and the client stopped nowhere.
 		"no gateway, and online": {attemptOf("online", "dns", `[`+joined+`,
