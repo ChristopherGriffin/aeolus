@@ -81,7 +81,7 @@ func knownRogues(state *change.State, id hierarchy.NodeID) map[string]bool {
 }
 
 // alertsOf is what needs attention on one AP now (0099).
-func (s *Server) alertsOf(state *change.State, id hierarchy.NodeID, now time.Time, fleet *alerts.Fleet, tests map[hierarchy.NodeID][]alerts.FailingTest) ([]alerts.Alert, error) {
+func (s *Server) alertsOf(state *change.State, id hierarchy.NodeID, now time.Time, fleet *alerts.Fleet, tests map[hierarchy.NodeID][]alerts.FailingTest, joins map[hierarchy.NodeID][]alerts.FailingJoins) ([]alerts.Alert, error) {
 	n, _ := state.Org.Locations.Node(id)
 	version, _ := s.log.Version(id)
 	res, err := s.compose(state, id, s.reveal)
@@ -108,7 +108,7 @@ func (s *Server) alertsOf(state *change.State, id hierarchy.NodeID, now time.Tim
 	return alerts.For(alerts.Input{
 		AP: id, Name: n.Name, Now: now, Poll: poll, Unassigned: res.Unassigned,
 		Version: version, Since: s.log.VersionSince(id), WantsAgent: wants, Problems: res.Problems, Latest: l, Fleet: fleet,
-		Known: knownRogues(state, id), Tests: tests[id],
+		Known: knownRogues(state, id), Tests: tests[id], Joins: joins[id],
 	}), nil
 }
 
@@ -121,7 +121,7 @@ func (s *Server) alertsList(w http.ResponseWriter, r *http.Request, c call) erro
 	under := hierarchy.NodeID(r.URL.Query().Get("under"))
 	now := time.Now()
 	fleet := s.fleetOwn(c.state)
-	tests := s.failingTests(c.state, now)
+	tests, joins := s.failingTests(c.state, now), s.failingJoins(c.state, now)
 	out := []alerts.Alert{}
 	for _, id := range t.APs() {
 		if roleOn(c, change.Locations, t, id) < access.Viewer {
@@ -130,7 +130,7 @@ func (s *Server) alertsList(w http.ResponseWriter, r *http.Request, c call) erro
 		if under != "" && under != id && !slices.Contains(t.Ancestry(id), under) {
 			continue
 		}
-		as, err := s.alertsOf(c.state, id, now, fleet, tests)
+		as, err := s.alertsOf(c.state, id, now, fleet, tests, joins)
 		if err != nil {
 			return err
 		}
@@ -197,9 +197,9 @@ func (s *Server) Notify(ctx context.Context, every time.Duration) {
 		var all []alerts.Alert
 		targets := map[hierarchy.NodeID]alerts.Target{}
 		fleet := s.fleetOwn(state)
-		tests := s.failingTests(state, now)
+		tests, joins := s.failingTests(state, now), s.failingJoins(state, now)
 		for _, id := range state.Org.Locations.APs() {
-			as, err := s.alertsOf(state, id, now, fleet, tests)
+			as, err := s.alertsOf(state, id, now, fleet, tests, joins)
 			if err != nil {
 				slog.Warn("alerts: cannot work out an AP's", "ap", id, "err", err)
 				continue

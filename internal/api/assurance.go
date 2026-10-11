@@ -595,7 +595,8 @@ func runOf(r testRecord) assuranceRun {
 // checks, each thing one of them is asked for in turn, or was, or that is
 // failing, with what its tests come to and the latest 48 of them in brief
 // (runs), the failing first; tests, the latest 50 of them, by hand or on
-// the schedule, newest first.
+// the schedule, newest first; joins, how the clients' own attempts to come
+// online went over the time asked, by network (0127).
 func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error {
 	t := c.state.Org.Locations
 	under := hierarchy.NodeID(r.URL.Query().Get("under"))
@@ -723,6 +724,11 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 			tests = append(tests, r.Action)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"testers": testers, "checks": checks, "tests": tests, "hours": hours})
+	// And how the clients' own attempts to come online went (0127).
+	joins, err := s.joinsView(c, under, from, now)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"testers": testers, "checks": checks, "tests": tests, "joins": joins, "hours": hours})
 	return nil
 }

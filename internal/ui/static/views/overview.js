@@ -38,6 +38,19 @@ function assured(a, base) {
 	return tile('Assurance', tried.length ? `${passed} of ${tried.length}` : '—', sub, failing ? 'bad' : passed < tried.length ? 'warn' : tried.length ? 'ok' : '', `${base}/assurance`);
 }
 
+// gotOn is the service as the clients' own attempts find it (0127): of the
+// clients that got on a network or did not, over the last day, how many
+// did; bad where clients cannot get on one now. No tile where none tried.
+function gotOn(a, base) {
+	const joins = a?.joins || [];
+	const online = joins.reduce((n, j) => n + j.online, 0), failed = joins.reduce((n, j) => n + j.failed, 0);
+	if (!online && !failed) return null;
+	const stuck = joins.filter((j) => j.failing);
+	const sub = stuck.length ? `cannot get on ${stuck.map((j) => j.ssid || j.network).join(', ')}`
+		: failed ? `${failed} did not, on ${joins.filter((j) => j.failed).map((j) => j.ssid || j.network).join(', ')}` : 'every client that tried, today';
+	return tile('Clients getting on', `${online} of ${online + failed}`, sub, stuck.length ? 'bad' : failed ? 'warn' : 'ok', `${base}/assurance`);
+}
+
 export async function overviewTab(ctx, id, page, fleet) {
 	const below = page.hardware?.aps || [];
 	if (!below.length) return [h('div', { class: 'banner info' }, 'No APs here yet.')];
@@ -66,7 +79,7 @@ export async function overviewTab(ctx, id, page, fleet) {
 		tile('Alerts', String((c.critical || 0) + (c.warning || 0)), `${c.critical || 0} critical · ${c.warning || 0} warning`,
 			c.critical ? 'bad' : c.warning ? 'warn' : 'ok', `${base}/alerts`),
 		tile('Configs in force', `${inSync} of ${st.length}`, held ? `${held} held` : 'none held', held ? 'warn' : inSync === st.length ? 'ok' : 'warn', `${base}/aps`),
-		assured(assurance, base));
+		assured(assurance, base), gotOn(assurance, base));
 
 	// The busiest APs.
 	const busiest = reports.map(({ ap, r }) => ({ ap, n: (r?.clients || []).length, radios: r?.radios || [] }))

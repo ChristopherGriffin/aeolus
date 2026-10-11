@@ -69,5 +69,5 @@
 
 - **The same history for an AP itself,** and its memory and processor over time: asked for with this, and next.
 - **Following a client across a roam as one journey.** Each AP's attempt is its own record.
-- **An alert when a network's joins keep failing,** which these records would feed.
+- **An alert when a network's joins keep failing,** which these records would feed. Done since, in 0127.
 - **Turning off the names looked up,** for a site that would rather not keep them.

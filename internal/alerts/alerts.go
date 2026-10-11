@@ -51,6 +51,20 @@ type Input struct {
 	Fleet      *Fleet          // what is the fleet's own, to tell a stranger's network (0105)
 	Known      map[string]bool // BSSIDs its folders' rogues.known say are no rogues (0106)
 	Tests      []FailingTest   // its networks that fail their client tests here (0123)
+	Joins      []FailingJoins  // its networks clients cannot get on (0127)
+}
+
+// FailingJoins is a network clients cannot get on at this AP (0127): of
+// those let on to it here in the last hour, how many got no further; where
+// most of them stopped and why, as the AP put it; and since when.
+type FailingJoins struct {
+	Network string
+	SSID    string
+	LetOn   int
+	Failed  int
+	Stage   string
+	Reason  string
+	Since   *time.Time
 }
 
 // FailingTest is a network that failed its last two client tests on this AP
@@ -167,9 +181,27 @@ func For(in Input) []Alert {
 		add(Warning, "client-test", fmt.Sprintf("%s does not work here%s, tried as a client %s: it failed at %s: %s", t.SSID, on, from, t.Stage, t.Reason), t.Since)
 		out[len(out)-1].Key = fmt.Sprintf("client-test:%s:%s:%s", t.Network, t.Band, t.Tester)
 	}
+	// A network clients cannot get on here (0127): by their own attempts,
+	// as the AP recorded them (0118).
+	for _, j := range in.Joins {
+		where := ""
+		if j.Stage != "" {
+			where = fmt.Sprintf("; most stopped at %s: %s", stageNames[j.Stage], j.Reason)
+		}
+		add(Warning, "joins-failing", fmt.Sprintf("%d of the %d clients let on to %s here in the last hour got no further%s", j.Failed, j.LetOn, j.SSID, where), j.Since)
+		id := j.Network
+		if id == "" {
+			id = "ssid:" + j.SSID
+		}
+		out[len(out)-1].Key = "joins-failing:" + id
+	}
 	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Severity] < rank[out[j].Severity] })
 	return out
 }
+
+// stageNames are the stages of coming online (0118), as an alert says them.
+var stageNames = map[string]string{"auth": "authentication", "assoc": "association", "signin": "the sign-in", "key": "the keys",
+	"dhcp": "DHCP", "gateway": "the gateway", "dns": "DNS", "internet": "the first connection"}
 
 var bandNames = map[string]string{"2g": "2.4 GHz", "5g": "5 GHz", "6g": "6 GHz"}
 
