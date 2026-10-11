@@ -14,8 +14,9 @@
 - **An AP with a scan radio (0116) is not blind there:** the scan radio looks for it.
 - **What the lab's APs can do,** read on all three, 2026-10-10:
   - **Linux says how each DFS channel stands,** which `iw phy <phy> channels` prints: usable, available (checked), or unavailable (radar was found, and it is closed for half an hour), and how long its radar check takes: 60 s on every one of them in the US.
-  - **hostapd's `switch_chan` takes `force`.** An announced switch to a DFS channel that has not been checked is refused. With `force`, hostapd then starts the radio's networks again on that channel, and they send nothing until the radar check is done.
-  - **`acs_exclude_dfs` only keeps hostapd's own pick off DFS.** A forced move there is not held back by it.
+  - **hostapd has a command for it, `CHAN_SWITCH` on its control socket.** An announced switch to a DFS channel that has not been checked is refused. For one, hostapd starts the radio's networks again on that channel, and they send nothing until the radar check is done.
+  - **OpenWrt's ubus `switch_chan` with `force` is not that.** It starts the networks again too, but where the channel is automatic hostapd then picks one anew, outside DFS: the C-360 went from 36 back to 36 (2026-10-10). The first build used it, and was wrong.
+  - **`acs_exclude_dfs` only keeps hostapd's own pick off DFS.** A move there by `CHAN_SWITCH` is not held back by it.
   - **hostapd says when a radar check is done:** its `get_status` has the radio's state and frequency.
 
 ## Decision
@@ -49,7 +50,7 @@
 
 ### The move, and its radar check
 
-- **The daemon asks hostapd to switch with `force`.** hostapd starts the radio's networks again on the channel. They are silent while it listens for radar, 60 s, and the radio's clients go to another band or AP for that time.
+- **The daemon sends hostapd `CHAN_SWITCH` on the control socket of one of the radio's networks,** as the prober asks it who signed in (0113). hostapd starts the radio's networks again on the channel. They are silent while it listens for radar, 60 s, and the radio's clients go to another band or AP for that time.
 - **The move is `checking` until hostapd says the radio is up on the channel,** then `moved`.
 - **A radio not there three minutes on did not get there:** the move is `failed`.
   - Where hostapd took it elsewhere, as when radar was found while it listened, it stays where hostapd put it.
@@ -89,10 +90,15 @@
 - **Its own channel's rating there is a little kind to it:** a network that came after the radio did is counted only by the airtime it takes.
 - **2.4 GHz stays up through a radar check,** and a client that can't use DFS channels at all keeps to it, or to another AP. With `look-first` as with `allow`, such clients lose that AP's 5 GHz while it is on a DFS channel (0071).
 
-## Not tried on an AP yet
+## Tried
 
-- **The forced move and its radar check have not been run on the lab's APs.** They take a radio's 5 GHz clients off it for a minute, so that is for Griff to start: set `radio.5g.dfs` to `look-first` on one AP. What was read, not run: hostapd's source for the forced switch, its `get_status`, `iw`'s words for each channel on all three APs, and `switch_chan`'s `force` on each.
-- **Checked without one:** the rules as `agent/test/rrm.uc` has them, the renderer's case `dfs-look-first`, the config check, the render check and the report's check.
+- **On the C-360, 2026-10-10 and 11,** with `look-first` set on it by Griff, and its 5 GHz channels narrowed for the test to 36, 40, 52 and 56, so that the one block outside DFS was the pumphouse's:
+  - **It started outside DFS.** hostapd's pick, with `acs_exclude_dfs`, was 48 with every channel to choose from, and 36 with the four. From 48 the daemon moved it to 157 by an announced switch, the best block; with every channel to choose from, no DFS block was clearly better, and it stayed off them.
+  - **With the four, it claimed 52,** "to move from 36 (shared), after a radar check", a minute after the daemon started.
+  - **The first build's forced `switch_chan` put it back on 36,** as above. `CHAN_SWITCH`, sent by hand, did it: 64 s from the networks going down to their coming up on 52, with no radar found.
+  - **The daemon with `CHAN_SWITCH`, run in procd's place:** claimed at 00:01:46, sent the command at 00:02:17, hostapd began its radar check at 00:02:18 and ended it at 00:03:18, and at 00:03:26 the daemon had the move made, the block it came from kept as where it steps off to, and its beacons carrying the element again.
+- **Not tried:** a radio with no scan radio stepping off a DFS channel, radar found, and a radar check that fails. The office AP's own counts were rated from on DFS 132, with the daemon run in procd's place and unable to move.
+- **Checked without an AP:** the rules as `agent/test/rrm.uc` has them, the renderer's case `dfs-look-first`, the config check, the render check and the report's check.
 
 ## Not done here
 

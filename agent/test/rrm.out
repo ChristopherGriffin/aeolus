@@ -67,6 +67,11 @@ switch 5g 157 vht80 { "freq": 5785, "center_freq1": 5775, "bandwidth": 80, "sec_
 switch 5g 161 vht80 { "freq": 5805, "center_freq1": 5775, "bandwidth": 80, "sec_channel_offset": -1, "ht": true, "vht": true, "he": false, "bcn_count": 10 }
 switch 5g 165 40 null
 switch 5g 36 legacy { "freq": 5180, "center_freq1": 5180, "bandwidth": 20, "sec_channel_offset": 0, "ht": false, "vht": false, "he": false, "bcn_count": 10 }
+chan switch 52 he40 CHAN_SWITCH 10 5260 sec_channel_offset=1 center_freq1=5270 bandwidth=40 ht vht he
+chan switch 56 he40 CHAN_SWITCH 10 5280 sec_channel_offset=-1 center_freq1=5270 bandwidth=40 ht vht he
+chan switch 100 vht20 CHAN_SWITCH 10 5500 center_freq1=5500 bandwidth=20 ht vht
+chan switch 108 eht80 CHAN_SWITCH 10 5540 sec_channel_offset=1 center_freq1=5530 bandwidth=80 ht vht he eht
+chan switch 132 ht40 CHAN_SWITCH 10 5660 sec_channel_offset=1 center_freq1=5670 bandwidth=40 ht
 power none heard { "step": 3, "why": "looking", "count": 0, "weakest": null }
 power two of three { "step": 3, "why": "looking", "count": 2, "weakest": -65 }
 power weakest low { "step": 3, "why": "below", "count": 3, "weakest": -74 }

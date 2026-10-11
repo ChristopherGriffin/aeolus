@@ -38,8 +38,9 @@
 // Where the AP looks before it uses a DFS channel (0120), hostapd starts
 // the radio outside them, and it looks at them from there. It goes to one
 // that is clearly the best, soon after the radio started or in the window:
-// hostapd then starts the radio's networks again on that channel, and they
-// are silent for the minute it listens for radar. A radio there can't scan.
+// hostapd, told on its control socket, then starts the radio's networks
+// again on that channel, and they are silent for the minute it listens for
+// radar. A radio there can't scan.
 // It rates its own channel by its own counts, and steps off, to where it
 // came from, when that grows worse, a neighbour takes it, or interference
 // fills it; then it looks again.
@@ -113,6 +114,8 @@ const DFS_START = 1800;     // seconds after a radio starts in which it may go t
 const CHECK_FOR = 180;      // seconds a radar check is given to end with the radio on its channel
 const OWN_EVERY = 300;      // seconds between the ratings a radio that can't scan gives its own channel
 const STATES_FOR = 60;      // seconds what Linux says of the DFS channels is kept before it is asked again
+const HOSTAPD_CTL = '/var/run/hostapd/';   // where hostapd's networks have their control sockets
+const CTL_SOCKET = '/var/run/aeolus/hostapd-ctl-rrm';   // and this daemon's own, which hostapd answers to
 
 let bus = connect();
 openlog('aeolus-rrm', LOG_PID, LOG_DAEMON);
@@ -1152,21 +1155,45 @@ function claim(r, at, to, why, cost, start, radar) {
 	log('%s: claims channel %d, to move from %d (%s)%s', r.band, to, r.channel, why, radar ? ', after a radar check' : '');
 }
 
+// hostapd_ctl sends one of hostapd's networks a command on its control
+// socket, and returns its answer: null where none comes within a second,
+// false where the command could not be sent. hostapd answers to the asking
+// socket's own path, as its own user, which must be able to write there.
+function hostapd_ctl(bss, ask) {
+	let k = socket.create(socket.AF_UNIX, socket.SOCK_DGRAM);
+	if (!k)
+		return false;
+	fs.unlink(CTL_SOCKET);
+	let answer = false;
+	if (k.bind({ path: CTL_SOCKET }) && fs.chmod(CTL_SOCKET, 0o666) && k.connect({ path: HOSTAPD_CTL + bss }) && k.send(ask) != null) {
+		socket.poll(1000, [k, socket.POLLIN]);
+		answer = k.recv(8192, socket.MSG_DONTWAIT);
+	}
+	k.close();
+	fs.unlink(CTL_SOCKET);
+	return answer;
+}
+
 // switch_to moves a radio to channel to, by hostapd's channel switch
 // announcement on one of its networks, which moves them all.
 //
 // To a channel shared with radar (radar true, 0120) the announcement can't
-// be made, as the radio must first listen there: hostapd, asked to force
-// the move, starts the radio's networks again on that channel, and they
-// send nothing until the radar check is done, which follow sees through.
-// back is the block the radio would have gone to otherwise: where it steps
-// off to later.
+// be made, as the radio must first listen there. hostapd's own CHAN_SWITCH
+// command, on its control socket, does it: it starts the radio's networks
+// again on that channel, and they send nothing until the radar check is
+// done, which follow sees through. OpenWrt's ubus switch_chan, forced,
+// starts them again too, but where the channel is automatic hostapd then
+// picks one anew, outside DFS: the C-360 went from 36 back to 36,
+// 2026-10-10. back is the block the radio would have gone to otherwise:
+// where it steps off to later.
 function switch_to(r, to, at, radar, back) {
 	let args = rrm.switch_args(r.band, to, r.width, r.mode, ANNOUNCE);
 	let err = 'its width does not fit there';
-	if (args) {
-		if (radar)
-			args.force = true;
+	if (args && radar) {
+		let answer = hostapd_ctl(r.bss, rrm.chan_switch(args));
+		err = answer === false ? 'hostapd\'s control socket cannot be reached'
+			: match(answer ?? '', /^FAIL/) ? 'hostapd refuses the switch' : null;
+	} else if (args) {
 		bus.call(`hostapd.${r.bss}`, 'switch_chan', args);
 		err = bus.error();
 	}
