@@ -2,9 +2,11 @@
 // client's side. The APs here that have a scan radio are asked for a client
 // test (0121) on a schedule, each time another network, AP and band; what
 // each thing tested comes to is a line, the failing first, that opens to
-// its latest test; and the latest tests follow, newest first.
+// its latest test; and the latest tests follow, newest first. Before the
+// tests, how the clients' own attempts to come online went (0127): what
+// every AP records, a scan radio or none.
 
-import { h } from '../dom.js';
+import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
 import { ago, bandName, value } from '../format.js';
 import { fieldPanels } from './fields.js';
@@ -66,6 +68,46 @@ function over(c) {
 		h('span', { class: 'sub' }, `${runs.length} tests since ${clock(runs[0].at)}${times.length ? ` · ${times.join(' · ')}` : ''}`));
 }
 
+// The stages of coming online (0118), as a line says them.
+const STAGE = { auth: 'authentication', assoc: 'association', signin: 'the sign-in', key: 'the keys', dhcp: 'DHCP', gateway: 'the gateway', dns: 'DNS', internet: 'the first connection' };
+const many = (n, one, more) => `${n} ${n === 1 ? one : more || `${one}s`}`;
+
+// joined is one network by its clients' own attempts to come online (0127):
+// a line that opens to where the failed attempts stopped and to each AP's
+// part.
+function joined(n) {
+	const key = `joins/${n.network || `ssid ${n.ssid}`}`;
+	const neither = n.clients - n.online - n.failed;
+	const status = n.failing ? h('span', { class: 'chip bad', title: 'At an AP, in the last hour, three clients or more were let on and got no further, and they are half or more of those let on: an alert' }, 'Clients cannot get on')
+		: n.failed ? h('span', { class: 'chip warn' }, `${n.failed} did not get on`)
+			: n.online ? h('span', { class: 'chip ok' }, 'All got on')
+				: h('span', { class: 'chip idle' }, 'None seen through');
+	const most = n.stops[0];
+	const d = h('details', { class: 'fold', open: open.has(key) },
+		h('summary', null,
+			h('span', { class: 'who' }, n.ssid || n.network, !n.network && h('span', { class: 'note', title: 'A network of the AP’s own, not one of Aeolus’s' }, ' not Aeolus’s')),
+			h('span', { class: 'grow sub' }, [`${many(n.clients, 'client')} tried`, `${n.online} got on`,
+				neither > 0 && `${neither} left before either`,
+				n.typical_ms > 0 && `typically online in ${secs(n.typical_ms)}`,
+				most && `${n.failed ? 'most' : 'some'} stopped at ${STAGE[most.stage] || most.stage}`].filter(Boolean).join(' · ')),
+			status),
+		h('p', { class: 'sub' }, `${many(n.attempts, 'attempt')}, ${n.attempts_failed} failed. A client got on where one of its attempts came online or was let on; it did not where one failed and none got on. One that left of its own accord, as for another AP, is neither.`),
+		n.stops.length > 0 && h('table', { class: 'list' },
+			h('tr', null, ['Failed attempts stopped at', 'Why, as the AP put it', 'Attempts', 'Clients', 'Latest'].map((t) => h('th', null, t))),
+			n.stops.map((s) => h('tr', null,
+				h('td', null, STAGE[s.stage] || s.stage), h('td', null, s.reason || '—'),
+				h('td', null, String(s.attempts)), h('td', null, String(s.clients)), h('td', null, ago(s.last))))),
+		h('table', { class: 'list' },
+			h('tr', null, ['On', 'Clients tried', 'Got on', 'Did not', 'Attempts', 'Failed', ''].map((t) => h('th', null, t))),
+			n.aps.map((a) => h('tr', null,
+				h('td', null, link(`/aps/${encodeURIComponent(a.ap)}/clients`, a.name)),
+				h('td', null, String(a.clients)), h('td', null, String(a.online)), h('td', null, String(a.failed)),
+				h('td', null, String(a.attempts)), h('td', null, String(a.attempts_failed)),
+				h('td', null, a.failing && h('span', { class: 'chip bad' }, 'Clients cannot get on'))))));
+	d.addEventListener('toggle', () => (d.open ? open.add(key) : open.delete(key)));
+	return d;
+}
+
 // check is one thing tested by one AP: a line that opens to its latest test.
 function check(ctx, c) {
 	const key = `${c.tester}/${c.network}/${c.on}/${c.band}`;
@@ -102,6 +144,15 @@ export async function assuranceTab(ctx, here, page, edit) {
 	const failing = checks.filter((c) => c.failing).length;
 	const name = (ap) => ctx.name('locations', ap);
 	const out = [];
+	const joins = view.joins || [];
+	const stuck = joins.filter((n) => n.failing).length;
+
+	out.push(h('section', { class: 'panel' },
+		h('h2', null, 'Clients coming online', h('span', { class: 'note' },
+			`${stuck ? `clients cannot get on ${many(stuck, 'network')} · ` : ''}every client’s own attempts, as the APs recorded them, over the last ${view.hours} hours; a line opens to where they stopped`)),
+		joins.length ? joins.map(joined)
+			: h('p', { class: 'sub' }, 'No client tried to come online here in that time. APs record the attempts from agent v0.69.0 on.'),
+		joins.length > 0 && h('p', { class: 'sub' }, 'Each client’s attempts, step by step, are under Clients, Everyone seen.')));
 
 	out.push(h('section', { class: 'panel' },
 		h('h2', null, 'Client tests on a schedule', h('span', { class: 'note' }, 'an AP with a scan radio joins its networks as a client would, in turn, and says how each step went')),

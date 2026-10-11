@@ -58,6 +58,12 @@ ALTER TABLE connections ADD COLUMN at INTEGER NOT NULL DEFAULT 0;
 UPDATE connections SET at = started;
 CREATE INDEX connections_at ON connections (mac, at);`
 
+// connectionsByTime finds the attempts of a time by when the manager takes
+// them to have begun, whoever made them: how the clients' joins went is
+// counted over the last hour at every look for alerts (0127).
+const connectionsByTime = `
+CREATE INDEX connections_by_time ON connections (at);`
+
 // Connection is one attempt a client made to come online on an AP. Record
 // is what the AP sent of it: its steps, and what it learned of the client.
 // Started is when it began, as the manager takes it; Said is when its AP
@@ -264,6 +270,84 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// Join is how one client's attempts to come online on one network of one
+// AP went since a time (0127): how many it made; how many got it on, online
+// or let on and seen no further; how many of those were seen online, and
+// how long they took to be, in ms, added up; and how many failed.
+type Join struct {
+	AP       hierarchy.NodeID
+	Network  string
+	SSID     string
+	MAC      string
+	Attempts int
+	Online   int
+	Seen     int
+	SeenMS   int64
+	Failed   int
+}
+
+// JoinStop is where one client's failed attempts on one network of one AP
+// stopped since a time, and why, as its AP put it: how many did, and when
+// the first and the latest of them began.
+type JoinStop struct {
+	AP       hierarchy.NodeID
+	Network  string
+	SSID     string
+	MAC      string
+	Stage    string
+	Reason   string
+	Attempts int
+	First    time.Time
+	Last     time.Time
+}
+
+// Joins is how the clients' attempts to come online went since a time: a
+// row a client, network and AP; and where those that failed stopped. An
+// attempt a client left of its own accord (0118) is counted as an attempt
+// and as nothing more.
+func (s *Store) Joins(since time.Time) ([]Join, []JoinStop, error) {
+	rows, err := s.db.Query(`SELECT ap, network, ssid, mac, COUNT(*),
+			SUM(outcome IN ('online', 'connected')), SUM(outcome = 'online'),
+			SUM(CASE WHEN outcome = 'online' THEN took_ms ELSE 0 END), SUM(outcome = 'failed')
+		FROM connections WHERE at >= ? GROUP BY ap, network, ssid, mac ORDER BY ap, network, ssid, mac`, since.UnixMilli())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	joins := []Join{}
+	for rows.Next() {
+		var j Join
+		var ap string
+		if err := rows.Scan(&ap, &j.Network, &j.SSID, &j.MAC, &j.Attempts, &j.Online, &j.Seen, &j.SeenMS, &j.Failed); err != nil {
+			return nil, nil, err
+		}
+		j.AP = hierarchy.NodeID(ap)
+		joins = append(joins, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	failed, err := s.db.Query(`SELECT ap, network, ssid, mac, stage, reason, COUNT(*), MIN(at), MAX(at)
+		FROM connections WHERE at >= ? AND outcome = 'failed'
+		GROUP BY ap, network, ssid, mac, stage, reason ORDER BY ap, network, ssid, mac, stage, reason`, since.UnixMilli())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer failed.Close()
+	stops := []JoinStop{}
+	for failed.Next() {
+		var j JoinStop
+		var ap string
+		var first, last int64
+		if err := failed.Scan(&ap, &j.Network, &j.SSID, &j.MAC, &j.Stage, &j.Reason, &j.Attempts, &first, &last); err != nil {
+			return nil, nil, err
+		}
+		j.AP, j.First, j.Last = hierarchy.NodeID(ap), time.UnixMilli(first).UTC(), time.UnixMilli(last).UTC()
+		stops = append(stops, j)
+	}
+	return joins, stops, failed.Err()
 }
 
 // TrimConnections deletes the attempts begun more than keep ago, and
