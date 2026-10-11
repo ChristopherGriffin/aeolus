@@ -284,6 +284,42 @@ let watch = { uplink: null, vlans: {}, sock: null, until: 0, next: 0, lldp: {}, 
 // and fingerprint, and the address it uses (0067).
 let dw = { ifaces: {}, nets: {}, clients: [], ident: {} };
 
+// Who each client signed in as on WPA Enterprise (0113), by network
+// interface and MAC: { joined, user }, asked of hostapd once a session.
+let users = {};
+const HOSTAPD_CTL = '/var/run/hostapd/';
+const CTL_SOCKET = '/var/run/aeolus/hostapd-ctl';
+
+// signed_in asks hostapd who a client signed in as: its control socket
+// answers STA <mac> with the 802.1X session's user name, the one the RADIUS
+// server's Access-Accept gave, or else the identity the client showed.
+// OpenWrt's hostapd says it nowhere on ubus, and ships no hostapd_cli (the
+// C-360, 2026-10-10). Null for a client that signed in with no name, as on
+// a passphrase network, or where hostapd does not answer.
+function signed_in(bss, mac) {
+	let k = socket.create(socket.AF_UNIX, socket.SOCK_DGRAM);
+	if (!k)
+		return null;
+	fs.unlink(CTL_SOCKET);
+	let user = null;
+	// hostapd answers to this socket's own path, as its own user: it must
+	// be able to write there.
+	if (k.bind({ path: CTL_SOCKET }) && fs.chmod(CTL_SOCKET, 0o666) && k.connect({ path: HOSTAPD_CTL + bss }) && k.send('STA ' + mac) != null) {
+		socket.poll(300, [k, socket.POLLIN]);
+		let m = match(k.recv(4096, socket.MSG_DONTWAIT) ?? '', /(^|\n)dot1xAuthSessionUserName=([^\n]*)/);
+		if (m && length(m[2])) {
+			user = '';
+			for (let i = 0; i < length(m[2]) && i < 64; i++) {
+				let c = ord(m[2], i);
+				user += c >= 32 && c < 127 ? chr(c) : '?';
+			}
+		}
+	}
+	k.close();
+	fs.unlink(CTL_SOCKET);
+	return user;
+}
+
 // heard notes that a frame came in on a watched VLAN (0064).
 function heard(vlan, at) {
 	let w = vlan != null ? watch.vlans['' + vlan] : null;
@@ -1026,7 +1062,7 @@ function dhcp_scan(at) {
 	for (let id, n in dw.nets)
 		for (let mac, c in n.clients)
 			c.here = false;
-	let hcs = {};
+	let hcs = {}, known = {};
 	for (let a in all) {
 		let w = dw.ifaces[a.ifname], n = a.network && !a.vlan ? dhcp_net(a.network) : null;
 		let bss = a.parent ?? a.ifname;
@@ -1036,7 +1072,17 @@ function dhcp_scan(at) {
 			if (!mac || s.connected_time == null)
 				continue;
 			here[mac] = true;
-			push(dw.clients, { mac: mac, ssid: a.ssid, band: a.band, network: a.network, vlan: a.vlan, sta: s, features: features(hc[mac]) });
+			// Who it signed in as (0113), on Aeolus's networks: asked once a
+			// session, which a new time of joining marks.
+			let user = null;
+			if (a.network) {
+				let key = bss + '/' + mac, joined = at - s.connected_time, u = users[key];
+				if (!u || abs(u.joined - joined) > STAY_GAP)
+					u = { joined: joined, user: signed_in(bss, mac) };
+				known[key] = u;
+				user = u.user;
+			}
+			push(dw.clients, { mac: mac, ssid: a.ssid, band: a.band, network: a.network, vlan: a.vlan, user: user, sta: s, features: features(hc[mac]) });
 			if (!n || !w)
 				continue;
 			let joined = at - s.connected_time, c = n.clients[mac];
@@ -1048,6 +1094,8 @@ function dhcp_scan(at) {
 				c.asked = n.asked[mac];
 		}
 	}
+	// Only the sessions still here are remembered.
+	users = known;
 	for (let id, n in dw.nets)
 		for (let mac in keys(n.clients))
 			if (at - n.clients[mac].seen > STAY_GAP)
@@ -1194,7 +1242,7 @@ function clients_report(at) {
 	for (let c in dw.clients) {
 		let s = c.sta, n = c.network ? dw.nets[c.network] : null, d = n?.clients[c.mac], id = dw.ident[c.mac], x = c.features;
 		push(out, {
-			mac: c.mac, network: c.network, ssid: c.ssid, band: c.band, vlan: c.vlan,
+			mac: c.mac, network: c.network, ssid: c.ssid, band: c.band, vlan: c.vlan, user: c.user,
 			signal: s.signal, signal_avg: s.signal_avg,
 			rx_rate: mbit(s.rx_bitrate), rx_mcs: mcs(s.rx_bitrate), rx_nss: nss(s.rx_bitrate),
 			tx_rate: mbit(s.tx_bitrate), tx_mcs: mcs(s.tx_bitrate), tx_nss: nss(s.tx_bitrate),
