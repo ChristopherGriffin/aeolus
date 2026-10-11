@@ -7,6 +7,13 @@
 // signin (802.1X, where the network has it), key (the handshake that makes
 // its keys), dhcp, gateway (ARP), dns, and internet (a first connection
 // answered).
+//
+// The key handshake is four messages (0133): the AP's first, m1; the
+// client's answer, m2, which shows whether it has the passphrase; the AP's
+// third, m3; and the client's last, m4. hostapd says each as it is sent or
+// comes where it logs at debug, which aeolus-journey asks of it; a step
+// that is of one of them names it, k. So does WPA3's authentication (SAE),
+// of which hostapd otherwise says nothing where the passphrase is wrong.
 
 'use strict';
 
@@ -129,10 +136,13 @@ function capture(wide) {
 }
 
 // What hostapd's events mean for a client coming online: the stage, what
-// to say, and whether it went well (true), badly (false) or neither.
+// to say, whether it went well (true), badly (false) or neither, and the
+// message of the key handshake it is of, where it is of one.
 const EVENT = {
 	'AP-STA-CONNECTED': ['key', 'let on to the network', true],
-	'AP-STA-POSSIBLE-PSK-MISMATCH': ['key', 'wrong passphrase', false],
+	// The client's answer to the first message did not check out against
+	// the passphrase, or any of them where each device has its own.
+	'AP-STA-POSSIBLE-PSK-MISMATCH': ['key', 'wrong passphrase', false, 'm2'],
 	'EAPOL-4WAY-HS-COMPLETED': ['key', 'key handshake completed', true],
 	'CTRL-EVENT-EAP-STARTED': ['signin', 'sign-in started', null],
 	'CTRL-EVENT-EAP-SUCCESS2': ['signin', 'the server accepted the sign-in', true],
@@ -142,19 +152,57 @@ const EVENT = {
 	'CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER': ['key', 'unknown password identifier', false],
 };
 
+// fine reads what hostapd says of a client only where it logs at debug
+// (0133): a message of the key handshake, sent or come, with k, which, and
+// k on nothing else; its giving the handshake up, with stalled, why; and
+// WPA3's authentication, with sae, how far. False for a line that is known and says nothing
+// another does not; null for one that is not known.
+function fine(e, sub, t) {
+	let m;
+	if (sub == 'WPA') {
+		if ((m = match(t, /^sending ([13])\/4 msg of 4-Way Handshake/)))
+			return { ...e, stage: 'key', k: 'm' + m[1], what: `message ${m[1]} of 4 sent to it`, sent: true };
+		if ((m = match(t, /^received EAPOL-Key frame \(([24])\/4 Pairwise\)/)))
+			return { ...e, stage: 'key', k: 'm' + m[1], what: `message ${m[1]} of 4 came from it` };
+		// The AP waits a second for an answer, and sends its message again:
+		// after so many it gives the client up.
+		if ((m = match(t, /^(PTKSTART|PTKINITNEGOTIATING): Retry limit ([0-9]+) reached/))) {
+			let n = m[1] == 'PTKSTART' ? 1 : 3;
+			return { ...e, stage: 'key', what: `gave up: message ${n} of 4 was sent ${m[2]} times`,
+				stalled: `it gave no answer the AP could use to message ${n} of the key handshake, sent ${m[2]} times` };
+		}
+		// What these say, a step that follows says: the passphrase is
+		// wrong, or the message is sent again.
+		if (match(t, /^(invalid MIC in msg 2\/4|EAPOL-Key timeout)/))
+			return false;
+	}
+	if (sub == 'IEEE 802.11' && (m = match(t, /^(start )?SAE authentication \(RX (commit|confirm)/)))
+		return { ...e, stage: 'auth', sae: m[2], what: m[2] == 'commit' ? 'starts WPA3 authentication (SAE commit)' : 'sends its WPA3 confirm (SAE confirm)' };
+	return null;
+}
+
 // log_event reads one line of the system log for what hostapd says of a
 // client: { bss, mac, stage, what, ok } and, where it is the client being
 // let on, on; where it is the client leaving, end. A line that names a
 // client and is not known is kept as it reads, with no stage: it may be the
-// one that explains a failure. Null for any other line.
+// one that explains a failure. Null for any other line; and for one hostapd
+// says only at debug that is not known, as there are many of those, by
+// the line's priority where it has one.
 function log_event(line) {
 	let m = match(line ?? '', /hostapd: ([A-Za-z0-9_.-]+): (.*)$/);
 	if (!m)
 		return null;
 	let bss = m[1], rest = m[2];
+	let pri = match(line, /^<([0-9]+)>/);
+	let debug = pri != null && (int(pri[1]) & 7) == 7;
 	let s = match(rest, /^STA ([0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}) ([A-Za-z0-9. ]+): (.*)$/);
 	if (s) {
 		let e = { bss: bss, mac: s[1], stage: null, what: text(s[3], 120), ok: null }, sub = s[2], t = s[3];
+		let f = fine(e, sub, t);
+		if (f)
+			return f;
+		if (f === false || debug)
+			return null;
 		if (sub == 'IEEE 802.11') {
 			if (t == 'authenticated')
 				return { ...e, stage: 'auth', ok: true };
@@ -196,6 +244,8 @@ function log_event(line) {
 	if (!k)
 		return null;
 	let e = { bss: bss, mac: c[2], stage: k[0], what: k[1], ok: k[2] };
+	if (k[3])
+		e.k = k[3];
 	if (c[1] == 'AP-STA-CONNECTED')
 		e.on = true;
 	return e;
@@ -329,6 +379,7 @@ function begin(who, at, wall) {
 		bss: who.bss, mac: who.mac, network: who.network ?? '', ssid: who.ssid ?? '', band: who.band ?? '',
 		started: at, wall: wall, last: at, events: [], more: 0,
 		done: {}, failed: null, on: null, ended: null, left: null, online: null,
+		sent: {}, stalled: null, sae: null,
 		address: null, host: null, router: null, signal: null, probes: null,
 		dhcp: { asked: 0, first: null, offer: false, ack: false, nak: false },
 		arp: { asked: null, at: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
@@ -374,7 +425,18 @@ function on_log(a, e, at) {
 		a.left = e.what;
 		return;
 	}
-	step(a, at, e.stage ?? 'note', e.what, e.ok);
+	let what = e.what;
+	// A message of the key handshake sent again says which try it is.
+	if (e.sent) {
+		a.sent[e.k] = (a.sent[e.k] ?? 0) + 1;
+		if (a.sent[e.k] > 1)
+			what += `, try ${a.sent[e.k]}`;
+	}
+	if (e.stalled)
+		a.stalled = e.stalled;
+	if (e.sae)
+		a.sae = e.sae;
+	step(a, at, e.stage ?? 'note', what, e.ok, e.k ? { k: e.k } : null);
 	if (e.stage && e.ok === true)
 		a.done[e.stage] = true;
 	if (e.stage && e.ok === false && !a.failed)
@@ -533,12 +595,16 @@ function record(a, at) {
 			outcome = 'left';
 			if (a.on == null)
 				stage = stopped;
-			reason = a.on == null ? 'before it was let on: ' + (a.left ?? '') : a.left ?? '';
+			// Why the AP gave it up says more than that it then sent it off.
+			reason = a.on == null ? 'before it was let on: ' + (a.stalled ?? a.left ?? '') : a.left ?? '';
 		}
 	} else if (a.on == null) {
 		outcome = 'failed';
 		stage = stopped;
-		reason = 'it was never let on';
+		// WPA3 proves the passphrase before anything else: a confirm the
+		// AP did not take is a wrong one, and hostapd says no more of it.
+		reason = stopped == 'auth' && a.sae == 'confirm' ? 'its WPA3 confirm did not check out: a wrong passphrase'
+			: a.stalled ?? 'it was never let on';
 	} else if (a.dhcp.asked > 0 && !a.dhcp.ack) {
 		outcome = 'failed';
 		stage = 'dhcp';

@@ -36,13 +36,15 @@ var (
 // connStep is one step of an attempt: how long after its start, in ms; its
 // stage, or end where the client left, or note for a line of hostapd's
 // that is kept as it reads; what happened; whether it went well; and, where
-// they apply, the server that answered, the gateway and DNS servers DHCP
-// gave, who holds an address, and how long an answer took.
+// they apply, the message of the key handshake it is of (0133), m1 to m4,
+// the server that answered, the gateway and DNS servers DHCP gave, who
+// holds an address, and how long an answer took.
 type connStep struct {
 	T      int    `json:"t"`
 	Stage  string `json:"stage"`
 	What   string `json:"what"`
 	OK     *bool  `json:"ok,omitempty"`
+	K      string `json:"k,omitempty"`
 	Server string `json:"server,omitempty"`
 	Router string `json:"router,omitempty"`
 	DNS    string `json:"dns,omitempty"`
@@ -103,7 +105,7 @@ func (c connRecord) check() error {
 		return bad("at most 64 steps and 8 places it was heard")
 	}
 	for _, e := range c.Events {
-		if e.T < 0 || e.T > 600000 || (e.Stage != "end" && e.Stage != "note" && !slices.Contains(connStages, e.Stage)) || e.What == "" || !shortText(e.What, 200) ||
+		if e.T < 0 || e.T > 600000 || (e.Stage != "end" && e.Stage != "note" && !slices.Contains(connStages, e.Stage)) || e.What == "" || !shortText(e.What, 200) || !shortText(e.K, 16) ||
 			!shortText(e.Server, 45) || !shortText(e.Router, 45) || !shortText(e.DNS, 140) || (e.Holder != "" && !macRE.MatchString(e.Holder)) ||
 			(e.MS != nil && (*e.MS < 0 || *e.MS > 600000)) {
 			return bad("each step has its time, its stage, and what happened in at most 200 printable characters")
@@ -188,6 +190,14 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) e
 				why = err.Error()
 			}
 			continue
+		}
+		// A step that names a point this manager does not know, as a later
+		// agent's may, is kept without the name: the step still says what
+		// happened.
+		for i := range rec.Events {
+			if k := rec.Events[i].K; k != "" && (rec.Events[i].Stage != "key" || !slices.Contains(keyMessages, k)) {
+				rec.Events[i].K = ""
+			}
 		}
 		started := time.UnixMilli(rec.Started)
 		if started.After(now.Add(10*time.Minute)) || started.Before(now.Add(-7*24*time.Hour)) {

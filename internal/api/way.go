@@ -15,11 +15,16 @@ import (
 
 // wayPoint is one point on the way: which; how it went, ok, bad, begun
 // where it was started and not seen through, or none where nothing was seen
-// of it; and how long it took, in ms, where that is known.
+// of it; and how long it took, in ms, where that is known. Said is what
+// there is to say of how it went beyond that, as of a message that did not
+// come; Parts are the point taken apart, where its steps say them: the keys
+// into the four messages of their handshake (0133).
 type wayPoint struct {
-	K     string   `json:"k"`
-	State string   `json:"state"`
-	MS    *float64 `json:"ms,omitempty"`
+	K     string     `json:"k"`
+	State string     `json:"state"`
+	MS    *float64   `json:"ms,omitempty"`
+	Said  string     `json:"said,omitempty"`
+	Parts []wayPoint `json:"parts,omitempty"`
 }
 
 // wayStep is a step as the way reads it, a test's or an attempt's: when it
@@ -285,7 +290,116 @@ func connWay(c conditions.Connection) (way []wayPoint, stopped string) {
 	if c.Outcome == "failed" && slices.Contains(wayClient.order, c.Stage) {
 		stopped = c.Stage
 	}
-	return wayOf(steps, wayClient, stopped), stopped
+	way = wayOf(steps, wayClient, stopped)
+	for i := range way {
+		if way[i].K == "key" {
+			way[i].Parts = keyParts(rec.Events, way[i].State == "ok", stopped == "key")
+		}
+	}
+	return way, stopped
+}
+
+// The four messages of the key handshake (0133), as a step names the one
+// it is of: the AP's first; the client's answer, which shows whether it
+// has the passphrase; the AP's third; and the client's last.
+var keyMessages = []string{"m1", "m2", "m3", "m4"}
+
+// What is said of a message the handshake stopped at.
+const (
+	saidWrong    = "wrong passphrase"
+	saidNoAnswer = "no answer"
+)
+
+// keyParts takes the key handshake apart into its four messages, from an
+// attempt's steps, where its AP said any of them: hostapd says them only
+// where it logs at debug, which aeolus-journey asks of it (0133). done says
+// the handshake was seen through, and failed that the attempt failed at it.
+//
+// A message went well where the handshake went on from it: one of the
+// AP's, where it was sent; the client's answer, where the AP sent its
+// third; the client's last, where the handshake was seen through; and any
+// before one that was seen, said or not. The first that did not is where
+// it stopped. An answer that did not check out is bad there, a wrong
+// passphrase. One waited for that did not come, or that the AP did not go
+// on from, is bad where the attempt failed at the keys, and only begun
+// where the client is known just to have gone. What is after it was not
+// come to.
+//
+// How long each took is from the message before it: one of the AP's, as
+// first sent, the first of them from the step before the handshake; one of
+// the client's, as it last came, from the AP's as last sent before it.
+func keyParts(events []connStep, done, failed bool) []wayPoint {
+	var seen [4]bool
+	var at [4]int64
+	var took [4]*float64
+	since := func(n int, t, from int64) {
+		if t >= from {
+			ms := float64(t - from)
+			took[n] = &ms
+		}
+	}
+	any, wrong := false, false
+	for i, e := range events {
+		n := slices.Index(keyMessages, e.K)
+		if n < 0 {
+			continue
+		}
+		t := int64(e.T)
+		switch {
+		case n == 0 && !seen[0]:
+			// From what came before the handshake, where anything did.
+			if i > 0 {
+				since(0, t, int64(events[i-1].T))
+			}
+		case n == 2 && !seen[2]:
+			if seen[1] {
+				since(2, t, at[1])
+			}
+		case n == 1 || n == 3:
+			if seen[n-1] {
+				since(n, t, at[n-1])
+			}
+		}
+		// What its AP said of the client's answer: it did not check out.
+		// One that then did, as on another try, went well after all.
+		if n == 1 {
+			wrong = e.OK != nil && !*e.OK
+		}
+		any, seen[n], at[n] = true, true, t
+	}
+	if !any {
+		return nil
+	}
+	out := make([]wayPoint, 4)
+	stopped := false
+	for n, k := range keyMessages {
+		p := wayPoint{K: k, State: "none"}
+		// It was gone on from: seen through, a later one seen, or the
+		// AP's own, sent.
+		passed := done || (n%2 == 0 && seen[n])
+		for later := n + 1; later < 4 && !passed; later++ {
+			passed = seen[later]
+		}
+		switch {
+		case stopped:
+		case passed:
+			p.State, p.MS = "ok", took[n]
+		default:
+			stopped = true
+			p.State = "begun"
+			if failed {
+				p.State = "bad"
+			}
+			switch {
+			case n == 1 && wrong:
+				p.State, p.Said, p.MS = "bad", saidWrong, took[n]
+			case !seen[n]:
+				p.Said = saidNoAnswer
+			}
+		}
+		out[n] = p
+	}
+	return out
 }
 
 // wayTypical is one point over many ways: how many passed it, and of those
@@ -298,6 +412,9 @@ type wayTypical struct {
 	MS      *float64 `json:"ms,omitempty"`
 	Low     *float64 `json:"low,omitempty"`
 	High    *float64 `json:"high,omitempty"`
+	// Parts are the same of the point's parts (0133), over the ways that
+	// had them.
+	Parts []wayTypical `json:"parts,omitempty"`
 }
 
 // wayTally adds ways up, a point at a time.
@@ -307,6 +424,8 @@ type wayTally struct {
 	passed  map[string]int
 	stopped map[string]int
 	n       int
+	// parts are the tallies of the points that some way had in parts.
+	parts map[string]*wayTally
 }
 
 func newWayTally(kind wayKind) *wayTally {
@@ -326,6 +445,28 @@ func (t *wayTally) add(way []wayPoint, stopped string) {
 				t.times[p.K] = append(t.times[p.K], *p.MS)
 			}
 		}
+		if len(p.Parts) == 0 {
+			continue
+		}
+		// Its parts, and the one a way that stopped at it stopped at: the
+		// first that did not go well.
+		if t.parts == nil {
+			t.parts = map[string]*wayTally{}
+		}
+		if t.parts[p.K] == nil {
+			order := make([]string, len(p.Parts))
+			for i, part := range p.Parts {
+				order[i] = part.K
+			}
+			t.parts[p.K] = newWayTally(wayKind{order: order})
+		}
+		at := ""
+		if p.K == stopped {
+			if i := slices.IndexFunc(p.Parts, func(part wayPoint) bool { return part.State != "ok" }); i >= 0 {
+				at = p.Parts[i].K
+			}
+		}
+		t.parts[p.K].add(p.Parts, at)
 	}
 	if stopped != "" {
 		t.stopped[stopped]++
@@ -349,6 +490,9 @@ func (t *wayTally) typical() []wayTypical {
 			slices.Sort(v)
 			low, mid, high := v[0], v[len(v)/2], v[len(v)-1]
 			p.Low, p.MS, p.High = &low, &mid, &high
+		}
+		if parts := t.parts[k]; parts != nil {
+			p.Parts = parts.typical()
 		}
 		out = append(out, p)
 	}

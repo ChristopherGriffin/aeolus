@@ -12,6 +12,11 @@
 //
 // hostapd's words come from the system log: logread, which this daemon
 // starts, sends the lines that name hostapd to it over UDP on the loopback.
+// hostapd is asked for its debug lines too (0133), on its control socket:
+// there it says each message of the key handshake, and WPA3's
+// authentication. A step from the log is timed by when the log took the
+// line in, which logread says to the millisecond: the lines reach here a
+// few at a time, and the messages of a handshake are milliseconds apart.
 // The frames come from a packet socket on each Wi-Fi interface, with a
 // kernel filter that keeps only ARP and DHCP until a client is being
 // watched, and then DNS and the frames that open TCP connections too.
@@ -44,6 +49,9 @@ for (let i = 0; i < length(ARGV); i++) {
 const SENT = out + '.sent';        // how far the agent got: { boot, seq }
 const PIDFILE = out + '.logread';  // the logread this daemon started
 const LOOK_EVERY = 10;             // seconds between looks at the Wi-Fi interfaces
+const CTL_SOCKET = out + '.ctl';    // this daemon's socket, which hostapd answers to
+const HOSTAPD_CTL = '/var/run/hostapd/';   // where hostapd's networks have their control sockets
+const DEBUG = 1, INFO = 2;         // hostapd's log levels: the lower, the more it says
 const WRITE_EVERY = 2;             // seconds between writes of the records, at most
 const KEPT = 128;                  // records kept for the agent; past that, the oldest go
 const OPEN = 256;                  // attempts followed at once
@@ -85,7 +93,8 @@ function wall() {
 }
 
 let boot = wall();    // this run, so the agent tells its records from the last run's
-let bsses = {};       // a network's Wi-Fi interface, as hostapd names it -> { network, ssid, band }
+let bsses = {};       // a network's Wi-Fi interface, as hostapd names it -> { network, ssid, band, level }
+let fine = {};        // a network's interface -> whether hostapd took the asking for its debug lines
 let ifaces = {};      // an interface watched -> { sock, bss, index, wide }: a BSS, or a VLAN's interface on it
 let open = {};        // '<bss> <mac>' -> the attempt being followed
 let done = [];        // the records not yet sent, oldest first
@@ -114,6 +123,52 @@ function packet(dev, prog) {
 	return s;
 }
 
+// hostapd_ctl sends one of hostapd's networks a command on its control
+// socket, and returns its answer: null where none comes in a fifth of a
+// second, false where the command could not be sent. hostapd answers to the
+// asking socket's own path, as its own user, which must be able to write
+// there.
+function hostapd_ctl(bss, ask) {
+	let k = socket.create(socket.AF_UNIX, socket.SOCK_DGRAM);
+	if (!k)
+		return false;
+	fs.unlink(CTL_SOCKET);
+	let answer = false;
+	if (k.bind({ path: CTL_SOCKET }) && fs.chmod(CTL_SOCKET, 0o666) && k.connect({ path: HOSTAPD_CTL + bss }) && k.send(ask) != null) {
+		socket.poll(200, [k, socket.POLLIN]);
+		answer = k.recv(256, socket.MSG_DONTWAIT);
+	}
+	k.close();
+	fs.unlink(CTL_SOCKET);
+	return answer;
+}
+
+// say_more asks hostapd for its debug lines of each network (0133). It is
+// asked on its control socket, which restarts nothing and drops no client,
+// and at every look, as hostapd goes back to what its config says each time
+// that is loaded. A radio the AP's own config has at debug or below is left
+// as it is. With back, each is put back to its radio's own level instead,
+// as the daemon stops.
+function say_more(back) {
+	let now_fine = [], not_fine = [];
+	for (let bss, b in bsses) {
+		if (b.level <= DEBUG)
+			continue;
+		let took = match(hostapd_ctl(bss, 'SET logger_syslog_level ' + (back ? b.level : DEBUG)) || '', /^OK/) != null;
+		if (!back && fine[bss] !== took)
+			push(took ? now_fine : not_fine, bss);
+		fine[bss] = took;
+	}
+	for (let bss in keys(fine))
+		if (!bsses[bss])
+			delete fine[bss];
+	// Said once of a network, and again where it changes.
+	if (length(now_fine))
+		log('hostapd says each message of the key handshake on %s', join(' ', sort(now_fine)));
+	if (length(not_fine))
+		note('hostapd did not take the asking for its debug lines on %s: the key handshake is recorded as one step there', join(' ', sort(not_fine)));
+}
+
 // look takes up the AP's Wi-Fi networks as netifd has them now: each one's
 // interface, and the interfaces hostapd makes on it for clients a key or
 // the RADIUS server put in a VLAN (<bss>-k<vlan>, <bss>-r<vlan>), whose
@@ -126,9 +181,12 @@ function look() {
 			if (!i.ifname || (i.config?.mode ?? 'ap') != 'ap')
 				continue;
 			let n = filter(i.config?.network ?? [], x => match(x, /^aeolus_/))[0];
+			let level = v.config?.log_level;
 			bsses[i.ifname] = {
 				network: n ? replace(substr(n, 7), /_/g, '-') : '',
 				ssid: substr(replace('' + (i.config?.ssid ?? ''), /[^ -~]/g, '?'), 0, 32), band: v.config?.band ?? '',
+				// what its radio's config has hostapd log at: info, where it says nothing
+				level: type(level) in ['int', 'string'] && match('' + level, /^[0-4]$/) ? int(level) : INFO,
 			};
 			want[i.ifname] = i.ifname;
 		}
@@ -195,11 +253,12 @@ function probes(mac, at) {
 	return length(list) ? slice(list, 0, 6) : null;
 }
 
-// start begins following a client's attempt on a network.
-function start(bss, mac, at) {
+// start begins following a client's attempt on a network: at by the steady
+// clock, and wall_at by the calendar's, in ms.
+function start(bss, mac, at, wall_at) {
 	if (length(keys(open)) >= OPEN)
 		return null;
-	let a = journey.begin({ bss: bss, mac: mac, ...(bsses[bss] ?? {}) }, at, wall());
+	let a = journey.begin({ bss: bss, mac: mac, ...(bsses[bss] ?? {}) }, at, wall_at);
 	a.probes = probes(mac, at);
 	open[bss + ' ' + mac] = a;
 	// Its DHCP comes right after it is let on: the wide filter is on by then.
@@ -234,17 +293,31 @@ function write() {
 }
 
 // on_log takes one of hostapd's log lines: a client's step, into the
-// attempt being followed, or the start of one.
-function on_log(msg, at) {
-	let e = journey.log_event(rtrim(split(split(msg, '\n')[0], chr(0))[0], '\r '));
+// attempt being followed, or the start of one. at is when the line reached
+// here, by the steady clock, and wall_at by the calendar's, in ms. The step
+// is timed by when the log took the line in, where the line says (logread
+// -t, "[seconds.ms]"), put on the steady clock by how far that is from
+// wall_at. A time that cannot be right, as where the clock was just set,
+// is passed over.
+function on_log(msg, at, wall_at) {
+	let line = rtrim(split(split(msg, '\n')[0], chr(0))[0], '\r ');
+	let e = journey.log_event(line);
 	if (!e || !bsses[e.bss])
 		return;
+	let said = match(line, /^<[0-9]+>[^\[]{0,24}\[([0-9]{1,12})\.([0-9]{3})\] /);
+	// How far the log's time is from when this batch of lines was taken
+	// up: before it, or a little after, for a line that came in meanwhile.
+	let off = said ? (+said[1] * 1000 + (+('1' + said[2]) - 1000)) - wall_at : 0;
+	if (off > -5000 && off < 5000) {
+		at += off / 1000;
+		wall_at += off;
+	}
 	let key = e.bss + ' ' + e.mac, a = open[key];
 	if (!a) {
 		// A client leaving, or a line that only explains, begins nothing.
 		if (e.end || !e.stage)
 			return;
-		a = start(e.bss, e.mac, at);
+		a = start(e.bss, e.mac, at, wall_at);
 		if (!a)
 			return;
 	}
@@ -290,14 +363,17 @@ function listen() {
 	}
 	if (logread_pid())
 		return;
-	system(sprintf("logread -f -u -r 127.0.0.1 %d -e 'hostapd: ' -p %s >/dev/null 2>&1 &", port, PIDFILE));
+	// -t: each line with when the log took it in, to the millisecond.
+	system(sprintf("logread -f -t -u -r 127.0.0.1 %d -e 'hostapd: ' -p %s >/dev/null 2>&1 &", port, PIDFILE));
 }
 
-// stop ends the logread with the daemon.
+// stop ends the logread with the daemon, and has hostapd log as its config
+// says again.
 function stop() {
 	let pid = logread_pid();
 	if (pid)
 		system(['kill', '' + pid]);
+	say_more(true);
 	exit(0);
 }
 
@@ -315,6 +391,7 @@ function main() {
 		let at = now();
 		if (at >= next_look) {
 			look();
+			say_more();
 			listen();
 			narrow(at);
 			next_look = at + LOOK_EVERY;
@@ -345,11 +422,11 @@ function main() {
 		for (let r in socket.poll(wait, ...polls) ?? []) {
 			if (!(r[1] & (socket.POLLIN | socket.POLLERR | socket.POLLHUP)))
 				continue;
-			let t = now(), fd = r[0].fileno();
+			let t = now(), w = wall(), fd = r[0].fileno();
 			if (logsock && fd == logsock.fileno()) {
 				let msg;
 				while ((msg = logsock.recv(2048, socket.MSG_DONTWAIT)) != null)
-					on_log(msg, t);
+					on_log(msg, t, w);
 				continue;
 			}
 			let name = by[fd], i = ifaces[name];
