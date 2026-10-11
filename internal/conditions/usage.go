@@ -58,6 +58,16 @@ type ClientTotal struct {
 	Up     int64
 }
 
+// Moved says whether an AP reported, between two times, that a client moved
+// anything through it (0110): the client was on that AP then. For whether
+// its attempt at another was a roam (0136).
+func (s *Store) Moved(ap hierarchy.NodeID, mac string, from, to time.Time) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM client_usage WHERE ap = ? AND mac = ? AND at >= ? AND at < ?)`,
+		string(ap), mac, stamp(from), stamp(to)).Scan(&n)
+	return n != 0, err
+}
+
 // Use is one AP's clients at a report, and what they moved since its last:
 // Down is what the AP sent them, Up what it received from them, in bytes.
 type Use struct {

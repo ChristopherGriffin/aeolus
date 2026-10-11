@@ -42,9 +42,10 @@ func TestRoaming(t *testing.T) {
 	now := time.Now()
 	// One attempt, at an AP: on a radio of it, so long ago, how it went,
 	// and how the client came; none, as an agent before this says nothing.
+	ssid := "Sweet Spot"
 	attempt := func(token, mac, bss, band string, ago time.Duration, outcome, stage, reason string, how map[string]any) {
 		t.Helper()
-		rec := map[string]any{"mac": mac, "bss": bss, "network": "sweet", "ssid": "Sweet Spot", "band": band,
+		rec := map[string]any{"mac": mac, "bss": bss, "network": "sweet", "ssid": ssid, "band": band,
 			"started": now.Add(-ago).UnixMilli(), "took_ms": 300, "outcome": outcome, "stage": stage, "reason": reason, "events": []any{}}
 		if how != nil {
 			rec["how"] = how
@@ -97,6 +98,40 @@ func TestRoaming(t *testing.T) {
 	// it went well, and is not timed.
 	attempt(northToken, relet, "phy0-ap0", "5g", 950*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
 	attempt(southToken, relet, "phy0-ap0", "5g", 940*time.Second, "connected", "key", "", map[string]any{"re": true, "alg": "sae"})
+	// A client that says nothing of roaming, as many a phone: it joins
+	// North, and a minute later South, as if for the first time, by WPA3's
+	// exchange. It was on North moments before: a roam, and a hard one.
+	hard, band, late, sitter, guest, failer := client(10), client(11), client(12), client(13), client(14), client(15)
+	attempt(northToken, hard, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 150})
+	attempt(southToken, hard, "phy0-ap0", "5g", 640*time.Second, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 160})
+	// One that goes from North's 5 GHz radio to its other, so.
+	attempt(northToken, band, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
+	attempt(northToken, band, "phy1-ap0", "2g", 690*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 25})
+	// One that joined North three hours ago, of which North has said
+	// nothing since, and joins South: it comes back from somewhere, and
+	// that is no roam.
+	attempt(northToken, late, "phy0-ap0", "5g", 3*time.Hour, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 150})
+	attempt(southToken, late, "phy0-ap0", "5g", 620*time.Second, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 140})
+	// One that joined North three hours ago and is there yet, as North's
+	// report of what it moved says: its join at South a moment after is a
+	// roam.
+	attempt(northToken, sitter, "phy0-ap0", "5g", 3*time.Hour, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 150})
+	_, _, polled := f.apDo("GET", "/v1/ap/config", northToken, nil, nil)
+	if code, _, b := f.apDo("POST", "/v1/ap/state", northToken, map[string]any{"version": polled["version"], "uptime": 60, "clients": []any{
+		map[string]any{"mac": sitter, "network": "sweet", "ssid": "Sweet Spot", "band": "5g", "signal": -60, "signal_avg": -60,
+			"tx_rate": 400, "rx_rate": 300, "connected": 60, "inactive_ms": 10, "rx_bytes": 900, "tx_bytes": 1200, "rx_packets": 9, "tx_packets": 12}}}, nil); code != 200 {
+		t.Fatalf("North's report: %d %v", code, b)
+	}
+	attempt(southToken, sitter, "phy0-ap0", "5g", -2*time.Second, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 130})
+	// One that leaves a network on North for another on South: no roam.
+	attempt(northToken, guest, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
+	ssid = "Guests"
+	attempt(southToken, guest, "phy0-ap1", "5g", 650*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
+	ssid = "Sweet Spot"
+	// One on North that tries South, and is not let on: a roam that
+	// failed.
+	attempt(northToken, failer, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
+	attempt(southToken, failer, "phy0-ap0", "5g", 660*time.Second, "failed", "assoc", "it was never let on", map[string]any{"alg": "open"})
 	// North's own scan radio, testing: no client's roaming.
 	attempt(southToken, scan, "phy0-ap0", "5g", 60*time.Second, "connected", "key", "", map[string]any{"re": true, "alg": "ft", "on_ms": 15})
 	// How it came costs no record. What this manager cannot take of it is
@@ -121,7 +156,7 @@ func TestRoaming(t *testing.T) {
 		t.Fatalf("roaming: %d %v", code, v)
 	}
 	if got, want := fmt.Sprintf("%v roams, %v failed, %v slow, %v left, %v not timed, %v clients, typically %v ms, slow past %v, more %v", v["roams"], v["failed"], v["slow"], v["left"], v["untimed"], v["clients"], v["typical_ms"], v["slow_over_ms"], v["more"]),
-		"12 roams, 1 failed, 2 slow, 1 left, 2 not timed, 7 clients, typically 33 ms, slow past 250, more <nil>"; got != want {
+		"16 roams, 2 failed, 2 slow, 1 left, 2 not timed, 11 clients, typically 35 ms, slow past 250, more <nil>"; got != want {
 		t.Errorf("in all: %s, want %s", got, want)
 	}
 	var kinds []string
@@ -129,7 +164,7 @@ func TestRoaming(t *testing.T) {
 		k := k.(map[string]any)
 		kinds = append(kinds, fmt.Sprintf("%v: %v, %v failed, %v slow, %v ms (%v to %v)", k["kind"], k["roams"], k["failed"], k["slow"], k["typical_ms"], k["low_ms"], k["high_ms"]))
 	}
-	if got, want := strings.Join(kinds, "; "), "ft: 4, 0 failed, 0 slow, 19 ms (17 to 21); okc: 1, 0 failed, 0 slow, 30 ms (30 to 30); pmksa: 1, 0 failed, 1 slow, 1198 ms (1198 to 1198); keys: 5, 1 failed, 1 slow, 45 ms (33 to 280); full: 1, 0 failed, 0 slow, <nil> ms (<nil> to <nil>)"; got != want {
+	if got, want := strings.Join(kinds, "; "), "ft: 4, 0 failed, 0 slow, 19 ms (17 to 21); okc: 1, 0 failed, 0 slow, 30 ms (30 to 30); pmksa: 1, 0 failed, 1 slow, 1198 ms (1198 to 1198); keys: 7, 2 failed, 1 slow, 35 ms (25 to 280); full: 3, 0 failed, 0 slow, 160 ms (130 to 160)"; got != want {
 		t.Errorf("a kind at a time:\n got %s\nwant %s", got, want)
 	}
 	said := func(list any) []string {
@@ -158,6 +193,7 @@ func TestRoaming(t *testing.T) {
 	// not among them; nor the scan radio's; nor any of the one that joined
 	// North long ago and stayed.
 	if got, want := strings.Join(said(v["latest"]), "\n"), strings.Join([]string{
+		"0d to South 5g from North 5g, full, ok in 130 ms",
 		"04 to South 5g from somewhere not known, ft, ok, not timed",
 		"03 to South 5g from somewhere not known, keys, left",
 		"02 to South 5g from South 2g, keys, ok in 45 ms",
@@ -169,6 +205,9 @@ func TestRoaming(t *testing.T) {
 		"01 to South 5g from North 5g, keys, slow in 280 ms",
 		"01 to North 5g from South 5g, ft, ok in 21 ms",
 		"01 to South 5g from North 5g, ft, ok in 17 ms",
+		"0a to South 5g from North 5g, full, ok in 160 ms",
+		"0f to South 5g from North 5g, keys, failed",
+		"0b to North 2g from North 5g, keys, ok in 25 ms",
 		"07 to North 5g from South 5g, keys, ok in 33 ms",
 		"09 to South 5g from North 5g, full, ok, not timed",
 	}, "\n"); got != want {
@@ -179,6 +218,7 @@ func TestRoaming(t *testing.T) {
 		"02 to North 2g from somewhere not known, pmksa, slow in 1198 ms after 5 SA Queries",
 		"01 to North 5g from South 5g, keys, failed",
 		"01 to South 5g from North 5g, keys, slow in 280 ms",
+		"0f to South 5g from North 5g, keys, failed",
 	}, "\n"); got != want {
 		t.Errorf("those that went badly:\n%s\nwant:\n%s", got, want)
 	}
@@ -201,10 +241,10 @@ func TestRoaming(t *testing.T) {
 	}
 	// Below one AP, its own alone, with where each came from all the same.
 	_, one := f.do("GET", "/v1/roaming?under="+north+"&hours=1", "griff", nil)
-	if one["roams"] != float64(5) || one["hours"] != float64(1) {
-		t.Errorf("below North: %v roams over %v hours, want 5 over 1", one["roams"], one["hours"])
+	if one["roams"] != float64(6) || one["hours"] != float64(1) {
+		t.Errorf("below North: %v roams over %v hours, want 6 over 1", one["roams"], one["hours"])
 	}
-	if got := said(one["latest"]); len(got) != 5 || got[1] != "01 to North 5g from South 5g, keys, ok in 35 ms" {
+	if got := said(one["latest"]); len(got) != 6 || got[1] != "01 to North 5g from South 5g, keys, ok in 35 ms" {
 		t.Errorf("below North, the latest: %q", got)
 	}
 	// One who may view East alone sees the roam to it, and not from where:
@@ -240,24 +280,27 @@ func TestRoamKind(t *testing.T) {
 		steps []connStep
 		signs bool
 		kind  string
-		is    bool
+		said  bool
+		known bool
 	}{
-		"nothing said of how it came":                    {nil, nil, false, "", false},
-		"a join afresh":                                  {&connHow{Alg: "open"}, nil, false, "", false},
-		"a fast transition":                              {&connHow{Re: true, Alg: "ft"}, nil, false, roamFT, true},
-		"a fast transition, with no debug lines":         {&connHow{Alg: "ft"}, nil, true, roamFT, true},
-		"a key made from a sign-in elsewhere":            {&connHow{Re: true, Alg: "open", PMK: "okc"}, nil, false, roamOKC, true},
-		"a key this AP held":                             {&connHow{Re: true, Alg: "open", PMK: "pmksa"}, nil, false, roamPMKSA, true},
-		"a passphrase":                                   {&connHow{Re: true, Alg: "open"}, nil, false, roamKeys, true},
-		"WPA3's exchange again":                          {&connHow{Re: true, Alg: "sae"}, nil, false, roamFull, true},
-		"a sign-in again":                                {&connHow{Re: true, Alg: "open"}, signin, true, roamFull, true},
-		"no sign-in, on a network that signs clients in": {&connHow{Re: true, Alg: "open"}, nil, true, roamCached, true},
-		"a sign-in afresh, on a network that signs in":   {&connHow{Alg: "open"}, signin, true, "", false},
-		"how it came that cannot be taken":               {&connHow{Re: true, PMK: "magic"}, nil, false, "", false},
+		"nothing said of how it came":                    {nil, nil, false, "", false, false},
+		"a join with a passphrase, with no word of it":   {&connHow{Alg: "open"}, nil, false, roamKeys, false, true},
+		"WPA3's exchange, with no word of it":            {&connHow{Alg: "sae"}, nil, false, roamFull, false, true},
+		"a key this AP held, with no word of it":         {&connHow{Alg: "open", PMK: "pmksa"}, nil, false, roamPMKSA, false, true},
+		"a fast transition":                              {&connHow{Re: true, Alg: "ft"}, nil, false, roamFT, true, true},
+		"a fast transition, with no debug lines":         {&connHow{Alg: "ft"}, nil, true, roamFT, true, true},
+		"a key made from a sign-in elsewhere":            {&connHow{Re: true, Alg: "open", PMK: "okc"}, nil, false, roamOKC, true, true},
+		"a key this AP held":                             {&connHow{Re: true, Alg: "open", PMK: "pmksa"}, nil, false, roamPMKSA, true, true},
+		"a passphrase":                                   {&connHow{Re: true, Alg: "open"}, nil, false, roamKeys, true, true},
+		"WPA3's exchange again":                          {&connHow{Re: true, Alg: "sae"}, nil, false, roamFull, true, true},
+		"a sign-in again":                                {&connHow{Re: true, Alg: "open"}, signin, true, roamFull, true, true},
+		"no sign-in, on a network that signs clients in": {&connHow{Re: true, Alg: "open"}, nil, true, roamCached, true, true},
+		"a sign-in, with no word of it":                  {&connHow{Alg: "open"}, signin, true, roamFull, false, true},
+		"how it came that cannot be taken":               {&connHow{Re: true, PMK: "magic"}, nil, false, "", false, false},
 	} {
-		kind, is := roamKind(roamRecord{How: c.how, Events: c.steps}, func() bool { return c.signs })
-		if kind != c.kind || is != c.is {
-			t.Errorf("%s: %q, a roam %v; want %q, %v", what, kind, is, c.kind, c.is)
+		kind, said, known := roamKind(roamRecord{How: c.how, Events: c.steps}, func() bool { return c.signs })
+		if kind != c.kind || said != c.said || known != c.known {
+			t.Errorf("%s: %q, said %v, known %v; want %q, %v, %v", what, kind, said, known, c.kind, c.said, c.known)
 		}
 	}
 }

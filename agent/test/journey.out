@@ -419,6 +419,29 @@ a roam with a key from another AP: connected, stage key, 31000 ms, reason "", ad
   { "t": 12, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
   { "t": 30, "stage": "key", "what": "let on to the network", "ok": true }
   how it came: { "alg": "open", "pmk": "okc", "re": true, "on_ms": 30 }
+a phone back by WPA3's exchange at an AP that still held it: connected, stage key, 32000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 27, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 27, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 34, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  { "t": 1064, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
+  { "t": 1079, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 1083, "stage": "assoc", "what": "the key its WPA3 exchange just made is taken: no exchange again" }
+  { "t": 1155, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 1156, "stage": "key", "what": "message 1 of 4 sent to it", "k": "m1" }
+  { "t": 1296, "stage": "key", "what": "message 2 of 4 came from it", "k": "m2" }
+  { "t": 1296, "stage": "key", "what": "message 3 of 4 sent to it", "k": "m3" }
+  { "t": 1302, "stage": "key", "what": "message 4 of 4 came from it", "k": "m4" }
+  { "t": 1303, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "alg": "sae", "saq": 5, "on_ms": 1303 }
+a fast transition given up for open authentication, after the AP asked for proof: connected, stage key, 32000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated, by a fast transition from another AP (802.11r)", "ok": true }
+  { "t": 10, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  { "t": 1020, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
+  { "t": 1030, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 1040, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 1300, "stage": "key", "what": "let on to the network", "ok": true }
+  how it came: { "alg": "open", "saq": 2, "on_ms": 1300 }
 silent, once let on: false
 let on by a fast transition, and authenticated again while watched: connected, stage key, 41000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated, by a fast transition from another AP (802.11r)", "ok": true }

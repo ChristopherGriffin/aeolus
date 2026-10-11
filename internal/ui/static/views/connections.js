@@ -96,6 +96,12 @@ function captureLink(c) {
 	return a;
 }
 
+// roamName is a roam's kind in a line's words: "roam, 802.11r", "hard roam".
+function roamName(k) {
+	const name = KIND[k]?.[0] || k;
+	return /roam$/i.test(name) ? name.toLowerCase() : `roam, ${name}`;
+}
+
 // steps is the attempt opened: its stages in a row, then each step with how
 // long after the start it came.
 function steps(c) {
@@ -150,7 +156,7 @@ export async function connectionsSection(mac) {
 					c.outcome === 'failed' && c.reason ? ` · ${c.reason}` : '',
 					// It came as a client already on the network (0136).
 					c.roam && h('span', { class: 'roamed', title: `A roam: it came as a client already on the network, from another AP or another radio. ${KIND[c.roam.kind]?.[1] || ''}` },
-						` · roam, ${KIND[c.roam.kind]?.[0] || c.roam.kind}${c.roam.ms != null ? `, ${roamTook(c.roam.ms)}` : ''}`)),
+						` · ${roamName(c.roam.kind)}${c.roam.ms != null ? `, ${roamTook(c.roam.ms)}` : ''}`)),
 				captureLink(c),
 				outcomeChip(c)),
 			steps(c),

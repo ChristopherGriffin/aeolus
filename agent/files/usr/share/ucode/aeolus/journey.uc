@@ -459,7 +459,7 @@ function begin(who, at, wall) {
 		bss: who.bss, mac: who.mac, network: who.network ?? '', ssid: who.ssid ?? '', band: who.band ?? '',
 		started: at, wall: wall, last: at, events: [], more: 0,
 		done: {}, failed: null, on: null, ended: null, left: null, online: null,
-		sent: {}, sae: null, how: {}, settled: false, held: null, assoc: null, silent: false,
+		sent: {}, sae: null, how: {}, own: false, settled: false, held: null, assoc: null, silent: false,
 		address: null, host: null, router: null, signal: null, probes: null,
 		dhcp: { asked: 0, first: null, offer: false, ack: false, nak: false },
 		arp: { asked: null, at: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
@@ -535,19 +535,36 @@ function on_log(a, e, at) {
 		a.settled = true;
 	let came = a.settled;
 	if (!came) {
-		if (e.stage == 'auth' && e.alg && e.alg != a.how.alg)
-			a.how = { alg: e.alg };
-		else if (e.alg)
+		if (e.stage == 'auth' && e.alg && e.alg != a.how.alg) {
+			// WPA3's exchange, done, and then open authentication: what
+			// a client does that the AP told to come back in a second,
+			// as it does one it still holds as on, while it asks for
+			// proof. The client came by WPA3's exchange, and the key it
+			// then offers is the one that exchange just made, no key
+			// from before.
+			if (a.how.alg == 'sae' && a.sae == 'confirm' && a.done.auth && e.alg == 'open')
+				a.own = true;
+			else {
+				// How often the AP asked for proof is of the attempt,
+				// whichever try it was in.
+				a.how = a.how.saq ? { alg: e.alg, saq: a.how.saq } : { alg: e.alg };
+				a.own = false;
+			}
+		} else if (e.alg && !(a.own && e.alg == 'open'))
 			a.how.alg = e.alg;
 		if (e.re)
 			a.how.re = true;
 	}
 	// Of a key made from a sign-in elsewhere hostapd says that, and then
 	// that the key was found, as of one of its own: said once.
-	if (e.pmk == 'pmksa' && a.how.pmk == 'okc')
+	if (!came && e.pmk == 'pmksa' && a.how.pmk == 'okc')
 		return;
+	// The key its own exchange just made is no key from its last time
+	// here.
+	if (a.own && e.pmk == 'pmksa')
+		what = 'the key its WPA3 exchange just made is taken: no exchange again';
 	if (!came) {
-		if (e.pmk)
+		if (e.pmk && !(a.own && e.pmk == 'pmksa'))
 			a.how.pmk = e.pmk;
 		if (e.saq)
 			a.how.saq = min(64, max(a.how.saq ?? 0, e.saq));
