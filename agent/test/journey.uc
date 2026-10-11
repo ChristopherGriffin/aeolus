@@ -109,12 +109,15 @@ let frames = {
 	'arp ask, in': [eth(ALL, STA, 0x0806, arp(1, STA, '192.168.20.61', '00:00:00:00:00:00', '192.168.20.1')), false],
 	'arp answer, out': [eth(STA, GW, 0x0806, arp(2, GW, '192.168.20.1', STA, '192.168.20.61')), true],
 	'arp ask from another host, out': [eth(ALL, GW, 0x0806, arp(1, GW, '192.168.20.1', '00:00:00:00:00:00', '192.168.20.9')), true],
+	'arp ask for another host, in': [eth(ALL, STA, 0x0806, arp(1, STA, '192.168.20.61', '00:00:00:00:00:00', '192.168.20.9')), false],
 	'arp probe for a free address, in': [eth(ALL, STA, 0x0806, arp(1, STA, '0.0.0.0', '00:00:00:00:00:00', '192.168.20.61')), false],
 	'dhcp discover, in': [eth(ALL, STA, 0x0800, ip4('0.0.0.0', '255.255.255.255', 17, udp(68, 67,
 		bootp(1, STA, '0.0.0.0', option(53, chr(1)) + option(12, 'Griffs-iPhone'))))), false],
 	'dhcp ack, out': [eth(STA, GW, 0x0800, ip4('192.168.20.1', '192.168.20.61', 17, udp(67, 68,
 		bootp(2, STA, '192.168.20.61', option(53, chr(5)) + option(54, ip('192.168.20.1')) + option(3, ip('192.168.20.1')) +
 			option(6, ip('192.168.20.1') + ip('9.9.9.9')))))), true],
+	'dhcp nak, out': [eth(STA, GW, 0x0800, ip4('192.168.20.1', '255.255.255.255', 17, udp(67, 68,
+		bootp(2, STA, '0.0.0.0', option(53, chr(6)) + option(54, ip('192.168.20.1')))))), true],
 	'dns lookup, in': [eth(GW, STA, 0x0800, ip4('192.168.20.61', '192.168.20.1', 17, udp(50123, 53, dns(7, false, 0, 'captive.apple.com', 1, 0)))), false],
 	'dns answer, out': [eth(STA, GW, 0x0800, ip4('192.168.20.1', '192.168.20.61', 17, udp(53, 50123, dns(7, true, 0, 'captive.apple.com', 1, 2)))), true],
 	'dns lookup over IPv6, in': [eth(GW, STA, 0x86dd, ip6(V6A, V6B, 17, udp(50124, 53, dns(8, false, 0, 'Example.COM', 28, 0)))), false],
@@ -274,6 +277,25 @@ got(a, 13000.2, 'dhcp ack, out');
 got(a, 13000.3, 'arp ask, in');
 log(a, 13006, `AP-STA-DISCONNECTED ${STA}`);
 show('gave up on its gateway and left', a, 13006.1);
+
+// Refused by the DHCP server, a client that then leaves at once did fail:
+// it was told no, and waited for nothing.
+a = journey.begin(who, 14000, 1791697000000);
+join_up(a, 14000);
+got(a, 14000.2, 'dhcp discover, in');
+got(a, 14000.3, 'dhcp nak, out');
+log(a, 14001.5, `AP-STA-DISCONNECTED ${STA}`);
+show('refused by DHCP and left', a, 14001.6);
+
+// How long it waited for its gateway is from when it first asked for it,
+// not from an earlier question about another host.
+a = journey.begin(who, 15000, 1791698000000);
+join_up(a, 15000);
+got(a, 15000.1, 'arp ask for another host, in');
+got(a, 15005, 'dhcp ack, out');
+got(a, 15005.1, 'arp ask, in');
+log(a, 15006, `AP-STA-DISCONNECTED ${STA}`);
+show('left a second after asking for its gateway', a, 15006.1);
 
 // More steps than are kept.
 a = journey.begin(who, 9000, 1791692000000);

@@ -1,11 +1,13 @@
 filter narrow 38 steps, wide 38 steps
 a later fragment, in: narrow drops, wide drops; reads null
 arp answer, out: narrow keeps, wide keeps; reads { "kind": "arp", "mac": "72:bb:66:12:2a:94", "what": "answer", "address": "192.168.20.1", "holder": "d4:01:c3:00:00:01" }
+arp ask for another host, in: narrow keeps, wide keeps; reads { "kind": "arp", "mac": "72:bb:66:12:2a:94", "what": "ask", "address": "192.168.20.61", "about": "192.168.20.9" }
 arp ask from another host, out: narrow drops, wide drops; reads null
 arp ask, in: narrow keeps, wide keeps; reads { "kind": "arp", "mac": "72:bb:66:12:2a:94", "what": "ask", "address": "192.168.20.61", "about": "192.168.20.1" }
 arp probe for a free address, in: narrow keeps, wide keeps; reads null
 dhcp ack, out: narrow keeps, wide keeps; reads { "kind": "dhcp", "mac": "72:bb:66:12:2a:94", "type": "ack", "address": "192.168.20.61", "server": "192.168.20.1", "router": "192.168.20.1", "dns": [ "192.168.20.1", "9.9.9.9" ], "host": null }
 dhcp discover, in: narrow keeps, wide keeps; reads { "kind": "dhcp", "mac": "72:bb:66:12:2a:94", "type": "discover", "address": null, "server": null, "router": null, "dns": [ ], "host": "Griffs-iPhone" }
+dhcp nak, out: narrow keeps, wide keeps; reads { "kind": "dhcp", "mac": "72:bb:66:12:2a:94", "type": "nak", "address": null, "server": "192.168.20.1", "router": null, "dns": [ ], "host": null }
 dns answer, out: narrow drops, wide keeps; reads { "kind": "dns", "id": 7, "answer": true, "name": "captive.apple.com", "type": "A", "rcode": "NOERROR", "records": 2, "mac": "72:bb:66:12:2a:94", "server": "192.168.20.1" }
 dns lookup over IPv6, in: narrow drops, wide keeps; reads { "kind": "dns", "id": 8, "answer": false, "name": "example.com", "type": "AAAA", "rcode": "NOERROR", "records": 0, "mac": "72:bb:66:12:2a:94", "server": "2001:db8:0:0:0:0:0:53", "own": "fe80:0:0:0:0:0:0:1" }
 dns lookup, in: narrow drops, wide keeps; reads { "kind": "dns", "id": 7, "answer": false, "name": "captive.apple.com", "type": "A", "rcode": "NOERROR", "records": 0, "mac": "72:bb:66:12:2a:94", "server": "192.168.20.1", "own": "192.168.20.61" }
@@ -116,5 +118,23 @@ gave up on its gateway and left: failed, stage gateway, 6000 ms, reason "192.168
   { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
   { "t": 200, "stage": "dhcp", "what": "given 192.168.20.61", "ok": true, "server": "192.168.20.1", "router": "192.168.20.1", "dns": "192.168.20.1 9.9.9.9" }
   { "t": 300, "stage": "gateway", "what": "asks who has 192.168.20.1, its gateway" }
+  { "t": 6000, "stage": "end", "what": "disconnected" }
+refused by DHCP and left: failed, stage dhcp, 1500 ms, reason "the DHCP server refused its request, and it left", address null, host "Griffs-iPhone"
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 200, "stage": "dhcp", "what": "asks for an address (discover)" }
+  { "t": 300, "stage": "dhcp", "what": "the server refused the request (nak)", "ok": false, "server": "192.168.20.1" }
+  { "t": 1500, "stage": "end", "what": "disconnected" }
+left a second after asking for its gateway: left, stage dhcp, 6000 ms, reason "disconnected", address "192.168.20.61", host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 100, "stage": "dhcp", "what": "uses 192.168.20.61, which it had already" }
+  { "t": 100, "stage": "gateway", "what": "asks who has 192.168.20.9" }
+  { "t": 5000, "stage": "dhcp", "what": "given 192.168.20.61", "ok": true, "server": "192.168.20.1", "router": "192.168.20.1", "dns": "192.168.20.1 9.9.9.9" }
+  { "t": 5100, "stage": "gateway", "what": "asks who has 192.168.20.1, its gateway" }
   { "t": 6000, "stage": "end", "what": "disconnected" }
 many steps: 48 kept, 12 more

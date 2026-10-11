@@ -427,8 +427,11 @@ function on_frame(a, p, at) {
 					step(a, at, 'dhcp', 'uses ' + p.address + ', which it had already', null);
 			}
 			if (p.what == 'ask' && (a.arp.asked == null || p.about == a.router)) {
+				// How long it waited is counted from its first asking for
+				// this address, not for one it asked for before.
+				if (a.arp.asked != p.about)
+					a.arp.at = at;
 				a.arp.asked = p.about;
-				a.arp.at ??= at;
 				step(a, at, 'gateway', 'asks who has ' + p.about + (p.about == a.router ? ', its gateway' : ''), null);
 			}
 		}
@@ -515,9 +518,10 @@ function record(a, at) {
 		outcome = 'online';
 	} else if (a.ended != null) {
 		// It left before it was seen online. That is a failure only where it
-		// had waited for an answer that never came; a client that goes of
-		// its own accord, as one that picks another AP, has failed nothing.
-		if (a.on != null && a.dhcp.asked > 0 && !a.dhcp.ack && a.ended - a.dhcp.first >= GAVE_UP_DHCP) {
+		// was refused, or had waited for an answer that never came; a client
+		// that goes of its own accord, as one that picks another AP, has
+		// failed nothing.
+		if (a.on != null && a.dhcp.asked > 0 && !a.dhcp.ack && (a.dhcp.nak || a.ended - a.dhcp.first >= GAVE_UP_DHCP)) {
 			outcome = 'failed';
 			stage = 'dhcp';
 			reason = no_dhcp + ', and it left';
