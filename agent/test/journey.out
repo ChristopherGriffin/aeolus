@@ -293,13 +293,36 @@ back, with no debug lines: connected, stage key, 31000 ms, reason "", address nu
   { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 30, "stage": "key", "what": "key handshake completed", "ok": true }
   how it came: { "on_ms": 30 }
+back, with its keys said in words alone: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 30, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "on_ms": 30 }
+begins an attempt: STA IEEE 802.11: authenticated
+begins an attempt: STA MLME: MLME-AUTHENTICATE.indication(72:bb:66:12:2a:94, OPEN_SYSTEM)
+begins an attempt: STA IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))
+begins an attempt: STA IEEE 802.11: associated (aid 1)
+begins nothing: STA WPA: sending 1/4 msg of 4-Way Handshake
+begins nothing: STA WPA: received EAPOL-Key frame (2/4 Pairwise)
+begins nothing: STA WPA: pairwise key handshake completed (RSN)
+begins nothing: EAPOL-4WAY-HS-COMPLETED 72:bb:66:12:2a:94
+begins nothing: AP-STA-CONNECTED auth_alg=open
+begins nothing: CTRL-EVENT-EAP-STARTED 72:bb:66:12:2a:94
+begins nothing: STA IEEE 802.1X: authenticated - EAP type: 25 (PEAP)
+begins nothing: STA IEEE 802.11: deauthenticated due to local deauth request
+begins nothing: AP-STA-DISCONNECTED 72:bb:66:12:2a:94
 a roam by fast transition: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated, by a fast transition from another AP (802.11r)", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 17, "stage": "key", "what": "let on to the network", "ok": true }
   { "t": 17, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
   { "t": 18, "stage": "key", "what": "its keys came with the fast transition: no handshake", "ok": true }
-  how it came: { "alg": "ft", "on_ms": 17, "re": true }
+  how it came: { "alg": "ft", "on_ms": 16, "re": true }
+back by a fast transition, to an AP that still held it: connected, stage assoc, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated, by a fast transition from another AP (802.11r)", "ok": true }
+  { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 17, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
+  how it came: { "alg": "ft", "on_ms": 16, "re": true }
 a roam by fast transition, with no debug lines: connected, stage key, 31000 ms, reason "", address null, host null
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 17, "stage": "key", "what": "let on to the network", "ok": true }
