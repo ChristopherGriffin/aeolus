@@ -19,7 +19,7 @@ tcp open, in: narrow drops, wide keeps; reads { "kind": "tcp", "mac": "72:bb:66:
 too short: narrow drops, wide drops; reads null
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "auth", "what": "authenticated", "ok": true }
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "assoc", "what": "associated", "ok": true }
-log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "let on to the network", "ok": true, "on": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "let on to the network", "ok": true, "on": true, "starts": true }
 log null
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "key handshake completed", "ok": true, "on": true }
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "key handshake completed", "ok": true, "on": true }
@@ -285,11 +285,27 @@ begins nothing: STA WPA: sending 1/4 msg of 4-Way Handshake
 begins nothing: STA WPA: received EAPOL-Key frame (2/4 Pairwise)
 begins nothing: STA WPA: pairwise key handshake completed (RSN)
 begins nothing: EAPOL-4WAY-HS-COMPLETED 72:bb:66:12:2a:94
-begins nothing: AP-STA-CONNECTED auth_alg=open
+begins an attempt: AP-STA-CONNECTED auth_alg=open
 begins nothing: CTRL-EVENT-EAP-STARTED 72:bb:66:12:2a:94
 begins nothing: STA IEEE 802.1X: authenticated - EAP type: 25 (PEAP)
 begins nothing: STA IEEE 802.11: deauthenticated due to local deauth request
 begins nothing: AP-STA-DISCONNECTED 72:bb:66:12:2a:94
+begins an attempt: STA RADIUS: Invalid VLAN 30 received from RADIUS server
+begins an attempt: STA RADIUS: invalid hex string (65 chars) in Tunnel-Password
+begins nothing: STA RADIUS: VLAN ID 30
+begins an attempt: CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER 72:bb:66:12:2a:94
+refused at authentication for the VLAN the server gave: failed, stage auth, 21000 ms, reason "it was never let on", address null, host null
+  { "t": 0, "stage": "signin", "what": "Invalid VLAN 30 received from RADIUS server" }
+authenticated, and silent: given up after 20 s false, after 21 s true
+signing in, and silent: given up after 21 s false, after 40 s false, after 41 s true
+a sign-in that waited 21 s for a second RADIUS server: connected, stage key, 52000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 10, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 20, "stage": "signin", "what": "sign-in started" }
+  { "t": 21500, "stage": "signin", "what": "the server accepted the sign-in", "ok": true }
+  { "t": 21520, "stage": "signin", "what": "signed in with PEAP", "ok": true }
+  { "t": 21560, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 21560, "stage": "key", "what": "key handshake completed", "ok": true }
 log time [1791742263.455]: 5000.455 s, 1791742263455
 log time [1791742263.494]: 5000.494 s, 1791742263494
 log time [1791742263.503]: 5000.503 s, 1791742263503

@@ -556,10 +556,37 @@ for (let line in [
 	`STA ${STA} IEEE 802.1X: authenticated - EAP type: 25 (PEAP)`,
 	`STA ${STA} IEEE 802.11: deauthenticated due to local deauth request`,
 	`AP-STA-DISCONNECTED ${STA}`,
+	// What is all hostapd says of a device it refuses at authentication
+	// for the RADIUS server's answer; what it says on every answer.
+	`STA ${STA} RADIUS: Invalid VLAN 30 received from RADIUS server`,
+	`STA ${STA} RADIUS: invalid hex string (65 chars) in Tunnel-Password`,
+	`STA ${STA} RADIUS: VLAN ID 30`,
+	`CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER ${STA}`,
 ]) {
-	let e = journey.log_event(`<31>Oct 11 12:43:13 hostapd: phy0-ap0: ${line}`);
+	// At info, as hostapd says each of these but the key messages.
+	let e = journey.log_event(`<${match(line, /msg of 4-Way|EAPOL-Key frame|MLME/) ? 31 : 30}>Oct 11 12:43:13 hostapd: phy0-ap0: ${line}`);
 	printf('%s: %s\n', e && journey.begins(e) ? 'begins an attempt' : 'begins nothing', replace(line, STA + ' ', ''));
 }
+// A device refused for the server's answer has that line for its record.
+a = journey.begin(who, 34000, 1791717000000);
+said(a, 34000, 30, `STA ${STA} RADIUS: Invalid VLAN 30 received from RADIUS server`);
+show('refused at authentication for the VLAN the server gave', a, 34021);
+
+// How long an attempt not yet let on is waited for with nothing said: 20 s,
+// and 40 s of one that is signing in, as hostapd goes over to a second
+// RADIUS server only after 21 s without the first's answer. Then the
+// sign-in completes, and the attempt is the client's, let on.
+a = journey.begin(who, 35000, 1791718000000);
+said(a, 35000.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+printf('authenticated, and silent: given up after 20 s %J, after 21 s %J\n', journey.due(a, 35020), journey.due(a, 35021.1));
+said(a, 35000.010, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 35000.020, 29, `CTRL-EVENT-EAP-STARTED ${STA}`);
+printf('signing in, and silent: given up after 21 s %J, after 40 s %J, after 41 s %J\n', journey.due(a, 35021.1), journey.due(a, 35040), journey.due(a, 35041.1));
+said(a, 35021.500, 29, `CTRL-EVENT-EAP-SUCCESS2 ${STA}`);
+said(a, 35021.520, 30, `STA ${STA} IEEE 802.1X: authenticated - EAP type: 25 (PEAP)`);
+said(a, 35021.560, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
+said(a, 35021.560, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+show('a sign-in that waited 21 s for a second RADIUS server', a, 35052);
 
 // When the log took a line in, on the daemon's clocks (logread -t): a line
 // logged 45 ms before the daemon took it up, one 6 ms before, one that
