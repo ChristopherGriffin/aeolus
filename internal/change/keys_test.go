@@ -87,10 +87,9 @@ func TestKeys(t *testing.T) {
 	// The trees can't strand a key: its VLAN, its network's security, or
 	// its network.
 	for name, op := range map[string]Op{
-		"its VLAN dropped":                  {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.keys.vlans", Value: json.RawMessage(`[101]`)},
-		"security changed":                  {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.security", Value: json.RawMessage(`"wpa3-sae"`)},
-		"passphrases from RADIUS turned on": {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.radius.passphrases", Value: json.RawMessage(`true`)},
-		"the network gone":                  {Kind: Unset, Tree: Services, Node: "household", Paths: []hierarchy.Path{"network.sweet.ssid", "network.sweet.security", "network.sweet.keys.vlans"}},
+		"its VLAN dropped": {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.keys.vlans", Value: json.RawMessage(`[101]`)},
+		"security changed": {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.security", Value: json.RawMessage(`"wpa3-sae"`)},
+		"the network gone": {Kind: Unset, Tree: Services, Node: "household", Paths: []hierarchy.Path{"network.sweet.ssid", "network.sweet.security", "network.sweet.keys.vlans"}},
 	} {
 		c := s.Clone()
 		if _, _, err := Apply(c, op); !errors.Is(err, ErrInUse) {
@@ -98,13 +97,28 @@ func TestKeys(t *testing.T) {
 		}
 	}
 	// A network that takes each device's passphrase from its RADIUS server
-	// (0115) takes no keys: with its last key gone it can be turned to that,
-	// and then a key is refused.
+	// (0115) has no keys, and a network with keys can't be turned to that.
+	// It is a rule for a new change (GuardIn): a log from before the rule
+	// may have both, and Apply, which replays it, takes either.
+	turn := Op{Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.radius.passphrases", Value: json.RawMessage(`true`)}
+	add := keyOp(AddKey, "household", "sweet", "x", `{"name":"X","passphrase":`+sealedPass+`}`)
+	if err := GuardIn(s, turn); !errors.Is(err, ErrInUse) || !strings.Contains(err.Error(), "unit-101") {
+		t.Errorf("passphrases from RADIUS turned on over a key: %v", err)
+	}
+	if err := GuardIn(s, add); err != nil {
+		t.Errorf("a key on a network with passphrases of its own: %v", err)
+	}
+	if err := GuardIn(s, Op{Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.hidden", Value: json.RawMessage(`true`)}); err != nil {
+		t.Errorf("another change to a network with keys: %v", err)
+	}
 	c := s.Clone()
-	mustApply(t, c, keyOp(RemoveKey, "household", "sweet", "unit-101", ``))
-	mustApply(t, c, Op{Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.radius.passphrases", Value: json.RawMessage(`true`)})
-	if _, _, err := Apply(c, keyOp(AddKey, "household", "sweet", "x", `{"name":"X","passphrase":`+sealedPass+`}`)); !errors.Is(err, ErrRADIUSKeys) {
+	mustApply(t, c, turn) // as a log from before the rule replays
+	if err := GuardIn(c, add); !errors.Is(err, ErrRADIUSKeys) {
 		t.Errorf("a key on a network with passphrases from RADIUS: %v", err)
+	}
+	mustApply(t, c, add) // and that, too
+	if err := GuardIn(c, keyOp(RemoveKey, "household", "sweet", "x", ``)); err != nil {
+		t.Errorf("taking a key off such a network: %v", err)
 	}
 	// A VLAN no key uses can go.
 	mustApply(t, s, Op{Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.keys.vlans", Value: json.RawMessage(`[102]`)})

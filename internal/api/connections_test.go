@@ -118,6 +118,20 @@ func TestClientConnections(t *testing.T) {
 	if err != nil || time.Since(at) > time.Minute {
 		t.Fatalf("started = %v %v", at, err)
 	}
+	// Sent again, as when the answer to the first was lost, it is still the
+	// one attempt: told apart by the start its AP gave, not the time it came.
+	if code, body := post(stale); code != 200 || body["recorded"] != float64(0) {
+		t.Fatalf("an unset clock, sent again: %d %v", code, body)
+	}
+
+	// One record with a field of another kind, and one with a field this
+	// manager does not know, are passed over; the good one beside them is kept.
+	wrong := map[string]any{"mac": "02:00:00:00:00:0b", "bss": "phy0-ap0", "started": "yesterday", "took_ms": 10, "outcome": "left", "stage": "auth", "reason": "", "events": []any{}}
+	newer := map[string]any{"mac": "02:00:00:00:00:0c", "bss": "phy0-ap0", "started": now, "took_ms": 10, "outcome": "left", "stage": "auth", "reason": "", "events": []any{}, "roamed_from": "ap-1"}
+	good := map[string]any{"mac": "02:00:00:00:00:0d", "bss": "phy0-ap0", "started": now, "took_ms": 10, "outcome": "left", "stage": "auth", "reason": "", "events": []any{}}
+	if code, body := post(wrong, newer, good); code != 200 || body["recorded"] != float64(1) || body["refused"] != float64(2) {
+		t.Fatalf("two that cannot be read and one that can: %d %v", code, body)
+	}
 
 	for name, change := range map[string]func(map[string]any){
 		"an outcome of its own": func(e map[string]any) { e["outcome"] = "won" },

@@ -242,15 +242,17 @@ function table(ctx, rows) {
 // Each band has a panel of its own, and in it each AP's channels open by
 // the arrow beside its name (Griff, 2026-10-10): one long table of every
 // AP's every channel was hard to read.
-export function ratingsSection(ctx, rows) {
-	return [...ratingsPanels(ctx, rows), movesPanel(ctx, rows)];
+export function ratingsSection(ctx, rows, own) {
+	return [...ratingsPanels(ctx, rows, own), movesPanel(ctx, rows)];
 }
 
 // The AP lists opened on the Ratings page, as '<band> <ap>', so a page
 // drawn again keeps them open.
 const opened = new Set();
 
-function ratingsPanels(ctx, rows) {
+// own says the page is an AP's own, where its lists start open; a folder
+// with one AP in it is still a folder.
+function ratingsPanels(ctx, rows, own) {
 	const note = 'lower is better; the rating is earned over many visits, now is the last few';
 	const apLink = (ap) => link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/ratings`, ap.name);
 	// What each AP has to show, or why it has nothing.
@@ -261,7 +263,7 @@ function ratingsPanels(ctx, rows) {
 		return { ap, report, r, why };
 	});
 	const panels = ['2g', '5g', '6g'].map((band) => {
-		const folds = of.filter((x) => !x.why).map((x) => ratingsFold(ctx, band, x, rows.length === 1)).filter(Boolean);
+		const folds = of.filter((x) => !x.why).map((x) => ratingsFold(ctx, band, x, !!own)).filter(Boolean);
 		return folds.length > 0 && h('section', { class: 'panel' },
 			h('h2', null, `${bandName(band)} channel ratings`, h('span', { class: 'note' }, note)),
 			folds);

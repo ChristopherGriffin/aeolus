@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -119,16 +120,18 @@ func (c connRecord) check() error {
 }
 
 // connections takes the attempts an AP reports: POST /v1/ap/connections,
-// {connections: [...]}, at most 64. Each is checked by itself, and one that
-// is not well formed is passed over, so it does not hold the others back;
-// the answer says how many were new and how many were refused, with the
-// first's reason. An attempt reported before is not kept twice. One whose
-// start is not near now, as from an AP whose clock is unset, is given the
-// time it came in.
+// {connections: [...]}, at most 64. Each is read and checked by itself, and
+// one that is not well formed, a field of another kind or one this manager
+// does not know among them, is passed over, so it does not hold the others
+// back; the answer says how many were new and how many were refused, with
+// the first's reason. An attempt reported before, by its AP, its client and
+// the start its AP gave, is not kept twice. One whose start is not near now,
+// as from an AP whose clock is unset, is taken to have begun when it came
+// in; it is still told apart by the start its AP gave.
 func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxConnections)
 	var req struct {
-		Connections []connRecord `json:"connections"`
+		Connections []json.RawMessage `json:"connections"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		return err
@@ -142,8 +145,17 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) e
 	now := time.Now()
 	var list []conditions.Connection
 	refused, why := 0, ""
-	for i, rec := range req.Connections {
-		if err := rec.check(); err != nil {
+	for _, one := range req.Connections {
+		var rec connRecord
+		dec := json.NewDecoder(bytes.NewReader(one))
+		dec.DisallowUnknownFields()
+		err := dec.Decode(&rec)
+		if err == nil {
+			err = rec.check()
+		} else {
+			err = badRequest("connections: %v", err)
+		}
+		if err != nil {
 			if refused++; why == "" {
 				why = err.Error()
 			}
@@ -151,16 +163,14 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request, c apCall) e
 		}
 		started := time.UnixMilli(rec.Started)
 		if started.After(now.Add(10*time.Minute)) || started.Before(now.Add(-7*24*time.Hour)) {
-			// Apart by a millisecond each, so two of one report stay two.
-			started = now.Add(time.Duration(i) * time.Millisecond)
-			rec.Started = started.UnixMilli()
+			started = now
 		}
 		raw, err := json.Marshal(rec)
 		if err != nil {
 			return err
 		}
 		list = append(list, conditions.Connection{
-			MAC: rec.MAC, Started: started, Network: rec.Network, SSID: rec.SSID, Band: rec.Band,
+			MAC: rec.MAC, Started: started, Said: rec.Started, Network: rec.Network, SSID: rec.SSID, Band: rec.Band,
 			Outcome: rec.Outcome, Stage: rec.Stage, Reason: rec.Reason, TookMS: rec.TookMS, Record: raw,
 			Host: rec.Host, Address: rec.Address,
 		})

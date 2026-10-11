@@ -63,6 +63,9 @@ func Check(sch *schema.Schema) func(*change.State, string, change.Op) error {
 		if err := change.Guard(op); err != nil {
 			return err
 		}
+		if err := change.GuardIn(state, op); err != nil {
+			return err
+		}
 		return sch.CheckOp(op)
 	}
 }
