@@ -682,7 +682,7 @@ func runOf(r testRecord) assuranceRun {
 
 // assurance is the client tests of the APs the caller may view, below one
 // Locations node where ?under= names it, over ?hours= (24 unless set, at
-// most 720): GET /v1/assurance. testers are the APs with a scan radio;
+// most 720): GET /v1/assurance. testers are the APs that can test, through the air or over the wire (0128);
 // checks, each thing one of them is asked for in turn, or was, or that is
 // failing, with what its tests come to and the latest 48 of them in brief
 // (runs), the failing first; tests, the latest 50 of them, by hand or on
@@ -764,7 +764,12 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 			Air: scanRadio(c.state, id), Wire: wire && canWire, CanWire: canWire})
 		if one, ok := s.rounds.of(t, id, now); ok {
 			if inRound == nil || one.At.After(inRound.At) {
-				inRound = &roundView{round: one, Name: name(one.Node)}
+				inRound = &roundView{round: one}
+				// A round asked at a folder above is named only to one who
+				// may view that folder, as the tree names it to no other.
+				if roleOn(c, change.Locations, t, one.Node) >= access.Viewer {
+					inRound.Name = name(one.Node)
+				}
 			}
 			if one.At.Equal(inRound.At) && one.Node == inRound.Node {
 				inRound.Of += len(could)

@@ -117,7 +117,7 @@ function joined(n) {
 // rounded says how a round of tests asked by hand is going (0129).
 function rounded(r, here) {
 	if (!r) return null;
-	const where = r.node === here ? '' : ` at ${r.name}`;
+	const where = r.node === here ? '' : r.name ? ` at ${r.name}` : ' above here';
 	const left = r.of - r.done;
 	return h('p', { class: 'sub' }, left > 0
 		? `A round of every test was asked${where} ${ago(r.at)} by ${r.by}: ${r.done} of ${many(r.of, 'thing')} tested${r.asked > r.done ? ', one under way' : ''}. Each AP takes them one at a time, about one a minute; what is not asked for within the hour is let go.`

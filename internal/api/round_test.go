@@ -79,6 +79,12 @@ func TestAssuranceRound(t *testing.T) {
 	if got := progress(); got != "House by griff: 0 asked, 0 done of 1" {
 		t.Fatalf("a round just asked: %s", got)
 	}
+	// One who may view the office and not the house sees the round, and is
+	// not told the name of the folder it was asked at.
+	_, part := f.do("GET", "/v1/assurance?under=office", "tenant", nil)
+	if r, ok := part["round"].(map[string]any); !ok || r["node"] != "house" || r["name"] != nil || r["of"] != float64(1) {
+		t.Fatalf("a round, to one who may not view where it was asked: %v", part["round"])
+	}
 
 	// The AP that can is asked, over the wire, though no folder asks for
 	// that on a schedule; and no second while the first is open.

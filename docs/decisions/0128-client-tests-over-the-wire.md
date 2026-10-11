@@ -20,17 +20,21 @@
 - **It is made from the AP itself,** of one of the networks it offers, however that is secured: it joins nothing.
 - **Where:** on the wire the network's clients' frames take from this AP.
   - **A network on a VLAN of the uplink's:** on the uplink's port the AP's traffic takes now (0096), with the VLAN's tag or without, as the port carries it (0064).
-  - **A network on a tunnel (0054):** on the tunnel's own device.
+  - **A network on a tunnel (0054):** on the tunnel's own device, whether the network has a fallback or the tunnel alone.
   - **A network with a fallback (0061):** on whichever of its transports is in its bridge now.
   - **Anything else is not tested,** and the result says why.
 - **From a MAC of the test's own:** `0e`, the last three bytes of the AP's MAC, and the VLAN's or the tunnel's number in four digits. Not one the prober uses (`02`, `06`, `0a`), so a test never gives back the prober's lease.
 - **What it does, each step timed:**
-  - **DHCP,** as a client: discover, offer, request, acknowledgement. It asks for its mask, router, DNS servers and lease, and to be answered by broadcast, having no address yet.
+  - **DHCP,** as a client: discover, offer, request, acknowledgement. It asks for its mask, router, DNS servers and lease, and to be answered by broadcast, having no address yet. Asked again, it says how long it has been asking, which a relay may wait on.
+  - **Whether the address is another's already:** an ARP probe from no address (RFC 5227), and three tenths of a second to hear an answer. One that someone answers for is turned down (DHCP decline), and the test has failed at DHCP: it would otherwise answer for the address too, and take the other's traffic.
   - **The gateway:** an ARP request for it, from the address given. Its answer, and how long it took, is the gateway being there. No ping: the test has no IP of its own to be pinged back at but its frames.
   - **A name looked up,** at the first DNS server the lease named: by ARP where that is on the same subnet, through the gateway where not. The datagram has its UDP checksum.
-  - **The address is given back** (DHCP release).
+  - **The address is given back** (DHCP release): straight to its server on the test's own subnet, through the gateway elsewhere. Its datagram has its checksum too.
 - **It answers ARP for the address while it holds it,** so that what answers it can find it.
 - **The AP takes no address and makes no interface.** The test is frames sent on a packet socket, and a filter that keeps only frames to the test's MAC, and of the broadcasts ARP and DHCP to a client. The clients' traffic on the same port never reaches it.
+- **The port takes frames to the test's MAC while the socket is open,** asked of the kernel as a unicast address of the socket's. A port in a bridge takes every frame anyway; one that is not would hear the broadcasts and none of the answers.
+- **Every wait ends,** however fast frames come: the time is looked at between frames, no more than a few of another VLAN's are read in a row, and ARP for the test's address is answered a few times in a wait and no more.
+- **An agent says it can only where it has the socket module** the test is made with (`ucode-mod-socket`), as for the prober (0059).
 - **Its result is a client test's** (0121), with `band` `wire`; `wire`, where it was made; no link, no BSSID; and the gateway's `arp_ms`. It passes and fails by the same rules: no address, a lease with no gateway or no DNS server, a gateway or a DNS server that does not answer.
 - **On a schedule (0123), where a folder says so:** `assurance.tests.wire`, off unless set. Then every AP below is a tester, and tests each network it offers over the wire, in its turn with what it tests through the air.
   - **A network that fails twice running is an alert on that AP,** as for the air, and says it was the wire.
@@ -47,6 +51,8 @@
 - **No speed is measured over the wire:** there is no TCP in it.
 - **The switch learns one more MAC on the AP's port for each VLAN tested,** as it does for every client.
 - **A network on the uplink with no VLAN at all is not tested yet:** the AP's own address is there.
+- **A DHCP server set to refuse locally administered MACs refuses the test's,** as it does the prober's (0060) and a phone's private address. Such a network fails at DHCP over the wire, and says so.
+- **The test's host name is `aeolus-test`,** as the scan radio's is (0121). A DHCP server that writes names into DNS writes that one, for the seconds the address is held.
 
 ## Tried
 
@@ -56,6 +62,8 @@
   - **The 2.0 s is the DHCP server's.** With no second discover sent, the offer still came at 2.0 s: it looks whether the address is free first. Through the air the same server answers the scan radio in 0.3 s, as it keeps that lease.
 
 - **On the office AP (an OpenWrt One) and the pumphouse AP (an R7800), by hand, the same day:** both networks passed on each, on VLAN 20 of `eth0` and of `wan`, a switch's port, and through the tunnel. Each showed the same 2.0 s for an address, and a gateway answering ARP in 2 to 5 ms.
+
+- **After a review, the same day,** with the probe for an address in use, the port asked for the test's MAC, and the release sent to its server's own MAC: both networks on the C-360 again, 2.4 s each. The DHCP server's table held no lease of any test's afterwards: every release had arrived.
 
 ## Not done here
 
