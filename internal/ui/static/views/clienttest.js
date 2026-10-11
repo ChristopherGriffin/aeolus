@@ -84,11 +84,12 @@ function found(d) {
 }
 
 // deaf says what the test did to the scan radio, where it left it hearing
-// nothing: bound again and hearing, which is only worth a note, or still
-// deaf, which someone has to see to.
+// nothing, or not seen to hear: bound again and hearing, which is only
+// worth a note, or still deaf, which someone has to see to.
 function deaf(radio) {
-	if (!radio?.deaf) return null;
-	const was = `After the test the scan radio heard nothing, where it heard ${radio.before} networks before.`;
+	if (!radio?.deaf && !radio?.unseen) return null;
+	const was = radio.unseen ? 'After the test airscan made no look to say the scan radio still hears.'
+		: `After the test the scan radio heard nothing, where it heard ${radio.before} networks before.`;
 	if (radio.again > 0)
 		return h('p', { class: 'sub' }, `${was} Its driver was bound again, and it hears ${radio.again}.`);
 	return h('div', { class: 'banner problems' }, `${was} ${radio.rebound ? 'Binding its driver again did not bring it back' : 'Its driver could not be bound again from here'}: until it is, on the AP, neither airscan nor another test can use it.`);
@@ -120,7 +121,7 @@ function opened(a) {
 		h('p', { class: 'sub attemptlinks' }, [
 			d.waited_ms > 1000 && `It waited ${took(d.waited_ms)} for the scan radio to be between its own jobs. `,
 			radio?.was_deaf && 'Before the test the scan radio heard nothing, so its driver was bound again first. ',
-			radio && !radio.deaf && `The scan radio heard ${radio.after} networks once it had it back and had swept the spectrum (${radio.before} before). `,
+			radio && !radio.deaf && !radio.unseen && `The scan radio heard ${radio.after} networks once it had it back and had swept the spectrum (${radio.before} before). `,
 			d.client && h('a', { href: '#', class: 'clientlink', title: 'The same join, as the AP it joined recorded it',
 				onclick: (e) => { e.preventDefault(); journeyPanel(other, d.client); } }, `What the AP it joined saw of ${d.client}`),
 		]),
