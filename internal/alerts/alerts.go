@@ -187,6 +187,14 @@ type report struct {
 		Server  string `json:"server"`
 		Verdict string `json:"verdict"`
 	} `json:"radius"`
+	Health *struct {
+		CPU          *int     `json:"cpu"`
+		MemTotal     int64    `json:"mem_total"`
+		MemAvailable int64    `json:"mem_available"`
+		StorageTotal int64    `json:"storage_total"`
+		StorageFree  int64    `json:"storage_free"`
+		Temp         *float64 `json:"temp"`
+	} `json:"health"`
 	Time *struct {
 		Synced *bool `json:"synced"`
 	} `json:"time"`
@@ -263,6 +271,27 @@ func fromReport(in Input, st *conditions.State) []Alert {
 	for _, net := range sortedKeys(r.DHCP) {
 		if d := r.DHCP[net]; d.Unanswered > 0 && d.Answered == 0 {
 			add(Warning, "dhcp-silent", net, fmt.Sprintf("DHCP on network %s: %d requests in the last 10 minutes, and nothing answered", net, d.Unanswered))
+		}
+	}
+	// The AP itself (0119): memory or storage nearly gone, a processor
+	// busy all through the time since its last report, or running hot.
+	if h := r.Health; h != nil {
+		if h.MemTotal > 0 {
+			switch free := 100 * h.MemAvailable / h.MemTotal; {
+			case free < 5:
+				add(Critical, "memory-low", "", fmt.Sprintf("%d%% of its memory is free: %d MB of %d", free, h.MemAvailable/1024, h.MemTotal/1024))
+			case free < 10:
+				add(Warning, "memory-low", "", fmt.Sprintf("%d%% of its memory is free: %d MB of %d", free, h.MemAvailable/1024, h.MemTotal/1024))
+			}
+		}
+		if h.StorageTotal > 0 && 100*h.StorageFree/h.StorageTotal < 5 {
+			add(Warning, "storage-low", "", fmt.Sprintf("%d%% of its storage is free: %d kB of %d; a config or an update may not fit", 100*h.StorageFree/h.StorageTotal, h.StorageFree, h.StorageTotal))
+		}
+		if h.CPU != nil && *h.CPU >= 90 {
+			add(Warning, "cpu-busy", "", fmt.Sprintf("its processor was %d%% busy over the time since its last report", *h.CPU))
+		}
+		if h.Temp != nil && *h.Temp >= 95 {
+			add(Warning, "hot", "", fmt.Sprintf("it runs at %.0f °C", *h.Temp))
 		}
 	}
 	// A RADIUS server that does not answer this AP (0114): no one can sign

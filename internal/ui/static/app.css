@@ -186,6 +186,14 @@ details.fold > table.list { margin-bottom: 8px; }
 .attemptlinks { padding: 0 20px 10px 38px; margin: 0; }
 p.pad { padding: 4px 20px 16px; margin: 0; }
 
+/* An AP's health (0119): its processor and memory as two lines. */
+.healthchart .cpu { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.healthchart .mem { fill: none; stroke: #8A6A2E; stroke-width: 1.6; }
+.healthchart .half { stroke: var(--line-2); stroke-dasharray: 3 4; }
+.swatch.cpu { background: var(--accent); }
+.swatch.mem { background: #8A6A2E; }
+td.nowrap { white-space: nowrap; }
+
 /* Changes */
 .change { display: grid; grid-template-columns: 70px 170px 110px minmax(0, 1fr); gap: 12px; padding: 10px 20px; border-top: 1px solid var(--line-2); font-size: 14px; align-items: baseline; }
 .change .seq { font-family: var(--mono); color: var(--muted); }

@@ -1304,6 +1304,72 @@ function agent_report() {
 	return out;
 }
 
+// What the processor had done when health_state last looked, for how busy
+// it has been since.
+let cpu_was = null;
+
+// health_state is how the AP itself is doing (0119): how busy its processor
+// was since the last report, in percent of all its cores, and how many it
+// has; its load; its memory, and the space left where its config is kept,
+// in kB; the hottest of its temperature sensors; how many processes it
+// runs; and its connection table. The first report of a run has no figure
+// for the processor: there is nothing yet to measure from.
+function health_state() {
+	let h = {};
+	let cores = 0, total = 0, idle = 0;
+	for (let line in split(fs.readfile('/proc/stat') ?? '', '\n')) {
+		let f = split(trim(line), /[ \t]+/);
+		if (f[0] == 'cpu') {
+			for (let i = 1; i < length(f) && i <= 8; i++)
+				total += int(f[i]);
+			idle = int(f[4]) + int(f[5] ?? '0');   // idle, and waiting on storage
+		} else if (match(f[0] ?? '', /^cpu[0-9]+$/))
+			cores++;
+	}
+	if (cores)
+		h.cores = cores;
+	if (total > 0) {
+		if (cpu_was && total > cpu_was.total)
+			h.cpu = max(0, min(100, int(100 - 100.0 * (idle - cpu_was.idle) / (total - cpu_was.total) + 0.5)));
+		cpu_was = { total: total, idle: idle };
+	}
+	let l = split(read('/proc/loadavg') ?? '', ' ');
+	if (length(l) >= 3)
+		h.load = map(slice(l, 0, 3), x => +x);
+	let mem = {};
+	for (let line in split(fs.readfile('/proc/meminfo') ?? '', '\n')) {
+		let m = match(line, /^(MemTotal|MemAvailable|MemFree|Buffers|Cached):[ \t]+([0-9]+) kB/);
+		if (m)
+			mem[m[1]] = int(m[2]);
+	}
+	if (mem.MemTotal) {
+		h.mem_total = mem.MemTotal;
+		h.mem_available = min(mem.MemTotal, mem.MemAvailable ?? (mem.MemFree ?? 0) + (mem.Buffers ?? 0) + (mem.Cached ?? 0));
+	}
+	// /overlay holds its config and what was installed since; an image
+	// without one keeps them on /.
+	let d = match(run('df -k /overlay 2>/dev/null || df -k / 2>/dev/null'), /\n[^\n ]+[ \t]+([0-9]+)[ \t]+[0-9]+[ \t]+([0-9]+)[ \t]/);
+	if (d && int(d[2]) <= int(d[1])) {
+		h.storage_total = int(d[1]);
+		h.storage_free = int(d[2]);
+	}
+	let hot = null;
+	for (let z in fs.glob('/sys/class/thermal/thermal_zone*/temp') ?? []) {
+		let t = int(read(z) ?? '');
+		if (t > 0 && t < 200000 && (hot == null || t > hot))
+			hot = t;
+	}
+	if (hot != null)
+		h.temp = int(hot / 100 + 0.5) / 10.0;
+	h.procs = length(fs.glob('/proc/[0-9]*') ?? []);
+	let c = int(read('/proc/sys/net/netfilter/nf_conntrack_count') ?? ''), cm = int(read('/proc/sys/net/netfilter/nf_conntrack_max') ?? '');
+	if (cm > 0 && c >= 0) {
+		h.conntrack = c;
+		h.conntrack_max = cm;
+	}
+	return h;
+}
+
 // state_report is what the AP tells the manager about itself (0039).
 function state_report(running) {
 	let b = bus.call('system', 'board') ?? {};
@@ -1369,6 +1435,8 @@ function state_report(running) {
 	let clients = probes()?.clients;
 	if (clients && length(clients))
 		report.clients = slice(clients, 0, 256);
+	// How the AP itself is doing (0119).
+	report.health = health_state();
 	// The RADIUS servers its networks sign clients in against, as the prober
 	// finds them (0114).
 	let radius = probes()?.radius;

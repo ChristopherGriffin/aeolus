@@ -248,8 +248,12 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 }
 
 // TrimConnections deletes the attempts begun more than keep ago, and
-// returns how many. The clients themselves are kept.
+// returns how many; and what happened to the APs themselves that long ago
+// (0119), which is kept as long. The clients themselves are kept.
 func (s *Store) TrimConnections(keep time.Duration) (int64, error) {
+	if _, err := s.db.Exec(`DELETE FROM ap_events WHERE at < ?`, s.now().Add(-keep).UnixMilli()); err != nil {
+		return 0, err
+	}
 	res, err := s.db.Exec(`DELETE FROM connections WHERE started < ?`, s.now().Add(-keep).UnixMilli())
 	if err != nil {
 		return 0, err

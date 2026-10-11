@@ -15,8 +15,9 @@ import { renameButton } from './rename.js';
 import { moveButton } from './move.js';
 import { actionsPanel } from './actions.js';
 import { usagePanel } from './usage.js';
+import { healthTab } from './health.js';
 
-const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['system', 'System']];
+const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['health', 'Health'], ['system', 'System']];
 
 export async function apPage(ctx, id, tab, sub, view) {
 	const enc = encodeURIComponent(id);
@@ -70,6 +71,7 @@ export async function apPage(ctx, id, tab, sub, view) {
 	} else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, thisAP, edit));
 	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 	else if (tab === 'clients') main.push(await clientsTab(ctx, page, thisAP));
+	else if (tab === 'health') main.push(await healthTab(ctx, id));
 	else main.push(await systemSection(ctx, id, page, edit));
 	const keep = tab === 'overview' ? '' : keepPath(tab, sub, view);
 	return { aside: treeAside(ctx, 'locations', id, fleetMap(fleet.aps), keep), main, refresh: 30 };

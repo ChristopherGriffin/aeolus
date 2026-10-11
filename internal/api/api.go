@@ -85,6 +85,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/clients/{mac}/connections", s.auth(s.clientConnections))
 	mux.Handle("GET /v1/aps/{ap}/config", s.auth(s.apConfig))
 	mux.Handle("GET /v1/aps/{ap}/history", s.auth(s.apHistory))
+	mux.Handle("GET /v1/aps/{ap}/health", s.auth(s.apHealthView))
+	mux.Handle("GET /v1/aps/{ap}/timeline", s.auth(s.apTimeline))
 	mux.Handle("GET /v1/aps/{ap}/actions", s.auth(s.actionList))
 	mux.Handle("POST /v1/aps/{ap}/actions", s.auth(s.addAction))
 	mux.Handle("GET /v1/changes", s.auth(s.changes))

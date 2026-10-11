@@ -207,6 +207,8 @@ type stateReport struct {
 	Clients []wifiClient `json:"clients,omitempty"`
 	// The RADIUS servers its networks sign clients in against (0114).
 	Radius []radiusState `json:"radius,omitempty"`
+	// How the AP itself is doing: processor, memory, storage, heat (0119).
+	Health *apHealth `json:"health,omitempty"`
 	// Its clock (0069).
 	Time *timeState `json:"time,omitempty"`
 	// The per-user keys it has (0070): their version, and how many.
@@ -1258,6 +1260,9 @@ func (st *stateReport) check() error {
 	if len(st.Radius) > 64 {
 		return badRequest("radius: at most 64")
 	}
+	if err := st.Health.check(); err != nil {
+		return err
+	}
 	for _, r := range st.Radius {
 		if err := r.check(); err != nil {
 			return err
@@ -1359,7 +1364,12 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 		return err
 	}
 	moved := clientsMoved(prev, time.Now(), req.Clients)
+	// What happened to it since its last report, and how it is doing (0119).
+	happened := changes(prev, time.Now(), &req)
 	if err := s.conds.RecordState(c.ap, req.Version, report); err != nil {
+		return err
+	}
+	if err := s.conds.RecordHealth(c.ap, req.point(), happened); err != nil {
 		return err
 	}
 	if err := s.conds.RecordUse(c.ap, len(req.Clients), moved); err != nil {
