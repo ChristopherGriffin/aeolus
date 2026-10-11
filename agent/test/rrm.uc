@@ -118,6 +118,10 @@ printf('in window %J %J %J %J %J %J %J\n', rrm.in_window([120, 300], 150), rrm.i
 printf('switch 2g 6 %J\n', rrm.switch_args('2g', 6, 20, 'HT20', 10));
 printf('switch 2g 11 he %J\n', rrm.switch_args('2g', 11, 20, 'HE20', 10));
 printf('switch 2g 11 40 %J\n', rrm.switch_args('2g', 11, 40, 'HT40', 10));
+// At 40 MHz a 2.4 GHz channel is joined with the one four above for 1 to 6,
+// four below from 7 up, as OpenWrt joins a set channel (0117).
+printf('switch 2g 6 40 %J\n', rrm.switch_args('2g', 6, 40, 'HT40', 10));
+printf('switch 2g 7 40 %J\n', rrm.switch_args('2g', 7, 40, 'HT40', 10));
 printf('switch 5g 36 he40 %J\n', rrm.switch_args('5g', 36, 40, 'HE40', 10));
 printf('switch 5g 40 vht40 %J\n', rrm.switch_args('5g', 40, 40, 'VHT40', 10));
 printf('switch 5g 157 vht80 %J\n', rrm.switch_args('5g', 157, 80, 'VHT80', 10));

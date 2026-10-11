@@ -434,7 +434,9 @@ function switch_args(band, channel, width, mode, count) {
 	if (band == '2g') {
 		if (w != 40 || channel < 1 || channel > 13)
 			return null;
-		a.sec_channel_offset = channel <= 7 ? 1 : -1;
+		// With the channel four above for 1 to 6, four below from 7 up, as
+		// OpenWrt joins a set channel (0117).
+		a.sec_channel_offset = channel < 7 ? 1 : -1;
 		a.center_freq1 = f + 10 * a.sec_channel_offset;
 		return a;
 	}

@@ -205,7 +205,8 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "channel": { "oneOf": [{ "const": "auto" }, { "type": "integer", "minimum": 1, "maximum": 14 }] },
-        "channels": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 13 }, "uniqueItems": true, "minItems": 1, "maxItems": 13, "description": "The channels an automatic channel may be (0075). Unset, 1, 6 and 11." },
+        "channels": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 13 }, "uniqueItems": true, "minItems": 1, "maxItems": 13, "description": "The channels an automatic channel may be (0075). Unset, 1, 6 and 11. At 40 MHz a channel is joined with the one four above it, from 1 to 6, or four below, from 7 up (0117)." },
+        "non_overlapping": { "type": "boolean", "description": "Keep an automatic channel to those of the set far enough apart not to overlap at the width (0117): five apart at 20 MHz, as 1, 6 and 11 are; at 40 MHz, where 2.4 GHz has room for one, or for two where channels 12 and 13 may be used. Unset, any of the set." },
         "width": { "enum": [20, 40], "description": "MHz." },
         "power": { "$ref": "#/$defs/power" },
         "modes": { "type": "array", "items": { "enum": ["b", "g", "n", "ax", "be"] }, "uniqueItems": true, "minItems": 1, "description": "The 802.11 generations clients may use, one unbroken run (0089): the oldest is the least a client must support (OpenWrt's require_mode), the newest caps the mode the radio runs. 802.11b is its 1–11 Mbit/s rates (legacy_rates). Unset, every one the radio can do but 802.11b, which OpenWrt leaves off." },

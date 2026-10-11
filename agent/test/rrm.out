@@ -59,6 +59,8 @@ in window true false true true false true false
 switch 2g 6 { "freq": 2437, "center_freq1": 2437, "bandwidth": 20, "sec_channel_offset": 0, "ht": true, "vht": false, "he": false, "bcn_count": 10 }
 switch 2g 11 he { "freq": 2462, "center_freq1": 2462, "bandwidth": 20, "sec_channel_offset": 0, "ht": true, "vht": false, "he": true, "bcn_count": 10 }
 switch 2g 11 40 { "freq": 2462, "center_freq1": 2452, "bandwidth": 40, "sec_channel_offset": -1, "ht": true, "vht": false, "he": false, "bcn_count": 10 }
+switch 2g 6 40 { "freq": 2437, "center_freq1": 2447, "bandwidth": 40, "sec_channel_offset": 1, "ht": true, "vht": false, "he": false, "bcn_count": 10 }
+switch 2g 7 40 { "freq": 2442, "center_freq1": 2432, "bandwidth": 40, "sec_channel_offset": -1, "ht": true, "vht": false, "he": false, "bcn_count": 10 }
 switch 5g 36 he40 { "freq": 5180, "center_freq1": 5190, "bandwidth": 40, "sec_channel_offset": 1, "ht": true, "vht": true, "he": true, "bcn_count": 10 }
 switch 5g 40 vht40 { "freq": 5200, "center_freq1": 5190, "bandwidth": 40, "sec_channel_offset": -1, "ht": true, "vht": true, "he": false, "bcn_count": 10 }
 switch 5g 157 vht80 { "freq": 5785, "center_freq1": 5775, "bandwidth": 80, "sec_channel_offset": 1, "ht": true, "vht": true, "he": false, "bcn_count": 10 }

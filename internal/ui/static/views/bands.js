@@ -82,11 +82,32 @@ function block(band, ch, width) {
 	return b ? step(b[0], b[1], 4) : null;
 }
 
+// pair2g is the channel a 2.4 GHz channel is joined with at 40 MHz (0117):
+// four above for 1 to 6, four below from 7 up, as OpenWrt joins a set one.
+const pair2g = (c) => (c < 7 ? c + 4 : c - 4);
+
+// takes is the channels a radio on ch takes up at width: its block, or on
+// 2.4 GHz at 40 MHz, the channel and the one it is joined with. Null where
+// no block at that width holds it.
+function takes(band, ch, width) {
+	return band === '2g' && width > 20 ? [ch, pair2g(ch)].sort((a, b) => a - b) : block(band, ch, width);
+}
+
 // usable is what the APs may go to from a set, as internal/radio's Usable
 // has it: the set's whole blocks, outside DFS where it is not allowed; on
 // 6 GHz, with onlyPSC, preferred scanning channels alone, and with spread,
-// one channel a block.
+// one channel a block. 2.4 GHz has no blocks: there spread keeps the
+// channels that do not overlap at the width, from the lowest (0117), five
+// apart at 20 MHz, and at 40 MHz their middles eight apart.
 function usable(band, chosen, width, noDFS, onlyPSC, spread) {
+	if (band === '2g') {
+		const list = [...chosen].sort((a, b) => a - b);
+		if (!spread) return list;
+		const middle = (c) => (width > 20 ? c + pair2g(c) : 2 * c), gap = width > 20 ? 16 : 10;
+		const kept = [];
+		for (const c of list) if (!kept.length || middle(c) - middle(kept[kept.length - 1]) >= gap) kept.push(c);
+		return kept;
+	}
 	const out = [];
 	const seen = new Set();
 	for (const c of [...chosen].sort((a, b) => a - b)) {
@@ -204,12 +225,12 @@ function bandPanel(at, band, b) {
 	const width = () => d.width ?? apsWidth;
 	const noDFS = () => band === '5g' && d.dfs === 'avoid';
 	const onlyPSC = () => band === '6g' && d.psc === true;
-	const spread = () => band === '6g' && d.non_overlapping === true;
+	const spread = () => (band === '6g' || band === '2g') && d.non_overlapping === true;
 
 	// The APs on each channel now.
 	const on = new Map();
 	for (const { ap, r } of reports)
-		for (const c of (r.channel && block(band, r.channel, r.width || 20)) || []) {
+		for (const c of (r.channel && takes(band, r.channel, r.width || 20)) || []) {
 			if (!on.has(c)) on.set(c, []);
 			on.get(c).push(ap.name);
 		}
@@ -256,6 +277,8 @@ function bandPanel(at, band, b) {
 		band === '6g' && tick('psc', 'Preferred scanning channels only', 'Clients look for 6 GHz networks on 5, 21, 37 and every 16th to 229 by themselves; elsewhere only where another band’s beacons send them (0087).',
 			() => d.psc === true, (v) => { d.psc = v; }),
 		band === '6g' && tick('non_overlapping', 'One channel a block', 'Each block of the width offers one channel, so radios that pick different channels never share a block (0087).',
+			() => d.non_overlapping === true, (v) => { d.non_overlapping = v; }),
+		band === '2g' && tick('non_overlapping', 'Only channels that do not overlap', 'Of the channels picked, the APs go only to ones far enough apart not to overlap: five apart at 20 MHz, as 1, 6 and 11 are. At 40 MHz 2.4 GHz has room for one, or two where channels 12 and 13 may be used (0117).',
 			() => d.non_overlapping === true, (v) => { d.non_overlapping = v; }),
 	].filter(Boolean);
 
@@ -390,7 +413,11 @@ function bandPanel(at, band, b) {
 		const manual = d.mode === 'manual';
 		const goes = new Set(manual ? [] : usable(band, d.channels, width(), noDFS(), onlyPSC(), spread()));
 		const marked = !manual && (onlyPSC() || spread());
-		const picked = manual && d.channel != null ? new Set(block(band, d.channel, width()) || []) : new Set();
+		const picked = manual && d.channel != null ? new Set(takes(band, d.channel, width()) || []) : new Set();
+		// On 2.4 GHz at 40 MHz each channel is joined with another (0117):
+		// the ones the picked channels are joined with are shown as taken.
+		const forty = band === '2g' && width() > 20;
+		const joined = new Set(forty && !manual ? [...(marked ? goes : d.channels)].map(pair2g) : []);
 		map.replaceChildren(...ranges(band, country).map((list) => {
 			const groups = [];
 			for (const c of list) {
@@ -402,7 +429,7 @@ function bandPanel(at, band, b) {
 			}
 			return h('div', { class: 'chrange' }, groups.map((g, i) => {
 				const all = !manual && g.whole && g.whole.every((c) => d.channels.has(c));
-				const some = !manual && g.whole && !all && g.whole.some((c) => d.channels.has(c));
+				const some = !manual && g.whole && !all && (g.whole.some((c) => d.channels.has(c)) || g.whole.some((c) => joined.has(c)));
 				const off = !g.whole || (noDFS() && g.whole.some((c) => radar(band, c))) || (onlyPSC() && !g.whole.some(psc));
 				return h('div', { class: `chblock ${width() > 20 && band !== '2g' && i % 2 ? 'b' : 'a'}` }, g.chans.map((c) => {
 					const aps = on.get(c) || [];
@@ -420,6 +447,7 @@ function bandPanel(at, band, b) {
 						class: `ch${isOn ? ' on' : ''}${some ? ' part' : ''}${can ? '' : ' off'}${radar(band, c) ? ' dfs' : ''}${band === '6g' && psc(c) ? ' psc' : ''}${(marked && goes.has(c)) || (manual && d.channel === c) ? ' goes' : ''}`,
 						disabled: d.mode === 'unset' || !editable(manual ? 'channel' : 'channels') || !can,
 						title: [why, band === '6g' && psc(c) && 'Preferred scanning channel', manual && d.channel === c && 'The channel',
+							forty && `At 40 MHz, with channel ${pair2g(c)}`, forty && !isOn && joined.has(c) && 'Taken by a channel picked',
 							marked && goes.has(c) && 'The APs go to this channel', aps.length && `Now: ${aps.join(', ')}`].filter(Boolean).join(' · '),
 						onclick: () => {
 							if (manual) d.channel = c;
@@ -443,7 +471,7 @@ function bandPanel(at, band, b) {
 			? `No whole ${width()} MHz block${onlyPSC() ? ' with a preferred scanning channel' : ''} is picked: the APs would have nowhere to go.` : '';
 		modeSel.value = d.mode;
 		modeNote.textContent = manual ? 'click the one channel on the map'
-			: d.mode === 'auto' ? 'click blocks on the map to pick the channels it may be'
+			: d.mode === 'auto' ? (band === '2g' ? 'click the channels on the map it may be' : 'click blocks on the map to pick the channels it may be')
 				: 'the map is for an automatic or manual channel set here';
 		dbm.hidden = powerSel.value !== 'manual';
 		drawModes();
@@ -494,7 +522,7 @@ function bandPanel(at, band, b) {
 				: k === 'short_gi' ? (v ? 'short, 400 ns' : 'long, 800 ns') : k === 'he_gi' ? (v === 'auto' ? 'automatic' : `${v / 1000} µs`)
 					: k === 'min_signal' ? (v === 'off' ? 'off: any client may join' : `${v} dBm`) : k === 'beacon_interval' ? `${v} TU`
 					: typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v));
-		const names = { enabled: 'Radio on', width: 'Width', channel: 'Channel', channels: 'Channels it may be', dfs: 'DFS channels', psc: 'Preferred scanning channels only', non_overlapping: 'One channel a block', power: 'Power', modes: 'Protocols', short_gi: `Guard interval, ${htKind}`, he_gi: 'Guard interval, 802.11ax', min_signal: 'Minimum signal to join', beacon_interval: 'Beacon interval' };
+		const names = { enabled: 'Radio on', width: 'Width', channel: 'Channel', channels: 'Channels it may be', dfs: 'DFS channels', psc: 'Preferred scanning channels only', non_overlapping: band === '2g' ? 'Only channels that do not overlap' : 'One channel a block', power: 'Power', modes: 'Protocols', short_gi: `Guard interval, ${htKind}`, he_gi: 'Guard interval, 802.11ax', min_signal: 'Minimum signal to join', beacon_interval: 'Beacon interval' };
 		const radarNow = paths.some((x) => x.endsWith('.dfs')) && values[`radio.${band}.dfs`] === 'allow';
 		confirm(ctx, box, op, p, [
 			h('div', null, h('strong', null, `${bandName(band)} on ${nodeName}`)),
