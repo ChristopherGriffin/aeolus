@@ -446,19 +446,24 @@ function clear(band, members, states) {
 	return true;
 }
 
-// barred says whether a block is one a radio left of late, or did not get
-// to (0120), by its moves ([{ band, from, to, why, state, at }], at in Unix
-// seconds) within BARRED_FOR of wall: it moved off one of the block's
-// channels for a reason, radar found there among them, or a move to one
-// failed. Such a block is left alone for a day, so a radio does not go
-// back and forth.
-function barred(moves, band, members, wall) {
-	for (let m in moves ?? []) {
-		if (m?.band != band || type(m.at) != 'int' || wall - m.at >= BARRED_FOR)
-			continue;
-		if (m.state == 'failed' && index(members, m.to) >= 0)
-			return true;
-		if (m.state == 'moved' && m.why != 'start' && index(members, m.from) >= 0)
+// bar shuts a radio out of the channels shared with radar among channels
+// (0120), for BARRED_FOR from wall, in Unix seconds: a block it left for a
+// reason, radar found there among them, or did not get to. shut holds, by
+// '<band> <channel>', when each opens again, and is returned. It is kept
+// apart from the moves, which are the last few of every kind.
+function bar(shut, band, channels, wall) {
+	for (let c in channels ?? [])
+		if (radar(band, c))
+			shut[band + ' ' + c] = wall + BARRED_FOR;
+	return shut;
+}
+
+// barred says whether any of a block's channels is shut at wall (bar).
+// Such a block is left alone, so a radio does not go back and forth.
+function barred(shut, band, members, wall) {
+	for (let c in members ?? []) {
+		let until = shut?.[band + ' ' + c];
+		if (type(until) == 'int' && until > wall)
 			return true;
 	}
 	return false;
@@ -596,7 +601,7 @@ function power_step(signals, wanted, target, power, ceiling) {
 // that follows an exported function declaration.
 export {
 	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW, SUDDEN, NEAR, WINDOW, MARGIN, APC_STEP, APC_FLOOR, APC_ABOVE,
-	CAC_MOST, DFS_LOOKS, BARRED_FOR, dfs_states, clear, barred, fallback, radar_reason, wanted,
+	CAC_MOST, DFS_LOOKS, BARRED_FOR, dfs_states, clear, bar, barred, fallback, radar_reason, wanted,
 	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits,
 	printable, swept, around, weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args, power_step
 };

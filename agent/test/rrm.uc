@@ -227,22 +227,17 @@ printf('clear: free to check %J, a long check %J, radar found %J, not allowed %J
 printf('clear: checked %J, no radar there %J, outside radar %J, nothing known %J\n',
 	rrm.clear('5g', [132], states), rrm.clear('5g', [144], states), rrm.clear('5g', [36, 40], states), rrm.clear('5g', [100, 104], null));
 
-// A block a radio left for a reason, or did not get to, is left alone for
-// a day; one it only started on is not, nor one left longer ago.
+// A block a radio left for a reason, or did not get to, is shut for a day,
+// by its channels shared with radar: any block with one of them is barred,
+// at whatever width. Channels outside radar are never shut.
 let wall = 1791700000;
-let went = [
-	{ band: '5g', from: 36, to: 100, why: 'better', state: 'moved', at: wall - 7200 },
-	{ band: '5g', from: 100, to: 36, why: 'interference', state: 'moved', at: wall - 3600 },
-	{ band: '5g', from: 36, to: 132, why: 'better', state: 'failed', at: wall - 600 },
-	{ band: '5g', from: 60, to: 44, why: 'radar', state: 'moved', at: wall - 60 },
-	{ band: '5g', from: 52, to: 36, why: 'start', state: 'moved', at: wall - 60 },
-	{ band: '5g', from: 116, to: 36, why: 'better', state: 'moved', at: wall - 90000 },
-	{ band: '5g', from: 108, to: 36, why: 'better', state: 'withdrawn', at: wall - 60 },
-	{ band: '2g', from: 124, to: 1, why: 'better', state: 'moved', at: wall - 60 },
-];
-printf('barred: left %J, did not get there %J, radar %J\n', rrm.barred(went, '5g', [100, 104], wall), rrm.barred(went, '5g', [132, 136], wall), rrm.barred(went, '5g', [60, 64], wall));
-printf('barred: started on %J, long ago %J, withdrawn %J, another band %J, gone to and still there %J\n', rrm.barred(went, '5g', [52, 56], wall),
-	rrm.barred(went, '5g', [116, 120], wall), rrm.barred(went, '5g', [108, 112], wall), rrm.barred(went, '5g', [124, 128], wall), rrm.barred([went[0]], '5g', [100, 104], wall));
+let shut = rrm.bar({}, '5g', [100, 104], wall - 3600);
+rrm.bar(shut, '5g', [132], wall - 90000);
+rrm.bar(shut, '5g', [36, 40], wall);
+printf('shut %J\n', shut);
+printf('barred: shut an hour ago %J, at 80 MHz %J, a day and an hour ago %J, never %J, outside radar %J, another band %J, nothing shut %J\n',
+	rrm.barred(shut, '5g', [100, 104], wall), rrm.barred(shut, '5g', [100, 104, 108, 112], wall), rrm.barred(shut, '5g', [132, 136], wall),
+	rrm.barred(shut, '5g', [52, 56], wall), rrm.barred(shut, '5g', [36, 40], wall), rrm.barred(shut, '2g', [100], wall), rrm.barred(null, '5g', [100], wall));
 
 // Where a radio steps off to when it does not know where it came from.
 printf('fallback %J %J %J %J %J %J\n', rrm.fallback('5g', 20, null), rrm.fallback('5g', 40, [44, 48, 100, 104]), rrm.fallback('5g', 80, [149, 153, 157, 161]),
