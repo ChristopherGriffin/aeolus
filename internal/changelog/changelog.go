@@ -367,7 +367,9 @@ type fingerprint struct {
 // the library. A change that only moves where a value comes from (a break,
 // for example) does not change the AP's config; a new address for a
 // concentrator it uses does, and so does the AP moving in or out of that
-// concentrator's scope.
+// concentrator's scope. What the AP says it is is among it (0122): its
+// config is checked against its radios, and it renders for the ones it has,
+// so one that says it is something else takes its config up again.
 func fingerprints(s *change.State) map[hierarchy.NodeID]fingerprint {
 	out := map[hierarchy.NodeID]fingerprint{}
 	if s == nil {
@@ -384,6 +386,9 @@ func fingerprints(s *change.State) map[hierarchy.NodeID]fingerprint {
 		// Its name is its hostname, in its config (0076).
 		if n, ok := o.Locations.Node(ap); ok {
 			v["name"] = n.Name
+		}
+		if f := s.Facts[ap]; len(f) > 0 {
+			v["facts"] = string(f)
 		}
 		for p, r := range cfg.Location {
 			v["location/"+string(p)] = r.Value

@@ -27,6 +27,8 @@
   - **It must be the AP's own:** under its token, with the MAC it enrolled with.
   - **Where it enrolled from stays.** The address in its facts is where it first called from, not where it calls from now.
   - **Nothing else of the AP changes:** its place, its name and its token stay.
+  - **Its config becomes a new version,** though no setting changed: the manager checks it against the radios the AP now says it has, and the AP renders it for them.
+  - **A board no template is for gets its template,** as an adopted AP's does (0085).
 - **What an AP is may change once in ten minutes.** Sooner, the manager answers `429`, and the agent says it again at its next look. So a radio that comes and goes fills no log.
 - **No person makes this change.** `facts` through `POST /v1/changes` is refused, as `enroll` is.
 - **The AP's page says which radio is a scan radio,** with its radios.
@@ -35,7 +37,7 @@
 ## Consequences
 
 - **The manager's picture of an AP follows the AP,** within about ten minutes: its template, the checks of its settings, and what its page offers.
-- **A change of facts can change an AP's config,** where a setting was held or refused for what the radio could not do, or where the board is another. The AP takes it up as any new version.
+- **An AP takes its config up again each time it says it is something else:** a render, the manager's check, and an apply that changes nothing where the config comes out the same. Where a setting was refused for what a radio could not do, or the board is another, it comes out different.
 - **The change log has an entry each time,** by `aeolus`: "the AP said what it is again". A rename by a person (0076) is followed by one, as the hostname is among the facts.
 - **An AP on an older agent says nothing again,** and stays as it enrolled. An older manager answers `404`, and the agent does not ask it again until it starts again.
 - **The lab's C-360 gets its Client tests** once its agent has said `radio2` is a scan radio.

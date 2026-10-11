@@ -226,6 +226,7 @@ func (s *Server) apFacts(w http.ResponseWriter, r *http.Request, c apCall) error
 		return err
 	}
 	slog.Info("facts changed", "ap", c.ap)
+	NewKinds(s.log) // another board, perhaps: a kind of AP with no template yet (0085)
 	writeJSON(w, http.StatusOK, map[string]any{"changed": true})
 	return nil
 }
