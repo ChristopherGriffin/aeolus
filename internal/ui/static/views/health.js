@@ -134,7 +134,7 @@ function chart(hl) {
 // The kinds of thing that happen to an AP, as they are named.
 const KIND = {
 	restart: 'Restart', silence: 'Silence', agent: 'Agent', firmware: 'Firmware', radio: 'Radio', channel: 'Channel',
-	uplink: 'Uplink', first: 'First report', config: 'Config', alert: 'Alert', action: 'Asked to',
+	uplink: 'Uplink', first: 'First report', config: 'Config', alert: 'Alert', action: 'Asked to', 'scan-radio': 'Scan radio',
 };
 const SEVERITY = { critical: 'bad', warning: 'warn', info: 'idle' };
 
