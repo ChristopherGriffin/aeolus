@@ -79,6 +79,15 @@ type connRecord struct {
 	Host    string      `json:"host,omitempty"`
 	Signal  *int        `json:"signal,omitempty"`
 	Probes  []connProbe `json:"probes,omitempty"`
+	// The capture its AP kept of it, where it failed (0135): the AP's name
+	// for it, and how many frames it holds. The capture itself comes by
+	// itself, POST /v1/ap/captures.
+	Capture *connCapture `json:"capture,omitempty"`
+}
+
+type connCapture struct {
+	ID     string `json:"id"`
+	Frames int    `json:"frames"`
 }
 
 func shortText(s string, n int) bool { return len(s) <= n && printable(s) }
@@ -115,6 +124,9 @@ func (c connRecord) check() error {
 		if (p.AP != "" && net.ParseIP(p.AP) == nil) || (p.Band != "" && p.Band != "2g" && p.Band != "5g" && p.Band != "6g") || p.Signal < -127 || p.Signal > 0 {
 			return bad("where it was heard is this AP or another's address, a band or none, and a signal from -127 to 0 dBm")
 		}
+	}
+	if c.Capture != nil && (!captureIDRE.MatchString(c.Capture.ID) || c.Capture.Frames < 1 || c.Capture.Frames > captureFrames) {
+		return bad("a capture has its AP's name for it, and from 1 to 1024 frames")
 	}
 	if (c.Address != "" && net.ParseIP(c.Address) == nil) || !shortText(c.Host, 64) || (c.Signal != nil && (*c.Signal < -127 || *c.Signal > 0)) {
 		return bad("an address is an IP address, a host name at most 64 printable characters, a signal from -127 to 0 dBm")
@@ -337,11 +349,17 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 		conditions.Connection
 		APName string     `json:"ap_name"`
 		Way    []wayPoint `json:"way"`
+		// The capture kept of it (0135), and whether the caller may read
+		// it: with operator on its AP.
+		Capture *captureSaid `json:"capture,omitempty"`
 	}
 	out := []entry{}
 	for _, cn := range list {
 		way, _ := connWay(cn)
 		e := entry{Connection: cn, Way: way}
+		if k := cn.Capture; k != nil {
+			e.Capture = &captureSaid{Frames: k.Frames, Bytes: k.Bytes, May: roleOn(c, change.Locations, t, cn.AP) >= access.Operator}
+		}
 		if n, ok := t.Node(cn.AP); ok {
 			e.APName = n.Name
 		}

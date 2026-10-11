@@ -239,6 +239,9 @@ details.fold > table.list { margin-bottom: 8px; }
 .attempt table.steps td:first-child, .attempt table.steps td:nth-child(2) { white-space: nowrap; }
 .attempt table.steps tr.failed td { background: #FBEDEB; }
 .attemptlinks { padding: 0 20px 10px 38px; margin: 0; }
+details.fold > summary .capture { flex-shrink: 0; font-size: 13px; }
+details.fold > summary .capture.busy { color: var(--muted); cursor: default; }
+details.fold > summary .capture.bad { color: #6B1A13; }
 /* How a thing tested did over the day (0123): a mark a test, oldest first. */
 .runs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 2px 0 10px; }
 .runs .marks { display: inline-flex; flex-wrap: wrap; gap: 2px; }

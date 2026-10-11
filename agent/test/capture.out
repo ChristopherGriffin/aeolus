@@ -1,0 +1,67 @@
+the radio's filter has 23 steps
+a key message once the keys are in, encrypted: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+a null data frame: dropped; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+action: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+an acknowledgement: dropped; names null
+association request: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+authentication, from the client: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+authentication, with a long radiotap header: kept; names [ "30:86:2d:03:17:f0", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+beacon: dropped; names [ "ff:ff:ff:ff:ff:ff", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+data that is not EAPOL: dropped; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+deauthentication: kept; names [ "30:86:2d:03:17:f0", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+key message 1, to the client: kept; names [ "30:86:2d:03:17:f0", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+key message 2, with a QoS field: kept; names [ "32:86:2d:03:17:c0", "30:86:2d:03:17:f0", "32:86:2d:03:17:c0" ]
+nothing but a radiotap header: dropped; names null
+probe request, to all: kept; names [ "ff:ff:ff:ff:ff:ff", "30:86:2d:03:17:f0", "ff:ff:ff:ff:ff:ff" ]
+the same with no QoS field: kept; names [ "30:86:2d:03:17:f0", "32:86:2d:03:17:c0", "32:86:2d:03:17:c0" ]
+too short for a header: kept; names null
+its check sequence: 1a71b10b, worked out 1a71b10b
+with its check sequence and four bytes more: 38 bytes of frame, 30 kept
+with its check sequence alone: 34 bytes of frame, 30 kept
+with neither: 30 bytes of frame, 30 kept
+its header saying it has one: 34 bytes of frame, 34 kept
+a short header, and both: 38 bytes of frame, 30 kept
+a data frame with the same behind it: 38 bytes of frame, 38 kept
+ring: 5 frames, 408 bytes
+the client's, from 105 to 107: 3; from 90: 4; another's: 1; no one's: 0
+a full ring: 1058 frames, 2160436 bytes, never more than 2619886, made anew 6 times in 2600 frames, the oldest from 1015.00
+a ring of small frames: 10000 at the most, 8099 now
+of 700 frames of one client, 600 are given, from 1001.00
+capture: 5 frames, 4 from the radio, 1 from the wire side, 952 bytes
+  section: byte order 1a2b3c4d, version 1.0
+  interface: link type 127, at most 2048 bytes a frame
+  interface: link type 1, at most 2048 bytes a frame
+  frame: interface 0, at 1791744500000000 us, 82 bytes, begins 00001200
+  frame: interface 0, at 1791744505010000 us, 48 bytes, begins 00001200
+  frame: interface 0, at 1791744505012000 us, 86 bytes, begins 00003800
+  frame: interface 1, at 1791744505300000 us, 314 bytes, begins ffffffff
+  frame: interface 0, at 1791744506000000 us, 144 bytes, begins 00000d00
+nothing kept of a client: null
+no ring, and frames from the wire side alone: 1
+a header's time: { "rt": 16, "heard": 77000000, "sum": false }
+  frame 1: at 2000 us, begins 00001000
+  frame 2: at 20000 us, begins 00000d00
+  frame 3: at 32000 us, begins 00001000
+  frame 4: at 1020000 us, begins 00000d00
+three minutes on: 6 frames held, 1 of the client given from then
+four minutes on: 2 frames, the oldest from 290.000
+of 400 large frames of one client, 262 are in its file: as many as fit, as it may hold 524288 bytes of them
+a stamp of 16 bytes: 1791750185354.910; the other way round: 1791750185354.910; of 8 bytes: 1791750185354.910
+read into numbers: 1791750185354.910, 1791750185354.910; with no part of a second: null; from another day: null; later than now: null; nothing: null
+what ties a key message to its answer: "key 0000000000000001" and "key 0000000000000001"; an EAP request to its response: "eap 7" and "eap 7"; a frame of neither: null
+  frame 1: at 0 us, from the client
+  frame 2: at 5998 us, from the AP, noted: Put before the next message the AP sent, which is put before the answer to it: the radio said it had sent this after that answer came.
+  frame 3: at 5999 us, from the AP, noted: Sent before the answer to it, and put there: the radio said it had sent this 1.0 ms after the answer came.
+  frame 4: at 6000 us, from the client
+  frame 5: at 1003999 us, from the AP, noted: Sent before the answer to it, and put there: the radio said it had sent this 12.0 ms after the answer came.
+  frame 6: at 1004000 us, from the client
+  frame 7: at 2300000 us, from the AP
+  frame 1: at 0 us
+  frame 2: at 5999 us, noted
+  frame 3: at 6000 us
+  frame 4: at 6500 us
+a radio that leaves the 802.11 header to the AP (ath11k, ath10k): it would not
+one that makes and unmakes it itself (mt76): it would
+one that unmakes it, and can hand frames up both ways: it would not
+one that says nothing: it would not
+a radio whose list cannot be read: it would
