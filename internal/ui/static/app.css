@@ -170,7 +170,7 @@ details.fold[open] > summary::before { transform: rotate(45deg); }
    for a dark ground: here it is ink. */
 details.fold > summary .who { display: inline; font-weight: 600; min-width: 150px; font-size: inherit; color: var(--ink); }
 details .when.short { width: 84px; }
-.marks.inline { display: inline-flex; gap: 2px; flex-shrink: 0; margin-right: 6px; }
+.marks.inline { display: inline-flex; gap: 2px; min-width: 0; overflow: hidden; margin-right: 6px; }
 .marks.inline .mark { width: 5px; height: 14px; border-radius: 1px; background: var(--line); }
 .marks.inline .mark.ok { background: var(--ok, #2e8b57); }
 .marks.inline .mark.bad { background: var(--bad, #c0392b); }
@@ -179,17 +179,21 @@ table.testers td { padding: 7px 20px 7px 0; }
 table.testers td:first-child { padding-left: 20px; font-weight: 600; width: 190px; }
 .roundline { padding: 0 20px 12px; margin: 0; }
 /* A panel that is a log: closed until asked for. */
-details.logpanel > summary { list-style: none; cursor: pointer; }
+details.logpanel > summary { list-style: none; cursor: pointer; display: flex; padding: 0; }
 details.logpanel > summary::-webkit-details-marker { display: none; }
-details.logpanel > summary h2 { margin: 0; padding: 14px 20px 10px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; }
-details.logpanel > summary h2 .note { text-transform: none; letter-spacing: 0; font-weight: 400; }
+details.logpanel > summary h2 { flex: 1; margin: 0; padding: 14px 20px 10px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: flex-start; align-items: center; gap: 12px; }
+details.logpanel > summary h2 .note { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: auto; }
 details.logpanel > summary h2::before { content: ''; width: 7px; height: 7px; flex-shrink: 0; align-self: center; margin: 0 2px 0 2px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform 0.12s; }
 details.logpanel[open] > summary h2::before { transform: rotate(45deg); }
-details.logpanel > summary { display: flex; padding: 0; }
-details.logpanel > summary h2 { flex: 1; justify-content: flex-start; align-items: center; }
-details.logpanel > summary h2 .note { margin-left: auto; }
+/* Panels inside one, as a folder's settings in a fold, are not boxes in a box. */
+details.logpanel > .grid2 { padding: 0 0 6px; gap: 0 18px; }
+details.logpanel > .grid2 .panel { border: 0; border-radius: 0; background: none; }
+details.logpanel > .banner { margin: 0 20px 16px; }
 details.fold > summary .who .note { font-weight: 400; color: var(--muted); margin-left: 6px; }
-.panel > h2 .controls .button { text-transform: none; letter-spacing: 0; font-weight: 400; }
+/* A heading with buttons: they sit level with it, and wrap below it where the page is narrow. */
+.panel > h2.withcontrols { align-items: center; flex-wrap: wrap; }
+.panel > h2.withcontrols .controls { flex-wrap: wrap; justify-content: flex-end; }
+.panel > h2 .segmented { flex-shrink: 0; }
 details.fold > summary a { flex-shrink: 0; font-size: 13px; }
 details.fold > table.list { margin-bottom: 8px; }
 .panel > details.fold:first-of-type { border-top: 0; }

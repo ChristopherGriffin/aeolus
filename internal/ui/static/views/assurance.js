@@ -15,6 +15,8 @@ import { h, link } from '../dom.js';
 import { get, post, schema } from '../api.js';
 import { ago, bandName, value } from '../format.js';
 import { flash, hurry, redrawNow } from '../refresh.js';
+import { fieldPanels } from './fields.js';
+import { only } from './sections.js';
 import { systemEditor } from './system.js';
 import { testChip, testLine, testOpened } from './clienttest.js';
 import { typicalPath } from './way.js';
@@ -22,11 +24,11 @@ import { typicalPath } from './way.js';
 // What the tab sets: how often, which tests (0131), with speed or without,
 // and the server a speed is measured against, which is the APs' own
 // setting (0121). The setting before which tests, over the wire too, is
-// shown where a folder has it still, and set no more.
+// set no more: it is shown with the others where a folder has it still,
+// under Schedule, and is taken away there as any setting is (0046).
 const SET = ['assurance.tests.every', 'assurance.tests.over', 'assurance.tests.speed', 'system.speed_server'];
-// The editor's fields: with the setting before where the folder has it
-// still, so that it can be taken away there.
-const sections = (fields) => [['Client tests on a schedule', fields['assurance.tests.wire'] ? [...SET, 'assurance.tests.wire'] : SET]];
+const FIELDS = [...SET, 'assurance.tests.wire'];
+const SECTIONS = [['Client tests on a schedule', SET]];
 // The tests a round is asked for (0131), as the choice names them, and as
 // a sentence does.
 const OVER = [['both', 'Both'], ['air', 'Wireless'], ['wire', 'Wired']];
@@ -111,6 +113,10 @@ function span(runs, key) {
 	return v[0] === v[v.length - 1] ? secs(mid) : `${secs(v[0])} to ${secs(v[v.length - 1])}, mostly ${secs(mid)}`;
 }
 
+// ran says one test of a thing: when, and how it went.
+const ran = (r) => `${clock(r.at)}: ${r.passed ? `passed${r.joined_ms ? `, let on in ${secs(r.joined_ms)}` : ''}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}`
+	: `failed at ${r.stage}`}`;
+
 // over is how a thing did over the time shown: a mark for each test, the
 // oldest first, green or red, which says when and how it went on hover; and
 // how long its steps took across those that passed.
@@ -118,8 +124,6 @@ function over(c) {
 	const runs = c.runs || [];
 	if (runs.length < 2) return null;
 	const good = runs.filter((r) => r.passed);
-	const said = (r) => `${clock(r.at)}: ${r.passed ? `passed${r.joined_ms ? `, let on in ${secs(r.joined_ms)}` : ''}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}`
-		: `failed at ${r.stage}`}`;
 	const times = [['let on in', span(good, 'joined_ms')], ['an address in', span(good, 'dhcp_ms')], ['DNS in', span(good, 'dns_ms')]]
 		.filter(([, v]) => v).map(([k, v]) => `${k} ${v}`);
 	const speeds = good.filter((r) => r.down != null);
@@ -129,7 +133,7 @@ function over(c) {
 	}
 	return h('div', { class: 'runs' },
 		h('span', { class: 'marks', role: 'img', 'aria-label': `${good.length} of ${runs.length} tests passed` },
-			runs.map((r) => h('span', { class: `mark ${r.passed ? 'ok' : 'bad'}`, title: said(r) }))),
+			runs.map((r) => h('span', { class: `mark ${r.passed ? 'ok' : 'bad'}`, title: ran(r) }))),
 		h('span', { class: 'sub' }, `${runs.length} tests since ${clock(runs[0].at)}${times.length ? ` · ${times.join(' · ')}` : ''}`));
 }
 
@@ -138,8 +142,8 @@ function over(c) {
 function marks(c) {
 	const runs = (c.runs || []).slice(-20);
 	if (!runs.length) return null;
-	return h('span', { class: 'marks inline', role: 'img', 'aria-label': `${c.passed} of ${c.passed + c.failed} tests passed` },
-		runs.map((r) => h('span', { class: `mark ${r.passed ? 'ok' : 'bad'}` })));
+	return h('span', { class: 'marks inline', role: 'img', 'aria-label': `${runs.filter((r) => r.passed).length} of its latest ${many(runs.length, 'test')} passed` },
+		runs.map((r) => h('span', { class: `mark ${r.passed ? 'ok' : 'bad'}`, title: ran(r) })));
 }
 
 // The stages of coming online (0118), as a line says them.
@@ -151,7 +155,10 @@ const many = (n, one, more) => `${n} ${n === 1 ? one : more || `${one}s`}`;
 // part.
 function joined(n) {
 	const key = `joins/${n.network || `ssid ${n.ssid}`}`;
-	const neither = n.clients - n.online - n.failed;
+	// Got on, of those that got on or did not, as the Overview counts them:
+	// one that left of its own accord is neither, and is said apart.
+	const tried = n.online + n.failed;
+	const neither = n.clients - tried;
 	const status = n.failing ? h('span', { class: 'chip bad', title: 'At an AP, in the last hour, three clients or more were let on and got no further, and they are half or more of those let on: an alert' }, 'Cannot get on')
 		: n.failed ? h('span', { class: 'chip warn', title: `${many(n.failed, 'client')} did not get on` }, `${n.failed} did not`)
 			: n.online ? h('span', { class: 'chip ok' }, 'All got on')
@@ -164,8 +171,9 @@ function joined(n) {
 				neither > 0 && `${neither} left before either`,
 				n.typical_ms > 0 && `typically online in ${secs(n.typical_ms)}`,
 				most && `${n.failed ? 'most' : 'some'} stopped at ${STAGE[most.stage] || most.stage}`].filter(Boolean).join(' · ') },
-			[`${n.online} of ${n.clients} got on`,
-				n.failed > 0 && most ? `stopped at ${STAGE[most.stage] || most.stage}` : n.typical_ms > 0 && secs(n.typical_ms)].filter(Boolean).join(' · ')),
+			[tried > 0 && `${n.online} of ${tried} got on`,
+				neither > 0 && `${neither} left`,
+				n.failed > 0 && most ? `stopped at ${STAGE[most.stage] || most.stage}` : n.typical_ms > 0 && `typically ${secs(n.typical_ms)}`].filter(Boolean).join(' · ')),
 			status),
 		n.way?.some((p) => p.passed || p.stopped) && h('div', { class: 'attempt' }, typicalPath(n.way, `${n.way_of < n.attempts ? 'the latest ' : ''}${many(n.way_of, 'attempt')}`)),
 		h('p', { class: 'sub' }, `${many(n.attempts, 'attempt')}, ${n.attempts_failed} failed. A client got on where one of its attempts came online or was let on; it did not where one failed and none got on. One that left of its own accord, as for another AP, is neither.`),
@@ -198,13 +206,15 @@ function rounded(r, here) {
 	const left = r.of - r.done;
 	const only = OVERSAID[r.over] || '';
 	const asked = `Asked${where} ${ago(r.at)}${by}${only}`;
-	if (left <= 0) return h('p', { class: 'sub roundline', title: asked }, h('span', { class: 'chip ok' }, 'Round done'), ` ${many(r.of, 'thing')} tested · ${ago(r.at)}`);
+	if (left <= 0) return h('p', { class: 'sub roundline', title: asked }, h('span', { class: 'chip ok' }, 'Round done'), ` ${many(r.of, 'thing')} tested · asked ${ago(r.at)}`);
 	// What is left a while after: an AP that is away, or behind on its
 	// config, or a thing that cannot be asked for now.
 	const stuck = !fresh(r) && r.asked === r.done;
 	return h('p', { class: 'sub roundline', title: `${asked}. ` + (stuck ? 'What is left could not be asked for: an AP that is away or does not run its current config, or a thing that cannot be tested now. It is let go an hour after the round was asked.'
 		: 'Each AP takes them one at a time, about one a minute; what is not asked for within the hour is let go.') },
-	h('span', { class: `chip ${stuck ? 'warn' : 'idle'}` }, stuck ? 'Round stuck' : 'Round under way'), ` ${r.done} of ${r.of} tested`);
+	h('span', { class: `chip ${stuck ? 'warn' : 'idle'}` }, stuck ? 'Round stuck' : 'Round under way'),
+	` ${r.done} of ${r.of} tested${stuck ? ' · the rest could not be asked for: an AP is away or behind on its config, or a thing cannot be tested now'
+		: r.asked > r.done ? ' · one under way' : ''} · asked ${ago(r.at)}`);
 }
 
 // check is one thing tested by one AP: a line that opens to its latest test.
@@ -218,15 +228,15 @@ function check(ctx, c) {
 	const d = h('details', { class: 'fold', open: open.has(key) },
 		h('summary', null,
 			h('span', { class: 'who' }, c.ssid || c.network),
-			h('span', { class: 'grow sub', title: [c.on !== c.tester && `tried from ${c.tester_name}`,
-				tried > 0 && `${c.passed} of ${tried} passed`, c.last && `last ${ago(c.last.at)}`,
-				!c.scheduled && tried > 0 && 'not on the schedule'].filter(Boolean).join(' · ') || null }, where),
+			h('span', { class: 'grow sub', title: tried > 0 ? `${c.passed} of ${many(tried, 'test')} passed in the time shown` : null },
+				[where, c.on !== c.tester && `from ${c.tester_name}`, c.failed > 0 && `${c.passed} of ${tried} passed`,
+					c.last && ago(c.last.at), !c.scheduled && tried > 0 && 'not on the schedule'].filter(Boolean).join(' · ')),
 			marks(c),
 			status),
 		over(c),
 		c.way?.some((p) => p.passed || p.stopped) && tried > 1 && h('div', { class: 'attempt' }, typicalPath(c.way, many(tried, 'test'))),
 		c.last && tried > 1 && h('p', { class: 'sub attemptlinks' }, 'Its latest test:'),
-		c.last ? testOpened(c.last) : h('p', { class: 'sub' }, 'No test of it has been made yet.'));
+		c.last ? testOpened(c.last, (ap) => ctx.name('locations', ap)) : h('p', { class: 'sub' }, 'No test of it has been made yet.'));
 	d.addEventListener('toggle', () => (d.open ? open.add(key) : open.delete(key)));
 	return d;
 }
@@ -260,7 +270,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 	// make. The choice is kept for the next time.
 	const can = { both: testers.some((t) => t.round), air: testers.some((t) => t.air), wire: testers.some((t) => t.can_wire) };
 	let over = can[kept()] ? kept() : 'both';
-	const round = h('button', { type: 'button', class: 'button' }, going ? 'Test everything again' : 'Test everything now');
+	const round = h('button', { type: 'button', class: 'button small' }, going ? 'Test everything again' : 'Test everything now');
 	const seg = h('span', { class: 'segmented', role: 'group', 'aria-label': 'Which tests' });
 	const TITLE = {
 		both: 'Every AP here tests each thing it can once, now, whatever its schedule: through the air where it has a scan radio, and over the wire',
@@ -289,35 +299,48 @@ export async function assuranceTab(ctx, here, page, edit) {
 		}
 	});
 
-	const span = `last ${view.hours} h`;
+	const lately = `last ${view.hours} h`;
 	out.push(h('section', { class: 'panel' },
 		h('h2', { title: 'Every client’s own attempts to come online, as the APs recorded them. A line opens to where they stopped; each client’s attempts, step by step, are under Clients, Everyone seen.' },
-			'Clients coming online', h('span', { class: 'note' }, stuck ? `${stuck} cannot get on · ${span}` : span)),
+			'Clients coming online', h('span', { class: 'note' }, stuck ? `${many(stuck, 'network')} failing · ${lately}` : lately)),
 		joins.length ? joins.map(joined) : h('p', { class: 'sub' }, 'None tried.')));
 
 	out.push(h('section', { class: 'panel' },
-		h('h2', { title: 'An AP with a scan radio joins its networks as a client would, in turn, and says how each step went. Over the wire, any AP asks each of its networks for an address, its gateway and a name.' },
+		h('h2', { class: 'withcontrols', title: 'An AP with a scan radio joins its networks as a client would, in turn, and says how each step went. Over the wire, any AP asks each of its networks for an address, its gateway and a name.' },
 			'Client tests',
-			edit && h('span', { class: 'controls' }, seg, ' ', round, ' ',
-				h('button', { type: 'button', class: 'button', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, asSet(page.fields), box,
-					{ sections: sections(page.fields), heading: 'Edit the schedule', what: 'Client tests' }) }, 'Schedule…'))),
+			edit && h('span', { class: 'controls' }, seg, round,
+				h('button', { type: 'button', class: 'button small', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, asSet(page.fields), box,
+					{ sections: SECTIONS, heading: 'Edit the schedule', what: 'Client tests' }) }, 'Schedule…'))),
+		// What a button here says comes right below it.
+		said,
+		box,
 		testers.length
 			? h('table', { class: 'list testers' }, testers.map(testerRow))
-			: h('p', { class: 'sub', title: 'One needs a scan radio, to test through the air, or an agent that tests over the wire (v0.79.0 on).' }, 'No AP here can test yet.'),
-		rounded(view.round, here),
-		said,
-		box));
+			: h('p', { class: 'sub pad' }, 'No AP here can test yet: one needs a scan radio, or an agent that tests over the wire (v0.79.0 on).'),
+		rounded(view.round, here)));
 
 	out.push(h('section', { class: 'panel' },
-		h('h2', { title: 'Each thing an AP tests, the failing first, with a mark for each test of the time shown. A line opens to what its tests come to and to its latest.' },
-			'What is tested', h('span', { class: 'note' }, checks.length ? (failing ? `${failing} failing · ${span}` : span) : '')),
+		h('h2', { title: 'Each thing an AP tests, the failing first, with a mark for each of its latest tests, twenty at the most. A line opens to what its tests come to and to its latest.' },
+			'What is tested', h('span', { class: 'note' }, checks.length ? (failing ? `${failing} failing · ${lately}` : lately) : '')),
 		checks.length ? checks.map((c) => check(ctx, c)) : h('p', { class: 'sub' }, 'Nothing yet.')));
 
 	// The tests themselves, newest first, are a log: closed until asked for.
-	const log = h('details', { class: 'panel logpanel', open: open.has('tests') },
-		h('summary', null, h('h2', { title: 'The latest tests, newest first, on the schedule or asked by hand' }, 'Tests', h('span', { class: 'note' }, tests.length ? `latest ${tests.length}` : 'none yet'))),
-		tests.map((a) => testLine(a, name, true)));
-	log.addEventListener('toggle', () => (log.open ? open.add('tests') : open.delete('tests')));
-	out.push(log);
+	const fold = (key, title, heading, note, body) => {
+		const d = h('details', { class: 'panel logpanel', open: open.has(key) },
+			h('summary', null, h('h2', { title }, heading, h('span', { class: 'note' }, note))), body);
+		d.addEventListener('toggle', () => (d.open ? open.add(key) : open.delete(key)));
+		return d;
+	};
+	out.push(fold(`tests/${here}`, 'The latest tests, newest first, on the schedule or asked by hand', 'Tests', tests.length ? `latest ${tests.length}` : 'none yet',
+		tests.length ? tests.map((a) => testLine(a, name, true)) : h('p', { class: 'sub pad' }, 'No test has been made here yet.')));
+
+	// The schedule as it is set: where each setting comes from, and for
+	// one set here the way back to the folder above (0046). Folded too.
+	const set = asSet(page.fields || {});
+	const every = set['assurance.tests.every']?.value;
+	const which = OVER.find(([k]) => k === (set['assurance.tests.over']?.value || 'air'))[1];
+	out.push(fold(`schedule/${here}`, 'How often the APs here are asked for a test, and which tests; where each setting comes from; and, for one set here, the way back to the folder above',
+		'Schedule', every ? `${value('assurance.tests.every', every)} · ${which.toLowerCase()}` : 'none',
+		fieldPanels(ctx, 'locations', here, only(page.fields, (p) => FIELDS.includes(p)), edit)));
 	return out;
 }

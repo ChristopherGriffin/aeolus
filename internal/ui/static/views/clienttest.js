@@ -133,8 +133,9 @@ function deaf(radio) {
 }
 
 // opened is a test opened: its stages in a row, why it failed, what it
-// measured, and each step with how long after its start it came.
-function opened(a) {
+// measured, and each step with how long after its start it came; and who
+// asked for it and, with name, an AP's name by its ID, which AP made it.
+function opened(a, name) {
 	const d = a.detail;
 	if (!d) return h('p', { class: 'sub' }, a.state === 'pending' || a.state === 'running'
 		? (a.params?.band === WIRE ? 'Its result follows on the AP’s poll after the one that starts it: it takes a few seconds, and uses no radio.'
@@ -157,6 +158,7 @@ function opened(a) {
 				h('td', null, e.what, e.ms != null && h('div', { class: 'sub' }, `in ${tenth(e.ms)} ms`)),
 				h('td', null, e.ok === true ? h('span', { class: 'chip ok' }, 'ok') : e.ok === false ? h('span', { class: 'chip bad' }, 'failed') : null)))),
 		h('p', { class: 'sub attemptlinks' }, [
+			`${a.actor === 'aeolus' ? (a.params?.round ? 'Asked in a round of every test' : 'Asked on the schedule') : `Asked by ${a.actor}`}${name ? `, and made by ${name(a.ap)}` : ''}. `,
 			d.waited_ms > 1000 && `It waited ${took(d.waited_ms)} for the scan radio to be between its own jobs. `,
 			radio?.was_deaf && 'Before the test the scan radio heard nothing, so its driver was bound again first. ',
 			radio?.after_dfs && (radio.rebound ? 'The test had the scan radio on a DFS channel, after which it goes deaf, so its driver was bound again before airscan had it back. '
@@ -187,14 +189,14 @@ export function testLine(a, name, from) {
 				a.detail?.outcome === 'failed' && a.detail.reason].filter(Boolean).join(' · ') },
 			[on, p.band && bandName(p.band)].filter(Boolean).join(' · ')),
 			chip(a)),
-		opened(a));
+		opened(a, name));
 	d.addEventListener('toggle', () => (d.open ? open.add(a.id) : open.delete(a.id)));
 	return d;
 }
 
 // What the Assurance tab draws of a test (0123): its chip, and it opened.
 export const testChip = (a) => chip(a);
-export const testOpened = (a) => opened(a);
+export const testOpened = (a, name) => opened(a, name);
 // What the form last had chosen, so a redraw does not reset it.
 const chosen = { network: '', on: '', band: '' };
 
