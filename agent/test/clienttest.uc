@@ -110,6 +110,33 @@ printf('dns another question %J, the question itself %J, cut short %J %J\n', ct.
 	ct.dns_answer(substr(answer, 0, 40), 0x4165), ct.dns_answer(substr(answer, 0, 8), 0x4165));
 printf('rate %J %J %J\n', ct.rate(13125000, 5), ct.rate(1200000000, 5.02), ct.rate(100, 0));
 
+// When the scan radio may be taken: airscan between its jobs, and none
+// about to start.
+let airscan = (state, bss, spectral) => ({ state: state, next: { bss: bss, spectral: spectral, ble: 1000 } });
+printf('between: looking at clients %J, idle %J, sweeping %J, scanning %J, no status %J\n',
+	ct.between(airscan('clients', 1200, 1700), 1000), ct.between(airscan('idle', 1200, 1700), 1000),
+	ct.between(airscan('spectral', 1200, 1700), 1000), ct.between(airscan('bss', 1200, 1700), 1000), ct.between(null, 1000));
+printf('between: a scan due in 3 s %J, in 4 s %J, a sweep due now %J, 10 s late %J, long past %J, nothing said of the next %J\n',
+	ct.between(airscan('clients', 1003, 1700), 1000), ct.between(airscan('clients', 1004, 1700), 1000),
+	ct.between(airscan('clients', 1200, 1000), 1000), ct.between(airscan('clients', 1200, 990), 1000),
+	ct.between(airscan('clients', 900, 1700), 1000), ct.between({ state: 'clients' }, 1000));
+
+// The network's own section, by its ID: not another with the same SSID.
+let ifaces = [
+	{ '.name': 'wifinet7', mode: 'ap', ssid: 'Aeolus Lab', encryption: 'psk2', key: 'made by hand' },
+	{ '.name': 'aeolus_lab_guest_radio0', mode: 'ap', ssid: 'Aeolus Lab', encryption: 'none' },
+	{ '.name': 'aeolus_lab_radio1', mode: 'ap', ssid: 'Aeolus Lab', encryption: 'sae', key: 'the lab one' },
+	{ '.name': 'aeolus_two_part_radio0', mode: 'ap', ssid: 'Two', encryption: 'psk2', key: 'two', ppsk: '1' },
+	{ '.name': 'aeolus_lab_radio0', mode: 'sta', ssid: 'Aeolus Lab', encryption: 'psk2', key: 'a client of it' },
+];
+let radios = ['radio0', 'radio1', 'radio2'];
+let asks = (network, ssid) => ct.wanted({ ssid: ssid ?? 'Aeolus Lab', network: network });
+printf('credentials: by ID %J, another network with the SSID %J, an ID with a hyphen %J\n',
+	ct.credentials(asks('lab'), ifaces, radios), ct.credentials(asks('lab-guest'), ifaces, radios), ct.credentials(asks('two-part', 'Two'), ifaces, radios));
+printf('credentials: an ID the AP has no section for %J, its section under another SSID %J, no ID %J, an ID that is none %J\n',
+	ct.credentials(asks('office'), ifaces, radios), ct.credentials(asks('lab', 'Renamed'), ifaces, radios),
+	ct.credentials(asks(null), ifaces, radios), asks('Not An ID'));
+
 // What a test's findings come to, and how each reads in a line.
 let found = () => ({
 	ssid: 'Aeolus Lab', joined_ms: 636, dhcp: { ms: 284, address: '192.168.20.108' },
@@ -127,6 +154,8 @@ show('joined, and nothing more asked', { joined_ms: 2561 });
 show('never found', { stopped: { stage: 'find', why: 'it was not found there in 17 looks' } });
 show('wrong passphrase', { stopped: { stage: 'key', why: 'wrong passphrase' } });
 show('no address', { joined_ms: 700, stopped: { stage: 'dhcp', why: 'no DHCP server gave it an address' } });
+show('a lease with no gateway', { ...found(), gateway: null });
+show('a lease with no DNS server', { ...found(), dns: null });
 show('gateway silent', { ...found(), gateway: { address: '192.168.20.1', sent: 3, got: 0 } });
 show('DNS silent', { ...found(), dns: { server: '192.168.20.254', name: 'example.com' } });
 show('DNS has no such name', { ...found(), dns: { server: '192.168.20.254', name: 'nowhere.invalid', rcode: 3, answers: 0, ms: 12 } });

@@ -8,9 +8,15 @@
 //
 // The scan radio is airscan's. It is taken only while airscan is between
 // its jobs, looking at clients, never while it sweeps the spectrum or
-// scans: taken mid-sweep, the C-360's goes deaf until its driver is bound
-// again (2026-10-11). It is held for under a minute, and given back
+// scans, or is about to. It is held for under a minute, and given back
 // whatever happens.
+//
+// A scan radio that has been a client can go deaf (the C-360's,
+// 2026-10-11): at once, where it was taken mid-sweep, or at airscan's next
+// sweep of the spectrum, some of the time. So the test is not done until
+// airscan has swept and looked again; and a radio that then hears nothing,
+// not even this AP's own networks, has its driver bound again, which is
+// what brings it back.
 //
 // The client's traffic is its own: its address is the only one on its
 // interface, its routes are ones only a socket bound to that interface
@@ -38,6 +44,8 @@ const CONNECT_WAIT = 20;   // seconds to be let on to the network
 const SPEED_SECONDS = 5;   // seconds measured each way, after one to warm up
 const STREAMS = 3;         // connections at once each way
 const HEAR_WAIT = 30;      // seconds airscan is given, the radio back, to hear the air again
+const SWEEP_WAIT = 90;     // and to sweep the spectrum, which it does next
+const BOUND_WAIT = 40;     // seconds a driver bound again is given to bring its radio up
 
 let bus = connect();
 openlog('aeolus-clienttest', LOG_PID, LOG_DAEMON);
@@ -87,21 +95,19 @@ function output(cmd) {
 
 // credentials are the network's own settings on this AP: how it is secured
 // and its passphrase, as the AP's wireless config has them.
-function credentials(ssid) {
-	let found = null;
-	cursor().foreach('wireless', 'wifi-iface', i => {
-		if (!found && i.mode == 'ap' && i.ssid == ssid)
-			found = { encryption: i.encryption ?? 'none', key: i.key, ppsk: i.ppsk };
-	});
-	return found;
+function credentials(want) {
+	let ifaces = [], radios = [], c = cursor();
+	c.foreach('wireless', 'wifi-iface', i => push(ifaces, i));
+	c.foreach('wireless', 'wifi-device', d => push(radios, d['.name']));
+	return ct.credentials(want, ifaces, radios);
 }
 
-// free waits until airscan is between its jobs, and says whether it is.
+// free waits until airscan is between its jobs, with none about to start,
+// and says whether it is.
 function free() {
-	let from = now(), state = null;
+	let from = now();
 	while (now() - from < FREE_WAIT) {
-		state = bus.call('airscan', 'status')?.state;
-		if (state in ['clients', 'idle'])
+		if (ct.between(bus.call('airscan', 'status'), time()))
 			return true;
 		sleep(500);
 	}
@@ -318,7 +324,9 @@ function measure(res, want) {
 		run('ip', 'route', 'add', 'default', 'via', lease.router, 'dev', IF, 'src', lease.address, 'metric', '4096');
 
 	// Its gateway.
-	if (lease.router) {
+	if (!lease.router)
+		step('gateway', 'DHCP gave it no gateway', false);
+	else {
 		res.gateway = { address: lease.router, ...ct.ping_of(output(`ping -I ${IF} -c 3 -W 1 ${lease.router}`)) };
 		step('gateway', res.gateway.got ? `${lease.router}, its gateway, answers ${res.gateway.got} of ${res.gateway.sent} pings` : `${lease.router}, its gateway, does not answer`,
 			res.gateway.got > 0, res.gateway.avg);
@@ -336,8 +344,11 @@ function measure(res, want) {
 			!!found, a?.ms);
 		if (named)
 			host = a?.address;
-	} else if (named)
-		host = null;
+	} else {
+		step('dns', 'DHCP gave it no DNS server', false);
+		if (named)
+			host = null;
+	}
 
 	// How fast.
 	if (want.speed) {
@@ -374,6 +385,65 @@ function heard_now() {
 	return type(b?.list) == 'array' ? { count: length(b.list), time: b.time ?? 0 } : null;
 }
 
+// looked waits for a look airscan made at or after a time, and says how
+// many networks it heard: null where it made none in the seconds given.
+function looked(from, wait) {
+	for (let i = 0; i < wait * 2; i++) {
+		let h = heard_now();
+		if (h && h.time >= from)
+			return h.count;
+		sleep(500);
+	}
+	return null;
+}
+
+// swept waits for the sweep of the spectrum airscan makes once it has the
+// radio back, and says whether it made it. Where it sweeps none, there is
+// none to wait for.
+function swept(from) {
+	let s = bus.call('airscan', 'status');
+	if (!s?.spectral_supported || !(s.config?.spectral_interval > 0))
+		return false;
+	for (let i = 0; i < SWEEP_WAIT; i++) {
+		s = bus.call('airscan', 'status');
+		if (s?.last?.spectral >= from && s.state in ['clients', 'idle'])
+			return true;
+		sleep(1000);
+	}
+	return false;
+}
+
+// rebind binds the scan radio's driver again, which is what brings a deaf
+// one back, and starts airscan on it. Only for a radio on PCI, by its
+// address there, as airscan names it: no other radio is the driver's to
+// lose. It says whether the radio came up.
+function rebind(addr) {
+	if (type(addr) != 'string' || !match(addr, /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/))
+		return false;
+	let dev = `/sys/bus/pci/devices/${addr}`;
+	let driver = fs.readlink(dev + '/driver');
+	if (!driver)
+		return false;
+	driver = '/sys/bus/pci/drivers/' + fs.basename(driver);
+	run('/etc/init.d/airscan', 'stop');
+	sleep(1000);
+	for (let phy in fs.lsdir(dev + '/ieee80211') ?? [])
+		for (let ifn in fs.lsdir('/sys/class/net') ?? [])
+			if (trim(fs.readfile(`/sys/class/net/${ifn}/phy80211/name`) ?? '') == phy)
+				run('iw', 'dev', ifn, 'del');
+	fs.writefile(driver + '/unbind', addr);
+	sleep(3000);
+	fs.writefile(driver + '/bind', addr);
+	let up = false;
+	for (let i = 0; i < BOUND_WAIT * 2 && !up; i++) {
+		sleep(500);
+		up = length(fs.lsdir(dev + '/ieee80211') ?? []) > 0;
+	}
+	sleep(2000);
+	run('/etc/init.d/airscan', 'start');
+	return up;
+}
+
 function main() {
 	let res = { v: 1, outcome: 'failed', stage: 'find', reason: '' };
 	let stop = (stage, why) => {
@@ -388,13 +458,24 @@ function main() {
 	if (!want)
 		return stop('find', 'what was asked is not a test this agent knows');
 	res.ssid = want.ssid;
-	let cred = credentials(want.ssid);
+	let cred = credentials(want);
 	if (!cred)
 		return stop('find', 'this AP does not offer that network, so it has no way to join it');
+	let addr = bus.call('airscan', 'status')?.radio;
+	let before = heard_now();
+	// Deaf before it starts: a look that heard nothing, not even this AP's
+	// own networks. Its driver is bound again first.
+	let was_deaf = !!before && before.time > 0 && before.count == 0;
+	if (was_deaf) {
+		note('the scan radio hears nothing: binding its driver again before the test');
+		let at = time();
+		let again = rebind(addr) ? looked(at, HEAR_WAIT) : null;
+		if (!again)
+			return stop('find', 'the scan radio hears nothing, and binding its driver again did not bring it back');
+	}
 	let phy = bus.call('airscan', 'status')?.phy;
 	if (type(phy) != 'string' || !match(phy, /^phy[0-9]+$/))
 		return stop('find', 'this AP has no scan radio to test from');
-	let before = heard_now();
 	let tgt = ct.target(want, bus.call('airscan', 'bss')?.list);
 	if (!tgt)
 		return stop('find', 'the scan radio does not hear that network from another AP');
@@ -435,22 +516,34 @@ function main() {
 	}
 	give_back();
 
-	// The radio is airscan's again: its next look says whether it still
-	// hears the air.
-	let after = null;
-	for (let i = 0; i < HEAR_WAIT * 2; i++) {
-		sleep(500);
-		after = heard_now();
-		if (after && after.time >= taken)
-			break;
-		after = null;
+	// The radio is airscan's again: its first look, and then the one asked
+	// for after its sweep, say whether it still hears the air.
+	let after = looked(taken, HEAR_WAIT);
+	if (after != 0 && swept(taken)) {
+		let asked = time();
+		bus.call('airscan', 'scan');
+		after = looked(asked, HEAR_WAIT) ?? after;
 	}
-	if (before && after) {
-		res.scan_radio = { before: before.count, after: after.count };
-		if (before.count > 0 && after.count == 0) {
-			res.scan_radio.deaf = true;
-			note('after the test the scan radio hears nothing, where it heard %d networks before: its driver needs binding again', before.count);
+	if (before && after != null) {
+		let radio = { before: before.count, after: after };
+		if (was_deaf)
+			radio.was_deaf = true;
+		if (after == 0) {
+			radio.deaf = true;
+			note('after the test the scan radio hears nothing, where it heard %d networks before: binding its driver again', before.count);
+			let at = time();
+			if (rebind(addr)) {
+				radio.rebound = true;
+				let again = looked(at, HEAR_WAIT);
+				if (again != null)
+					radio.again = again;
+			}
+			if (radio.again > 0)
+				log('the scan radio hears %d networks, its driver bound again', radio.again);
+			else
+				note('binding its driver again did not bring the scan radio back');
 		}
+		res.scan_radio = radio;
 	}
 	return res;
 }

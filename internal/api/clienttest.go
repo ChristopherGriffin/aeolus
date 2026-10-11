@@ -212,9 +212,12 @@ type testSpeed struct {
 }
 
 type testScanning struct {
-	Before int  `json:"before"`
-	After  int  `json:"after"`
-	Deaf   bool `json:"deaf,omitempty"`
+	Before  int  `json:"before"`
+	After   int  `json:"after"`
+	WasDeaf bool `json:"was_deaf,omitempty"`
+	Deaf    bool `json:"deaf,omitempty"`
+	Rebound bool `json:"rebound,omitempty"`
+	Again   *int `json:"again,omitempty"`
 }
 
 var testStages = map[string]bool{"find": true, "auth": true, "assoc": true, "key": true, "dhcp": true, "gateway": true, "dns": true, "speed": true}
@@ -273,7 +276,8 @@ func (t *clientTest) check() error {
 	if sp := t.Speed; sp != nil && (!words(sp.Server, 280) || !speed(sp.Down) || !speed(sp.Up) || !words(sp.Error, 120)) {
 		return bad("a speed is the server and Mbit/s down and up, or why not")
 	}
-	if r := t.ScanRadio; r != nil && (r.Before < 0 || r.Before > 100_000 || r.After < 0 || r.After > 100_000) {
+	if r := t.ScanRadio; r != nil && (r.Before < 0 || r.Before > 100_000 || r.After < 0 || r.After > 100_000 ||
+		(r.Again != nil && (*r.Again < 0 || *r.Again > 100_000))) {
 		return bad("the scan radio's networks heard, before and after")
 	}
 	return nil

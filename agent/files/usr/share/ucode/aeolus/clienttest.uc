@@ -9,6 +9,23 @@ const STAGES = ['find', 'auth', 'assoc', 'key', 'dhcp', 'gateway', 'dns', 'speed
 const STEPS = 40;      // steps a test's result keeps
 const HEARD = 8;       // and of the networks the scan radio heard before it
 
+// between says whether airscan, by its status, is between its jobs, with
+// none about to start: the scan radio may be taken then. A job is about to
+// start from SOON seconds before it is due, and for a while after, should
+// it be late.
+const SOON = 3;
+
+function between(status, wall) {
+	if (!(status?.state in ['clients', 'idle']))
+		return false;
+	for (let job in ['bss', 'spectral']) {
+		let due = status.next?.[job];
+		if (type(due) == 'int' && due > wall - 30 && due <= wall + SOON)
+			return false;
+	}
+	return true;
+}
+
 function hexstr(s) {
 	let o = '';
 	for (let i = 0; i < length(s); i++)
@@ -17,14 +34,20 @@ function hexstr(s) {
 }
 
 // wanted reads what a test is asked for, and returns it checked, or null:
-// the network's SSID; the BSSIDs it may join, an AP's own, or none for the
+// the network's SSID, and its ID where the manager asks; the BSSIDs it may
+// join, an AP's own, or none for the
 // strongest other AP; a band, or none for any; an OpenSpeedTest server, as
 // a plain HTTP address with its host and, if it has one, its port, or none;
 // and a name to look up.
 function wanted(p) {
 	if (type(p) != 'object' || type(p.ssid) != 'string' || !length(p.ssid) || length(p.ssid) > 32)
 		return null;
-	let out = { ssid: p.ssid, bssids: [], band: null, speed: null, dns_name: 'example.com' };
+	let out = { ssid: p.ssid, network: null, bssids: [], band: null, speed: null, dns_name: 'example.com' };
+	if (p.network != null) {
+		if (type(p.network) != 'string' || !match(p.network, /^[a-z][a-z0-9-]{0,31}$/))
+			return null;
+		out.network = p.network;
+	}
 	for (let b in (type(p.bssids) == 'array' ? p.bssids : [])) {
 		if (type(b) != 'string' || !match(lc(b), /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/) || length(out.bssids) >= 32)
 			return null;
@@ -48,6 +71,27 @@ function wanted(p) {
 		out.dns_name = p.dns_name;
 	}
 	return out;
+}
+
+// credentials are how the network asked for is secured on this AP, and its
+// passphrase, as the AP's wireless config has them (ifaces, its wifi-iface
+// sections; radios, the names of its wifi-device sections). Asked for by
+// its ID, they are those of Aeolus's own section for it on a radio, named as
+// the renderer names it (0039): another interface with the same SSID, made
+// by hand or for another network, is not it. With no ID, those of the first
+// AP interface with the SSID.
+function credentials(want, ifaces, radios) {
+	let names = null;
+	if (want.network)
+		names = map(radios ?? [], r => 'aeolus_' + replace(want.network, '-', '_') + '_' + r);
+	for (let i in ifaces ?? []) {
+		if (i.mode != 'ap' || i.ssid != want.ssid)
+			continue;
+		if (names && !(i['.name'] in names))
+			continue;
+		return { encryption: i.encryption ?? 'none', key: i.key, ppsk: i.ppsk };
+	}
+	return null;
 }
 
 // band_freqs are the frequencies a client looks on for a band, every
@@ -293,7 +337,9 @@ function plain(s, most) {
 
 // verdict says how a test went, from what it found (res): passed, or
 // failed with the stage it stopped at and why. A test that joined but then
-// found a step that does not work has failed at that step.
+// found a step that does not work has failed at that step, and so has one
+// whose lease named no gateway or no DNS server: a client has no way online
+// without them, and nothing was there to try.
 function verdict(res) {
 	let fail = (stage, why) => {
 		res.outcome = 'failed';
@@ -303,8 +349,12 @@ function verdict(res) {
 	};
 	if (res.stopped)
 		return fail(res.stopped.stage, res.stopped.why);
+	if (res.dhcp && !res.gateway)
+		return fail('gateway', 'DHCP gave it no gateway');
 	if (res.gateway && !res.gateway.got)
 		return fail('gateway', `its gateway, ${res.gateway.address}, does not answer`);
+	if (res.dhcp && !res.dns)
+		return fail('dns', 'DHCP gave it no DNS server');
 	if (res.dns && !(res.dns.rcode == 0 && res.dns.answers > 0))
 		return fail('dns', res.dns.rcode == null ? `its DNS server, ${res.dns.server}, does not answer` : `its DNS server, ${res.dns.server}, has no address for ${res.dns.name}`);
 	if (res.speed?.error)
@@ -340,6 +390,6 @@ function summary(res) {
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	STAGES, STEPS, HEARD, hexstr, wanted, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of,
+	STAGES, STEPS, HEARD, between, hexstr, wanted, credentials, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of,
 	prefix_net, dns_query, dns_answer, rate, plain, verdict, summary
 };

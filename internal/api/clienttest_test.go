@@ -51,6 +51,18 @@ func TestClientTest(t *testing.T) {
 	if code, b := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "system.speed_server", "value": "https://secure.example"}); code == 200 {
 		t.Fatalf("a speed server over TLS was taken: %v", b)
 	}
+	// A port is one a socket can be opened to: what the manager takes, the
+	// agent takes too.
+	for value, good := range map[string]bool{"http://speed.example:8080/": true, "http://speed.example:65535": true,
+		"http://speed.example:0": false, "http://speed.example:65536": false, "http://speed.example:99999": false, "http://speed.example:080": false} {
+		code, b := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "system.speed_server", "value": value})
+		if (code == 200) != good {
+			t.Fatalf("speed server %s: %d %v", value, code, b)
+		}
+	}
+	if code, b := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "system.speed_server", "value": "http://192.168.20.106"}); code != 200 {
+		t.Fatalf("speed server: %d %v", code, b)
+	}
 	code, body := ask(scanner[0], map[string]any{"network": "sweet", "on": plain[0], "band": "5g"})
 	if code != 200 {
 		t.Fatalf("asked: %d %v", code, body)
