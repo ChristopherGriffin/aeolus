@@ -61,6 +61,22 @@ export function healthBrief(x) {
 	return parts.length ? { text: parts.join(' · '), grade } : null;
 }
 
+// What airscan is at, as the AP's report names it (0126).
+const SCANNING = { idle: 'between jobs', clients: 'looking at clients', bss: 'looking for networks', spectral: 'sweeping the spectrum', lent: 'lent to a client test',
+	healing: 'its driver being bound again', waiting: 'no radio for it', missing: 'airscan does not answer' };
+
+// scanRadio is the scan radio's tile (0126): how many networks its latest
+// look heard, what airscan is at, and how often it had to bring the radio
+// back. Nothing on an AP with none.
+function scanRadio(s) {
+	if (!s) return null;
+	const heals = s.heals ? ` · brought back ${s.heals === 1 ? 'once' : `${s.heals} times`}${s.healed_ago != null ? `, last ${upFor(s.healed_ago)} ago` : ''}${s.heal_failed ? `, ${s.heal_failed} to no avail` : ''}` : '';
+	if (s.state === 'missing' || s.state === 'waiting') return ['—', SCANNING[s.state], 'warn'];
+	if (s.networks == null) return ['—', `no look yet · ${SCANNING[s.state] || s.state}${heals}`, ''];
+	const deaf = s.networks === 0;
+	return [String(s.networks), `network${s.networks === 1 ? '' : 's'} heard ${upFor(s.looked_ago ?? 0)} ago · ${SCANNING[s.state] || s.state}${heals}`, deaf ? 'warn' : 'ok'];
+}
+
 // tiles are how the AP is doing now, by its latest report.
 function tiles(now) {
 	const x = now?.health;
@@ -82,6 +98,8 @@ function tiles(now) {
 	if (x.temp != null) out.push(tile('Temperature', `${x.temp} °C`, 'its hottest sensor', tempGrade(x.temp)));
 	out.push(tile('Up', upFor(now.uptime), `since ${stamp(new Date(now.at).getTime() - now.uptime * 1000)}`, ''));
 	if (x.procs) out.push(tile('Running', String(x.procs), `processes${x.conntrack_max ? ` · ${x.conntrack} connections tracked of ${x.conntrack_max}` : ''}`, ''));
+	const scan = scanRadio(now.scan_radio);
+	if (scan) out.push(tile('Scan radio', ...scan));
 	return h('div', { class: 'tiles' }, out);
 }
 

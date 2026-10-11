@@ -179,6 +179,7 @@ Each milestone ends in something checkable before the next starts.
 | [0123](docs/decisions/0123-service-assurance.md) | Service assurance: client tests on a schedule |
 | [0124](docs/decisions/0124-client-tests-that-sign-in.md) | Client tests that sign in |
 | [0125](docs/decisions/0125-removing-a-folder.md) | Removing a folder |
+| [0126](docs/decisions/0126-the-scan-radio-in-an-aps-health.md) | The scan radio in an AP's health |
 
 ## Open questions
 

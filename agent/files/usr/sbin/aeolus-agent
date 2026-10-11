@@ -1400,6 +1400,39 @@ function health_state() {
 	return h;
 }
 
+// scan_radio_state is how the AP's scan radio is doing, where it has one
+// (0081, 0126): what airscan, whose radio it is, is at; how many networks
+// its latest look heard, and how long ago that was; and how often airscan
+// has bound its driver again to bring it back, how many of those did not,
+// and how long ago the last was. Null on an AP with no scan radio; missing
+// where it has one and airscan does not answer.
+const SCAN_STATES = { idle: 'idle', clients: 'clients', bss: 'bss', spectral: 'spectral', lent: 'lent', healing: 'healing' };
+
+function scan_radio_state() {
+	let has = false;
+	cursor().foreach('wireless', 'wifi-device', s => {
+		has = has || s.airscan == '1';
+	});
+	if (!has)
+		return null;
+	let st = bus.call('airscan', 'status');
+	if (type(st) != 'object')
+		return { state: 'missing' };
+	let out = { state: SCAN_STATES[st.state] ?? 'waiting' };
+	let b = bus.call('airscan', 'bss');
+	if (type(b?.list) == 'array' && type(b.time) == 'int' && b.time > 0) {
+		out.networks = length(b.list);
+		out.looked_ago = max(0, time() - b.time);
+	}
+	if (type(st.heal) == 'object') {
+		out.heals = int(st.heal.count ?? 0);
+		out.heal_failed = int(st.heal.failed ?? 0);
+		if (st.heal.last > 0)
+			out.healed_ago = max(0, time() - st.heal.last);
+	}
+	return out;
+}
+
 // state_report is what the AP tells the manager about itself (0039).
 function state_report(running) {
 	let b = bus.call('system', 'board') ?? {};
@@ -1472,6 +1505,10 @@ function state_report(running) {
 	let radius = probes()?.radius;
 	if (radius && length(radius))
 		report.radius = slice(radius, 0, 64);
+	// Its scan radio, where it has one (0126).
+	let scan = scan_radio_state();
+	if (scan)
+		report.scan_radio = scan;
 	// Its clock (0069).
 	report.time = time_state();
 	// The per-user keys it has (0070).
