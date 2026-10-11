@@ -523,8 +523,9 @@ function on_log(msg, at, wall_at) {
 	wall_at = when[1];
 	let key = e.bss + ' ' + e.mac, a = open[key];
 	if (!a) {
-		// A client leaving, or a line that only explains, begins nothing.
-		if (e.end || !e.stage)
+		// A client leaving, a line that only explains, or the keys of one
+		// long on made again begins nothing.
+		if (!journey.begins(e))
 			return;
 		a = start(e.bss, e.mac, at, wall_at);
 		if (!a)

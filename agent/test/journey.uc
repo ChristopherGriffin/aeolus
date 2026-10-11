@@ -499,6 +499,95 @@ said(a, 27000.021, 29, `AP-STA-CONNECTED ${STA} auth_alg=sae`);
 said(a, 27000.021, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
 show('WPA3, with no debug lines', a, 27031);
 
+// A client that comes back to an AP that still holds it as on, as one that
+// went to another AP without a word and returned within minutes (the
+// C-360, 2026-10-11, a network with protected management frames). The AP
+// asks the client it remembers to prove itself, five times in a second,
+// has no answer, and takes the newcomer; of the handshake that follows it
+// says that it completed, and not that the client is connected, which to
+// hostapd it never ceased to be. Its keys in place, it is let on.
+a = journey.begin(who, 28000, 1791711000000);
+said(a, 28000.000, 31, `STA ${STA} IEEE 802.11: authentication OK (open system)`);
+said(a, 28000.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`);
+said(a, 28000.001, 30, `STA ${STA} IEEE 802.11: authenticated`);
+for (let i = 0; i < 5; i++)
+	said(a, 28000.013 + i * 0.206, 31, `STA ${STA} IEEE 802.11: association SA Query attempt ${i + 1}`);
+said(a, 28001.043, 31, `STA ${STA} IEEE 802.11: association SA Query timed out`);
+said(a, 28001.077, 31, `STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`);
+said(a, 28001.077, 31, `STA ${STA} IEEE 802.11: association OK (aid 1)`);
+said(a, 28001.177, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 28001.177, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
+said(a, 28001.178, 31, `STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`);
+said(a, 28001.193, 31, `STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`);
+said(a, 28001.193, 31, `STA ${STA} WPA: sending 3/4 msg of 4-Way Handshake`);
+said(a, 28001.197, 31, `STA ${STA} WPA: received EAPOL-Key frame (4/4 Pairwise)`);
+said(a, 28001.198, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+said(a, 28001.198, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+show('back at an AP that still held it', a, 28032);
+// And so where hostapd does not log at debug, and says the one line.
+a = journey.begin(who, 29000, 1791712000000);
+said(a, 29000.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 29000.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 29000.030, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+show('back, with no debug lines', a, 29031);
+
+// And where it says the other line alone.
+a = journey.begin(who, 29100, 1791712100000);
+said(a, 29100.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 29100.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 29100.030, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+show('back, with its keys said in words alone', a, 29131);
+
+// What begins an attempt, of a client that is not being followed: its
+// authentication or its association, and nothing else. A client long on
+// whose keys are made again, or that signs in again as 802.1X has it do
+// every hour, comes nowhere.
+for (let line in [
+	`STA ${STA} IEEE 802.11: authenticated`,
+	`STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`,
+	`STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))`,
+	`STA ${STA} IEEE 802.11: associated (aid 1)`,
+	`STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`,
+	`STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`,
+	`STA ${STA} WPA: pairwise key handshake completed (RSN)`,
+	`EAPOL-4WAY-HS-COMPLETED ${STA}`,
+	`AP-STA-CONNECTED ${STA} auth_alg=open`,
+	`CTRL-EVENT-EAP-STARTED ${STA}`,
+	`STA ${STA} IEEE 802.1X: authenticated - EAP type: 25 (PEAP)`,
+	`STA ${STA} IEEE 802.11: deauthenticated due to local deauth request`,
+	`AP-STA-DISCONNECTED ${STA}`,
+	// What is all hostapd says of a device it refuses at authentication
+	// for the RADIUS server's answer; what it says on every answer.
+	`STA ${STA} RADIUS: Invalid VLAN 30 received from RADIUS server`,
+	`STA ${STA} RADIUS: invalid hex string (65 chars) in Tunnel-Password`,
+	`STA ${STA} RADIUS: VLAN ID 30`,
+	`CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER ${STA}`,
+]) {
+	// At info, as hostapd says each of these but the key messages.
+	let e = journey.log_event(`<${match(line, /msg of 4-Way|EAPOL-Key frame|MLME/) ? 31 : 30}>Oct 11 12:43:13 hostapd: phy0-ap0: ${line}`);
+	printf('%s: %s\n', e && journey.begins(e) ? 'begins an attempt' : 'begins nothing', replace(line, STA + ' ', ''));
+}
+// A device refused for the server's answer has that line for its record.
+a = journey.begin(who, 34000, 1791717000000);
+said(a, 34000, 30, `STA ${STA} RADIUS: Invalid VLAN 30 received from RADIUS server`);
+show('refused at authentication for the VLAN the server gave', a, 34021);
+
+// How long an attempt not yet let on is waited for with nothing said: 20 s,
+// and 40 s of one that is signing in, as hostapd goes over to a second
+// RADIUS server only after 21 s without the first's answer. Then the
+// sign-in completes, and the attempt is the client's, let on.
+a = journey.begin(who, 35000, 1791718000000);
+said(a, 35000.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+printf('authenticated, and silent: given up after 20 s %J, after 21 s %J\n', journey.due(a, 35020), journey.due(a, 35021.1));
+said(a, 35000.010, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 35000.020, 29, `CTRL-EVENT-EAP-STARTED ${STA}`);
+printf('signing in, and silent: given up after 21 s %J, after 40 s %J, after 41 s %J\n', journey.due(a, 35021.1), journey.due(a, 35040), journey.due(a, 35041.1));
+said(a, 35021.500, 29, `CTRL-EVENT-EAP-SUCCESS2 ${STA}`);
+said(a, 35021.520, 30, `STA ${STA} IEEE 802.1X: authenticated - EAP type: 25 (PEAP)`);
+said(a, 35021.560, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
+said(a, 35021.560, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+show('a sign-in that waited 21 s for a second RADIUS server', a, 35052);
+
 // When the log took a line in, on the daemon's clocks (logread -t): a line
 // logged 45 ms before the daemon took it up, one 6 ms before, one that
 // came in 3 ms after, one that says no time, and one whose time cannot be
