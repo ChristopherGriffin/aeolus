@@ -3,7 +3,10 @@ package api
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
@@ -89,6 +92,16 @@ func (s *Server) prepareValue(tree change.TreeName, p hierarchy.Path, raw json.R
 	if tree == change.Locations && p == AgentPath {
 		if err := s.checkAgentPin(raw); err != nil {
 			return raw, err
+		}
+	}
+	// A remote speed server by a name the list has not (0134), as one
+	// mistyped, would measure nothing and say nothing: refused here, when
+	// it is set, as the schema takes any name, one a later manager's list
+	// has among them.
+	if tree == change.Locations && p == "system.speed_server_remote" {
+		var v string
+		if err := json.Unmarshal(raw, &v); err == nil && remoteSpeed(v) == nil {
+			return raw, badRequest("system.speed_server_remote: %q is no public speed server in the list (%s), nor one of your own as http://host or http://host:port", v, strings.Join(slices.Sorted(maps.Keys(publicSpeed)), ", "))
 		}
 	}
 	return s.schema.Prepare(p, raw, s.box)

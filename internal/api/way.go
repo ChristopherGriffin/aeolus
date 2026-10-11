@@ -446,17 +446,22 @@ func newWayTally(kind wayKind) *wayTally {
 // add adds one way, and the point it stopped at, where it failed. A point
 // that went badly in a way that went on, as a gateway that answers nothing
 // before a name that is looked up all the same, is neither passed nor
-// where it stopped.
+// where it stopped. The points after the one it stopped at were not come
+// to: they went neither well nor badly.
 func (t *wayTally) add(way []wayPoint, stopped string) {
 	t.n++
+	reached := false
 	for _, p := range way {
+		if p.K == stopped {
+			reached = true
+		}
 		if p.State == "ok" && p.K != stopped {
 			t.passed[p.K]++
 			if p.MS != nil {
 				t.times[p.K] = append(t.times[p.K], *p.MS)
 			}
 		}
-		if p.State == "bad" && p.K != stopped {
+		if p.State == "bad" && !reached {
 			t.bad[p.K]++
 		}
 		if len(p.Parts) == 0 {

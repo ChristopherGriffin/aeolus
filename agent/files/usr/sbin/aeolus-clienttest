@@ -62,7 +62,8 @@ const FREE_WAIT = 120;     // seconds it waits for airscan to be between its job
 const CONNECT_WAIT = 20;   // seconds to be let on to the network
 const SPEED_SECONDS = 5;   // seconds measured each way, after one to warm up
 const STREAMS = 3;         // connections at once each way
-const SPEED_CONNECT = 5;   // seconds a speed server has to take a connection
+const SPEED_CONNECT = 5;
+const SPEED_SERVED = 65536;        // bytes a connection gave before the server closed it, for it to have been served   // seconds a speed server has to take a connection
 const LOAN = 120;          // seconds the radio is asked of an airscan that lends it
 const HEAR_WAIT = 30;      // seconds airscan is given, the radio back, to hear the air again
 const LONGEST = 450;       // seconds the whole of it may take: the agent gives it 480 before it takes it for dead
@@ -351,21 +352,25 @@ function speed(addr, name, port, dir, how) {
 		}
 		if (!s.connect({ address: addr, port: port })) {
 			// Begun, and waited for; or refused at once, as with no route.
-			let err = socket.error(true);
-			if (err == 115) {
-				let ev = socket.poll(wait * 1000, [s, socket.POLLOUT]);
-				err = s.getopt(socket.SOL_SOCKET, socket.SO_ERROR);
-				if (!err && !((ev?.[0]?.[1] ?? 0) & socket.POLLOUT))
-					err = -1;
-			}
-			if (err) {
-				why = err == 111 ? 'Connection refused' : err == 113 || err == 101 ? 'No route to it' : err > 0 ? `it cannot be reached (error ${err})`
-					: `it does not answer within ${wait} s`;
+			// Which, the socket says after the wait: an error's number is
+			// not asked, as "begun" has one number on one kind of
+			// processor and another on the next. An error the wait ended
+			// in is the socket's own; with none, and the socket ready, it
+			// is joined where it has someone at its other end, and was
+			// refused at once where it has not.
+			let said = replace(socket.error() ?? '', /^[a-z_]+\(\): /, '');
+			let ev = socket.poll(wait * 1000, [s, socket.POLLOUT]);
+			let err = s.getopt(socket.SOL_SOCKET, socket.SO_ERROR);
+			let bad = err ? socket.strerror(err) ?? `it cannot be reached (error ${err})`
+				: !((ev?.[0]?.[1] ?? 0) & socket.POLLOUT) ? `it does not answer within ${wait} s`
+				: !s.peername() ? (length(said) ? said : 'it cannot be reached') : null;
+			if (bad) {
+				why = bad;
 				s.close();
 				return null;
 			}
 		}
-		return { s: s, left: BODY, out: dir == 'down' ? req : head, moved: 0, said: null, first: '' };
+		return { s: s, left: BODY, out: dir == 'down' ? req : head, moved: 0, bodies: 0, said: null, first: '' };
 	};
 	for (let i = 0; i < STREAMS; i++) {
 		let x = open(SPEED_CONNECT);
@@ -386,14 +391,19 @@ function speed(addr, name, port, dir, how) {
 				let d = x.s.recv(262144, socket.MSG_DONTWAIT);
 				if (d != null && !length(d)) {
 					// The server closed it, as some do after so many
-					// requests: another is opened in its place, where this
-					// one moved anything; one that moved nothing was refused.
+					// requests: another is opened in its place, where the
+					// server served this one: it answered, and gave bytes
+					// by the tens of thousands, or was handed a whole body.
+					// One it did not was refused, whatever the socket took
+					// before it closed, and whatever page came first, as a
+					// sign-in page's does.
 					x.s.close();
-					let y = x.moved > 0 && ++again <= 64 ? open(1) : null;
+					let served = x.said != null && (dir == 'down' ? x.moved >= SPEED_SERVED : x.bodies > 0);
+					let y = served && ++again <= 64 ? open(1) : null;
 					if (!y) {
 						splice(socks, i, 1);
 						shut();
-						return { error: x.moved > 0 && again <= 64 ? why : 'the server closed its connections' };
+						return { error: served && again <= 64 ? why : 'the server closed its connections' };
 					}
 					socks[i] = y;
 					continue;
@@ -441,6 +451,7 @@ function speed(addr, name, port, dir, how) {
 			if (x.left <= 0) {
 				x.out = head;
 				x.left = BODY;
+				x.bodies++;
 			}
 		}
 		if (warm == null && now() - start >= 1) {

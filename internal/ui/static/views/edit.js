@@ -68,11 +68,15 @@ export function input(path, f, current) {
 		const choices = f['x-aeolus-choices'];
 		const OWN = '\u0000own';
 		const named = choices.some(([v]) => v === current);
+		// A name the list has not, as one a later manager had: shown as
+		// that, and it measures nothing. One's own is a URL.
+		const stray = typeof current === 'string' && !named && !current.includes('://');
 		const sel = h('select', null,
 			current === undefined && h('option', { value: '' }, 'none'),
+			stray && h('option', { value: current, selected: true }, `${current} (not in the list: it measures nothing)`),
 			choices.map(([v, label]) => h('option', { value: v, selected: v === current }, label)),
-			h('option', { value: OWN, selected: current !== undefined && !named }, `${f['x-aeolus-own'] || 'Another'}…`));
-		const own = h('input', { type: 'text', maxlength: f.maxLength, value: current !== undefined && !named ? current : '', placeholder: f['x-aeolus-own-as'] || '', 'aria-label': f['x-aeolus-own'] || 'Another' });
+			h('option', { value: OWN, selected: current !== undefined && !named && !stray }, `${f['x-aeolus-own'] || 'Another'}…`));
+		const own = h('input', { type: 'text', maxlength: f.maxLength, value: current !== undefined && !named && !stray ? current : '', placeholder: f['x-aeolus-own-as'] || '', 'aria-label': f['x-aeolus-own'] || 'Another' });
 		const show = () => { own.hidden = sel.value !== OWN; };
 		sel.addEventListener('change', show);
 		show();

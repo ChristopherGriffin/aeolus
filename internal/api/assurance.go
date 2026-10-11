@@ -740,7 +740,8 @@ func runOf(r testRecord) assuranceRun {
 	}
 	if d.SpeedRemote != nil {
 		out.RemoteDown, out.RemoteUp = d.SpeedRemote.Down, d.SpeedRemote.Up
-		out.RemoteFailed = d.SpeedRemote.Error != ""
+		// Of a test that passed: one that failed before it has its own reason.
+		out.RemoteFailed = out.Passed && d.SpeedRemote.Error != ""
 	}
 	return out
 }

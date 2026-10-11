@@ -192,6 +192,7 @@ type actionIn struct {
 	Network string `json:"network,omitempty" jsonschema:"for client-test: the network to join, by its ID, one the AP offers"`
 	On      string `json:"on,omitempty" jsonschema:"for client-test: the AP whose networks to join, the testing AP itself among them; empty for the strongest other AP it hears"`
 	Band    string `json:"band,omitempty" jsonschema:"for client-test: 2g, 5g or 6g; empty for any; wire for a test over the wire, from the AP itself"`
+	Remote  *bool  `json:"remote,omitempty" jsonschema:"for client-test: false to leave out the speed to the remote server, which moves a good deal over the internet link; measured where one is set unless false"`
 }
 
 type changeIn struct {
@@ -378,7 +379,7 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "POST", "/v1/preview", map[string]any{"op": in.Op})
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "ap_action", Description: "Ask an AP to do something once (0104): locate (blink every LED for a minute, to find it), restart-wifi (every client drops and joins again), reboot (off the air for about two minutes) or disconnect (0107: one client, by MAC in target, leaves every network it is on there and may join again at once, to make it reconnect); or client-test (0121: an AP with a scan radio joins one of its own networks, named in network, as a client would, on the AP named in on or else the strongest other AP it hears, and times each step: finding it, the keys, DHCP, the gateway, DNS and, where a speed server is set, how fast, to the local one (system.speed_server) and to the remote one (system.speed_server_remote, 0134: a public server by its name, as cloudflare, or one's own by its URL); its result is the action's detail, read by listing the AP's actions a minute or two later; with band wire it is made over the wire instead (0128), by any AP whose agent can, a scan radio or none: from its own uplink, on the network's VLAN or into its tunnel, it asks for an address by DHCP, its gateway by ARP and a name by DNS, joins nothing, uses no radio and takes a few seconds). It needs operator on the AP. The AP takes it up on its next poll, within about a minute; one it does not take up within 10 minutes expires. A second ask of the same kind while one waits is the same action. Without kind, lists the AP's latest actions and what came of each.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
+	mcp.AddTool(s, &mcp.Tool{Name: "ap_action", Description: "Ask an AP to do something once (0104): locate (blink every LED for a minute, to find it), restart-wifi (every client drops and joins again), reboot (off the air for about two minutes) or disconnect (0107: one client, by MAC in target, leaves every network it is on there and may join again at once, to make it reconnect); or client-test (0121: an AP with a scan radio joins one of its own networks, named in network, as a client would, on the AP named in on or else the strongest other AP it hears, and times each step: finding it, the keys, DHCP, the gateway, DNS and, where a speed server is set, how fast, to the local one (system.speed_server) and to the remote one (system.speed_server_remote, 0134: a public server by its name, as cloudflare, or one's own by its URL; with remote false that one is left out, as on a link where bytes cost); its result is the action's detail, read by listing the AP's actions a minute or two later; with band wire it is made over the wire instead (0128), by any AP whose agent can, a scan radio or none: from its own uplink, on the network's VLAN or into its tunnel, it asks for an address by DHCP, its gateway by ARP and a name by DNS, joins nothing, uses no radio and takes a few seconds). It needs operator on the AP. The AP takes it up on its next poll, within about a minute; one it does not take up within 10 minutes expires. A second ask of the same kind while one waits is the same action. Without kind, lists the AP's latest actions and what came of each.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in actionIn) (*mcp.CallToolResult, any, error) {
 			path := "/v1/aps/" + url.PathEscape(in.AP) + "/actions"
 			if in.Kind == "" {
@@ -393,6 +394,9 @@ func server(c client, version string) *mcp.Server {
 				if v != "" {
 					body[k] = v
 				}
+			}
+			if in.Remote != nil {
+				body["remote"] = *in.Remote
 			}
 			out, err := c.call(ctx, "POST", path, body)
 			return nil, out, err

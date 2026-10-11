@@ -99,7 +99,7 @@ function wanted(p) {
 		let r = p.speed_remote;
 		// The whole of each, and nothing after what was looked at: a
 		// pattern stops at a zero byte, and the string does not.
-		let whole = (v, re) => type(v) == 'string' && length(match(v, re)?.[0] ?? '') == length(v);
+		let whole = (v, re) => type(v) == 'string' && length(v) > 0 && length(match(v, re)?.[0] ?? '') == length(v);
 		let path = (v) => whole(v, /^\/[A-Za-z0-9._~\/?&=%+-]{0,200}$/);
 		let name = type(r?.name) == 'string' && length(r.name) ? replace(substr(r.name, 0, 64), /[^ -~]/g, '?') : null;
 		// One that cannot be used is said so, and fails no test: the rest

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	chg "github.com/ChristopherGriffin/aeolus/internal/change"
 	"github.com/ChristopherGriffin/aeolus/internal/schema"
 )
 
@@ -107,18 +108,26 @@ func TestATestMeasuresBothSpeeds(t *testing.T) {
 		}
 	}
 
-	// The setting takes a name, or a URL of one's own, and nothing else. A
-	// name the manager's list has not is taken too: one it had, and has no
-	// longer, must not hold an AP's config back.
+	// The setting takes a name from the list, or a URL of one's own, and
+	// nothing else: a name the list has not, as one mistyped, is refused
+	// when it is set, with the names it has.
 	for v, good := range map[string]bool{"cloudflare": true, "librespeed-atlanta": true, "tele2": true, "http://speed.example.net:3000": true,
-		"a-server-of-later": true, "https://speed.example.net": false, "Cloudflare": false, "two words": false, "http://speed.example.net:99999": false} {
-		if code, b := set("system.speed_server_remote", v); (code == 200) != good {
+		"a-server-of-later": false, "cloudflar": false, "https://speed.example.net": false, "Cloudflare": false, "two words": false, "http://speed.example.net:99999": false} {
+		code, b := set("system.speed_server_remote", v)
+		if (code == 200) != good {
 			t.Errorf("a remote speed server of %q: %d %v", v, code, b)
+		}
+		if v == "cloudflar" && !strings.Contains(fmt.Sprint(b["error"]), "cloudflare, librespeed-amsterdam") {
+			t.Errorf("a name mistyped is not told the names there are: %v", b)
 		}
 	}
 	must("system.speed_server", "http://192.168.20.106")
-	// Such a name measures nothing, and holds nothing back.
-	must("system.speed_server_remote", "a-server-of-later")
+	// One the list had, and has no longer, as a later manager's, is in the
+	// log all the same: it measures nothing, and holds nothing back.
+	if _, err := f.log.Commit("griff", "as a manager with another list set it", chg.Op{Kind: chg.Set, Tree: chg.Locations, Node: "office",
+		Path: "system.speed_server_remote", Value: json.RawMessage(`"a-server-of-later"`)}); err != nil {
+		t.Fatalf("a name the list has not, in the log: %v", err)
+	}
 	say()
 	if _, _, cfg := f.apDo("GET", "/v1/ap/config", scanner[1], nil, nil); cfg["config"] == nil {
 		t.Errorf("a name the list has not held the AP's config: %v", cfg)
@@ -248,6 +257,33 @@ func TestATestMeasuresBothSpeeds(t *testing.T) {
 	if code, _, b := f.apDo("POST", "/v1/ap/actions/"+next, scanner[1], map[string]any{"ok": true, "result": "passed", "detail": bad}, nil); code != 200 {
 		t.Errorf("a remote speed not measured: %d %v", code, b)
 	}
+	// One that stopped before its speeds, its gateway gone, has its own
+	// reason. The points after the one it stopped at were not come to:
+	// they are not counted as gone badly, and its remote speed is not said
+	// to have failed, though the AP tried each and none could work.
+	code, body = f.do("POST", "/v1/aps/"+scanner[0]+"/actions", "griff", map[string]any{"kind": "client-test", "network": "sweet", "on": scanner[0], "band": "5g"})
+	if code != 200 {
+		t.Fatalf("asked a third time: %d %v", code, body)
+	}
+	next = strconv.FormatInt(int64(body["action"].(map[string]any)["id"].(float64)), 10)
+	f.apDo("GET", "/v1/ap/actions", scanner[1], nil, nil)
+	gone := map[string]any{
+		"v": 1, "ssid": "Sweet Spot", "band": "5g", "bssid": "02:00:00:00:00:6a", "client": "02:00:00:00:00:f0",
+		"outcome": "failed", "stage": "gateway", "reason": "its gateway does not answer",
+		"steps": []any{
+			map[string]any{"t": 636, "stage": "key", "what": "let on to the network", "ok": yes},
+			map[string]any{"t": 925, "stage": "dhcp", "what": "given 192.168.20.108 by 192.168.20.254", "ok": yes, "ms": 284},
+			map[string]any{"t": 4000, "stage": "gateway", "what": "192.168.20.254 does not answer", "ok": false},
+			map[string]any{"t": 9000, "stage": "dns", "what": "192.168.20.254 does not answer", "ok": false},
+			map[string]any{"t": 14000, "stage": "speed", "what": "it does not answer within 5 s", "ok": false},
+			map[string]any{"t": 15240, "stage": "speed", "what": "192.168.20.254 has no address for speed.cloudflare.com", "ok": false, "k": "remote"},
+		},
+		"speed":        map[string]any{"server": "http://192.168.20.106", "error": "it does not answer within 5 s"},
+		"speed_remote": map[string]any{"server": "Cloudflare", "error": "its name was not found"},
+	}
+	if code, _, b := f.apDo("POST", "/v1/ap/actions/"+next, scanner[1], map[string]any{"ok": false, "result": "failed at gateway", "detail": gone}, nil); code != 200 {
+		t.Errorf("a test that stopped at its gateway: %d %v", code, b)
+	}
 
 	// On a schedule: no speed unless the folder says; then the local one;
 	// and the remote one only where it says that too.
@@ -309,7 +345,7 @@ func TestATestMeasuresBothSpeeds(t *testing.T) {
 	// And the one whose remote speed was asked for and not measured says
 	// so, in brief and in what the thing's tests come to: the point went
 	// badly in one, and stopped none.
-	var unmeasured, typical []string
+	var unmeasured, typical, amiss []string
 	for _, c := range view["checks"].([]any) {
 		for _, r := range c.(map[string]any)["runs"].([]any) {
 			if r.(map[string]any)["remote_failed"] == true {
@@ -320,6 +356,8 @@ func TestATestMeasuresBothSpeeds(t *testing.T) {
 		for _, p := range way {
 			if p := p.(map[string]any); p["k"] == "remote" {
 				typical = append(typical, fmt.Sprintf("passed %v, stopped %v, bad %v", p["passed"], p["stopped"], p["bad"]))
+			} else if p["stopped"] != float64(0) || p["bad"] != nil {
+				amiss = append(amiss, fmt.Sprintf("%v: stopped %v, bad %v", p["k"], p["stopped"], p["bad"]))
 			}
 		}
 	}
@@ -328,5 +366,9 @@ func TestATestMeasuresBothSpeeds(t *testing.T) {
 	}
 	if got, want := strings.Join(typical, "; "), "passed 1, stopped 0, bad 1"; got != want {
 		t.Errorf("the remote point over its tests = %q, want %q", got, want)
+	}
+	// The one that stopped at its gateway stopped there, and nowhere after.
+	if got, want := strings.Join(amiss, "; "), "gateway: stopped 1, bad <nil>"; got != want {
+		t.Errorf("the other points that went amiss = %q, want %q", got, want)
 	}
 }
