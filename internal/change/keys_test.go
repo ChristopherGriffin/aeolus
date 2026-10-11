@@ -87,14 +87,24 @@ func TestKeys(t *testing.T) {
 	// The trees can't strand a key: its VLAN, its network's security, or
 	// its network.
 	for name, op := range map[string]Op{
-		"its VLAN dropped": {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.keys.vlans", Value: json.RawMessage(`[101]`)},
-		"security changed": {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.security", Value: json.RawMessage(`"wpa3-sae"`)},
-		"the network gone": {Kind: Unset, Tree: Services, Node: "household", Paths: []hierarchy.Path{"network.sweet.ssid", "network.sweet.security", "network.sweet.keys.vlans"}},
+		"its VLAN dropped":                  {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.keys.vlans", Value: json.RawMessage(`[101]`)},
+		"security changed":                  {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.security", Value: json.RawMessage(`"wpa3-sae"`)},
+		"passphrases from RADIUS turned on": {Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.radius.passphrases", Value: json.RawMessage(`true`)},
+		"the network gone":                  {Kind: Unset, Tree: Services, Node: "household", Paths: []hierarchy.Path{"network.sweet.ssid", "network.sweet.security", "network.sweet.keys.vlans"}},
 	} {
 		c := s.Clone()
 		if _, _, err := Apply(c, op); !errors.Is(err, ErrInUse) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+	// A network that takes each device's passphrase from its RADIUS server
+	// (0115) takes no keys: with its last key gone it can be turned to that,
+	// and then a key is refused.
+	c := s.Clone()
+	mustApply(t, c, keyOp(RemoveKey, "household", "sweet", "unit-101", ``))
+	mustApply(t, c, Op{Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.radius.passphrases", Value: json.RawMessage(`true`)})
+	if _, _, err := Apply(c, keyOp(AddKey, "household", "sweet", "x", `{"name":"X","passphrase":`+sealedPass+`}`)); !errors.Is(err, ErrRADIUSKeys) {
+		t.Errorf("a key on a network with passphrases from RADIUS: %v", err)
 	}
 	// A VLAN no key uses can go.
 	mustApply(t, s, Op{Kind: Set, Tree: Services, Node: "household", Path: "network.sweet.keys.vlans", Value: json.RawMessage(`[102]`)})

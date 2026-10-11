@@ -339,10 +339,11 @@ function signed_in(bss, mac) {
 }
 
 // The RADIUS servers the AP's networks sign clients in against (0114), by
-// server and port: { server, port, secret, networks, sock, id, auth, sent,
-// answered, rtt, misses, ever, next }. Each is asked for its status every
-// RADIUS_EVERY, and is silent once RADIUS_MISSES asks in a row go
-// unanswered.
+// server, port and secret: { server, port, secret, networks, sock, id,
+// auth, sent, answered, rtt, misses, ever, next }. Each is asked for its
+// status every RADIUS_EVERY, and is silent once RADIUS_MISSES asks in a row
+// go unanswered. Two networks may share a server and not its secret: an
+// answer under one secret says nothing of the other, so each is asked.
 const RADIUS_EVERY = 30;
 const RADIUS_MISSES = 3;
 // How long a sign-in that timed out, with none answered since, keeps a
@@ -367,7 +368,7 @@ function radius_plan(at) {
 		let n = filter(list(i.network), x => match(x, /^aeolus_/))[0];
 		if (!n || !i.auth_server || !i.auth_secret)
 			return;
-		let port = int(i.auth_port ?? '1812') || 1812, key = i.auth_server + ' ' + port;
+		let port = int(i.auth_port ?? '1812') || 1812, key = i.auth_server + ' ' + port + ' ' + i.auth_secret;
 		want[key] ??= { server: i.auth_server, port: port, secret: i.auth_secret, networks: {} };
 		want[key].networks[replace(substr(n, 7), /_/g, '-')] = true;
 	});
@@ -1207,6 +1208,9 @@ function dhcp_scan(at) {
 				}
 			}
 		}
+	// What hostapd counted of each network's sign-ins is read by these
+	// (0114), with or without nl80211.
+	bsses = all;
 	for (let ifn in keys(dw.ifaces))
 		if (!(ifn in want) || want[ifn] != dw.ifaces[ifn].network || ifindex(ifn) != dw.ifaces[ifn].index) {
 			close(dw.ifaces[ifn].sock);
@@ -1277,7 +1281,6 @@ function dhcp_scan(at) {
 	}
 	// Only the sessions still here are remembered.
 	users = known;
-	bsses = all;
 	for (let id, n in dw.nets)
 		for (let mac in keys(n.clients))
 			if (at - n.clients[mac].seen > STAY_GAP)

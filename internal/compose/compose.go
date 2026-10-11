@@ -566,7 +566,11 @@ func enterpriseProblems(doc map[string]any) []string {
 		if r["auth_server"] == nil || r["auth_secret"] == nil {
 			out = append(out, where+": WPA Enterprise needs a RADIUS server to sign clients in against: radius.auth_server and radius.auth_secret")
 		}
-		if keys, _ := n["keys"].(map[string]any); len(keys) > 0 {
+		// Its keys' VLANs: the keys themselves can't be on a network that
+		// is not WPA2 (change.ErrNotPSK), and an empty list left behind is
+		// nothing.
+		keys, _ := n["keys"].(map[string]any)
+		if vlans, _ := keys["vlans"].([]any); len(vlans) > 0 {
 			out = append(out, where+": per-user keys are passphrases, for a WPA2 network; WPA Enterprise signs each client in as itself already")
 		}
 		if roaming, _ := n["roaming"].(map[string]any); roaming["ft"] == true {
@@ -625,9 +629,10 @@ func macAuthProblems(where, security string, n, r map[string]any) []string {
 // passphrase from the RADIUS server could not do (0115). Only WPA2 is
 // rendered: WPA3 works its key out before the server's passphrase is in
 // hand in the way OpenWrt sets it up, and an open network has none. Per-user
-// keys are the other way to the same end, and hostapd would take one only
-// from a device the server also gave a passphrase. 802.11r's keys are made
-// from the network's own passphrase, which is not used here.
+// keys are the other way to the same end, and such a network can have none
+// (change.ErrRADIUSKeys), so VLANs offered to them would be for no one.
+// 802.11r's keys are made from the network's own passphrase, which is not
+// used here.
 func passphraseProblems(where, security string, n, r map[string]any) []string {
 	if r["passphrases"] != true {
 		return nil
@@ -636,8 +641,9 @@ func passphraseProblems(where, security string, n, r map[string]any) []string {
 	if security != "wpa2-psk" {
 		out = append(out, where+": passphrases from the RADIUS server are for a WPA2 network (wpa2-psk); "+security+" is not rendered with them")
 	}
-	if keys, _ := n["keys"].(map[string]any); len(keys) > 0 {
-		out = append(out, where+": per-user keys and passphrases from the RADIUS server are two ways to give each device its own; keep one")
+	keys, _ := n["keys"].(map[string]any)
+	if vlans, _ := keys["vlans"].([]any); len(vlans) > 0 {
+		out = append(out, where+": keys.vlans offers VLANs to per-user keys, and a network that takes each device's passphrase from the RADIUS server has none; take them out")
 	}
 	if roaming, _ := n["roaming"].(map[string]any); roaming["ft"] == true {
 		out = append(out, where+": 802.11r with passphrases from the RADIUS server is not rendered yet; turn roaming.ft off for it")

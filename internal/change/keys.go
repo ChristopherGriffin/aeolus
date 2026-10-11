@@ -25,6 +25,10 @@ var (
 	ErrNoNetwork = &keyError{"change needs a network"}
 	ErrNoKeyID   = &keyError{"change needs a key"}
 	ErrNotPSK    = &keyError{"per-user keys need a wpa2-psk network"}
+	// ErrRADIUSKeys refuses a key on a network that takes each device's
+	// passphrase from its RADIUS server (0115): hostapd would take the key
+	// only from a device the server also gave a passphrase.
+	ErrRADIUSKeys = &keyError{"per-user keys need a network with passphrases of its own; this one takes each device's from its RADIUS server (radius.passphrases)"}
 )
 
 // keyError is a refused key definition, with its own message.
@@ -163,7 +167,9 @@ func networkFields(s *State, folder hierarchy.NodeID, network string) (map[strin
 }
 
 // keyNetwork checks that a Services folder offers a WPA2-PSK network, which
-// keys can belong to.
+// keys can belong to, and one that does not take each device's passphrase
+// from its RADIUS server instead (0115). As every key is checked after each
+// change, a network with keys can't be turned to that either.
 func keyNetwork(s *State, folder hierarchy.NodeID, network string) error {
 	n, ok := s.Org.Services.Node(folder)
 	if !ok || n.Kind == hierarchy.KindAP {
@@ -175,6 +181,9 @@ func keyNetwork(s *State, folder hierarchy.NodeID, network string) error {
 	}
 	if f["security"] != "wpa2-psk" {
 		return ErrNotPSK
+	}
+	if f["radius.passphrases"] == true {
+		return ErrRADIUSKeys
 	}
 	return nil
 }
