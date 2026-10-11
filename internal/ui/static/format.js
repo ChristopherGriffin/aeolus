@@ -61,7 +61,7 @@ const PORT_VNI = { tunnel: 'tunnel', vni: 'VNI', probe: 'probe address' };
 
 // group says which panel a field belongs in, and its label there.
 // Service assurance (0123): client tests on a schedule.
-const ASSURANCE = { 'tests.every': 'A client test', 'tests.speed': 'With its speed', 'tests.wire': 'Over the wire too' };
+const ASSURANCE = { 'tests.every': 'A client test', 'tests.over': 'Which tests', 'tests.speed': 'With its speed', 'tests.wire': 'Over the wire too (before)' };
 
 export function group(path) {
 	const p = path.split('.');
@@ -113,6 +113,7 @@ export function value(path, v, names) {
 	if (last === 'dfs') return v === 'avoid' ? 'avoided' : v === 'look-first' ? 'used after a look' : 'allowed';
 	if (path === 'system.agent') return v === 'current' ? "current: the manager's own" : String(v);
 	if (/\.radius\.test\.method$/.test(path)) return v === 'ttls' ? 'TTLS with PAP' : 'PEAP with MSCHAPv2';
+	if (path === 'assurance.tests.over') return v === 'wire' ? 'over the wire' : v === 'both' ? 'through the air and over the wire' : 'through the air';
 	if (path === 'assurance.tests.every') return v === 0 ? 'never' : v < 60 ? `every ${v} minutes` : v === 60 ? 'every hour' : v < 1440 ? `every ${v / 60} hours` : 'once a day';
 	if (path === 'rrm.window') return `${String(v).replace('-', '–')}, the AP's local time`;
 	if (path === 'rrm.margin') return `${v} rating points`;

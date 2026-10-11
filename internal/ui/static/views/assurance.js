@@ -17,10 +17,44 @@ import { systemEditor } from './system.js';
 import { testChip, testLine, testOpened } from './clienttest.js';
 import { typicalPath } from './way.js';
 
-// What the tab sets: how often, with speed or without, and the server a
-// speed is measured against, which is the APs' own setting (0121).
-const FIELDS = ['assurance.tests.every', 'assurance.tests.speed', 'assurance.tests.wire', 'system.speed_server'];
-const SECTIONS = [['Client tests on a schedule', FIELDS]];
+// What the tab sets: how often, which tests (0131), with speed or without,
+// and the server a speed is measured against, which is the APs' own
+// setting (0121). The setting before which tests, over the wire too, is
+// shown where a folder has it still, and set no more.
+const SET = ['assurance.tests.every', 'assurance.tests.over', 'assurance.tests.speed', 'system.speed_server'];
+const FIELDS = [...SET, 'assurance.tests.wire'];
+const SECTIONS = [['Client tests on a schedule', SET]];
+// The tests a round is asked for (0131), as the choice names them, and as
+// a sentence does.
+const OVER = [['both', 'Both'], ['air', 'Wireless'], ['wire', 'Wired']];
+const OVERSAID = { air: ', through the air only', wire: ', over the wire only' };
+// What was chosen last: kept here for as long as the page is open, as the
+// tab is drawn again every few seconds, and in the browser for the next
+// time, where it keeps anything.
+const KEPT = 'aeolus.round.over';
+let chosenOver = null;
+function kept() {
+	if (chosenOver) return chosenOver;
+	try {
+		const v = localStorage.getItem(KEPT);
+		return OVER.some(([k]) => k === v) ? v : 'both';
+	} catch { return 'both'; }
+}
+function keep(k) {
+	chosenOver = k;
+	try { localStorage.setItem(KEPT, k); } catch { /* storage blocked */ }
+}
+
+// asSet is the fields as the schedule's editor is shown them. Where which
+// tests is not set and the setting before, over the wire too, is on, both
+// is in force (0131): the editor is shown that, from where the setting
+// before comes, so that choosing through the air there is a change.
+function asSet(fields) {
+	const before = fields['assurance.tests.wire'];
+	if (fields['assurance.tests.over'] || before?.value !== true) return fields;
+	// A lock on the setting before is not one on this: a lock is a field's.
+	return { ...fields, 'assurance.tests.over': { ...before, value: 'both', origin: before.origin === 'locked' ? 'inherited' : before.origin } };
+}
 
 // The checks opened, by what they are of, so a redraw keeps them open.
 const open = new Set();
@@ -31,18 +65,21 @@ function round(t) {
 	return m < 120 ? `${m} minutes` : m < 2880 ? `${Math.round(m / 60)} hours` : `${Math.round(m / 1440)} days`;
 }
 
-// tester says what an AP that tests is asked for: through the air, with its
-// scan radio; over the wire (0128), from its uplink; or both.
+// tester says what an AP that tests is asked for (0131): through the air,
+// with its scan radio; over the wire (0128), from its uplink; or both.
 function tester(t) {
-	const how = t.air && t.wire ? 'has a scan radio, and tests over the wire too' : t.wire ? 'tests over the wire, from its uplink'
-		: t.air ? 'has a scan radio' : 'can test over the wire, from its uplink';
+	const air = t.air && t.over !== 'wire';
+	const how = air && t.wire ? 'has a scan radio, and tests over the wire too'
+		: t.wire ? (t.air ? 'has a scan radio, and is asked for tests over the wire only' : 'tests over the wire, from its uplink')
+			: air ? 'has a scan radio' : t.air ? 'has a scan radio, and is asked for tests over the wire, which its agent cannot make'
+				: 'can test over the wire, from its uplink';
 	// What it tests in a round asked by hand (0129) may be more than its
 	// schedule's: over the wire, where its folders ask for none of that.
 	const asked = t.round ? ` In a round asked by hand it tests ${many(t.round, 'thing')}.` : '';
 	if (!t.things && !t.round) return `${t.name} ${how}, and offers no network a test can try.`;
 	if (!t.every) return `${t.name} ${how}, and is not asked for tests on a schedule.${asked}`;
 	if (!t.things) return `${t.name} ${how}, and has nothing its schedule can test.${asked}`;
-	return `${t.name} ${how}. It is asked for one test ${value('assurance.tests.every', t.every)}${t.speed && t.air ? ', with speed through the air' : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
+	return `${t.name} ${how}. It is asked for one test ${value('assurance.tests.every', t.every)}${t.speed && air ? ', with speed through the air' : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
 }
 
 const secs = (ms) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
@@ -126,16 +163,17 @@ const fresh = (r) => Date.now() - new Date(r.at).getTime() < 20 * 60 * 1000;
 
 // rounded says how a round of tests asked by hand is going (0129).
 function rounded(r, here) {
-	if (!r) return null;
+	if (!r || !r.of) return null;
 	const where = r.node === here ? '' : r.name ? ` at ${r.name}` : ' above here';
 	// Who asked is said to one who may view where it was asked.
 	const by = r.by ? ` by ${r.by}` : '';
 	const left = r.of - r.done;
-	if (left <= 0) return h('p', { class: 'sub' }, `The round asked${where} ${ago(r.at)}${by} is done: ${many(r.of, 'thing')} tested.`);
+	const only = OVERSAID[r.over] || '';
+	if (left <= 0) return h('p', { class: 'sub' }, `The round asked${where} ${ago(r.at)}${by}${only} is done: ${many(r.of, 'thing')} tested.`);
 	// What is left a while after: an AP that is away, or behind on its
 	// config, or a thing that cannot be asked for now.
 	const stuck = !fresh(r) && r.asked === r.done;
-	return h('p', { class: 'sub' }, `A round of every test was asked${where} ${ago(r.at)}${by}: ${r.done} of ${many(r.of, 'thing')} tested${r.asked > r.done ? ', one under way' : ''}. `
+	return h('p', { class: 'sub' }, `A round of every test${only} was asked${where} ${ago(r.at)}${by}: ${r.done} of ${many(r.of, 'thing')} tested${r.asked > r.done ? ', one under way' : ''}. `
 		+ (stuck ? 'What is left could not be asked for: an AP that is away or does not run its current config, or a thing that cannot be tested now. It is let go an hour after the round was asked.'
 			: 'Each AP takes them one at a time, about one a minute; what is not asked for within the hour is let go.'));
 }
@@ -184,20 +222,36 @@ export async function assuranceTab(ctx, here, page, edit) {
 	// once, now. While one is being worked at, the page looks again soon.
 	// The page looks again soon only while a round should still be moving:
 	// one left unfinished, as by an AP that is away, is not watched all hour.
-	const going = view.round && view.round.done < view.round.of;
+	const going = view.round && view.round.of > 0 && view.round.done < view.round.of;
 	if (going && (fresh(view.round) || view.round.asked > view.round.done)) hurry(60);
 	// Another round may be asked at any time, and takes the place of one
 	// under way: what was fixed can be tried again at once.
 	const said = h('div');
-	const round = h('button', { type: 'button', class: 'button', disabled: !testers.some((t) => t.round),
-		title: 'Every AP here tests each thing it can once, now, whatever its schedule: through the air where it has a scan radio, and over the wire' },
-	going ? 'Test everything again' : 'Test everything now');
+	// Which tests (0131): both, or one kind alone, of those an AP here can
+	// make. The choice is kept for the next time.
+	const can = { both: testers.some((t) => t.round), air: testers.some((t) => t.air), wire: testers.some((t) => t.can_wire) };
+	let over = can[kept()] ? kept() : 'both';
+	const round = h('button', { type: 'button', class: 'button' }, going ? 'Test everything again' : 'Test everything now');
+	const seg = h('span', { class: 'segmented', role: 'group', 'aria-label': 'Which tests' });
+	const TITLE = {
+		both: 'Every AP here tests each thing it can once, now, whatever its schedule: through the air where it has a scan radio, and over the wire',
+		air: 'Every AP here with a scan radio joins each of its networks as a client would, once, now, whatever its schedule',
+		wire: 'Every AP here asks each of its networks for an address, its gateway and a name, over the wire, once, now, whatever its schedule',
+	};
+	const pick = () => {
+		seg.replaceChildren(...OVER.map(([k, name]) => h('button', { type: 'button', class: k === over ? 'on' : '', 'aria-pressed': String(k === over), disabled: !can[k],
+			title: can[k] ? TITLE[k] : k === 'air' ? 'No AP here has a scan radio' : 'No AP here can test that way',
+			onclick: () => { over = k; keep(k); pick(); } }, name)));
+		round.disabled = !can[over];
+		round.title = TITLE[over];
+	};
+	pick();
 	round.addEventListener('click', async () => {
 		round.disabled = true;
 		said.replaceChildren();
 		try {
-			const r = await post('/v1/assurance/round', { under: here });
-			flash(`A round asked of ${page.node.name}: ${many(r.things, 'thing')} to test, each AP one at a time from its next poll.`, 60);
+			const r = await post('/v1/assurance/round', { under: here, over });
+			flash(`A round asked of ${page.node.name}${OVERSAID[over] || ''}: ${many(r.things, 'thing')} to test, each AP one at a time from its next poll.`, 60);
 			hurry(600);
 			redrawNow();
 		} catch (err) {
@@ -220,9 +274,9 @@ export async function assuranceTab(ctx, here, page, edit) {
 			: h('div', { class: 'banner info' }, 'No AP here can test from a client’s side yet: one needs a scan radio, to test through the air, or an agent that tests over the wire (v0.79.0 on).'),
 		rounded(view.round, here),
 		edit && h('div', { class: 'below' },
-			h('button', { type: 'button', class: 'button', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, page.fields, box,
+			h('button', { type: 'button', class: 'button', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, asSet(page.fields), box,
 				{ sections: SECTIONS, heading: 'Edit the schedule', what: 'Client tests' }) }, 'Edit the schedule'),
-			' ', round),
+			' ', seg, ' ', round),
 		said,
 		box));
 	if (Object.keys(fields).length) out.push(fieldPanels(ctx, 'locations', here, fields, edit));

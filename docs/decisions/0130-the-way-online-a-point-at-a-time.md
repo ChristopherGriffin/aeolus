@@ -53,4 +53,4 @@
 - **The times are worked out at each reading, and kept nowhere.** To trend them over weeks they want keeping: a row a point, by network, AP and band, tests and clients alike. That is the next step, and this reading is what would fill it.
 - **A network's way reads up to 2000 attempts whole at each look.** That is some tens of ms; on a site of thousands of clients it wants the kept rows above.
 - **A point that failed by waiting says less than it waited,** where its agent notes no step at the end of the wait: a network looked for and never found says when its last look began. The test's own reason says the rest.
-- **Not in this:** a choice of tests, through the air, over the wire, or both, for a schedule and for a round (0123, 0129); a step saying what the radio saw, frames sent, acknowledged and heard, so a test that hears nothing back says where the frames stopped.
+- **Not in this:** a step saying what the radio saw, frames sent, acknowledged and heard, so a test that hears nothing back says where the frames stopped.

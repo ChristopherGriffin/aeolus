@@ -184,6 +184,7 @@ Each milestone ends in something checkable before the next starts.
 | [0128](docs/decisions/0128-client-tests-over-the-wire.md) | A client test over the wire |
 | [0129](docs/decisions/0129-a-round-of-tests-asked-now.md) | A round of tests, asked now |
 | [0130](docs/decisions/0130-the-way-online-a-point-at-a-time.md) | The way online, a point at a time |
+| [0131](docs/decisions/0131-which-tests-air-wire-or-both.md) | Which tests: through the air, over the wire, or both |
 
 ## Open questions
 

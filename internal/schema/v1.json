@@ -102,9 +102,10 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "every": { "type": "integer", "enum": [0, 15, 30, 60, 180, 360, 720, 1440], "description": "How often, in minutes, an AP with a scan radio is asked for a client test (0121): each time another of its networks, on itself or on an AP it hears well, on one band. Unset or 0, none is asked on a schedule; 0 says so below a folder that sets one." },
+            "every": { "type": "integer", "enum": [0, 15, 30, 60, 180, 360, 720, 1440], "description": "How often, in minutes, an AP is asked for a client test, of the tests over says (0131): through the air, one with a scan radio, each time another of its networks, on itself or on an AP it hears well, on one band (0121); over the wire, any AP, each time another of its networks (0128). Unset or 0, none is asked on a schedule; 0 says so below a folder that sets one." },
             "speed": { "type": "boolean", "default": false, "description": "On, a test on a schedule measures speed too, against the speed server, where one is set. Off, it stops at DNS: a speed measurement fills the air for ten seconds." },
-            "wire": { "type": "boolean", "default": false, "description": "On, every AP here is asked for tests over the wire too (0128), a scan radio or none: each of its networks in turn, from its own uplink, on the network's VLAN or into its tunnel: an address by DHCP, the gateway, a name looked up. It joins nothing and uses no radio." }
+            "over": { "enum": ["air", "wire", "both"], "default": "air", "description": "Which tests the APs here are asked for on a schedule (0131). Through the air (air): an AP with a scan radio joins its networks as a client would (0121). Over the wire (wire): any AP asks each of its networks, from its own uplink, on the network's VLAN or into its tunnel, for an address, the gateway and a name (0128); it joins nothing and uses no radio. Both: each AP all it can, the tests through the air first." },
+            "wire": { "type": "boolean", "default": false, "description": "The setting before over (0128): on, tests over the wire too, which is both where over is not set. Set over instead." }
           }
         }
       }
