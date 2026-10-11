@@ -1238,6 +1238,78 @@ config wifi-device 'b'
 	if !strings.Contains(allow, `wireless.a: acs_exclude_dfs is "1", want it off for radio.5g.dfs allow`) || strings.Contains(allow, "wireless.b:") {
 		t.Errorf("allow: %s", allow)
 	}
+	// Where the radio looks before it uses a DFS channel (0120), an
+	// automatic channel is picked outside them at its start, as with avoid;
+	// a channel set, DFS or not, is used as set.
+	look := check("look-first", `config wifi-device 'a'
+	option band '5g'
+	option channel 'auto'
+	option acs_exclude_dfs '1'
+config wifi-device 'b'
+	option band '5g'
+	option channel 'auto'
+config wifi-device 'c'
+	option band '5g'
+	option channel '100'
+	option htmode 'VHT80'
+config wifi-device 'd'
+	option band '5g'
+	option channel '36'
+	option acs_exclude_dfs '1'
+`)
+	for _, want := range []string{
+		`wireless.b: acs_exclude_dfs is "", want it on for radio.5g.dfs look-first`,
+		`wireless.d: acs_exclude_dfs is "1", want it off for radio.5g.dfs look-first`,
+	} {
+		if !strings.Contains(look, want) {
+			t.Errorf("missing %q in: %s", want, look)
+		}
+	}
+	for _, ok := range []string{"wireless.a:", "wireless.c:"} {
+		if strings.Contains(look, ok) {
+			t.Errorf("%s should pass: %s", ok, look)
+		}
+	}
+}
+
+// Where the 5 GHz radio looks before it uses a DFS channel (0120), the
+// daemon's section lets it move the radio to one, unless it moves no radio;
+// nowhere else may it.
+func TestLookFirstTellsTheDaemon(t *testing.T) {
+	check := func(doc, text string) string {
+		t.Helper()
+		var d map[string]any
+		if err := json.Unmarshal([]byte(doc), &d); err != nil {
+			t.Fatal(err)
+		}
+		c, err := uci.Parse(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(CheckAP(d, c, "ap-a0046021365e"), "\n")
+	}
+	section := "package aeolus\nconfig rrm 'aeolus_rrm'\n\toption enabled '1'\n\toption ap 'ap-a0046021365e'\n" +
+		"\toption moves '1'\n\toption window '02:00-05:00'\n\toption margin '20'\n"
+	with := strings.Replace(section, "\toption moves '1'\n", "\toption moves '1'\n\toption dfs '1'\n", 1)
+	look := `{"rrm": {"enabled": true}, "radio": {"5g": {"dfs": "look-first"}}}`
+	if got := check(look, with); strings.Contains(got, "aeolus_rrm") {
+		t.Errorf("look-first, and the daemon told: %s", got)
+	}
+	if got := check(look, section); !strings.Contains(got, `aeolus.aeolus_rrm: dfs is "", want 1`) {
+		t.Errorf("look-first, and the daemon not told: %s", got)
+	}
+	const nothing = `aeolus.aeolus_rrm: dfs is "1", but nothing has the daemon move a radio to a DFS channel here`
+	if got := check(`{"rrm": {"enabled": true}, "radio": {"5g": {"dfs": "allow"}}}`, with); !strings.Contains(got, nothing) {
+		t.Errorf("allow, and the daemon told: %s", got)
+	}
+	// It moves no radio: there is no one to go there.
+	still := `{"rrm": {"enabled": true, "moves": false}, "radio": {"5g": {"dfs": "look-first"}}}`
+	if got := check(still, strings.Replace(section, "moves '1'", "moves '0'", 1)); strings.Contains(got, "aeolus_rrm") {
+		t.Errorf("look-first with no moves: %s", got)
+	}
+	if got := check(still, strings.Replace(with, "moves '1'", "moves '0'", 1)); !strings.Contains(got, nothing) {
+		t.Errorf("look-first with no moves, and the daemon told: %s", got)
+	}
 }
 
 // Radio resource management on puts the daemon's section in the agent's

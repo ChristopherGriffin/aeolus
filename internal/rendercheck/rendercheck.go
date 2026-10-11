@@ -257,7 +257,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.snmp(obj(obj(doc, "system"), "snmp"))
 	k.ports(obj(doc, "ports"), obj(doc, "concentrators"))
 	k.probes(doc)
-	k.rrm(obj(doc, "rrm"), obj(doc, "apc"))
+	k.rrm(obj(doc, "rrm"), obj(doc, "apc"), obj(obj(doc, "radio"), "5g")["dfs"] == "look-first")
 	k.stp(obj(doc, "uplink"))
 	k.bond(obj(doc, "uplink"))
 	k.guardInterval(obj(doc, "radio"), radios)
@@ -506,11 +506,13 @@ func (k *checker) guardInterval(set map[string]any, radios []device) {
 
 // dfs checks a radio against radio.<band>.dfs (0071): with avoid, an
 // automatic channel is picked outside DFS, and a channel the AP keeps as
-// its own must not be a DFS one, whoever set it.
+// its own must not be a DFS one, whoever set it. With look-first (0120) an
+// automatic channel is picked outside DFS too, at the radio's start; a
+// channel set is used as set.
 func (k *checker) dfs(where string, r device, v string) {
 	channel := value(r.s, "channel")
 	auto := channel == "" || channel == "auto"
-	if want := v == "avoid" && auto; r.s.Flag("acs_exclude_dfs") != want {
+	if want := (v == "avoid" || v == "look-first") && auto; r.s.Flag("acs_exclude_dfs") != want {
 		k.add("%s: acs_exclude_dfs is %q, want it %s for radio.%s.dfs %s", where, value(r.s, "acs_exclude_dfs"), onOff(want), r.band, v)
 	}
 	ch, err := strconv.Atoi(channel)
@@ -532,8 +534,10 @@ func (k *checker) dfs(where string, r device, v string) {
 // daemon stays idle. On an AP with a scan radio, whose serving radios never
 // scan (0081), the section tells the daemon to listen through that radio,
 // airscan's (0116); on any other AP it must not, or the daemon would hear
-// nothing.
-func (k *checker) rrm(set, apc map[string]any) {
+// nothing. Where the 5 GHz radio looks before it uses a DFS channel (look,
+// 0120), the section lets the daemon move it to one, unless it moves no
+// radio; nowhere else may it.
+func (k *checker) rrm(set, apc map[string]any, look bool) {
 	const where = "aeolus.aeolus_rrm"
 	s := k.c.Package("aeolus").Named("aeolus_rrm")
 	if set["enabled"] != true {
@@ -561,6 +565,12 @@ func (k *checker) rrm(set, apc map[string]any) {
 		moves = "0"
 	}
 	k.option(where, s, "moves", moves)
+	switch got, _ := s.Option("dfs"); {
+	case look && moves == "1" && got != "1":
+		k.add("%s: dfs is %q, want 1: radio.5g.dfs is look-first, and the daemon is what moves the radio to a DFS channel (0120)", where, got)
+	case !(look && moves == "1") && got != "":
+		k.add("%s: dfs is %q, but nothing has the daemon move a radio to a DFS channel here", where, got)
+	}
 	k.option(where, s, "window", cmp.Or(text(set["window"]), "02:00-05:00"))
 	k.option(where, s, "margin", cmp.Or(text(set["margin"]), "20"))
 	// Power control (0077): on, its count and target, defaults written out;

@@ -103,7 +103,7 @@ export function value(path, v, names) {
 	if (last === 'min_signal') return v === 'off' ? 'off' : v + ' dBm';
 	if (last === 'beacon_interval') return v + ' TU';
 	if (last === 'dtim') return `every ${v} beacon${v === 1 ? '' : 's'}`;
-	if (last === 'dfs') return v === 'avoid' ? 'avoided' : 'allowed';
+	if (last === 'dfs') return v === 'avoid' ? 'avoided' : v === 'look-first' ? 'used after a look' : 'allowed';
 	if (path === 'system.agent') return v === 'current' ? "current: the manager's own" : String(v);
 	if (path === 'rrm.window') return `${String(v).replace('-', '–')}, the AP's local time`;
 	if (path === 'rrm.margin') return `${v} rating points`;

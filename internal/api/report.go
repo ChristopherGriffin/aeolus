@@ -254,12 +254,15 @@ type rrmOther struct {
 // rrmDeaf is a radio that can't scan (2026-10-06): its band and channel;
 // why, dfs (on a channel shared with radar, Linux keeps an AP there
 // listening and refuses every scan) or refused (every scan refused
-// otherwise); and for how many seconds.
+// otherwise); and for how many seconds. Where the AP looks before it uses a
+// DFS channel (0120), home is the channel the radio steps off to when its
+// own grows worse.
 type rrmDeaf struct {
 	Band    string `json:"band"`
 	Channel int    `json:"channel"`
 	Why     string `json:"why"`
 	Ago     int64  `json:"ago"`
+	Home    int    `json:"home,omitempty"`
 }
 
 // rrmPower is a radio whose power the AP's power control holds (0077): the
@@ -287,9 +290,11 @@ type rrmPower struct {
 }
 
 // rrmMove is one of the AP's moves (0073): a radio's band, the channel it
-// was on and the one it went for; why: start, shared, better or
-// interference; what came of it: announced (claimed in its hellos, not yet
-// made), moved, yielded (to AP's claim), withdrawn or failed; and when it
+// was on and the one it went for; why: start, shared, better,
+// interference, or radar (found on its channel, so hostapd moved it, 0120);
+// what came of it: announced (claimed in its hellos, not yet made),
+// checking (listening for radar on a DFS channel before it sends there,
+// 0120), moved, yielded (to AP's claim), withdrawn or failed; and when it
 // came to that, in Unix seconds.
 type rrmMove struct {
 	Band  string `json:"band"`
@@ -350,8 +355,8 @@ type rrmBand struct {
 var (
 	apIDRE    = regexp.MustCompile(`^ap-[0-9a-f]{12}$`)
 	rrmStates = map[string]bool{"up": true, "one-way": true, "heard": true, "down": true}
-	rrmWhys   = map[string]bool{"start": true, "shared": true, "better": true, "interference": true}
-	rrmEnds   = map[string]bool{"announced": true, "moved": true, "yielded": true, "withdrawn": true, "failed": true}
+	rrmWhys   = map[string]bool{"start": true, "shared": true, "better": true, "interference": true, "radar": true}
+	rrmEnds   = map[string]bool{"announced": true, "checking": true, "moved": true, "yielded": true, "withdrawn": true, "failed": true}
 	rrmWidths = map[int]bool{0: true, 20: true, 40: true, 80: true, 160: true, 320: true}
 	apcWhys   = map[string]bool{"new": true, "looking": true, "below": true, "ceiling": true, "target": true, "above": true, "floor": true, "failed": true}
 	radioRE   = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,32}$`)
@@ -383,7 +388,7 @@ func (r *rrmState) check() error {
 	for _, m := range r.Moves {
 		if !bands[m.Band] || m.From < 0 || m.From > 233 || m.To < 1 || m.To > 233 || !rrmWhys[m.Why] || !rrmEnds[m.State] || m.At < 0 ||
 			(m.AP != "" && !apIDRE.MatchString(m.AP)) {
-			return badRequest("rrm: at most 16 moves, each a band, the channels from and to, why (start, shared, better or interference), what came of it (announced, moved, yielded, withdrawn or failed), when, and the AP it yielded to")
+			return badRequest("rrm: at most 16 moves, each a band, the channels from and to, why (start, shared, better, interference or radar), what came of it (announced, checking, moved, yielded, withdrawn or failed), when, and the AP it yielded to")
 		}
 	}
 	for _, b := range r.Advertised {
@@ -404,8 +409,8 @@ func (r *rrmState) check() error {
 		}
 	}
 	for _, d := range r.CannotScan {
-		if !bands[d.Band] || d.Channel < 1 || d.Channel > 233 || (d.Why != "dfs" && d.Why != "refused") || d.Ago < 0 {
-			return badRequest("rrm: a radio that can't scan is a band, a channel from 1 to 233, why (dfs or refused), and seconds since")
+		if !bands[d.Band] || d.Channel < 1 || d.Channel > 233 || (d.Why != "dfs" && d.Why != "refused") || d.Ago < 0 || d.Home < 0 || d.Home > 233 {
+			return badRequest("rrm: a radio that can't scan is a band, a channel from 1 to 233, why (dfs or refused), seconds since, and the channel it steps off to, if any")
 		}
 	}
 	for _, p := range r.APC {

@@ -192,10 +192,14 @@ function deaf(r, span, first) {
 	const dur = (s) => (s < 120 ? `${s} s` : s < 7200 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`);
 	return (r?.cannot_scan || []).map((d, i) => h('tr', null,
 		h('td', null, i === 0 && first),
-		h('td', { colspan: span, class: 'sub' }, h('span', { class: 'chip warn' }, `${bandName(d.band)} can't scan`), ' ',
-			d.why === 'dfs'
-				? `For ${dur(d.ago)}: on DFS channel ${d.channel} the radio must keep listening for radar, so it can't visit other channels or hear its neighbours there. Its ${bandName(d.band)} ratings age until it leaves the channel, and lapse after 30 minutes.`
-				: `For ${dur(d.ago)}: its radio refuses every scan on channel ${d.channel}, so its ${bandName(d.band)} ratings age.`)));
+		// Where the AP looks before it uses a DFS channel (0120), being
+		// there is what it chose, and it knows where it steps off to.
+		h('td', { colspan: span, class: 'sub' }, h('span', { class: `chip ${d.home ? 'idle' : 'warn'}` }, d.home ? `${bandName(d.band)} on a DFS channel` : `${bandName(d.band)} can't scan`), ' ',
+			d.why === 'dfs' && d.home
+				? `For ${dur(d.ago)}: on DFS channel ${d.channel} the radio must keep listening for radar, so it can't look at other channels. It rates its own by its own counts, and steps off to channel ${d.home} to look again when its own grows worse, a neighbour takes it, or interference fills it.`
+				: d.why === 'dfs'
+					? `For ${dur(d.ago)}: on DFS channel ${d.channel} the radio must keep listening for radar, so it can't visit other channels or hear its neighbours there. Its ${bandName(d.band)} ratings age until it leaves the channel, and lapse after 30 minutes.`
+					: `For ${dur(d.ago)}: its radio refuses every scan on channel ${d.channel}, so its ${bandName(d.band)} ratings age.`)));
 }
 
 function table(ctx, rows) {
@@ -298,7 +302,9 @@ function ratingsFold(ctx, band, { ap, report, r }, alone) {
 		h('summary', null,
 			h('span', { class: 'who' }, ap.name),
 			h('span', { class: 'grow sub' }, says),
-			deafHere.cannot_scan.length > 0 && h('span', { class: 'chip warn' }, "can't scan"),
+			deafHere.cannot_scan.length > 0 && (deafHere.cannot_scan.every((x) => x.home)
+				? h('span', { class: 'chip idle' }, 'on a DFS channel')
+				: h('span', { class: 'chip warn' }, "can't scan")),
 			!alone && link(`/aps/${encodeURIComponent(ap.id)}/interfaces/radios/ratings`, 'Its page')),
 		h('table', { class: 'list' },
 			list.length > 0 && h('tr', null, ['Channel', 'Rating', 'Now', 'Busy', 'Noise', 'Networks', 'Last visit', ''].map((c) => h('th', null, c))),
@@ -323,8 +329,11 @@ function ratingsFold(ctx, band, { ap, report, r }, alone) {
 const WHY = {
 	start: 'the radio had just started', shared: 'a neighbour uses its channel',
 	better: 'another rates better', interference: 'interference on its channel',
+	radar: 'radar was found on its channel',
 };
-const CAME = { announced: 'warn', moved: 'ok', yielded: 'idle', withdrawn: 'idle', failed: 'bad' };
+// checking: on a DFS channel, listening for radar before it sends (0120).
+const CAME = { announced: 'warn', checking: 'warn', moved: 'ok', yielded: 'idle', withdrawn: 'idle', failed: 'bad' };
+const CAME_SAYS = { checking: 'listening for radar' };
 
 // movesPanel lists each AP's last moves, newest first (0073).
 function movesPanel(ctx, rows) {
@@ -337,7 +346,7 @@ function movesPanel(ctx, rows) {
 			h('td', null, bandName(m.band)),
 			h('td', { class: 'mono' }, `${m.from} → ${m.to}`),
 			h('td', null, WHY[m.why] || m.why),
-			h('td', null, h('span', { class: `chip ${CAME[m.state] || 'idle'}` }, m.state === 'yielded' && m.ap ? `yielded to ${name(m.ap)}` : m.state)),
+			h('td', null, h('span', { class: `chip ${CAME[m.state] || 'idle'}` }, m.state === 'yielded' && m.ap ? `yielded to ${name(m.ap)}` : CAME_SAYS[m.state] || m.state)),
 			h('td', null, ago(m.at * 1000))));
 	});
 	return h('section', { class: 'panel' },

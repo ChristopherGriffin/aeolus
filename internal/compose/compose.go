@@ -432,16 +432,21 @@ func bondingProblems(doc map[string]any) []string {
 
 // dfsProblems refuses, with DFS avoided (0071), what could only be on a DFS
 // channel: a width no block outside DFS can carry, or a channel set to one.
-// An explicit setting is never quietly ignored.
+// An explicit setting is never quietly ignored. Where a radio looks before
+// it uses a DFS channel (0120), it starts outside them, so a width none
+// outside can carry is refused too; a channel set there is used as set.
 func dfsProblems(doc map[string]any) []string {
 	radios, _ := doc["radio"].(map[string]any)
 	var out []string
 	for _, band := range sortedKeys(radios) {
 		set, _ := radios[band].(map[string]any)
+		w, _ := set["width"].(float64)
+		if set["dfs"] == "look-first" && radio.Radar(band, 0, int(w)) {
+			out = append(out, fmt.Sprintf("radio.%s.width: every %d MHz channel uses DFS channels, but radio.%s.dfs is look-first: a radio starts outside them", band, int(w), band))
+		}
 		if set["dfs"] != "avoid" {
 			continue
 		}
-		w, _ := set["width"].(float64)
 		if radio.Radar(band, 0, int(w)) {
 			out = append(out, fmt.Sprintf("radio.%s.width: every %d MHz channel uses DFS channels, but radio.%s.dfs is avoid", band, int(w), band))
 			continue
@@ -485,11 +490,16 @@ func channelsProblems(doc map[string]any) []string {
 		}
 		w, _ := set["width"].(float64)
 		width := max(20, int(w))
+		// Where a radio looks before it uses a DFS channel (0120), it must
+		// have a block outside them to start on, as with DFS avoided.
+		look := band == "5g" && set["dfs"] == "look-first"
 		avoid := band == "5g" && set["dfs"] == "avoid"
-		if len(radio.Usable(band, chans, width, avoid, psc, spread)) > 0 {
+		if len(radio.Usable(band, chans, width, avoid || look, psc, spread)) > 0 {
 			continue
 		}
 		switch {
+		case look && len(radio.Usable(band, chans, width, false, psc, spread)) > 0:
+			out = append(out, fmt.Sprintf("radio.%s.channels: no %d MHz block outside DFS is wholly in the set, and radio.%s.dfs is look-first: a radio has nowhere to start", band, width, band))
 		case psc:
 			out = append(out, fmt.Sprintf("radio.6g.channels: no preferred scanning channel is in a whole %d MHz block of the set, and radio.6g.psc is on", width))
 		case avoid:

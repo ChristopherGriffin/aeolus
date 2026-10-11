@@ -19,6 +19,9 @@ import { ask, confirm } from './confirm.js';
 import { followButton } from './follow.js';
 import { inheritsBar } from './inherits.js';
 
+// How a band's DFS setting reads where a change is confirmed (0071, 0120).
+const DFS_SAYS = { avoid: 'avoided', 'look-first': 'used after a look', allow: 'allowed' };
+
 const BANDS = ['2g', '5g', '6g'];
 
 // The 802.11 generations of each band, oldest first; the htmode family
@@ -271,9 +274,24 @@ function bandPanel(at, band, b) {
 		const row = h('label', { class: 'tick', title: about }, el, ' ', label, whence(k) && h('span', { class: 'whence' }, whence(k)));
 		return { row, reset: () => { el.checked = isOn(); } };
 	};
+	// One of several, where a tick box would not do: a segmented choice,
+	// drawn again on Undo as a tick box is.
+	const choice = (k, label, about, options, now, set) => {
+		const seg = h('span', { class: 'segmented', role: 'group', 'aria-label': label });
+		const paint = () => seg.replaceChildren(...options.map(([v, name, tip]) => h('button', {
+			type: 'button', class: now() === v ? 'on' : '', 'aria-pressed': now() === v, disabled: !editable(k), title: tip,
+			onclick: () => { set(v); paint(); draw(); },
+		}, name)));
+		paint();
+		const row = h('span', { class: 'tick choice', title: about }, label, ' ', seg, whence(k) && h('span', { class: 'whence' }, whence(k)));
+		return { row, reset: paint };
+	};
 	const ticks = [
-		band === '5g' && tick('dfs', 'DFS channels', 'Channels 52–144, shared with radar: a radio there listens for radar for about a minute before it transmits, and moves off if it hears any (0071).',
-			() => d.dfs !== 'avoid', (v) => { d.dfs = v ? 'allow' : 'avoid'; }),
+		band === '5g' && choice('dfs', 'DFS channels', 'Channels 52–144, shared with radar: a radio there listens for radar for about a minute before it transmits, and moves off if it hears any (0071).', [
+			['avoid', 'Avoid', 'A radio that picks its own channel keeps off them.'],
+			['look-first', 'Look first', 'A radio starts off them, looks at every channel, and moves to one of them only where it is clearly the best: soon after it starts, or in the window for moves. The move takes it off the air for about a minute. Radio resource management does it; where that moves no radios, they are avoided (0120).'],
+			['allow', 'Allow', 'A radio may start on one, by its own pick. There it cannot look at other channels, so it never learns of a better one.'],
+		], () => d.dfs ?? 'allow', (v) => { d.dfs = v; }),
 		band === '6g' && tick('psc', 'Preferred scanning channels only', 'Clients look for 6 GHz networks on 5, 21, 37 and every 16th to 229 by themselves; elsewhere only where another band’s beacons send them (0087).',
 			() => d.psc === true, (v) => { d.psc = v; }),
 		band === '6g' && tick('non_overlapping', 'One channel a block', 'Each block of the width offers one channel, so radios that pick different channels never share a block (0087).',
@@ -539,13 +557,14 @@ function bandPanel(at, band, b) {
 			: { kind: 'set', tree: 'locations', node, values };
 		const p = await ask(box, op);
 		if (!p) return;
-			const show = (k, v) => (k === 'channels' ? v.join(', ') : k === 'width' ? `${v} MHz` : k === 'power' ? (v === 'auto' ? 'automatic' : `${v} dBm`)
+			const show = (k, v) => (k === 'channels' ? v.join(', ') : k === 'width' ? `${v} MHz` : k === 'dfs' ? (DFS_SAYS[v] || String(v)) : k === 'power' ? (v === 'auto' ? 'automatic' : `${v} dBm`)
 			: k === 'channel' ? (v === 'auto' ? 'automatic' : String(v)) : k === 'modes' ? v.map((m) => `802.11${m}`).join(', ')
 				: k === 'short_gi' ? (v ? 'short, 400 ns' : 'long, 800 ns') : k === 'he_gi' ? (v === 'auto' ? 'automatic' : `${v / 1000} µs`)
 					: k === 'min_signal' ? (v === 'off' ? 'off: any client may join' : `${v} dBm`) : k === 'beacon_interval' ? `${v} TU`
 					: typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v));
 		const names = { enabled: 'Radio on', width: 'Width', channel: 'Channel', channels: 'Channels it may be', dfs: 'DFS channels', psc: 'Preferred scanning channels only', non_overlapping: band === '2g' ? 'Only channels that do not overlap' : 'One channel a block', power: 'Power', modes: 'Protocols', short_gi: `Guard interval, ${htKind}`, he_gi: 'Guard interval, 802.11ax', min_signal: 'Minimum signal to join', beacon_interval: 'Beacon interval' };
-		const radarNow = paths.some((x) => x.endsWith('.dfs')) && values[`radio.${band}.dfs`] === 'allow';
+		const dfsNow = paths.some((x) => x.endsWith('.dfs')) && values[`radio.${band}.dfs`];
+		const radarNow = dfsNow === 'allow';
 		confirm(ctx, box, op, p, [
 			h('div', null, h('strong', null, `${bandName(band)} on ${nodeName}`)),
 			h('ul', { class: 'becomes' }, paths.map((path) => {
@@ -556,6 +575,7 @@ function bandPanel(at, band, b) {
 				&& h('div', { class: 'sub' }, 'The channel becomes automatic: some AP’s channel cannot carry the new width.'),
 		], [
 			radarNow && h('div', { class: 'sub warn' }, 'With DFS channels allowed, a radio may pick one: it then listens for radar for about a minute before it transmits.'),
+			dfsNow === 'look-first' && h('div', { class: 'sub warn' }, 'Each radio starts outside the DFS channels and looks. Where one of them is clearly the best it moves there, about a quarter of an hour after it starts or in the window for moves: its clients are off it for about a minute while it listens for radar. It needs radio resource management on, and moving radios.'),
 				paths.some((x) => !x.endsWith('.he_gi'))
 				? h('div', { class: 'sub warn' }, `Applying restarts the ${bandName(band)} radio on each AP listed: its clients drop for a few seconds and reconnect.`)
 				: h('div', { class: 'sub' }, 'The 802.11ax guard interval changes at once, without restarting the radio.'),
