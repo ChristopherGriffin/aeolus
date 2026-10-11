@@ -261,7 +261,8 @@ type testPing struct {
 	Min     *float64 `json:"min"`
 	Avg     *float64 `json:"avg"`
 	Max     *float64 `json:"max"`
-	MAC     string   `json:"mac,omitempty"` // where it answered ARP: it is there, though it answer no ping
+	ARP     *bool    `json:"arp,omitempty"` // whether it answered ARP; absent where the test did not look
+	MAC     string   `json:"mac,omitempty"` // its MAC, where it did: it is there, though it answer no ping
 }
 
 type testDNS struct {
