@@ -40,6 +40,7 @@ type moveView struct {
 type bandView struct {
 	Band   string      `json:"band"`
 	APs    int         `json:"aps"`
+	Ahead  bool        `json:"ahead,omitempty"` // no AP here has a radio for it yet: it is set ahead of them
 	Widths []widthView `json:"widths"`
 	Modes  []modeView  `json:"modes"`
 }
@@ -130,10 +131,14 @@ func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardware
 				have = append(have, r)
 			}
 		}
-		if len(have) == 0 {
+		// A folder is set up before its APs are there, as a site is before
+		// it is built (Griff, 2026-10-11): a band no AP below has a radio
+		// for is offered all the same, with all the band can do, and what
+		// is set waits for the APs. An AP's own page has what the AP has.
+		if len(have) == 0 && alone {
 			continue
 		}
-		bv := bandView{Band: band, APs: len(have), Widths: []widthView{}}
+		bv := bandView{Band: band, APs: len(have), Ahead: len(have) == 0, Widths: []widthView{}}
 		lockedBy := channelLock(t, node, band)
 		avoid := dfsSet(t, node, band)
 		for _, w := range radio.Widths[band] {
@@ -146,7 +151,7 @@ func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardware
 					cannot = append(cannot, r.ref.Name)
 				}
 			}
-			v := modeView{Mode: m, OK: len(cannot) == 0, Any: len(cannot) < len(have)}
+			v := modeView{Mode: m, OK: len(cannot) == 0, Any: len(cannot) < len(have) || bv.Ahead}
 			switch {
 			case len(cannot) > 0 && alone:
 				v.Why = "its radio cannot do it"

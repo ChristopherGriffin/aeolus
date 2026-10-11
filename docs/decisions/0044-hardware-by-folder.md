@@ -23,3 +23,11 @@
 - A folder's hardware settings never take an AP beyond what it can do. A new, less capable AP joining a folder is held until its config fits, and its page says why.
 - A width that would leave a radio off the air while the AP still reaches the manager, which no automatic revert would catch, never gets applied.
 - The channel groups are the ones that hold in the US and EU. The newer 165–177 groups are left out until an AP needs them.
+
+## Added 2026-10-11: a folder set up before its APs
+
+- **Griff:** "When creating a new folder it requires APs to be present before it lets you set the interface radios bands. We need to be able to prestage sites."
+- **A folder offers every band,** with all the band can do, those no AP below it has a radio for too. Such a band is marked `ahead`, and its panel says that what is set waits for the first AP with a radio for it.
+- **What is set ahead limits nothing until an AP comes.** An AP that then can't do it is held, and its page says why, as above.
+- **An AP's own page has the bands the AP has.**
+- **A network's card still says "no radio here"** for a band no AP there has yet.

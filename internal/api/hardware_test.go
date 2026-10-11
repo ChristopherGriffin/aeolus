@@ -147,6 +147,70 @@ func TestLookFirstWithdraws160(t *testing.T) {
 	}
 }
 
+// A folder is set up before its APs are there (Griff, 2026-10-11): it
+// offers every band with all the band can do, those no AP in it has a radio
+// for marked as set ahead, and takes their settings. An AP's own page has
+// the bands it has.
+func TestBandsAreOfferedAheadOfAPs(t *testing.T) {
+	f := newFixture(t)
+	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	if code, b := f.change("griff", map[string]any{"kind": "add-folder", "tree": "locations", "node": "new-site", "name": "New site", "parent": "symtus"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	site, hw := f.hardwareOf("new-site")
+	if len(hw["aps"].([]any)) != 0 || len(site) != 3 {
+		t.Fatalf("an empty folder: aps %v, bands %v", hw["aps"], site)
+	}
+	for band, widths := range map[string][]float64{"2g": {20, 40}, "5g": {20, 40, 80, 160}, "6g": {20, 40, 80, 160, 320}} {
+		for _, w := range widths {
+			if why, ok := site[band][w]; !ok || why != "" {
+				t.Errorf("%s at %v MHz in an empty folder: %q, offered %v", band, w, why, ok)
+			}
+		}
+	}
+	for _, b := range hw["bands"].([]any) {
+		bv := b.(map[string]any)
+		if bv["ahead"] != true || bv["aps"] != float64(0) {
+			t.Errorf("%v: ahead %v, aps %v", bv["band"], bv["ahead"], bv["aps"])
+		}
+		for _, m := range bv["modes"].([]any) {
+			if mv := m.(map[string]any); mv["ok"] != true || mv["any"] != true {
+				t.Errorf("%v %v in an empty folder = %v", bv["band"], mv["mode"], mv)
+			}
+		}
+	}
+	// It takes a band's settings, and holds what the band cannot do as
+	// anywhere: DFS avoided, 160 MHz is not offered.
+	if code, b := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "new-site",
+		"values": map[string]any{"radio.6g.width": 160, "radio.5g.width": 80, "radio.5g.dfs": "avoid", "radio.2g.channel": "auto"}}); code != 200 {
+		t.Fatalf("setting an empty folder's bands: %d %v", code, b)
+	}
+	if site, _ = f.hardwareOf("new-site"); site["5g"][160] != "it needs DFS channels, which are avoided here" || site["5g"][80] != "" {
+		t.Fatalf("with DFS avoided = %v", site["5g"])
+	}
+	// An AP that comes with 2.4 and 5 GHz radios: those are its own now, and
+	// 6 GHz is still set ahead; the AP's own page has only its two.
+	radios := []any{
+		map[string]any{"radio": "radio0", "band": "5g", "htmodes": []string{"HT20", "HT40", "VHT80"}},
+		map[string]any{"radio": "radio1", "band": "2g", "htmodes": []string{"HT20"}},
+	}
+	ap := strings.Split(f.enrollAt("FirstAP", "02:00:00:00:00:0c", "new-site", radios, map[string]int{"5g": 36, "2g": 6}), "|")[0]
+	site, hw = f.hardwareOf("new-site")
+	if site["2g"][40] != "FirstAP cannot do it" || site["6g"][320] != "" {
+		t.Fatalf("with its first AP = %v", site)
+	}
+	for _, b := range hw["bands"].([]any) {
+		if bv := b.(map[string]any); (bv["ahead"] == true) != (bv["band"] == "6g") {
+			t.Errorf("%v: ahead %v", bv["band"], bv["ahead"])
+		}
+	}
+	if own, _ := f.hardwareOf(ap); len(own) != 2 || own["6g"] != nil {
+		t.Fatalf("the AP's own = %v", own)
+	}
+}
+
 // With DFS avoided, a width only DFS channels can carry is not offered
 // (0071), and setting it is held.
 func TestAvoidingDFSWithdraws160(t *testing.T) {

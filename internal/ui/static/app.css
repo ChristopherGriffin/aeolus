@@ -412,6 +412,7 @@ div.field.start input[type=number] { height: 34px; width: 110px; padding: 0 10px
 .bond .members .jack { cursor: inherit; padding: 2px; }
 .portdetail { margin-top: 12px; }
 .ports.inherited .jack .icon, .ports.inherited .bond .members { opacity: 0.55; }
+.bandpanel > .ahead { margin: 2px 20px 6px; }
 .bandpanel.inherited .chmap, .bandpanel.inherited > .ticks, .bandpanel.inherited > .row, .bandpanel.inherited .bandhead .width, .bandpanel.inherited .bandhead .radio-on .switch { opacity: 0.55; }
 .gis { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
 .chrange { display: flex; gap: 6px; }
