@@ -185,6 +185,7 @@ Each milestone ends in something checkable before the next starts.
 | [0129](docs/decisions/0129-a-round-of-tests-asked-now.md) | A round of tests, asked now |
 | [0130](docs/decisions/0130-the-way-online-a-point-at-a-time.md) | The way online, a point at a time |
 | [0131](docs/decisions/0131-which-tests-air-wire-or-both.md) | Which tests: through the air, over the wire, or both |
+| [0133](docs/decisions/0133-the-keys-a-message-at-a-time.md) | The keys, a message at a time |
 | [0134](docs/decisions/0134-a-speed-server-near-and-one-far.md) | A speed server near, and one far |
 
 ## Open questions
