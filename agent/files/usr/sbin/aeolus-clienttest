@@ -62,6 +62,7 @@ const FREE_WAIT = 120;     // seconds it waits for airscan to be between its job
 const CONNECT_WAIT = 20;   // seconds to be let on to the network
 const SPEED_SECONDS = 5;   // seconds measured each way, after one to warm up
 const STREAMS = 3;         // connections at once each way
+const SPEED_CONNECT = 5;   // seconds a speed server has to take a connection
 const LOAN = 120;          // seconds the radio is asked of an airscan that lends it
 const HEAR_WAIT = 30;      // seconds airscan is given, the radio back, to hear the air again
 const LONGEST = 450;       // seconds the whole of it may take: the agent gives it 480 before it takes it for dead
@@ -315,49 +316,86 @@ function lookup(server, name) {
 	return out;
 }
 
-// speed moves bytes from or to an OpenSpeedTest server, over a few
-// connections at once, and says how fast after the first second: its
-// download is a file of 30 MB, asked for again and again, and its upload
-// takes as much at a time.
-function speed(host, port, dir) {
-	let name = host + (port == 80 ? '' : ':' + port);
-	const BODY = 33554432;
+// speed moves bytes from or to a speed server, over a few connections at
+// once, and says how fast, in Mbit/s, after a second to warm up. The
+// server is any that gives bytes for a GET of how.down and takes them for a
+// POST to how.up, how.body bytes a time: an OpenSpeedTest server, as the
+// local one is, or a public one (0134). addr is its address, and name the
+// host it is asked for by.
+function speed(addr, name, port, dir, how) {
+	name += port == 80 ? '' : ':' + port;
+	const BODY = how.body;
 	let req = '', chunk = '';
 	for (let i = 0; i < 64; i++)
-		req += `GET /downloading HTTP/1.1\r\nHost: ${name}\r\n\r\n`;
+		req += `GET ${how.down} HTTP/1.1\r\nHost: ${name}\r\n\r\n`;
 	for (let i = 0; i < 1024; i++)
 		chunk += '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-	let head = `POST /upload HTTP/1.1\r\nHost: ${name}\r\nContent-Type: application/octet-stream\r\nContent-Length: ${BODY}\r\n\r\n`;
+	let head = `POST ${how.up} HTTP/1.1\r\nHost: ${name}\r\nContent-Type: application/octet-stream\r\nContent-Length: ${BODY}\r\n\r\n`;
 	let socks = [];
 	let shut = () => {
 		for (let x in socks)
 			x.s.close();
 	};
-	for (let i = 0; i < STREAMS; i++) {
-		let s = bound(socket.SOCK_STREAM);
-		if (!s || !s.connect({ address: host, port: port })) {
-			let why = socket.error() ?? 'it cannot be reached';
-			if (s)
+	// A connection, with what is asked of it sent. It is not waited on for
+	// longer than SPEED_CONNECT seconds: a server out on the internet that
+	// answers nothing would otherwise hold the test, and the scan radio
+	// with it, for minutes.
+	let why = null;
+	let open = () => {
+		let s = bound(socket.SOCK_STREAM | socket.SOCK_NONBLOCK);
+		if (!s) {
+			why = socket.error() ?? 'it cannot be reached';
+			return null;
+		}
+		if (!s.connect({ address: addr, port: port })) {
+			let ev = socket.poll(SPEED_CONNECT * 1000, [s, socket.POLLOUT]);
+			let err = s.getopt(socket.SOL_SOCKET, socket.SO_ERROR);
+			if (!((ev?.[0]?.[1] ?? 0) & socket.POLLOUT) || err) {
+				why = err == 111 ? 'Connection refused' : err == 113 || err == 101 ? 'No route to it' : err ? `it cannot be reached (error ${err})`
+					: `it does not answer within ${SPEED_CONNECT} s`;
 				s.close();
+				return null;
+			}
+		}
+		s.send(dir == 'down' ? req : head);
+		return { s: s, left: BODY };
+	};
+	for (let i = 0; i < STREAMS; i++) {
+		let x = open();
+		if (!x) {
 			shut();
 			return { error: why };
 		}
-		s.send(dir == 'down' ? req : head);
-		push(socks, { s: s, left: BODY });
+		push(socks, x);
 	}
-	let start = now(), bytes = 0, warm = null, warm_at = null;
+	let start = now(), bytes = 0, warm = null, warm_at = null, again = 0;
 	while (now() - start < SPEED_SECONDS + 1) {
-		let ev = socket.poll(200, ...map(socks, x => [x.s, dir == 'down' ? socket.POLLIN : socket.POLLOUT]));
+		// A server may close a connection after so many requests, or so
+		// many bytes: another is opened in its place, a few times over.
+		let events = dir == 'down' ? socket.POLLIN : socket.POLLOUT | socket.POLLIN;
+		let ev = socket.poll(200, ...map(socks, x => [x.s, events]));
 		for (let i = 0; i < length(ev ?? []); i++) {
 			if (!ev[i][1])
 				continue;
 			let x = socks[i];
-			if (dir == 'down') {
+			if (ev[i][1] & (socket.POLLIN | socket.POLLHUP | socket.POLLERR)) {
 				let d = x.s.recv(262144, socket.MSG_DONTWAIT);
-				if (d != null)
+				if (d != null && !length(d)) {
+					x.s.close();
+					let y = ++again <= 16 ? open() : null;
+					if (!y) {
+						splice(socks, i, 1);
+						shut();
+						return { error: 'the server closed its connections' };
+					}
+					socks[i] = y;
+					continue;
+				}
+				if (dir == 'down' && d != null)
 					bytes += length(d);
-				continue;
 			}
+			if (dir == 'down' || !(ev[i][1] & socket.POLLOUT))
+				continue;
 			let want = min(x.left, length(chunk));
 			let n = x.s.send(want == length(chunk) ? chunk : substr(chunk, 0, want), socket.MSG_DONTWAIT);
 			if (n > 0) {
@@ -496,12 +534,12 @@ function measure(res, want) {
 		if (!host)
 			res.speed.error = 'its name was not found';
 		else {
-			let down = speed(host, want.speed.port, 'down');
+			let down = speed(host, want.speed.host, want.speed.port, 'down', ct.OPENSPEEDTEST);
 			step('speed', down.error ? `download: ${down.error}` : `down ${down.mbps} Mbit/s`, !down.error);
 			res.speed.down = down.mbps;
 			res.speed.error = down.error;
 			if (!down.error) {
-				let up = speed(host, want.speed.port, 'up');
+				let up = speed(host, want.speed.host, want.speed.port, 'up', ct.OPENSPEEDTEST);
 				step('speed', up.error ? `upload: ${up.error}` : `up ${up.mbps} Mbit/s`, !up.error);
 				res.speed.up = up.mbps;
 				res.speed.error = up.error;
@@ -509,6 +547,38 @@ function measure(res, want) {
 		}
 		if (res.speed.error == null)
 			delete res.speed.error;
+	}
+	// And how fast to the remote server (0134), out on the internet: its
+	// name looked up of the network's own DNS server, as a client's would
+	// be. Its steps name their point, remote: they are no part of the
+	// local speed.
+	if (want.speed_remote) {
+		let far = want.speed_remote, addr = far.host;
+		res.speed_remote = { server: far.name };
+		if (length(iptoarr(addr) ?? []) != 4) {
+			let a = lease.dns[0] ? lookup(lease.dns[0], far.host) : null;
+			addr = a && a.rcode == 0 && a.answers > 0 ? a.address : null;
+			step('speed', !lease.dns[0] ? `no DNS server to ask for ${far.host}` : addr ? `${lease.dns[0]} answers ${far.host}: ${addr}`
+				: `${lease.dns[0]} has no address for ${far.host}`, !!addr, a?.ms, 'remote');
+		}
+		if (!addr)
+			res.speed_remote.error = 'its name was not found';
+		else {
+			let down = speed(addr, far.host, far.port, 'down', far);
+			step('speed', down.error ? `download from ${far.name}: ${down.error}` : `down ${down.mbps} Mbit/s from ${far.name}`, !down.error, null, 'remote');
+			res.speed_remote.down = down.mbps;
+			res.speed_remote.error = down.error;
+			if (!down.error) {
+				let up = speed(addr, far.host, far.port, 'up', far);
+				step('speed', up.error ? `upload to ${far.name}: ${up.error}` : `up ${up.mbps} Mbit/s to ${far.name}`, !up.error, null, 'remote');
+				res.speed_remote.up = up.mbps;
+				res.speed_remote.error = up.error;
+			}
+		}
+		if (res.speed_remote.error == null)
+			delete res.speed_remote.error;
+	}
+	if (want.speed || want.speed_remote) {
 		// The rates the link settled at, once bytes had moved.
 		let after = ct.link_of(output(`iw dev ${IF} station dump`));
 		if (after.tx || after.rx)

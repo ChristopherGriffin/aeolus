@@ -61,12 +61,13 @@ func set(keys ...string) map[string]bool {
 
 var (
 	// A test through the air (0121): the scan radio finds the network,
-	// joins it, and asks for what a client asks.
+	// joins it, and asks for what a client asks. Its speed is to the local
+	// server, and remote the same to the one out on the internet (0134).
 	wayAir = wayKind{
-		order:     []string{"find", "auth", "assoc", "signin", "key", "dhcp", "gateway", "dns", "speed"},
+		order:     []string{"find", "auth", "assoc", "signin", "key", "dhcp", "gateway", "dns", "speed", "remote"},
 		own:       set("dhcp", "gateway", "dns"),
-		noGap:     set("gateway", "dns", "speed"),
-		optional:  set("signin", "speed"),
+		noGap:     set("gateway", "dns", "speed", "remote"),
+		optional:  set("signin", "speed", "remote"),
 		fromStart: true,
 	}
 	// A test over the wire (0128): an address offered, then given; the

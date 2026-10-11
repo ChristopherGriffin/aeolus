@@ -62,7 +62,7 @@ function chip(a) {
 // from where the test was made: the uplink's port and the VLAN, or the
 // tunnel.
 function way(d) {
-	const l = d.link, g = d.gateway, s = d.speed, w = d.wire;
+	const l = d.link, g = d.gateway, s = d.speed, far = d.speed_remote, w = d.wire;
 	const sub = {
 		find: [d.band && d.band !== WIRE && bandName(d.band), d.channel && `channel ${d.channel}`].filter(Boolean).join(', ') || null,
 		key: l?.signal != null ? `${l.signal} dBm` : null,
@@ -71,8 +71,10 @@ function way(d) {
 		gateway: g && [g.address, !g.got && g.arp_ms == null && g.mac && 'no ping'].filter(Boolean).join(' · '),
 		dns: d.dns?.server,
 		speed: s && !s.error ? 'Mbit/s down, up' : null,
+		// The remote server (0134): which, under its speeds.
+		remote: far && !far.error ? far.server : null,
 	};
-	const main = { speed: s && !s.error ? `${s.down} · ${s.up ?? '?'}` : null };
+	const main = { speed: s && !s.error ? `${s.down} · ${s.up ?? '?'}` : null, remote: far && !far.error ? `${far.down} · ${far.up ?? '?'}` : null };
 	// One that could not be made at all stopped there: at where it was to
 	// be made from, or, where the AP found nowhere, before that.
 	const unmade = d.outcome === 'failed' && d.stage === 'find';
@@ -98,6 +100,7 @@ function found(d) {
 	const g = d.gateway;
 	const n = d.dns;
 	const s = d.speed;
+	const far = d.speed_remote;
 	const w = d.wire;
 	return [
 		row('Tested', w && ['from ', h('span', { class: 'mono' }, d.client), `, a MAC of the test’s own, on ${w.device}`,
@@ -116,7 +119,9 @@ function found(d) {
 						: `none of ${g.sent} pings answered${g.arp === false ? ', nor ARP' : ''}`)),
 		row('DNS', n && (n.rcode == null ? `${n.server} did not answer for ${n.name}`
 			: n.rcode === 0 && n.answers ? `${n.server} gave ${n.name} as ${n.address || `${n.answers} records`} in ${n.ms} ms` : `${n.server} had no address for ${n.name} (code ${n.rcode})`)),
-		row('Speed', s && (s.error ? `not measured: ${s.error}` : `${s.down} Mbit/s down · ${s.up ?? '?'} Mbit/s up, to ${s.server.replace(/^[a-z]+:\/\//, '')}`)),
+		row('Speed, local', s && (s.error ? `not measured: ${s.error}` : `${s.down} Mbit/s down · ${s.up ?? '?'} Mbit/s up, to ${s.server.replace(/^[a-z]+:\/\//, '')}`)),
+		// To the remote server (0134): that it was not measured fails no test.
+		row('Speed, remote', far && (far.error ? `not measured, to ${far.server}: ${far.error}` : `${far.down} Mbit/s down · ${far.up ?? '?'} Mbit/s up, to ${far.server}`)),
 	];
 }
 
@@ -217,6 +222,7 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 			: TESTABLE.has(n.security) ? '' : 'not testable');
 	const near = (cfg.condition?.state?.report?.rrm?.neighbours || []).filter((n) => n.state !== 'down');
 	const speed = page.fields?.['system.speed_server']?.value;
+	const remote = page.fields?.['system.speed_server_remote']?.value;
 	const busy = list.some((a) => a.state === 'pending' || a.state === 'running');
 	if (busy) hurry(20);
 	// What it can test with: its scan radio, through the air; its uplink,
@@ -254,7 +260,7 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 		// Over the wire it is made from this AP, and joins no other.
 		where.replaceChildren(...(wired ? [' from this AP’s uplink '] : [' on ', on, ' ']));
 		how.textContent = wired ? 'From its uplink, on the network’s VLAN or into its tunnel, it asks for an address, its gateway and a name, as a client would. No radio is used, nothing is joined, and it takes a few seconds.'
-			: speed ? `Its speed is measured against ${String(speed).replace(/^[a-z]+:\/\//, '')}, the speed server set for this AP.`
+			: speed || remote ? `Its speed is measured against ${[speed && `${String(speed).replace(/^[a-z]+:\/\//, '')}, the local speed server`, remote && `${String(remote).replace(/^[a-z]+:\/\//, '')}, the remote one`].filter(Boolean).join(', and ')}, as set for this AP.`
 				: 'No speed server is set here (System › Client tests, or its folder’s Assurance tab), so it measures no speed: it joins, takes an address, and tries its gateway and DNS.';
 		run.disabled = busy || !net.value;
 		run.textContent = busy ? 'A test is under way' : 'Run the test';

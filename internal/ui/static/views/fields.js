@@ -11,7 +11,7 @@ const RANK = [
 	'transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni',
 	'transport.fallback.type', 'transport.fallback.vlan', 'transport.fallback.concentrator', 'transport.fallback.vni',
 	'transport.switching', 'transport.ha', 'transport.failback', 'transport.holddown', 'rate_limit.down_kbps', 'rate_limit.up_kbps',
-	'channel', 'width', 'dfs', 'power', 'country', 'tz', 'ntp', 'poll', 'syslog', 'speed_server', 'ssh_keys',
+	'channel', 'width', 'dfs', 'power', 'country', 'tz', 'ntp', 'poll', 'syslog', 'speed_server', 'speed_server_remote', 'ssh_keys',
 	'vlan', 'addressing', 'address', 'gateway', 'dns', 'uplink', 'mode', 'untagged', 'tagged', 'bond',
 ];
 

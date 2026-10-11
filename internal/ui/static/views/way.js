@@ -12,14 +12,15 @@ import { pathOf } from './path.js';
 // has little room, with the whole of it said on hover.
 const POINT = {
 	find: 'Found', auth: 'Auth', assoc: 'Assoc', signin: 'Sign-in', key: 'Keys',
-	offer: 'Offer', dhcp: 'Address', gateway: 'Gateway', dns: 'DNS', internet: 'Internet', speed: 'Speed', release: 'Given back',
+	offer: 'Offer', dhcp: 'Address', gateway: 'Gateway', dns: 'DNS', internet: 'Internet', speed: 'Local', remote: 'Remote', release: 'Given back',
 };
-const WHOLE = { ...POINT, auth: 'Authentication', assoc: 'Association', dhcp: 'An address', internet: 'Its first connection', release: 'The address given back' };
+const WHOLE = { ...POINT, auth: 'Authentication', assoc: 'Association', dhcp: 'An address', internet: 'Its first connection', release: 'The address given back',
+	speed: 'Its speed to the local speed server', remote: 'Its speed to the remote speed server' };
 // And as a sentence says them.
 const SAID = {
 	find: 'finding the network', auth: 'authentication', assoc: 'association', signin: 'the sign-in', key: 'the keys',
 	offer: 'the offer of an address', dhcp: 'the address', gateway: 'the gateway', dns: 'DNS', internet: 'the first connection',
-	speed: 'the speed', release: 'giving the address back',
+	speed: 'the local speed', remote: 'the remote speed', release: 'giving the address back',
 };
 
 // took says a time: under ten ms to a tenth, as an ARP answer is; then

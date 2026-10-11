@@ -20,9 +20,10 @@ import (
 
 // clientTestAsk is what the AP is told to test: the network's SSID; the
 // BSSIDs it may join, one AP's own, or none for the strongest other AP it
-// hears; a band, or none for any; and an OpenSpeedTest server to measure
-// against, where one is set (system.speed_server). Network and On say what
-// was asked, for whoever reads it back; the AP does not read them.
+// hears; a band, or none for any; and the servers to measure speed
+// against, where they are set: the local one, an OpenSpeedTest server by
+// its URL (system.speed_server), and the remote one (0134). Network and On
+// say what was asked, for whoever reads it back; the AP does not read them.
 //
 // A test over the wire (0128) has wire for its band: it joins nothing, so
 // it has no BSSIDs, no user and no speed, and On is the AP itself. AP is
@@ -34,8 +35,11 @@ type clientTestAsk struct {
 	BSSIDs  []string `json:"bssids,omitempty"`
 	Band    string   `json:"band,omitempty"`
 	Speed   string   `json:"speed,omitempty"`
-	EAP     *testEAP `json:"eap,omitempty"`
-	AP      string   `json:"ap,omitempty"`
+	// SpeedRemote is the remote speed server (0134): an agent from before
+	// it does not read it, and measures the local speed alone.
+	SpeedRemote *speedTarget `json:"speed_remote,omitempty"`
+	EAP         *testEAP     `json:"eap,omitempty"`
+	AP          string       `json:"ap,omitempty"`
 	// Round says the manager asked it for a round asked by hand (0129),
 	// not in its turn on a schedule: for whoever reads it back.
 	Round bool `json:"round,omitempty"`
@@ -228,15 +232,15 @@ func testerOf(c call, own map[string]hierarchy.NodeID, mac string) string {
 // AP; and a band, or none.
 func (s *Server) clientTestFor(c call, ap hierarchy.NodeID, network, on, band string) (clientTestAsk, error) {
 	t := c.state.Org.Locations
-	return s.clientTestOf(c.state, ap, network, on, band, true, func(id hierarchy.NodeID) bool {
+	return s.clientTestOf(c.state, ap, network, on, band, speedWant{Local: true, Remote: true}, func(id hierarchy.NodeID) bool {
 		return roleOn(c, change.Locations, t, id) >= access.Viewer
 	})
 }
 
 // clientTestOf is clientTestFor for whoever asks: a person, who may join
 // only an AP they may view, or the manager, on a schedule (0123), which
-// may leave the speed out.
-func (s *Server) clientTestOf(state *change.State, ap hierarchy.NodeID, network, on, band string, speed bool, may func(hierarchy.NodeID) bool) (clientTestAsk, error) {
+// may leave a speed out, the local, the remote (0134) or both.
+func (s *Server) clientTestOf(state *change.State, ap hierarchy.NodeID, network, on, band string, speed speedWant, may func(hierarchy.NodeID) bool) (clientTestAsk, error) {
 	var ask clientTestAsk
 	t := state.Org.Locations
 	if band == wireBand {
@@ -293,8 +297,12 @@ func (s *Server) clientTestOf(state *change.State, ap hierarchy.NodeID, network,
 			ask.BSSIDs = ask.BSSIDs[:32]
 		}
 	}
-	if r, ok := t.Resolve(ap, hierarchy.Path("system.speed_server")); ok && speed {
+	if r, ok := t.Resolve(ap, hierarchy.Path("system.speed_server")); ok && speed.Local {
 		ask.Speed, _ = r.Value.(string)
+	}
+	if r, ok := t.Resolve(ap, hierarchy.Path("system.speed_server_remote")); ok && speed.Remote {
+		v, _ := r.Value.(string)
+		ask.SpeedRemote = remoteSpeed(v)
 	}
 	return ask, nil
 }
@@ -305,31 +313,35 @@ func (s *Server) clientTestOf(state *change.State, ap hierarchy.NodeID, network,
 // on, and took in all, in ms; the networks the scan radio had heard for it;
 // each step with the ms it came at; the link's signal and rates; the
 // address it was given; its gateway's pings; a name looked up; how fast it
-// moved bytes each way, in Mbit/s; and how many networks the scan radio
-// heard before and after, with deaf where it hears none any more.
+// moved bytes each way, in Mbit/s, to the local speed server and to the
+// remote one (0134); and how many networks the scan radio heard before and
+// after, with deaf where it hears none any more.
 type clientTest struct {
-	V         int           `json:"v"`
-	SSID      string        `json:"ssid,omitempty"`
-	Band      string        `json:"band,omitempty"`
-	BSSID     string        `json:"bssid,omitempty"`
-	Channel   int           `json:"channel,omitempty"`
-	Client    string        `json:"client,omitempty"`
-	Outcome   string        `json:"outcome"`
-	Stage     string        `json:"stage"`
-	Reason    string        `json:"reason"`
-	Summary   string        `json:"summary,omitempty"`
-	WaitedMS  int64         `json:"waited_ms,omitempty"`
-	JoinedMS  int64         `json:"joined_ms,omitempty"`
-	TookMS    int64         `json:"took_ms,omitempty"`
-	Heard     []testHeard   `json:"heard,omitempty"`
-	Steps     []testStep    `json:"steps"`
-	Link      *testLink     `json:"link,omitempty"`
-	DHCP      *testDHCP     `json:"dhcp,omitempty"`
-	Gateway   *testPing     `json:"gateway,omitempty"`
-	DNS       *testDNS      `json:"dns,omitempty"`
-	Speed     *testSpeed    `json:"speed,omitempty"`
-	ScanRadio *testScanning `json:"scan_radio,omitempty"`
-	Wire      *testWire     `json:"wire,omitempty"`
+	V        int         `json:"v"`
+	SSID     string      `json:"ssid,omitempty"`
+	Band     string      `json:"band,omitempty"`
+	BSSID    string      `json:"bssid,omitempty"`
+	Channel  int         `json:"channel,omitempty"`
+	Client   string      `json:"client,omitempty"`
+	Outcome  string      `json:"outcome"`
+	Stage    string      `json:"stage"`
+	Reason   string      `json:"reason"`
+	Summary  string      `json:"summary,omitempty"`
+	WaitedMS int64       `json:"waited_ms,omitempty"`
+	JoinedMS int64       `json:"joined_ms,omitempty"`
+	TookMS   int64       `json:"took_ms,omitempty"`
+	Heard    []testHeard `json:"heard,omitempty"`
+	Steps    []testStep  `json:"steps"`
+	Link     *testLink   `json:"link,omitempty"`
+	DHCP     *testDHCP   `json:"dhcp,omitempty"`
+	Gateway  *testPing   `json:"gateway,omitempty"`
+	DNS      *testDNS    `json:"dns,omitempty"`
+	Speed    *testSpeed  `json:"speed,omitempty"`
+	// SpeedRemote is the same against the remote server (0134). That it
+	// could not be measured fails no test: the server is not the site's.
+	SpeedRemote *testSpeed    `json:"speed_remote,omitempty"`
+	ScanRadio   *testScanning `json:"scan_radio,omitempty"`
+	Wire        *testWire     `json:"wire,omitempty"`
 	// Way is its way online, a point at a time (0130): worked out by the
 	// manager as a test is read, and never kept, nor taken from an AP.
 	Way []wayPoint `json:"way,omitempty"`
@@ -368,7 +380,7 @@ type testStep struct {
 // as the result is kept, and the step is read as its stage: a result is not
 // refused for it, as an AP whose result is refused holds its later tests
 // up.
-var testPoints = map[string]bool{"": true, "offer": true, "release": true}
+var testPoints = map[string]bool{"": true, "offer": true, "release": true, "remote": true}
 
 type testRate struct {
 	Mbps float64 `json:"mbps"`
@@ -484,8 +496,10 @@ func (t *clientTest) check() error {
 		d.Answers < 0 || d.Answers > 65535 || (d.Address != nil && !ip(*d.Address))) {
 		return bad("a lookup is the server asked, the name, how long it took, its code and its answer")
 	}
-	if sp := t.Speed; sp != nil && (!words(sp.Server, 280) || !speed(sp.Down) || !speed(sp.Up) || !words(sp.Error, 120)) {
-		return bad("a speed is the server and Mbit/s down and up, or why not")
+	for _, sp := range []*testSpeed{t.Speed, t.SpeedRemote} {
+		if sp != nil && (!words(sp.Server, 280) || !speed(sp.Down) || !speed(sp.Up) || !words(sp.Error, 120)) {
+			return bad("a speed is the server and Mbit/s down and up, or why not")
+		}
 	}
 	if w := t.Wire; w != nil && (w.Device == "" || !words(w.Device, 15) || w.VLAN < 0 || w.VLAN > 4094 || (w.VNI != nil && (*w.VNI < 0 || *w.VNI > 16777215))) {
 		return bad("a wire is its device, and the VLAN or the VNI it carries")
