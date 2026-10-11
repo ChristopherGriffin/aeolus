@@ -103,15 +103,16 @@ func byAir(over string) bool  { return over != overWire }
 func byWire(over string) bool { return over != overAir }
 
 // assureSettings are an AP's, from its folders: how often it is asked for
-// a test, none for never; whether a test on a schedule measures speed; and
-// which tests it is asked for (0131): through the air unless said. The
-// setting before, tests over the wire too (0128), says both where which is
-// not said.
-func assureSettings(state *change.State, ap hierarchy.NodeID) (every time.Duration, speed bool, over string) {
+// a test, none for never; whether a test on a schedule measures speed,
+// against the local server and against the remote one (0134); and which
+// tests it is asked for (0131): through the air unless said. The setting
+// before, tests over the wire too (0128), says both where which is not
+// said.
+func assureSettings(state *change.State, ap hierarchy.NodeID) (every time.Duration, speed speedWant, over string) {
 	over = overAir
 	cfg, err := state.Org.ResolveAP(ap)
 	if err != nil || cfg.Unassigned {
-		return 0, false, over
+		return 0, speed, over
 	}
 	if r, ok := cfg.Location["assurance.tests.every"]; ok {
 		switch v := r.Value.(type) {
@@ -126,7 +127,10 @@ func assureSettings(state *change.State, ap hierarchy.NodeID) (every time.Durati
 		}
 	}
 	if r, ok := cfg.Location["assurance.tests.speed"]; ok {
-		speed, _ = r.Value.(bool)
+		speed.Local, _ = r.Value.(bool)
+	}
+	if r, ok := cfg.Location["assurance.tests.speed_remote"]; ok {
+		speed.Remote, _ = r.Value.(bool)
 	}
 	if r, ok := cfg.Location["assurance.tests.wire"]; ok {
 		if wire, _ := r.Value.(bool); wire {
@@ -657,12 +661,13 @@ type assuranceTester struct {
 	Name    string           `json:"name"`
 	Every   int              `json:"every"` // minutes; 0 where it is not asked on a schedule
 	Speed   bool             `json:"speed"`
-	Things  int              `json:"things"`   // how many things it tests in turn
-	Air     bool             `json:"air"`      // it has a scan radio, to test through the air with
-	Wire    bool             `json:"wire"`     // it is asked for tests over the wire, and can make them (0128)
-	CanWire bool             `json:"can_wire"` // its agent can test over the wire, asked on a schedule or not
-	Round   int              `json:"round"`    // how many things it tests in a round asked by hand, of both (0129)
-	Over    string           `json:"over"`     // which tests its folders ask for on a schedule: air, wire or both (0131)
+	Remote  bool             `json:"speed_remote"` // those tests measure against the remote speed server too (0134)
+	Things  int              `json:"things"`       // how many things it tests in turn
+	Air     bool             `json:"air"`          // it has a scan radio, to test through the air with
+	Wire    bool             `json:"wire"`         // it is asked for tests over the wire, and can make them (0128)
+	CanWire bool             `json:"can_wire"`     // its agent can test over the wire, asked on a schedule or not
+	Round   int              `json:"round"`        // how many things it tests in a round asked by hand, of both (0129)
+	Over    string           `json:"over"`         // which tests its folders ask for on a schedule: air, wire or both (0131)
 }
 
 // assuranceCheck is one thing tested by one AP, and what its tests of the
@@ -701,6 +706,11 @@ type assuranceRun struct {
 	DNSMS     *int64    `json:"dns_ms,omitempty"`
 	Down      *float64  `json:"down,omitempty"`
 	Up        *float64  `json:"up,omitempty"`
+	// The same against the remote speed server (0134); and that it was
+	// asked for and could not be measured, which fails no test.
+	RemoteDown   *float64 `json:"remote_down,omitempty"`
+	RemoteUp     *float64 `json:"remote_up,omitempty"`
+	RemoteFailed bool     `json:"remote_failed,omitempty"`
 }
 
 // assuranceRunsMost is how many tests of a thing are given in brief.
@@ -727,6 +737,11 @@ func runOf(r testRecord) assuranceRun {
 	}
 	if d.Speed != nil {
 		out.Down, out.Up = d.Speed.Down, d.Speed.Up
+	}
+	if d.SpeedRemote != nil {
+		out.RemoteDown, out.RemoteUp = d.SpeedRemote.Down, d.SpeedRemote.Up
+		// Of a test that passed: one that failed before it has its own reason.
+		out.RemoteFailed = out.Passed && d.SpeedRemote.Error != ""
 	}
 	return out
 }
@@ -823,7 +838,7 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		if every > 0 {
 			things = len(combos)
 		}
-		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed, Things: things,
+		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed.Local, Remote: speed.Remote, Things: things,
 			Air: scanRadio(c.state, id), Wire: byWire(over) && canWire, CanWire: canWire, Round: len(could), Over: over})
 		// An AP is in a round where the round asks something of it: one
 		// through the air says nothing of an AP with no scan radio. The

@@ -247,6 +247,7 @@ details.fold > table.list { margin-bottom: 8px; }
 .runs .mark.bad { background: var(--bad, #c0392b); }
 /* A client test (0121): its form, and what it measured, a line each. */
 .testform .row { border-top: 0; }
+.testform .row[hidden] { display: none; }
 .testform .row .value { font-family: inherit; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .testform > .sub { padding: 0 20px 6px; }
 .testform > .actions { padding: 4px 20px 14px; }
@@ -352,6 +353,9 @@ div.field.start input[type=number] { height: 34px; width: 110px; padding: 0 10px
 .segmented button.on { background: var(--accent-bg); color: var(--ink); font-weight: 600; }
 .segmented button:disabled:not(.on) { opacity: 0.45; cursor: default; }
 .button.small { padding: 4px 10px; font-size: 13px; }
+/* A pulldown of choices with a field for one's own beside it (0134). */
+.choiceown { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.choiceown input[hidden] { display: none; }
 /* Usage over the last day (0108): traffic bars, down and up stacked, and
    the most clients at once as a line. */
 .usage { display: block; width: 100%; height: auto; margin-top: 8px; }
