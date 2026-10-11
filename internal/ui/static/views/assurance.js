@@ -35,8 +35,12 @@ function round(t) {
 function tester(t) {
 	const how = t.air && t.wire ? 'has a scan radio, and tests over the wire too' : t.wire ? 'tests over the wire, from its uplink'
 		: t.air ? 'has a scan radio' : 'can test over the wire, from its uplink';
-	if (!t.things) return `${t.name} ${how}, and offers no network a test can try.`;
-	if (!t.every) return `${t.name} ${how}, and is not asked for tests on a schedule. In a round asked by hand it tests ${t.things} thing${t.things === 1 ? '' : 's'}.`;
+	// What it tests in a round asked by hand (0129) may be more than its
+	// schedule's: over the wire, where its folders ask for none of that.
+	const asked = t.round ? ` In a round asked by hand it tests ${many(t.round, 'thing')}.` : '';
+	if (!t.things && !t.round) return `${t.name} ${how}, and offers no network a test can try.`;
+	if (!t.every) return `${t.name} ${how}, and is not asked for tests on a schedule.${asked}`;
+	if (!t.things) return `${t.name} ${how}, and has nothing its schedule can test.${asked}`;
 	return `${t.name} ${how}. It is asked for one test ${value('assurance.tests.every', t.every)}${t.speed && t.air ? ', with speed through the air' : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
 }
 
@@ -114,14 +118,24 @@ function joined(n) {
 	return d;
 }
 
+// fresh says whether a round was asked lately enough that it should still
+// be moving: an AP polls once a minute, and takes a thing each time.
+const fresh = (r) => Date.now() - new Date(r.at).getTime() < 20 * 60 * 1000;
+
 // rounded says how a round of tests asked by hand is going (0129).
 function rounded(r, here) {
 	if (!r) return null;
 	const where = r.node === here ? '' : r.name ? ` at ${r.name}` : ' above here';
+	// Who asked is said to one who may view where it was asked.
+	const by = r.by ? ` by ${r.by}` : '';
 	const left = r.of - r.done;
-	return h('p', { class: 'sub' }, left > 0
-		? `A round of every test was asked${where} ${ago(r.at)} by ${r.by}: ${r.done} of ${many(r.of, 'thing')} tested${r.asked > r.done ? ', one under way' : ''}. Each AP takes them one at a time, about one a minute; what is not asked for within the hour is let go.`
-		: `The round asked${where} ${ago(r.at)} by ${r.by} is done: ${many(r.of, 'thing')} tested.`);
+	if (left <= 0) return h('p', { class: 'sub' }, `The round asked${where} ${ago(r.at)}${by} is done: ${many(r.of, 'thing')} tested.`);
+	// What is left a while after: an AP that is away, or behind on its
+	// config, or a thing that cannot be asked for now.
+	const stuck = !fresh(r) && r.asked === r.done;
+	return h('p', { class: 'sub' }, `A round of every test was asked${where} ${ago(r.at)}${by}: ${r.done} of ${many(r.of, 'thing')} tested${r.asked > r.done ? ', one under way' : ''}. `
+		+ (stuck ? 'What is left could not be asked for: an AP that is away or does not run its current config, or a thing that cannot be tested now. It is let go an hour after the round was asked.'
+			: 'Each AP takes them one at a time, about one a minute; what is not asked for within the hour is let go.'));
 }
 
 // check is one thing tested by one AP: a line that opens to its latest test.
@@ -137,7 +151,7 @@ function check(ctx, c) {
 			h('span', { class: 'who' }, c.ssid || c.network),
 			h('span', { class: 'grow sub' }, [`on ${where}`, c.on !== c.tester && `tried from ${c.tester_name}`,
 				tried > 0 && `${c.passed} of ${tried} passed`, c.last && `last ${ago(c.last.at)}`,
-				!c.scheduled && tried > 0 && 'no longer on the schedule'].filter(Boolean).join(' · ')),
+				!c.scheduled && tried > 0 && 'not on the schedule'].filter(Boolean).join(' · ')),
 			status),
 		over(c),
 		c.last ? testOpened(c.last) : h('p', { class: 'sub' }, 'No test of it has been made yet.'));
@@ -164,14 +178,19 @@ export async function assuranceTab(ctx, here, page, edit) {
 	const stuck = joins.filter((n) => n.failing).length;
 	// A round asked by hand (0129): every AP here tests each thing it can,
 	// once, now. While one is being worked at, the page looks again soon.
+	// The page looks again soon only while a round should still be moving:
+	// one left unfinished, as by an AP that is away, is not watched all hour.
 	const going = view.round && view.round.done < view.round.of;
-	if (going) hurry(60);
-	const round = h('button', { type: 'button', class: 'button', disabled: !testers.some((t) => t.things) || going,
+	if (going && (fresh(view.round) || view.round.asked > view.round.done)) hurry(60);
+	// Another round may be asked at any time, and takes the place of one
+	// under way: what was fixed can be tried again at once.
+	const said = h('div');
+	const round = h('button', { type: 'button', class: 'button', disabled: !testers.some((t) => t.round),
 		title: 'Every AP here tests each thing it can once, now, whatever its schedule: through the air where it has a scan radio, and over the wire' },
-	going ? 'A round is under way' : 'Test everything now');
+	going ? 'Test everything again' : 'Test everything now');
 	round.addEventListener('click', async () => {
 		round.disabled = true;
-		box.replaceChildren();
+		said.replaceChildren();
 		try {
 			const r = await post('/v1/assurance/round', { under: here });
 			flash(`A round asked of ${page.node.name}: ${many(r.things, 'thing')} to test, each AP one at a time from its next poll.`, 60);
@@ -179,7 +198,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 			redrawNow();
 		} catch (err) {
 			round.disabled = false;
-			box.replaceChildren(h('div', { class: 'error' }, err.message));
+			said.replaceChildren(h('div', { class: 'error' }, err.message));
 		}
 	});
 
@@ -200,6 +219,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 			h('button', { type: 'button', class: 'button', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, page.fields, box,
 				{ sections: SECTIONS, heading: 'Edit the schedule', what: 'Client tests' }) }, 'Edit the schedule'),
 			' ', round),
+		said,
 		box));
 	if (Object.keys(fields).length) out.push(fieldPanels(ctx, 'locations', here, fields, edit));
 

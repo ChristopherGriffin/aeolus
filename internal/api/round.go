@@ -29,7 +29,7 @@ const roundLife = time.Hour
 type round struct {
 	Node hierarchy.NodeID `json:"node"`
 	At   time.Time        `json:"at"`
-	By   string           `json:"by"`
+	By   string           `json:"by,omitempty"`
 }
 
 // rounds are those being worked at, the latest asked at each node. They
@@ -76,7 +76,8 @@ func (r *rounds) of(t *hierarchy.Tree, ap hierarchy.NodeID, now time.Time) (roun
 }
 
 // roundView is a round as a person sees it: of how many things, how many
-// have been asked for since, and how many of those are done.
+// have been asked for since, and how many of those are done. Its folder's
+// name, and who asked it, are for one who may view that folder.
 type roundView struct {
 	round
 	Name  string `json:"name,omitempty"` // its node's, for one who may view that node
@@ -113,7 +114,9 @@ func (s *Server) askRound(w http.ResponseWriter, r *http.Request, c call) error 
 	if things == 0 {
 		return badRequest("no AP here can test anything: one needs a scan radio, or an agent that tests over the wire, and a network to test")
 	}
-	one := s.rounds.ask(node, string(c.actor), time.Now())
+	// By the clock the tests are stamped with: what a round has had asked
+	// is told by comparing the two.
+	one := s.rounds.ask(node, string(c.actor), s.conds.Now())
 	slog.Info("assurance: a round asked", "under", node, "by", c.actor, "things", things)
 	writeJSON(w, http.StatusOK, map[string]any{"round": one, "things": things})
 	return nil

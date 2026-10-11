@@ -626,7 +626,8 @@ function wire_open(w, src) {
 	// is open. A port in a bridge takes every frame already; one that is
 	// not, or is its bridge's only port, would hear the broadcasts and
 	// none of the answers. Where the socket cannot ask, it goes without.
-	s.setopt(socket.SOL_PACKET, socket.PACKET_ADD_MEMBERSHIP, { interface: w.device, type: PACKET_MR_UNICAST, address: src });
+	if (socket.PACKET_ADD_MEMBERSHIP != null)
+		s.setopt(socket.SOL_PACKET, socket.PACKET_ADD_MEMBERSHIP, { interface: w.device, type: PACKET_MR_UNICAST, address: src });
 	// What arrived before the filter took hold goes: no more than a few
 	// hundred frames, however fast they come.
 	for (let i = 0; i < 4 * WIRE_BURST && s.recv(2048, socket.MSG_DONTWAIT) != null; i++)

@@ -258,6 +258,10 @@ func (s *Store) migrate() error {
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
+// Now is the time by the store's clock, which what it records is stamped
+// with.
+func (s *Store) Now() time.Time { return s.now() }
+
 func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
 // Seen records that an AP called, from source.
