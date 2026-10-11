@@ -119,6 +119,9 @@ a lease with no gateway: failed, stage gateway, reason "DHCP gave it no gateway"
    failed at gateway: DHCP gave it no gateway
 a lease with no DNS server: failed, stage dns, reason "DHCP gave it no DNS server"
    failed at dns: DHCP gave it no DNS server
+neigh: reachable "28:e7:1d:ca:29:13", stale "28:e7:1d:ca:29:13", failed null, incomplete null, nothing null
+a gateway that answers ARP and no ping: passed, stage done, reason ""
+   passed: joined in 0.6 s, address in 0.3 s, gateway there, no ping, DNS 42 ms, 21 down / 22.1 up Mbit/s
 gateway silent: failed, stage gateway, reason "its gateway, 192.168.20.1, does not answer"
    failed at gateway: its gateway, 192.168.20.1, does not answer
 DNS silent: failed, stage dns, reason "its DNS server, 192.168.20.254, does not answer"

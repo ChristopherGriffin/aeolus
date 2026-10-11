@@ -26,7 +26,7 @@
   - **finding** the network on the AP asked for;
   - **authentication, association and the keys,** as wpa_supplicant says them;
   - **DHCP:** the address given, by whom, and the gateway and DNS servers with it. A lease that names no gateway, or no DNS server, fails the test at that stage: a client has no way online without them;
-  - **the gateway:** three pings;
+  - **the gateway:** three pings, and whether it answered ARP. One that answers ARP is there, though it answer no ping, as many are set not to: only one that answers neither fails the test;
   - **DNS:** one name looked up at the first server DHCP gave;
   - **speed,** where a speed server is set: bytes fetched for five seconds and sent for five, over three connections at once, after a second to warm up.
 - **It joins with the network's own passphrase,** which the AP has, as it serves the network. So a test is of a network the AP itself offers.
@@ -111,6 +111,7 @@
   - **2.4 GHz:** 29 seconds from start to result, 56 down and 58 up.
   - **DFS channel 132, the driver bound again inside the loan:** 37 seconds, 26 down and 24 up, the radio hearing after.
   - **airscan's own cure,** the driver left alone by the test: 23 s after the test's end a whole round of its client surveys heard no beacon, its look heard nothing, it bound the driver again, and 20 s later heard 31 networks.
+- **On a schedule (0123), its first test,** 2026-10-11 03:15: the C-360's own `aeolus_50`, 21 seconds from being taken up to its result, which was "failed at gateway". The gateway, a switch's VLAN interface, answered ARP and passed the DNS lookup on, and answered no ping. That was the test's fault, and why a gateway that answers ARP now passes.
 - **Through the manager, from the AP's page,** 2026-10-11 02:09: Aeolus Lab on the office AP, 2.4 GHz: let on in 0.5 s, an address in 0.3 s, 70 down and 68 up; asked, taken up 38 s later, and its result there 101 s after that, with airscan stopped and started.
 
 ## Not known yet

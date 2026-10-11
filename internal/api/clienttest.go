@@ -204,6 +204,7 @@ type testPing struct {
 	Min     *float64 `json:"min"`
 	Avg     *float64 `json:"avg"`
 	Max     *float64 `json:"max"`
+	MAC     string   `json:"mac,omitempty"` // where it answered ARP: it is there, though it answer no ping
 }
 
 type testDNS struct {
@@ -279,8 +280,9 @@ func (t *clientTest) check() error {
 			}
 		}
 	}
-	if g := t.Gateway; g != nil && (!ip(g.Address) || g.Sent < 0 || g.Sent > 100 || g.Got < 0 || g.Got > g.Sent || !millis(g.Min) || !millis(g.Avg) || !millis(g.Max)) {
-		return bad("a gateway is its address, the pings sent and answered, and their times in ms")
+	if g := t.Gateway; g != nil && (!ip(g.Address) || g.Sent < 0 || g.Sent > 100 || g.Got < 0 || g.Got > g.Sent || !millis(g.Min) || !millis(g.Avg) || !millis(g.Max) ||
+		(g.MAC != "" && !macRE.MatchString(g.MAC))) {
+		return bad("a gateway is its address, the pings sent and answered, their times in ms, and its MAC where it answered ARP")
 	}
 	if d := t.DNS; d != nil && (!ip(d.Server) || d.Name == "" || !words(d.Name, 253) || (d.MS != nil && !span(*d.MS)) || (d.Rcode != nil && (*d.Rcode < 0 || *d.Rcode > 15)) ||
 		d.Answers < 0 || d.Answers > 65535 || (d.Address != nil && !ip(*d.Address))) {

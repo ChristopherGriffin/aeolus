@@ -254,6 +254,14 @@ function ping_of(text) {
 	return { sent: m ? int(m[1]) : 0, got: m ? int(m[2]) : 0, min: r ? +r[1] : null, avg: r ? +r[2] : null, max: r ? +r[3] : null };
 }
 
+// neigh_of reads what `ip neigh show <address> dev <interface>` says of an
+// address: its MAC, where it answered ARP, or null where it did not, or
+// has not yet.
+function neigh_of(text) {
+	let m = match(text ?? '', /lladdr ([0-9a-f]{2}(:[0-9a-f]{2}){5}) .*(REACHABLE|STALE|DELAY|PROBE|PERMANENT)/);
+	return m ? m[1] : null;
+}
+
 // lease_of reads the lease udhcpc's script wrote, key=value a line: the
 // address and prefix length, the first router, the DNS servers, the DHCP
 // server and the lease time; or null without an address.
@@ -360,7 +368,9 @@ function verdict(res) {
 		return fail(res.stopped.stage, res.stopped.why);
 	if (res.dhcp && !res.gateway)
 		return fail('gateway', 'DHCP gave it no gateway');
-	if (res.gateway && !res.gateway.got)
+	// A gateway that answers ARP is there, though it answer no ping: many
+	// are set to answer none.
+	if (res.gateway && !res.gateway.got && !res.gateway.mac)
 		return fail('gateway', `its gateway, ${res.gateway.address}, does not answer`);
 	if (res.dhcp && !res.dns)
 		return fail('dns', 'DHCP gave it no DNS server');
@@ -387,6 +397,8 @@ function summary(res) {
 			push(parts, `address in ${secs(res.dhcp.ms)}`);
 		if (res.gateway?.avg != null)
 			push(parts, sprintf('gateway %.0f ms', res.gateway.avg));
+		else if (res.gateway?.mac)
+			push(parts, 'gateway there, no ping');
 		if (res.dns?.ms != null)
 			push(parts, `DNS ${res.dns.ms} ms`);
 		if (res.speed?.down != null)
@@ -399,6 +411,6 @@ function summary(res) {
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	STAGES, STEPS, HEARD, between, hexstr, wanted, credentials, dfs, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of,
+	STAGES, STEPS, HEARD, between, hexstr, wanted, credentials, dfs, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of, neigh_of,
 	prefix_net, dns_query, dns_answer, rate, plain, verdict, summary
 };

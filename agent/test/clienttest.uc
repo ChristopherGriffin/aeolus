@@ -160,6 +160,10 @@ show('wrong passphrase', { stopped: { stage: 'key', why: 'wrong passphrase' } })
 show('no address', { joined_ms: 700, stopped: { stage: 'dhcp', why: 'no DHCP server gave it an address' } });
 show('a lease with no gateway', { ...found(), gateway: null });
 show('a lease with no DNS server', { ...found(), dns: null });
+printf('neigh: reachable %J, stale %J, failed %J, incomplete %J, nothing %J\n',
+	ct.neigh_of('192.168.50.1 lladdr 28:e7:1d:ca:29:13 ref 1 used 0/0/0 probes 4 REACHABLE\n'), ct.neigh_of('192.168.50.1 lladdr 28:e7:1d:ca:29:13 STALE\n'),
+	ct.neigh_of('192.168.50.1  FAILED\n'), ct.neigh_of('192.168.50.1  INCOMPLETE\n'), ct.neigh_of(''));
+show('a gateway that answers ARP and no ping', { ...found(), gateway: { address: '192.168.50.1', sent: 3, got: 0, mac: '28:e7:1d:ca:29:13' } });
 show('gateway silent', { ...found(), gateway: { address: '192.168.20.1', sent: 3, got: 0 } });
 show('DNS silent', { ...found(), dns: { server: '192.168.20.254', name: 'example.com' } });
 show('DNS has no such name', { ...found(), dns: { server: '192.168.20.254', name: 'nowhere.invalid', rcode: 3, answers: 0, ms: 12 } });
