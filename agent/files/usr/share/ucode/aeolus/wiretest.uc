@@ -123,14 +123,14 @@ function with_tag(frame, vlan, tagged) {
 }
 
 // The DHCP messages the test sends.
-const DHCP = { discover: 1, request: 3, decline: 4, release: 7 };
+const DHCP = { discover: 1, request: 3, release: 7 };
 
 // dhcp builds a DHCP message from src as a whole frame: a discover, a
-// request, a decline or a release, with xid, and o: the address held
-// (ciaddr, when releasing), the offer a request takes up or a decline
-// turns down (requested, server), how many seconds it has been asking
-// (secs, which a relay may wait on), and where to send it (to, and dst,
-// the MAC of where it goes next; broadcast by default). It asks, as a
+// request or a release, with xid, and o: the address held (ciaddr, when
+// releasing), the offer a request takes up (requested, server), how many
+// seconds it has been asking (secs, which a relay may wait on), and where
+// to send it (to, and dst, the MAC of where it goes next; broadcast by
+// default). It asks, as a
 // client does, for its mask, router, DNS servers, lease time and server,
 // and to be answered by broadcast, as it has no address to be answered at.
 // Its datagram has its checksum: one that is routed to its server, as a

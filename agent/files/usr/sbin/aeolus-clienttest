@@ -725,14 +725,30 @@ function wire_dhcp(res) {
 	}
 	let ms = int((now() - from) * 1000);
 	// Is it another's already? It asks, as a client does before it uses an
-	// address, and turns down one that someone answers for: it would
+	// address, and does not use one that someone answers for: it would
 	// otherwise answer for it too, and take the other's traffic.
+	//
+	// It does not turn the address down (DHCP decline), as a client would:
+	// a server sets a declined address aside, and a test on a schedule
+	// would empty a pool where something answers for every address. The
+	// test fails, and says who has it; the lease is left to run out.
+	//
+	// A gateway that answers for every address, as one does that keeps a
+	// network's clients apart (proxy ARP), is no holder of this one. It
+	// shows itself: it answers for its own address from the same MAC.
 	wire_tx(wt.arp_probe(wire.src, ack.address));
 	let other = wire_wait(WIRE_PROBE, f => wt.arp_conflict(f, wire.src, ack.address));
 	if (other) {
-		wire_tx(wt.dhcp(wire.src, 'decline', xid, { requested: ack.address, server: ack.server ?? offer.server }));
-		step('dhcp', `given ${ack.address} by ${by(ack)}, which ${other} uses already: turned down`, false);
-		return { stage: 'dhcp', why: `the DHCP server gave it ${ack.address}, which ${other} uses already` };
+		let router = null;
+		if (ack.router && ack.router != ack.address) {
+			wire_tx(wt.arp_probe(wire.src, ack.router));
+			router = wire_wait(1, f => wt.arp_conflict(f, wire.src, ack.router));
+		}
+		if (router != other) {
+			step('dhcp', `given ${ack.address} by ${by(ack)}, which ${other} uses already`, false);
+			return { stage: 'dhcp', why: `the DHCP server gave it ${ack.address}, which ${other} uses already` };
+		}
+		step('dhcp', `its gateway, at ${other}, answers ARP for every address: ${ack.address} is not another's`);
 	}
 	res.dhcp = { ms: ms, address: ack.address, mask: ack.mask, router: ack.router, dns: ack.dns, server: ack.server ?? offer.server, lease: ack.lease };
 	wire.held = ack.address;
