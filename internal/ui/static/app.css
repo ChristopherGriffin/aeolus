@@ -220,6 +220,14 @@ details.fold > table.list { margin-bottom: 8px; }
 .way { container-type: inline-size; margin: 4px 0 12px; }
 .way .path .hop .main, .way .path .hop .sub { white-space: nowrap; }
 .way > .sub { margin-top: 6px; }
+/* A point's parts under it (0133): the four messages of the key handshake. */
+.way .path .hop .parts { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 1px; }
+.way .path .hop .part { font-family: var(--mono); font-size: 11px; line-height: 16px; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); white-space: nowrap; }
+.way .path .hop .part b { font-weight: 600; margin-right: 1px; }
+.way .path .hop .partsmore { display: block; }
+.way .path .hop .part.ok { border-color: var(--ok); color: var(--ink); }
+.way .path .hop .part.warn { border-color: var(--warn); color: var(--ink); }
+.way .path .hop .part.bad { border-color: var(--bad); background: var(--bad-bg); color: #6B1A13; }
 @container (min-width: 520px) {
 	.way .path .hop { padding: 3px 8px 4px; }
 	.way .path .leg { width: 12px; margin: 0 8px 0 1px; }
