@@ -219,6 +219,13 @@ type report struct {
 		Server  string `json:"server"`
 		Verdict string `json:"verdict"`
 	} `json:"radius"`
+	ScanRadio *struct {
+		State      string `json:"state"`
+		Networks   *int   `json:"networks"`
+		LookedAgo  *int64 `json:"looked_ago"`
+		Heals      *int   `json:"heals"`
+		HealFailed *int   `json:"heal_failed"`
+	} `json:"scan_radio"`
 	Health *struct {
 		CPU          *int     `json:"cpu"`
 		MemTotal     int64    `json:"mem_total"`
@@ -303,6 +310,25 @@ func fromReport(in Input, st *conditions.State) []Alert {
 	for _, net := range sortedKeys(r.DHCP) {
 		if d := r.DHCP[net]; d.Unanswered > 0 && d.Answered == 0 {
 			add(Warning, "dhcp-silent", net, fmt.Sprintf("DHCP on network %s: %d requests in the last 10 minutes, and nothing answered", net, d.Unanswered))
+		}
+	}
+	// Its scan radio (0126), which radio resource management listens through
+	// and client tests borrow: its service not answering, no radio for it,
+	// or a radio that hears nothing and that nothing is bringing back. One
+	// airscan is binding again, or has just, is no alert: it sees to it.
+	if sr := r.ScanRadio; sr != nil {
+		switch {
+		case sr.State == "missing":
+			add(Warning, "scan-radio", "", "airscan, which runs its scan radio, does not answer: channel ratings age and client tests wait until it does")
+		case sr.State == "waiting":
+			add(Warning, "scan-radio", "", "its scan radio is not there for airscan to use: channel ratings age and client tests wait until it is")
+		case sr.Networks != nil && *sr.Networks == 0 && sr.LookedAgo != nil && *sr.LookedAgo <= 900 && sr.State != "healing" &&
+			(sr.Heals == nil || (sr.HealFailed != nil && *sr.HealFailed > 0)):
+			why := "and its airscan does not bring a deaf radio back: bind its driver again on the AP, or update airscan"
+			if sr.Heals != nil {
+				why = "and binding its driver again did not bring it back"
+			}
+			add(Warning, "scan-radio", "", "its scan radio hears no network, not even its own, "+why)
 		}
 	}
 	// The AP itself (0119): memory or storage nearly gone, a processor

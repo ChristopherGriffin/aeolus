@@ -209,6 +209,8 @@ type stateReport struct {
 	Radius []radiusState `json:"radius,omitempty"`
 	// How the AP itself is doing: processor, memory, storage, heat (0119).
 	Health *apHealth `json:"health,omitempty"`
+	// Its scan radio, where it has one (0126).
+	ScanRadio *scanRadioState `json:"scan_radio,omitempty"`
 	// Its clock (0069).
 	Time *timeState `json:"time,omitempty"`
 	// The per-user keys it has (0070): their version, and how many.
@@ -1266,6 +1268,9 @@ func (st *stateReport) check() error {
 		return badRequest("radius: at most 64")
 	}
 	if err := st.Health.check(); err != nil {
+		return err
+	}
+	if err := st.ScanRadio.check(); err != nil {
 		return err
 	}
 	for _, r := range st.Radius {

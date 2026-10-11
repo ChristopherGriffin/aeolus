@@ -36,6 +36,34 @@ type apHealth struct {
 	ConntrackMax int64     `json:"conntrack_max,omitempty"`
 }
 
+// scanRadioState is how an AP's scan radio is doing (0126): what its
+// service, airscan, is at, missing where it does not answer and waiting
+// where it has no radio to work; how many networks its latest look heard,
+// and how many seconds ago; how often airscan bound its driver again to
+// bring it back, how many of those did not, and how long ago the last was.
+type scanRadioState struct {
+	State      string `json:"state"`
+	Networks   *int   `json:"networks,omitempty"`
+	LookedAgo  *int64 `json:"looked_ago,omitempty"`
+	Heals      *int   `json:"heals,omitempty"`
+	HealFailed *int   `json:"heal_failed,omitempty"`
+	HealedAgo  *int64 `json:"healed_ago,omitempty"`
+}
+
+var scanStates = map[string]bool{"idle": true, "clients": true, "bss": true, "spectral": true, "lent": true, "healing": true, "waiting": true, "missing": true}
+
+func (s *scanRadioState) check() error {
+	if s == nil {
+		return nil
+	}
+	count := func(n *int) bool { return n == nil || (*n >= 0 && *n <= 1_000_000) }
+	ago := func(n *int64) bool { return n == nil || (*n >= 0 && *n <= 10*365*86400) }
+	if !scanStates[s.State] || !count(s.Networks) || !count(s.Heals) || !count(s.HealFailed) || !ago(s.LookedAgo) || !ago(s.HealedAgo) {
+		return badRequest("scan_radio: a state, and counts and times that are not negative")
+	}
+	return nil
+}
+
 func (h *apHealth) check() error {
 	if h == nil {
 		return nil
@@ -260,11 +288,16 @@ func (s *Server) apHealthView(w http.ResponseWriter, r *http.Request, c call) er
 		return err
 	} else if st != nil {
 		var rep struct {
-			Uptime int64     `json:"uptime"`
-			Health *apHealth `json:"health"`
+			Uptime    int64           `json:"uptime"`
+			Health    *apHealth       `json:"health"`
+			ScanRadio *scanRadioState `json:"scan_radio"`
 		}
 		if json.Unmarshal(st.Report, &rep) == nil {
-			res["now"] = map[string]any{"at": st.At, "uptime": rep.Uptime, "health": rep.Health}
+			now := map[string]any{"at": st.At, "uptime": rep.Uptime, "health": rep.Health}
+			if rep.ScanRadio != nil {
+				now["scan_radio"] = rep.ScanRadio
+			}
+			res["now"] = now
 		}
 	}
 	writeJSON(w, http.StatusOK, res)
