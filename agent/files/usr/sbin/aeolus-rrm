@@ -171,6 +171,7 @@ let swept = 0;        // the time of the scan radio's look last taken in (0116)
 let unheard = false;  // whether airscan gave nothing when last asked
 let away = {};        // band -> a radio on a DFS channel it went to after looking (0120): { radio, to, home, cost, since, checking, move }
 let dfs_read = {};    // phy -> { at, states }: what Linux said of its DFS channels, and when
+let shut = {};        // '<band> <channel>' -> when a DFS channel a radio left, or did not get to, opens to it again (0120)
 
 // settings reads whether RRM is on, the AP it advertises, the key, the
 // policy for moves: whether to move, the window for planned moves, and the
@@ -297,7 +298,7 @@ function dfs_now(r, at, anew) {
 // (0120): hostapd moves it, at once, when radar is found there. Linux then
 // keeps the channel closed for half an hour, which tells this from a
 // channel that only reads otherwise for a moment while a move is made. The
-// block is left alone for a day (rrm.barred).
+// block is left alone for a day (rrm.bar).
 function left(r, was, ch, at) {
 	if (!rrm.radar(r.band, was) || away[r.band]?.checking || at - (r.moved ?? -60) < 60)
 		return;
@@ -308,6 +309,7 @@ function left(r, was, ch, at) {
 	if (r.claim)
 		end_claim(r, 'withdrawn');
 	record({ band: r.band, from: was, to: ch, why: 'radar', state: 'moved', at: time() });
+	rrm.bar(shut, r.band, rrm.covers(r.band, was, r.width), time());
 	delete away[r.band];
 }
 
@@ -481,6 +483,7 @@ function look(at) {
 		swept = 0;
 		away = {};
 		dfs_read = {};
+		shut = {};
 		return;
 	}
 	let a = management();
@@ -1072,7 +1075,7 @@ function far_targets(r, list, at) {
 	if (!length(all))
 		return [];
 	let states = dfs_now(r, at), wall = time();
-	return filter(all, x => rrm.clear(r.band, x.members, states) && !rrm.barred(moves, r.band, x.members, wall));
+	return filter(all, x => rrm.clear(r.band, x.members, states) && !rrm.barred(shut, r.band, x.members, wall));
 }
 
 // home is the one block a radio that can't scan knows to go to (0120):
@@ -1172,14 +1175,20 @@ function switch_to(r, to, at, radar, back) {
 		end_claim(r, 'failed');
 		return;
 	}
+	let m = r.claim.move;
 	if (radar) {
-		let m = r.claim.move;
 		end_claim(r, 'checking');
 		let known = back && !rrm.radar(r.band, back.channel);
-		away[r.band] = { radio: r.name, to: to, home: known ? back.channel : null, cost: known ? back.cost : null, since: at, checking: true, move: m };
+		away[r.band] = {
+			radio: r.name, to: to, width: r.width, home: known ? back.channel : null, cost: known ? back.cost : null,
+			since: at, checking: true, move: m,
+		};
 		log('%s: listening for radar on channel %d before it sends there; its clients are off it for about a minute', r.band, to);
 	} else {
 		end_claim(r, 'moved');
+		// A DFS block left for a reason is left alone for a day (0120).
+		if (m.why != 'start')
+			rrm.bar(shut, r.band, rrm.covers(r.band, m.from, r.width), time());
 		delete away[r.band];
 	}
 	r.far = null;
@@ -1194,7 +1203,7 @@ function switch_to(r, to, at, radar, back) {
 // CHECK_FOR after it was asked did not get there: radar was found while it
 // listened and hostapd took it elsewhere, or its networks did not start
 // again. Those are then started by netifd, outside DFS as at any start.
-// Either way the block is left alone for a day (rrm.barred).
+// Either way the block is left alone for a day (rrm.bar).
 function follow(at) {
 	for (let band in keys(away)) {
 		let a = away[band];
@@ -1218,6 +1227,7 @@ function follow(at) {
 		}
 		a.move.state = 'failed';
 		a.move.at = time();
+		rrm.bar(shut, band, rrm.covers(band, a.to, a.width), time());
 		delete away[band];
 		if (st?.status == 'ENABLED') {
 			note('%s: the radar check did not end on channel %d: the radio is on %J; channel %d is left alone for a day', band, a.to, st.channel, a.to);
@@ -1475,10 +1485,15 @@ function write(at) {
 	for (let band, a in away)
 		if (!a.checking)
 			stays[band] = { to: a.to, home: a.home, cost: a.cost, ago: max(0, int(at - a.since)) };
+	// And the DFS channels shut to its radios, until each opens again.
+	let wall = time();
+	for (let k in keys(shut))
+		if (shut[k] <= wall)
+			delete shut[k];
 	store(out, sprintf('%J', {
 		at: time(), on: true, address: address ?? '', advertised: slice(uniq(sort(advertised)), 0, 3),
 		neighbours: slice(list, 0, LISTED), ratings: slice(rated, 0, RATED), moves: moves, apc: powers(),
-		cannot_scan: deaf, others: others_listed(at), away: stays,
+		cannot_scan: deaf, others: others_listed(at), away: stays, barred: shut,
 	}));
 }
 
@@ -1520,6 +1535,10 @@ function restore(at) {
 				m.state = 'moved';
 			record(m);
 		}
+	// The DFS channels shut to its radios (0120), each until it opens again.
+	for (let k, until in (type(r.barred) == 'object' ? r.barred : {}))
+		if (match(k, /^5g [0-9]{2,3}$/) && type(until) == 'int' && until > wall && until <= wall + rrm.BARRED_FOR)
+			shut[k] = until;
 	// Where a radio on a DFS channel came from (0120).
 	for (let band, a in (type(r.away) == 'object' ? r.away : {}))
 		if (band == '5g' && type(a?.to) == 'int' && type(a.ago) == 'int' && a.ago >= 0)

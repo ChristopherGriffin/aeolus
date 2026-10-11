@@ -714,6 +714,13 @@ func TestLookFirstNeedsSomewhereToStart(t *testing.T) {
 	if p := problems(); !strings.Contains(p, "radio.5g.width: every 160 MHz channel uses DFS channels, but radio.5g.dfs is look-first: a radio starts outside them") {
 		t.Fatalf("160: %s", p)
 	}
+	// A channel set by hand is used as set, at 160 MHz too: only an
+	// automatic one starts outside DFS.
+	set("radio.5g.channel", 36)
+	if p := problems(); strings.Contains(p, "dfs") {
+		t.Fatalf("36 at 160 MHz, set by hand: %s", p)
+	}
+	set("radio.5g.channel", "auto")
 	set("radio.5g.width", 40)
 	set("radio.5g.channels", []int{52, 56, 60, 64})
 	if p := problems(); !strings.Contains(p, "radio.5g.channels: no 40 MHz block outside DFS is wholly in the set, and radio.5g.dfs is look-first: a radio has nowhere to start") {
