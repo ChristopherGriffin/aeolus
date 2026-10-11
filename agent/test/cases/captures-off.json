@@ -1,0 +1,46 @@
+{
+	"about": "The Sandbox AP with captures of failed attempts set off (0135): aeolus-journey keeps one of each attempt that fails unless told not to, so the agent's journey section is there only here, with captures '0'. The rest is as the sandbox case.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60,
+			"captures": false
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	}
+}

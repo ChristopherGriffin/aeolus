@@ -82,6 +82,8 @@ type Connection struct {
 	Reason  string           `json:"reason"`
 	TookMS  int64            `json:"took_ms"`
 	Record  json.RawMessage  `json:"record"`
+	// The capture kept of it, where one is (0135): an attempt that failed.
+	Capture *CaptureKept `json:"capture,omitempty"`
 	// What it showed of the client, for the client's own row.
 	Host    string `json:"-"`
 	Address string `json:"-"`
@@ -252,8 +254,10 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 	if !before.IsZero() {
 		cut = before.UnixMilli()
 	}
-	rows, err := s.db.Query(`SELECT id, ap, mac, at, network, ssid, band, outcome, stage, reason, took_ms, record FROM connections
-		WHERE mac = ? AND at < ? AND ap IN (SELECT value FROM json_each(?)) ORDER BY at DESC, id DESC LIMIT ?`, mac, cut, string(ids), limit)
+	rows, err := s.db.Query(`SELECT c.id, c.ap, c.mac, c.at, c.network, c.ssid, c.band, c.outcome, c.stage, c.reason, c.took_ms, c.record,
+			k.frames, length(k.file)
+		FROM connections c LEFT JOIN captures k ON k.ap = c.ap AND k.mac = c.mac AND k.started = c.started
+		WHERE c.mac = ? AND c.at < ? AND c.ap IN (SELECT value FROM json_each(?)) ORDER BY c.at DESC, c.id DESC LIMIT ?`, mac, cut, string(ids), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -263,10 +267,14 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 		var c Connection
 		var ap, record string
 		var started int64
-		if err := rows.Scan(&c.ID, &ap, &c.MAC, &started, &c.Network, &c.SSID, &c.Band, &c.Outcome, &c.Stage, &c.Reason, &c.TookMS, &record); err != nil {
+		var frames, size sql.NullInt64
+		if err := rows.Scan(&c.ID, &ap, &c.MAC, &started, &c.Network, &c.SSID, &c.Band, &c.Outcome, &c.Stage, &c.Reason, &c.TookMS, &record, &frames, &size); err != nil {
 			return nil, err
 		}
 		c.AP, c.Started, c.Record = hierarchy.NodeID(ap), time.UnixMilli(started).UTC(), json.RawMessage(record)
+		if frames.Valid {
+			c.Capture = &CaptureKept{Frames: int(frames.Int64), Bytes: int(size.Int64)}
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -405,9 +413,13 @@ func (s *Store) Joins(since time.Time) ([]Join, []JoinStop, error) {
 
 // TrimConnections deletes the attempts begun more than keep ago, and
 // returns how many; and what happened to the APs themselves that long ago
-// (0119), which is kept as long. The clients themselves are kept.
+// (0119), which is kept as long; and the captures that came in that long
+// ago (0135), their attempts gone. The clients themselves are kept.
 func (s *Store) TrimConnections(keep time.Duration) (int64, error) {
 	if _, err := s.db.Exec(`DELETE FROM ap_events WHERE at < ?`, s.now().Add(-keep).UnixMilli()); err != nil {
+		return 0, err
+	}
+	if _, err := s.db.Exec(`DELETE FROM captures WHERE at < ?`, s.now().Add(-keep).UnixMilli()); err != nil {
 		return 0, err
 	}
 	res, err := s.db.Exec(`DELETE FROM connections WHERE at < ?`, s.now().Add(-keep).UnixMilli())

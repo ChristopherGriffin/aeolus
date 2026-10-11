@@ -20,6 +20,8 @@ const SECTIONS = [
 	['SNMP', ['system.snmp.enabled', 'system.snmp.community', 'system.snmp.v3.user', 'system.snmp.v3.auth',
 		'system.snmp.v3.privacy', 'system.snmp.location', 'system.snmp.contact']],
 	['Agent', ['system.poll', 'system.ssh_keys']],
+	// A capture of each attempt to come online that fails (0135).
+	['Troubleshooting', ['system.captures']],
 	// Where the manager sends alerts for the APs here (0101).
 	['Alerts', ['notify.ntfy', 'notify.webhook', 'notify.severity', 'notify.resolved']],
 ];

@@ -36,6 +36,7 @@ const STATE_EVERY = 300;   // seconds between state reports
 const PROBES = '/var/run/aeolus/probes.json';   // what the prober found (0059)
 const PROBES_STALE = 60;   // seconds after which the prober's results are too old to report
 const CONNECTIONS = '/var/run/aeolus/connections.json';   // each client's attempt to come online, as aeolus-journey records it (0118)
+const CAPTURES = '/var/run/aeolus/captures';              // a capture of each attempt that failed, a file each, as aeolus-journey keeps them (0135)
 const PACKAGES_TOOL = '/usr/libexec/aeolus-packages';   // its packages, through the manager (0069)
 const PACKAGES_DONE = '/usr/lib/aeolus/packages';      // gone after a sysupgrade, until they are back
 const RESTORE_EVERY = 3600;   // seconds between tries to install them again
@@ -336,6 +337,10 @@ function hold_gi() {
 function macs() {
 	let out = [];
 	for (let n in sort(fs.lsdir('/sys/class/net') ?? [])) {
+		// Not the monitor interfaces aeolus-journey makes for its captures
+		// (0135): their addresses are made up, and no one's.
+		if (match(n, /^aemon[0-9]+$/))
+			continue;
 		let m = read(`/sys/class/net/${n}/address`);
 		if (m && match(m, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/) && m != '00:00:00:00:00:00' &&
 		    !(int(substr(m, 0, 2), 16) & 1) && index(out, m) < 0)
@@ -1547,6 +1552,7 @@ function report_state(running, token) {
 // how far it got beside them, so the daemon lets those go. The manager
 // passes over a record it can't take; one it has no place for at all, an
 // older manager, is passed over here too, as keeping them helps no one.
+// It says whether the manager has them all now.
 function send_connections(token) {
 	let c = null, sent = null;
 	try {
@@ -1555,7 +1561,7 @@ function send_connections(token) {
 	} catch (e) {
 	}
 	if (type(c?.list) != 'array' || type(c.boot) != 'int')
-		return;
+		return true;
 	let from = sent?.boot == c.boot && type(sent.seq) == 'int' ? sent.seq : 0;
 	let todo = filter(c.list, r => type(r?.seq) == 'int' && r.seq > from);
 	for (let i = 0; i < length(todo); i += 32) {
@@ -1567,13 +1573,72 @@ function send_connections(token) {
 		}) }, token);
 		if (!(res.status in [200, 400, 404])) {
 			fail('clients\' connections: %s', describe(res));
-			return;
+			return false;
 		}
 		if (res.status != 200)
 			fail('clients\' connections: the manager took none of %d: %s', length(batch), describe(res));
 		else if (res.json?.refused > 0)
 			fail('clients\' connections: the manager refused %d of %d: %s', res.json.refused, length(batch), res.json.why ?? '');
 		store(CONNECTIONS + '.sent', sprintf('%J\n', { boot: c.boot, seq: batch[length(batch) - 1].seq }));
+	}
+	return true;
+}
+
+// send_captures sends the manager the captures aeolus-journey kept of
+// attempts that failed (0135), a file each, the oldest first, and two at a
+// poll at most: they are large beside everything else an AP says. They go
+// after the attempts themselves, as the manager takes a capture only of an
+// attempt it has. One the manager took goes; so does one it cannot take,
+// as keeping it helps no one: not well formed, too large, of an attempt it
+// has not, or the manager an older one with no place for them. Anything
+// else is tried again at the next poll.
+let capture_tries = {};   // a capture that did not go -> how often it was tried
+
+// captures_waiting is the captures there are to send now, the oldest
+// first. Asked before the attempts' records are read: a capture is there
+// once its record is written, so each of these has its record among those
+// read after, and one kept in between is the next poll's.
+function captures_waiting() {
+	let order = (n) => map(split(n, /[-.]/), x => int(x));
+	return sort(filter(fs.lsdir(CAPTURES) ?? [], n => match(n, /^[0-9]+-[0-9]+\.json$/)), (x, y) => {
+		let a = order(x), b = order(y);
+		return a[0] != b[0] ? (a[0] < b[0] ? -1 : 1) : a[1] - b[1];
+	});
+}
+
+function send_captures(token, files) {
+	// What is tried is counted only of the files still there.
+	for (let n in keys(capture_tries))
+		if (index(files, n) < 0)
+			delete capture_tries[n];
+	for (let n in slice(files, 0, 2)) {
+		let c = null;
+		try {
+			c = json(read(`${CAPTURES}/${n}`) ?? 'null');
+		} catch (e) {
+		}
+		if (type(c) == 'object') {
+			// Less than the manager gives a request to arrive in.
+			let res = http('POST', '/v1/ap/captures', c, token, null, 25000);
+			if (!(res.status in [200, 400, 404, 413])) {
+				fail('a capture of a failed attempt: %s', describe(res));
+				// Tried again at the next poll. One that will not go, three
+				// times over, with the manager there, as one too large for
+				// the link in the time it has, is let go, so it does not
+				// hold the rest and the agent's own work back. They are
+				// sent only at a poll the manager answered: with it away
+				// they wait, as the records do.
+				capture_tries[n] = (capture_tries[n] ?? 0) + 1;
+				if (capture_tries[n] >= 3) {
+					fs.unlink(`${CAPTURES}/${n}`);
+					delete capture_tries[n];
+				}
+				return;
+			}
+			if (res.status in [400, 413])
+				fail('a capture of a failed attempt: the manager did not take it: %s', describe(res));
+		}
+		fs.unlink(`${CAPTURES}/${n}`);
 	}
 }
 
@@ -1967,8 +2032,11 @@ function main() {
 			last_state = time();
 			hold_gi();
 		}
-		if (assigned)
-			send_connections(token);
+		if (assigned) {
+			let waiting = captures_waiting();
+			if (send_connections(token) && reached)
+				send_captures(token, waiting);
+		}
 		if (time() >= next_packages && !fs.access(PACKAGES_DONE))
 			next_packages = packages(time());
 		want();
