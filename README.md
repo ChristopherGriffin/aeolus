@@ -182,6 +182,7 @@ Each milestone ends in something checkable before the next starts.
 | [0126](docs/decisions/0126-the-scan-radio-in-an-aps-health.md) | The scan radio in an AP's health |
 | [0127](docs/decisions/0127-how-clients-own-joins-go.md) | How the clients' own joins go |
 | [0128](docs/decisions/0128-client-tests-over-the-wire.md) | A client test over the wire |
+| [0129](docs/decisions/0129-a-round-of-tests-asked-now.md) | A round of tests, asked now |
 
 ## Open questions
 

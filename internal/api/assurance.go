@@ -129,11 +129,24 @@ func (s *Server) tester(state *change.State, ap hierarchy.NodeID) bool {
 // whose agent can make them (0128): each network it offers, over the wire,
 // after those.
 func (s *Server) assureCombos(state *change.State, ap hierarchy.NodeID, docs map[hierarchy.NodeID]map[string]any) []assureCombo {
+	_, _, wire := assureSettings(state, ap)
+	return s.combosOf(state, ap, docs, wire)
+}
+
+// roundCombos are what an AP tests in a round asked by hand (0129): all it
+// can, through the air where it has a scan radio, and over the wire where
+// its agent can, whether its folders ask for that on a schedule or not.
+func (s *Server) roundCombos(state *change.State, ap hierarchy.NodeID, docs map[hierarchy.NodeID]map[string]any) []assureCombo {
+	return s.combosOf(state, ap, docs, true)
+}
+
+// combosOf is assureCombos, over the wire too where wire says so.
+func (s *Server) combosOf(state *change.State, ap hierarchy.NodeID, docs map[hierarchy.NodeID]map[string]any, wire bool) []assureCombo {
 	var out []assureCombo
 	if scanRadio(state, ap) {
 		out = s.airCombos(state, ap, docs)
 	}
-	if _, _, wire := assureSettings(state, ap); wire && s.wireTests(ap) {
+	if wire && s.wireTests(ap) {
 		if _, ok := docs[ap]; !ok {
 			var nets map[string]any
 			if res, err := s.compose(state, ap, s.reveal); err == nil && !res.Unassigned {
@@ -374,7 +387,10 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 	var asked []conditions.Action
 	for _, ap := range state.Org.Locations.APs() {
 		every, speed, _ := assureSettings(state, ap)
-		if every <= 0 || !s.tester(state, ap) {
+		scheduled := every > 0 && s.tester(state, ap)
+		// A round asked by hand (0129) is worked at whatever the schedule.
+		rnd, inRound := s.rounds.of(state.Org.Locations, ap, now)
+		if !scheduled && !inRound {
 			continue
 		}
 		l, err := s.conds.Latest(ap)
@@ -394,12 +410,8 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 				last = r
 			}
 		}
-		// Not while one is open, nor sooner than any wait could end.
-		if open || (last != nil && now.Sub(last.At) < min(every, assureRetry)) {
-			continue
-		}
-		combos := s.assureCombos(state, ap, docs)
-		if len(combos) == 0 {
+		// Not while one is open.
+		if open {
 			continue
 		}
 		// When each thing was last asked for by the manager: the one asked
@@ -413,37 +425,24 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 				}
 			}
 		}
-		oldest := func(of []assureCombo) []assureCombo {
-			sort.SliceStable(of, func(i, j int) bool { return at[of[i]].Before(at[of[j]]) })
-			return of
-		}
-		var failing, rest []assureCombo
-		for _, c := range combos {
-			if v := verdicts[assureKey{tester: ap, combo: c}]; v != nil && v.failing {
-				failing = append(failing, c)
-			} else {
-				rest = append(rest, c)
-			}
-		}
-		// What to ask, the likeliest first. A thing that failed for the
-		// first time is asked again, soon; else a failing thing every other
-		// time, and the rest in their turn.
+		// What a round asked by hand (0129) has not had asked since comes
+		// before anything on the schedule, and waits for no turn.
 		var order []assureCombo
-		wait := every
-		if last != nil {
-			v := verdicts[assureKey{tester: ap, combo: last.combo()}]
-			if last.failed() && v != nil && !v.failing && slices.Contains(combos, last.combo()) {
-				wait = min(every, assureRetry)
-				order = []assureCombo{last.combo()}
+		if inRound {
+			for _, c := range s.roundCombos(state, ap, docs) {
+				if at[c].Before(rnd.At) {
+					order = append(order, c)
+				}
 			}
-			if now.Sub(last.At) < wait {
+		}
+		if len(order) == 0 {
+			// On the schedule, no sooner than any wait could end.
+			if !scheduled || (last != nil && now.Sub(last.At) < min(every, assureRetry)) {
 				continue
 			}
-		}
-		if wasFailing := last != nil && slices.Contains(failing, last.combo()); len(failing) > 0 && !wasFailing {
-			order = append(append(order, oldest(failing)...), oldest(rest)...)
-		} else {
-			order = append(append(order, oldest(rest)...), oldest(failing)...)
+			if order = scheduledOrder(ap, s.assureCombos(state, ap, docs), verdicts, last, at, every, now); len(order) == 0 {
+				continue
+			}
 		}
 		// The first of them that can be asked: one that cannot, as its AP
 		// has not said its BSSIDs yet, does not hold up the others.
@@ -473,6 +472,48 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 		asked = append(asked, a)
 	}
 	return asked
+}
+
+// scheduledOrder is what an AP on a schedule is asked next, the likeliest
+// first: nothing where nothing is due yet. combos are what it tests; last,
+// the latest test the manager asked of it; at, when each thing was last
+// asked for.
+func scheduledOrder(ap hierarchy.NodeID, combos []assureCombo, verdicts map[assureKey]*assureVerdict, last *testRecord,
+	at map[assureCombo]time.Time, every time.Duration, now time.Time) []assureCombo {
+	if len(combos) == 0 {
+		return nil
+	}
+	oldest := func(of []assureCombo) []assureCombo {
+		sort.SliceStable(of, func(i, j int) bool { return at[of[i]].Before(at[of[j]]) })
+		return of
+	}
+	var failing, rest []assureCombo
+	for _, c := range combos {
+		if v := verdicts[assureKey{tester: ap, combo: c}]; v != nil && v.failing {
+			failing = append(failing, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	// What to ask, the likeliest first. A thing that failed for the first
+	// time is asked again, soon; else a failing thing every other time, and
+	// the rest in their turn.
+	var order []assureCombo
+	wait := every
+	if last != nil {
+		v := verdicts[assureKey{tester: ap, combo: last.combo()}]
+		if last.failed() && v != nil && !v.failing && slices.Contains(combos, last.combo()) {
+			wait = min(every, assureRetry)
+			order = []assureCombo{last.combo()}
+		}
+		if now.Sub(last.At) < wait {
+			return nil
+		}
+	}
+	if wasFailing := last != nil && slices.Contains(failing, last.combo()); len(failing) > 0 && !wasFailing {
+		return append(append(order, oldest(failing)...), oldest(rest)...)
+	}
+	return append(append(order, oldest(rest)...), oldest(failing)...)
 }
 
 // AssureAt asks what is due at a time, once, and says how many tests it
@@ -567,13 +608,14 @@ func (s *Server) failingTests(state *change.State, now time.Time) map[hierarchy.
 
 // assuranceView is one AP that tests, for a person.
 type assuranceTester struct {
-	AP     hierarchy.NodeID `json:"ap"`
-	Name   string           `json:"name"`
-	Every  int              `json:"every"` // minutes; 0 where it is not asked on a schedule
-	Speed  bool             `json:"speed"`
-	Things int              `json:"things"` // how many things it tests in turn
-	Air    bool             `json:"air"`    // it has a scan radio, and tests through the air
-	Wire   bool             `json:"wire"`   // it is asked for tests over the wire, and can make them (0128)
+	AP      hierarchy.NodeID `json:"ap"`
+	Name    string           `json:"name"`
+	Every   int              `json:"every"` // minutes; 0 where it is not asked on a schedule
+	Speed   bool             `json:"speed"`
+	Things  int              `json:"things"`   // how many things it tests in turn
+	Air     bool             `json:"air"`      // it has a scan radio, and tests through the air
+	Wire    bool             `json:"wire"`     // it is asked for tests over the wire, and can make them (0128)
+	CanWire bool             `json:"can_wire"` // its agent can test over the wire, asked on a schedule or not
 }
 
 // assuranceCheck is one thing tested by one AP, and what its tests of the
@@ -691,8 +733,14 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 			runs[k] = append(runs[k], runOf(r))
 		}
 	}
+	// The round asked by hand that the APs shown are in (0129), the latest
+	// where they are in more than one, and how far it has got.
+	var inRound *roundView
 	for _, id := range t.APs() {
-		if roleOn(c, change.Locations, t, id) < access.Viewer || !s.tester(c.state, id) {
+		// An AP that can test: on a schedule, or only when asked, as one
+		// with no scan radio whose folders ask for no tests over the wire.
+		canWire := s.wireTests(id)
+		if roleOn(c, change.Locations, t, id) < access.Viewer || !(s.tester(c.state, id) || canWire) {
 			continue
 		}
 		if under != "" && under != id && !slices.Contains(t.Ancestry(id), under) {
@@ -700,9 +748,38 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		}
 		view[id] = true
 		every, speed, wire := assureSettings(c.state, id)
+		if !s.tester(c.state, id) {
+			every = 0
+		}
 		combos := s.assureCombos(c.state, id, docs)
-		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed, Things: len(combos),
-			Air: scanRadio(c.state, id), Wire: wire && s.wireTests(id)})
+		could := s.roundCombos(c.state, id, docs)
+		things := len(could)
+		if every > 0 {
+			things = len(combos)
+		}
+		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed, Things: things,
+			Air: scanRadio(c.state, id), Wire: wire && canWire, CanWire: canWire})
+		if one, ok := s.rounds.of(t, id, now); ok {
+			if inRound == nil || one.At.After(inRound.At) {
+				inRound = &roundView{round: one, Name: name(one.Node)}
+			}
+			if one.At.Equal(inRound.At) && one.Node == inRound.Node {
+				inRound.Of += len(could)
+				// Each thing once, by its latest test: the tests come newest
+				// first, and one that failed may have been asked again.
+				counted := map[assureCombo]bool{}
+				for _, r := range list {
+					if hierarchy.NodeID(r.AP) != id || r.Actor != change.SystemActor || r.At.Before(one.At) || counted[r.combo()] || !slices.Contains(could, r.combo()) {
+						continue
+					}
+					counted[r.combo()] = true
+					inRound.Asked++
+					if !r.open() {
+						inRound.Done++
+					}
+				}
+			}
+		}
 		ssid := func(network string) string {
 			n, _ := docs[id][network].(map[string]any)
 			v, _ := n["ssid"].(string)
@@ -776,6 +853,6 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"testers": testers, "checks": checks, "tests": tests, "joins": joins, "hours": hours})
+	writeJSON(w, http.StatusOK, map[string]any{"testers": testers, "checks": checks, "tests": tests, "joins": joins, "hours": hours, "round": inRound})
 	return nil
 }

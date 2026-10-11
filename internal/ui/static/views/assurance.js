@@ -7,8 +7,9 @@
 // every AP records, a scan radio or none.
 
 import { h, link } from '../dom.js';
-import { get, schema } from '../api.js';
+import { get, post, schema } from '../api.js';
 import { ago, bandName, value } from '../format.js';
+import { flash, hurry, redrawNow } from '../refresh.js';
 import { fieldPanels } from './fields.js';
 import { only } from './sections.js';
 import { systemEditor } from './system.js';
@@ -31,9 +32,10 @@ function round(t) {
 // tester says what an AP that tests is asked for: through the air, with its
 // scan radio; over the wire (0128), from its uplink; or both.
 function tester(t) {
-	const how = t.air && t.wire ? 'has a scan radio, and tests over the wire too' : t.wire ? 'tests over the wire, from its uplink' : 'has a scan radio';
+	const how = t.air && t.wire ? 'has a scan radio, and tests over the wire too' : t.wire ? 'tests over the wire, from its uplink'
+		: t.air ? 'has a scan radio' : 'can test over the wire, from its uplink';
 	if (!t.things) return `${t.name} ${how}, and offers no network a test can try.`;
-	if (!t.every) return `${t.name} ${how}, and is not asked for tests on a schedule. It could test ${t.things} thing${t.things === 1 ? '' : 's'} in turn.`;
+	if (!t.every) return `${t.name} ${how}, and is not asked for tests on a schedule. In a round asked by hand it tests ${t.things} thing${t.things === 1 ? '' : 's'}.`;
 	return `${t.name} ${how}. It is asked for one test ${value('assurance.tests.every', t.every)}${t.speed && t.air ? ', with speed through the air' : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
 }
 
@@ -111,6 +113,16 @@ function joined(n) {
 	return d;
 }
 
+// rounded says how a round of tests asked by hand is going (0129).
+function rounded(r, here) {
+	if (!r) return null;
+	const where = r.node === here ? '' : ` at ${r.name}`;
+	const left = r.of - r.done;
+	return h('p', { class: 'sub' }, left > 0
+		? `A round of every test was asked${where} ${ago(r.at)} by ${r.by}: ${r.done} of ${many(r.of, 'thing')} tested${r.asked > r.done ? ', one under way' : ''}. Each AP takes them one at a time, about one a minute; what is not asked for within the hour is let go.`
+		: `The round asked${where} ${ago(r.at)} by ${r.by} is done: ${many(r.of, 'thing')} tested.`);
+}
+
 // check is one thing tested by one AP: a line that opens to its latest test.
 function check(ctx, c) {
 	const key = `${c.tester}/${c.network}/${c.on}/${c.band}`;
@@ -149,6 +161,26 @@ export async function assuranceTab(ctx, here, page, edit) {
 	const out = [];
 	const joins = view.joins || [];
 	const stuck = joins.filter((n) => n.failing).length;
+	// A round asked by hand (0129): every AP here tests each thing it can,
+	// once, now. While one is being worked at, the page looks again soon.
+	const going = view.round && view.round.done < view.round.of;
+	if (going) hurry(60);
+	const round = h('button', { type: 'button', class: 'button', disabled: !testers.some((t) => t.things) || going,
+		title: 'Every AP here tests each thing it can once, now, whatever its schedule: through the air where it has a scan radio, and over the wire' },
+	going ? 'A round is under way' : 'Test everything now');
+	round.addEventListener('click', async () => {
+		round.disabled = true;
+		box.replaceChildren();
+		try {
+			const r = await post('/v1/assurance/round', { under: here });
+			flash(`A round asked of ${page.node.name}: ${many(r.things, 'thing')} to test, each AP one at a time from its next poll.`, 60);
+			hurry(600);
+			redrawNow();
+		} catch (err) {
+			round.disabled = false;
+			box.replaceChildren(h('div', { class: 'error' }, err.message));
+		}
+	});
 
 	out.push(h('section', { class: 'panel' },
 		h('h2', null, 'Clients coming online', h('span', { class: 'note' },
@@ -161,10 +193,12 @@ export async function assuranceTab(ctx, here, page, edit) {
 		h('h2', null, 'Client tests on a schedule', h('span', { class: 'note' }, 'an AP with a scan radio joins its networks as a client would, in turn, and says how each step went; over the wire, any AP asks each for an address, its gateway and a name')),
 		testers.length
 			? h('ul', { class: 'plain' }, testers.map((t) => h('li', null, tester(t))))
-			: h('div', { class: 'banner info' }, 'No AP here has a scan radio to test through the air with, and none is asked for tests over the wire, which any AP can make: switch “Over the wire too” on in the schedule.'),
+			: h('div', { class: 'banner info' }, 'No AP here can test from a client’s side yet: one needs a scan radio, to test through the air, or an agent that tests over the wire (v0.79.0 on).'),
+		rounded(view.round, here),
 		edit && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, page.fields, box,
-				{ sections: SECTIONS, heading: 'Edit the schedule', what: 'Client tests' }) }, 'Edit the schedule')),
+				{ sections: SECTIONS, heading: 'Edit the schedule', what: 'Client tests' }) }, 'Edit the schedule'),
+			' ', round),
 		box));
 	if (Object.keys(fields).length) out.push(fieldPanels(ctx, 'locations', here, fields, edit));
 
