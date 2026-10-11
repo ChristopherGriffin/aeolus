@@ -272,6 +272,44 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 	return out, rows.Err()
 }
 
+// ConnectionsSince lists the attempts begun since a time on aps, but for
+// those of the clients not names, the latest first, at most limit: for what
+// they come to together, a step at a time (0130). They are found by their
+// time, and then kept or not by their AP (the + keeps SQLite from finding
+// them by AP, every one an AP has kept, to sort them after).
+func (s *Store) ConnectionsSince(since time.Time, aps []hierarchy.NodeID, not []string, limit int) ([]Connection, error) {
+	ids, err := json.Marshal(aps)
+	if err != nil {
+		return nil, err
+	}
+	if not == nil {
+		not = []string{}
+	}
+	macs, err := json.Marshal(not)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(`SELECT id, ap, mac, at, network, ssid, band, outcome, stage, reason, took_ms, record FROM connections
+		WHERE at >= ? AND +ap IN (SELECT value FROM json_each(?)) AND mac NOT IN (SELECT value FROM json_each(?))
+		ORDER BY at DESC, id DESC LIMIT ?`, since.UnixMilli(), string(ids), string(macs), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Connection{}
+	for rows.Next() {
+		var c Connection
+		var ap, record string
+		var started int64
+		if err := rows.Scan(&c.ID, &ap, &c.MAC, &started, &c.Network, &c.SSID, &c.Band, &c.Outcome, &c.Stage, &c.Reason, &c.TookMS, &record); err != nil {
+			return nil, err
+		}
+		c.AP, c.Started, c.Record = hierarchy.NodeID(ap), time.UnixMilli(started).UTC(), json.RawMessage(record)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // Join is how one client's attempts to come online on one network of one
 // AP went since a time (0127): how many it made; how many got it on, online
 // or let on and seen no further; how many of those were seen online, and

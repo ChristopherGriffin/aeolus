@@ -93,6 +93,8 @@ func (s *Server) actionList(w http.ResponseWriter, r *http.Request, c call) erro
 		if a.Kind != "client-test" {
 			continue
 		}
+		// What it found, with its way online a point at a time (0130).
+		list[i] = withWay(a)
 		var ask clientTestAsk
 		if json.Unmarshal(a.Params, &ask) != nil || ask.On == "" || roleOn(c, change.Locations, t, hierarchy.NodeID(ask.On)) >= access.Viewer {
 			continue

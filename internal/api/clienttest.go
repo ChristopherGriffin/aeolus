@@ -330,6 +330,9 @@ type clientTest struct {
 	Speed     *testSpeed    `json:"speed,omitempty"`
 	ScanRadio *testScanning `json:"scan_radio,omitempty"`
 	Wire      *testWire     `json:"wire,omitempty"`
+	// Way is its way online, a point at a time (0130): worked out by the
+	// manager as a test is read, and never kept, nor taken from an AP.
+	Way []wayPoint `json:"way,omitempty"`
 }
 
 // testWire is where a test over the wire was made (0128): the device, the
@@ -355,7 +358,17 @@ type testStep struct {
 	What  string   `json:"what"`
 	OK    *bool    `json:"ok,omitempty"`
 	MS    *float64 `json:"ms,omitempty"`
+	// K names the point of the way the step belongs to, where that is not
+	// its stage (0130): over the wire, the offer of an address, and the
+	// address given back, which are steps of DHCP both.
+	K string `json:"k,omitempty"`
 }
+
+// The points a step may name. One this manager does not know is left out
+// as the result is kept, and the step is read as its stage: a result is not
+// refused for it, as an AP whose result is refused holds its later tests
+// up.
+var testPoints = map[string]bool{"": true, "offer": true, "release": true}
 
 type testRate struct {
 	Mbps float64 `json:"mbps"`
@@ -503,6 +516,12 @@ func clientTestDetail(raw json.RawMessage) (json.RawMessage, error) {
 	if t.Steps == nil {
 		t.Steps = []testStep{}
 	}
+	for i := range t.Steps {
+		if !testPoints[t.Steps[i].K] {
+			t.Steps[i].K = ""
+		}
+	}
+	t.Way = nil
 	out, err := json.Marshal(t)
 	if err != nil {
 		return nil, fmt.Errorf("client test: %w", err)

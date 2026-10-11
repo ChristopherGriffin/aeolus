@@ -7,6 +7,7 @@
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
 import { bandName, ago } from '../format.js';
+import { wayPath } from './way.js';
 
 // The stages of coming online, in order, as they are named.
 const STAGES = [
@@ -29,18 +30,13 @@ export function outcomeChip(c, brief) {
 	return h('span', { class: 'chip idle', title: 'Let on to the network, with nothing more seen of it: a device that keeps its address and says little' }, 'Connected');
 }
 
-// rail is the stages in a row, each marked: done, failed, begun, or not
-// seen. Sign-in is left out where the network has none.
-function rail(c) {
-	const ev = c.record?.events || [];
-	return h('div', { class: 'rail' }, STAGES.map(([k, name]) => {
-		const mine = ev.filter((e) => e.stage === k);
-		const bad = mine.some((e) => e.ok === false) || (c.outcome === 'failed' && c.stage === k);
-		if (k === 'signin' && !mine.length && !bad) return null;
-		const ok = !bad && mine.some((e) => e.ok === true);
-		const [cls, says] = bad ? ['bad', 'failed'] : ok ? ['ok', 'done'] : mine.length ? ['warn', 'begun, not finished'] : ['idle', 'not seen'];
-		return h('span', { class: `chip ${cls}`, title: `${name}: ${says}` }, name);
-	}));
+// way is the attempt's way online, drawn (0130): each point with how long
+// it took, as its AP saw it, and under it what was learned there. A point
+// not seen is not a fault: a client that kept its address asks for none.
+function way(c) {
+	const r = c.record || {};
+	return wayPath(c.way, { what: 'The client’s way online',
+		sub: { auth: r.signal != null ? `${r.signal} dBm` : null, dhcp: r.address || null } });
 }
 
 // more is what else a step says: who answered, what DHCP gave, how long an
@@ -69,7 +65,7 @@ function steps(c) {
 	const r = c.record || {};
 	const ev = r.events || [];
 	return h('div', { class: 'attempt' },
-		rail(c),
+		way(c),
 		c.reason && h('p', { class: c.outcome === 'failed' ? 'why bad' : 'why' }, c.outcome === 'failed' ? `Why: ${c.reason}.` : `${c.reason}.`),
 		h('table', { class: 'list steps' },
 			h('tr', null, ['After', 'Stage', 'What happened', ''].map((t) => h('th', null, t))),

@@ -108,7 +108,12 @@ function since() {
 	return int((now() - t0) * 1000);
 }
 
-function step(stage, what, ok, ms) {
+// step notes a step of the test: its stage, what happened, whether it went
+// well where that can be said, and how long its answer took. k names the
+// point of the way online it belongs to, where that is not its stage
+// (0130): the offer of an address, and the address given back, which are
+// steps of DHCP both.
+function step(stage, what, ok, ms, k) {
 	if (length(steps) >= ct.STEPS)
 		return;
 	// The same again is said once: a look made over and over for a network
@@ -121,6 +126,8 @@ function step(stage, what, ok, ms) {
 		s.ok = ok;
 	if (ms != null)
 		s.ms = ms;
+	if (k != null)
+		s.k = k;
 	push(steps, s);
 }
 
@@ -410,7 +417,12 @@ function join_network(res) {
 	k.close();
 	if (connected)
 		return null;
-	return { stage: last, why: failed ?? (notfound && last == 'find' ? `it was not found there in ${notfound} looks` : `it was not let on within ${CONNECT_WAIT} s`) };
+	// What it gave up waiting for is its last step, where nothing said it
+	// failed: so its way says how long it waited (0130).
+	let why = failed ?? (notfound && last == 'find' ? `it was not found there in ${notfound} looks` : `it was not let on within ${CONNECT_WAIT} s`);
+	if (!failed)
+		step(last, why, false);
+	return { stage: last, why: why };
 }
 
 // measure is the test itself, the radio taken: the join, and then each
@@ -696,17 +708,17 @@ function wire_dhcp(res) {
 	let by = (r) => r.server ?? 'a server that did not say who it is';
 	for (let i = 0; i < WIRE_TRIES && !offer; i++) {
 		wire_tx(wt.dhcp(wire.src, 'discover', xid, { secs: now() - from }));
-		step('dhcp', 'asks for an address (discover)');
+		step('dhcp', 'asks for an address (discover)', null, null, 'offer');
 		offer = wire_wait(WIRE_WAIT, f => {
 			let r = wt.dhcp_reply(f, xid, wire.src);
 			return r?.type == 'offer' ? r : null;
 		});
 	}
 	if (!offer) {
-		step('dhcp', 'no answer to its DHCP requests', false);
+		step('dhcp', 'no answer to its DHCP requests', false, null, 'offer');
 		return { stage: 'dhcp', why: 'no DHCP server gave it an address' };
 	}
-	step('dhcp', `offered ${offer.address} by ${by(offer)}`);
+	step('dhcp', `offered ${offer.address} by ${by(offer)}`, true, null, 'offer');
 	for (let i = 0; i < WIRE_TRIES && !ack; i++) {
 		wire_tx(wt.dhcp(wire.src, 'request', xid, { requested: offer.address, server: offer.server, secs: now() - from }));
 		step('dhcp', 'asks to use the address (request)');
@@ -858,7 +870,7 @@ function wire_main(want) {
 			if (server) {
 				let dst = !wt.on_link(server, wire.lease) ? gw?.mac : wire.macs[server] ?? wire_arp(server, 1)?.mac;
 				wire_tx(wt.dhcp(src, 'release', math.rand() & 0x7fffffff, { ciaddr: wire.held, server: server, to: server, dst: dst }));
-				step('dhcp', `gives ${wire.held} back`);
+				step('dhcp', `gives ${wire.held} back`, true, null, 'release');
 			}
 		}
 	} catch (e) {

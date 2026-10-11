@@ -52,7 +52,19 @@ type joinsNetwork struct {
 	Failing        bool        `json:"failing"`
 	Stops          []joinsStop `json:"stops"`
 	APs            []joinsAP   `json:"aps"`
+	// Way is the attempts' way online, a point at a time (0130): how many
+	// passed each, how long it typically took them, and how many stopped
+	// at it, over WayOf of its attempts of the time asked: all of them,
+	// but where the networks shown have more than joinsWayMost between
+	// them, the latest of those.
+	Way   []wayTypical `json:"way,omitempty"`
+	WayOf int          `json:"way_of,omitempty"`
 }
+
+// joinsWayMost is how many attempts, the latest of the APs shown, the
+// networks' ways are worked out from: each is read whole, its steps and
+// all.
+var joinsWayMost = 2000
 
 // joinsStop is a stage failed attempts stopped at, and why, as the APs put
 // it: how many attempts, of how many clients, and when the latest began.
@@ -359,9 +371,40 @@ func (s *Server) joinsView(c call, under hierarchy.NodeID, from, now time.Time) 
 			took[k][j.MAC] = [2]int64{v[0] + j.SeenMS, v[1] + int64(j.Seen)}
 		}
 	}
+	// Their way online, a point at a time, from the latest of the attempts.
+	// Of the APs shown alone, and never the tests' own clients': the most
+	// is counted of what the caller may see, and says nothing of the rest.
+	ways := map[string]*wayTally{}
+	if len(order) > 0 {
+		aps := make([]hierarchy.NodeID, 0, len(shown))
+		for id := range shown {
+			aps = append(aps, id)
+		}
+		var tests []string
+		for mac := range testClients(c.state) {
+			tests = append(tests, mac)
+		}
+		list, err := s.conds.ConnectionsSince(from, aps, tests, joinsWayMost)
+		if err != nil {
+			return nil, err
+		}
+		for _, cn := range list {
+			k := joinsOf(cn.Network, cn.SSID)
+			if nets[k] == nil {
+				continue
+			}
+			if ways[k] == nil {
+				ways[k] = newWayTally(wayClient)
+			}
+			ways[k].add(connWay(cn))
+		}
+	}
 	out := []joinsNetwork{}
 	for _, k := range order {
 		n, tally := nets[k], tallies[k]
+		if w := ways[k]; w != nil {
+			n.Way, n.WayOf = w.typical(), w.n
+		}
 		n.Clients, n.Attempts, n.AttemptsFailed = len(tally.tried), tally.attempts, tally.bad
 		n.Online, n.Failed = tally.did()
 		var each []int64
