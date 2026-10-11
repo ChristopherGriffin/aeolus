@@ -102,6 +102,7 @@ config device 'lan_dev'
 	list ports 'eth1'
 	option stp '1'
 	option stp_proto 'rstp'
+	option hello_time '2'
 
 config bridge-vlan 'vlan_1'
 	option device 'br-lan'

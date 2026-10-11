@@ -1,0 +1,72 @@
+{
+	"about": "The C-360 with spanning tree on (0095), and a hello time the AP has set itself on its bridge, 4 seconds: it stays. The renderer sets one, 2 seconds, only where the bridge has none.",
+	"current": "c360-current.json",
+	"facts": {
+		"uplink": "eth0",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HE20",
+					"HE40"
+				]
+			},
+			"radio3": {
+				"htmodes": [
+					"HE20",
+					"HE40",
+					"HE80",
+					"HE160"
+				]
+			}
+		},
+		"ustp": true
+	},
+	"extra": {
+		"network": {
+			"lan_dev": {
+				".anonymous": false,
+				".type": "device",
+				".name": "lan_dev",
+				".index": 2,
+				"name": "br-lan",
+				"type": "bridge",
+				"ports": [
+					"eth0",
+					"eth1"
+				],
+				"hello_time": "4"
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"uplink": {
+			"stp": true
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			}
+		}
+	},
+	"errors": []
+}

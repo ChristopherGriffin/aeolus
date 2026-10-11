@@ -121,6 +121,7 @@ config device
 	option macaddr '30:86:2d:03:17:ff'
 	option stp '1'
 	option stp_proto 'rstp'
+	option hello_time '2'
 
 config interface 'lan'
 	option device 'br-lan'
