@@ -1,6 +1,7 @@
 // The Overview tab of a Locations folder or the Org (0102): the APs below it
 // at a glance. How many are up, their clients by band, what needs attention,
-// whether their configs are in force, their usage over the last day (0108),
+// whether their configs are in force, whether their networks work when tried
+// as a client (0123), their usage over the last day (0108),
 // the busiest APs, the clients on each network, and the channels the APs
 // share. It reads what the other tabs do,
 // and sets nothing.
@@ -19,12 +20,27 @@ function tile(label, big, sub, cls, href) {
 	return href ? h('a', { class: `tile ${cls || ''}`, href }, body) : h('div', { class: `tile ${cls || ''}` }, body);
 }
 
+// assured is the service as the client tests find it (0123): of the things
+// the APs here test, how many passed their last test, and how many are
+// failing, which is their last two. No tile where no AP here can test.
+function assured(a, base) {
+	if (!a?.testers?.length) return null;
+	const tried = a.checks.filter((c) => c.last?.detail);
+	const passed = tried.filter((c) => c.last.detail.outcome === 'passed').length;
+	const failing = a.checks.filter((c) => c.failing).length;
+	const sub = failing ? `${failing} failing`
+		: !tried.length ? (a.testers.some((t) => t.every) ? 'no test made yet' : 'no schedule set')
+			: passed === tried.length ? 'tried as a client, all work' : `${tried.length - passed} failed its last test`;
+	return tile('Assurance', tried.length ? `${passed} of ${tried.length}` : '—', sub, failing ? 'bad' : passed < tried.length ? 'warn' : tried.length ? 'ok' : '', `${base}/assurance`);
+}
+
 export async function overviewTab(ctx, id, page, fleet) {
 	const below = page.hardware?.aps || [];
 	if (!below.length) return [h('div', { class: 'banner info' }, 'No APs here yet.')];
 	const ids = new Set(below.map((a) => a.id));
 	const aps = (fleet?.aps || []).filter((a) => ids.has(a.id));
-	const [rows, al, usage] = await Promise.all([configs(below), get(`/v1/alerts?under=${encodeURIComponent(id)}`), usagePanel(id, true)]);
+	const [rows, al, usage, assurance] = await Promise.all([configs(below), get(`/v1/alerts?under=${encodeURIComponent(id)}`), usagePanel(id, true),
+		get(`/v1/assurance?under=${encodeURIComponent(id)}`).catch(() => null)]);
 	const base = `#/locations/${encodeURIComponent(id)}`;
 
 	// APs: up is heard from lately and not idle in Landing Zone.
@@ -45,7 +61,8 @@ export async function overviewTab(ctx, id, page, fleet) {
 		tile('Wi-Fi clients', String(clients.length), BANDS.filter((b) => byBand[b]).map((b) => `${bandName(b)} ${byBand[b]}`).join(' · ') || 'none now', '', `${base}/clients`),
 		tile('Alerts', String((c.critical || 0) + (c.warning || 0)), `${c.critical || 0} critical · ${c.warning || 0} warning`,
 			c.critical ? 'bad' : c.warning ? 'warn' : 'ok', `${base}/alerts`),
-		tile('Configs in force', `${inSync} of ${st.length}`, held ? `${held} held` : 'none held', held ? 'warn' : inSync === st.length ? 'ok' : 'warn', `${base}/aps`));
+		tile('Configs in force', `${inSync} of ${st.length}`, held ? `${held} held` : 'none held', held ? 'warn' : inSync === st.length ? 'ok' : 'warn', `${base}/aps`),
+		assured(assurance, base));
 
 	// The busiest APs.
 	const busiest = reports.map(({ ap, r }) => ({ ap, n: (r?.clients || []).length, radios: r?.radios || [] }))
