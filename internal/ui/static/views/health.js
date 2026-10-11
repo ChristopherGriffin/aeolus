@@ -33,11 +33,12 @@ function upFor(s) {
 // history. Kept while the page is redrawn.
 const view = { hours: 24, history: 168 };
 
-// How each figure stands, by the lines its alerts are drawn at (0119):
-// ok, warn or bad.
-const cpuGrade = (cpu) => (cpu >= 90 ? 'bad' : cpu >= 70 ? 'warn' : 'ok');
+// How each figure stands, by the lines its alerts are drawn at and as
+// grave as they are (0119): warn where the alert is a warning, bad where it
+// is critical, which only memory's is, under 5% free.
+const cpuGrade = (cpu) => (cpu >= 90 ? 'warn' : 'ok');
 const memGrade = (free) => (free < 5 ? 'bad' : free < 10 ? 'warn' : 'ok');
-const tempGrade = (temp) => (temp >= 95 ? 'bad' : temp >= 85 ? 'warn' : 'ok');
+const tempGrade = (temp) => (temp >= 95 ? 'warn' : 'ok');
 const freeOf = (free, total) => Math.floor((100 * free) / total);
 
 // healthBrief is an AP's health in a line, for a list of APs: its
