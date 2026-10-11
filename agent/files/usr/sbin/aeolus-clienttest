@@ -95,6 +95,11 @@ function since() {
 function step(stage, what, ok, ms) {
 	if (length(steps) >= ct.STEPS)
 		return;
+	// The same again is said once: a look made over and over for a network
+	// not found yet, or SAE's two authentications, each "found it".
+	let last = steps[length(steps) - 1];
+	if (last && last.stage == stage && last.what == what)
+		return;
 	let s = { t: since(), stage: stage, what: what };
 	if (ok != null)
 		s.ok = ok;
