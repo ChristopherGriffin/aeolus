@@ -92,6 +92,22 @@
         "resolved": { "type": "boolean", "default": true, "description": "Also send when an alert's cause is gone." }
       }
     },
+    "assurance": {
+      "x-aeolus-tree": "locations",
+      "description": "Service assurance (0123): the service tried from a client's side on a schedule, by the APs here that have a scan radio. The manager's own, never sent to APs.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tests": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "every": { "type": "integer", "enum": [0, 15, 30, 60, 180, 360, 720, 1440], "description": "How often, in minutes, an AP with a scan radio is asked for a client test (0121): each time another of its networks, on itself or on an AP it hears well, on one band. Unset or 0, none is asked on a schedule; 0 says so below a folder that sets one." },
+            "speed": { "type": "boolean", "default": false, "description": "On, a test on a schedule measures speed too, against the speed server, where one is set. Off, it stops at DNS: a speed measurement fills the air for ten seconds." }
+          }
+        }
+      }
+    },
     "rogues": {
       "x-aeolus-tree": "locations",
       "description": "What the manager makes of the networks the APs here hear that broadcast one of Aeolus's SSIDs (0105, 0106): the manager's own, never sent to APs.",

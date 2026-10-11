@@ -206,6 +206,25 @@ func (s *Store) Actions(ap hierarchy.NodeID, limit int) ([]Action, error) {
 	return s.actions(`SELECT `+actionCols+` FROM actions WHERE ap = ? ORDER BY id DESC LIMIT ?`, string(ap), limit)
 }
 
+// ClientTests are the client tests (0121) asked of every AP since a time,
+// newest first: what service assurance (0123) is worked out from. One that
+// waited too long for its AP is expired first, whichever AP's it is.
+func (s *Store) ClientTests(since time.Time) ([]Action, error) {
+	s.db.Exec(`UPDATE actions SET state = 'expired', done_at = ? WHERE kind = 'client-test' AND state IN ('pending', 'running') AND at < ?`,
+		stamp(s.now()), stamp(s.now().Add(-ActionWait)))
+	return s.actions(`SELECT `+actionCols+` FROM actions WHERE kind = 'client-test' AND at >= ? ORDER BY id DESC`, stamp(since))
+}
+
+// PruneClientTests forgets the client tests asked before a time, and says
+// how many: on a schedule they are many, and each keeps every step it took.
+func (s *Store) PruneClientTests(before time.Time) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM actions WHERE kind = 'client-test' AND state NOT IN ('pending', 'running') AND at < ?`, stamp(before))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // OpenAction is one of an AP's actions that is not yet finished, by its ID:
 // what the AP may say the outcome of.
 func (s *Store) OpenAction(ap hierarchy.NodeID, id int64) (Action, error) {

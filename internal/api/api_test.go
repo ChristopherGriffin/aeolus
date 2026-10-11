@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/change"
@@ -32,7 +33,11 @@ type fixture struct {
 	watch  *dhcpwatch.Book
 	api    *Server
 	tokens map[string]string // account -> plain token
+	skew   *time.Duration    // how far the records' clock runs ahead of the real one
 }
+
+// now is the time the fixture's records are made at.
+func (f *fixture) now() time.Time { return time.Now().Add(*f.skew) }
 
 // newFixture starts an API over a fresh log:
 //   - griff:  admin at both roots (create-org)
@@ -99,7 +104,8 @@ func newFixture(t *testing.T) *fixture {
 		}
 		tokens[who] = plain
 	}
-	conds, err := conditions.Open(filepath.Join(dir, "conditions.db"), nil)
+	skew := new(time.Duration)
+	conds, err := conditions.Open(filepath.Join(dir, "conditions.db"), func() time.Time { return time.Now().Add(*skew) })
 	must(t, err)
 	t.Cleanup(func() { conds.Close() })
 	watch, err := dhcpwatch.Open(conds, nil)
@@ -107,7 +113,7 @@ func newFixture(t *testing.T) *fixture {
 	api := New(log, sch, box, conds).WithWatch(watch)
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
-	return &fixture{t: t, url: srv.URL, dir: dir, log: log, conds: conds, watch: watch, api: api, tokens: tokens}
+	return &fixture{t: t, url: srv.URL, dir: dir, log: log, conds: conds, watch: watch, api: api, tokens: tokens, skew: skew}
 }
 
 // do sends a request as an account ("" for none) and returns the status and
