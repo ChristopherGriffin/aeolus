@@ -383,6 +383,17 @@ function frame(f, out) {
 	return null;
 }
 
+// begins says whether what hostapd said of a client that is not being
+// followed begins an attempt: its authentication, or its association,
+// which every client that comes has, said at any level. Nothing else
+// does. A client long on has its keys made again, or signs in again, by
+// 802.1X every hour unless set otherwise: the key messages and the
+// sign-in, with no authentication and no association before them, are not
+// a client coming online, and were each recorded as one that failed.
+function begins(e) {
+	return !e.end && (e.stage == 'auth' || e.stage == 'assoc');
+}
+
 // begin starts the record of an attempt: who, on which network, and when,
 // at by the AP's steady clock in seconds and wall by the calendar's in ms.
 function begin(who, at, wall) {
@@ -678,4 +689,4 @@ function log_time(line, at, wall_at) {
 	return [at + off / 1000.0, wall_at + off];
 }
 
-export { STAGES, WATCH, assemble, capture, log_event, log_time, frame, begin, on_log, on_frame, due, record };
+export { STAGES, WATCH, assemble, capture, log_event, log_time, frame, begins, begin, on_log, on_frame, due, record };

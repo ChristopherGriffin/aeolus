@@ -531,6 +531,36 @@ said(a, 29000.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 said(a, 29000.030, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
 show('back, with no debug lines', a, 29031);
 
+// And where it says the other line alone.
+a = journey.begin(who, 29100, 1791712100000);
+said(a, 29100.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+said(a, 29100.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+said(a, 29100.030, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+show('back, with its keys said in words alone', a, 29131);
+
+// What begins an attempt, of a client that is not being followed: its
+// authentication or its association, and nothing else. A client long on
+// whose keys are made again, or that signs in again as 802.1X has it do
+// every hour, comes nowhere.
+for (let line in [
+	`STA ${STA} IEEE 802.11: authenticated`,
+	`STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`,
+	`STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))`,
+	`STA ${STA} IEEE 802.11: associated (aid 1)`,
+	`STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`,
+	`STA ${STA} WPA: received EAPOL-Key frame (2/4 Pairwise)`,
+	`STA ${STA} WPA: pairwise key handshake completed (RSN)`,
+	`EAPOL-4WAY-HS-COMPLETED ${STA}`,
+	`AP-STA-CONNECTED ${STA} auth_alg=open`,
+	`CTRL-EVENT-EAP-STARTED ${STA}`,
+	`STA ${STA} IEEE 802.1X: authenticated - EAP type: 25 (PEAP)`,
+	`STA ${STA} IEEE 802.11: deauthenticated due to local deauth request`,
+	`AP-STA-DISCONNECTED ${STA}`,
+]) {
+	let e = journey.log_event(`<31>Oct 11 12:43:13 hostapd: phy0-ap0: ${line}`);
+	printf('%s: %s\n', e && journey.begins(e) ? 'begins an attempt' : 'begins nothing', replace(line, STA + ' ', ''));
+}
+
 // When the log took a line in, on the daemon's clocks (logread -t): a line
 // logged 45 ms before the daemon took it up, one 6 ms before, one that
 // came in 3 ms after, one that says no time, and one whose time cannot be

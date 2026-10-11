@@ -273,6 +273,23 @@ back, with no debug lines: connected, stage key, 31000 ms, reason "", address nu
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 30, "stage": "key", "what": "key handshake completed", "ok": true }
+back, with its keys said in words alone: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 30, "stage": "key", "what": "key handshake completed", "ok": true }
+begins an attempt: STA IEEE 802.11: authenticated
+begins an attempt: STA MLME: MLME-AUTHENTICATE.indication(72:bb:66:12:2a:94, OPEN_SYSTEM)
+begins an attempt: STA IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))
+begins an attempt: STA IEEE 802.11: associated (aid 1)
+begins nothing: STA WPA: sending 1/4 msg of 4-Way Handshake
+begins nothing: STA WPA: received EAPOL-Key frame (2/4 Pairwise)
+begins nothing: STA WPA: pairwise key handshake completed (RSN)
+begins nothing: EAPOL-4WAY-HS-COMPLETED 72:bb:66:12:2a:94
+begins nothing: AP-STA-CONNECTED auth_alg=open
+begins nothing: CTRL-EVENT-EAP-STARTED 72:bb:66:12:2a:94
+begins nothing: STA IEEE 802.1X: authenticated - EAP type: 25 (PEAP)
+begins nothing: STA IEEE 802.11: deauthenticated due to local deauth request
+begins nothing: AP-STA-DISCONNECTED 72:bb:66:12:2a:94
 log time [1791742263.455]: 5000.455 s, 1791742263455
 log time [1791742263.494]: 5000.494 s, 1791742263494
 log time [1791742263.503]: 5000.503 s, 1791742263503
