@@ -329,7 +329,7 @@ func (s *Server) apTimeline(w http.ResponseWriter, r *http.Request, c call) erro
 			out = append(out, entry{*a.Ended, "alert", "ended: " + a.Message, ""})
 		}
 	}
-	actions, err := s.conds.Actions(id, 100)
+	actions, err := s.conds.Actions(id, 300)
 	if err != nil {
 		return err
 	}

@@ -29,7 +29,7 @@
 - **An attempt ends, and is one of four things:**
   - **online:** it has an address, and something beyond itself answered it: its gateway's ARP, a DNS server, or a connection;
   - **failed:** with the stage it stopped at, and why: a wrong passphrase, a refused sign-in, no answer to DHCP, a gateway that never answered;
-  - **left:** it went of its own accord before it was seen online, wherever it had got to. Leaving is a failure only where it had waited for an answer that never came: 8 seconds for DHCP, 4 for its gateway. A client that leaves while associating, as one that picks another AP, has failed nothing;
+  - **left:** it went of its own accord before it was seen online, wherever it had got to. Leaving is a failure only where it was refused an address, or had waited for an answer that never came: 8 seconds for DHCP, and 4 for its gateway from when it first asked for it. A client that leaves while associating, as one that picks another AP, has failed nothing;
   - **connected:** let on, and nothing more seen in 30 seconds, as a device that keeps its address and says little.
 - **A line of hostapd's that names the client and is not known is kept as it reads.** It may be the one that explains a failure.
 - **Bounds:** 48 steps, 4 lookups and 2 connections an attempt; 256 attempts followed at once; 128 records waiting for the agent, the oldest let go past that and counted.
@@ -38,7 +38,7 @@
 ### The manager keeps them
 
 - **`POST /v1/ap/connections`** takes them. Each is read and checked by itself: one not well formed, or with a field this manager does not know, is passed over and counted, and does not hold the others back.
-- **One sent again is not kept twice.** An attempt is told from any other by its AP, its client and the start its AP gave, which is the same however often it is sent. When it began, as shown, is that start where it is near the manager's time, else when it came in.
+- **One sent again is not kept twice.** An attempt is told from any other by its AP, its client and the start its AP gave, which is the same however often it is sent. When it began, as shown, is that start where it is near the manager's time, else when it came in, each of those sent together a millisecond after the one before.
 - **Every client seen is kept for good:** its MAC, when it was first and last seen and where, what it calls itself, who it signed in as, its address, how many times it tried to come online and how many failed. A state report's clients (0066) count as seen too.
 - **Its attempts are kept 90 days,** unless `--keep-connection-days` or `AEOLUS_KEEP_CONNECTION_DAYS` says otherwise.
 - **`GET /v1/clients`** lists the clients, the latest first, with `?q=` to find one and `?under=` a Locations node.

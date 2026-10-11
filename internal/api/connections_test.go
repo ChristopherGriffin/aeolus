@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +123,30 @@ func TestClientConnections(t *testing.T) {
 	// one attempt: told apart by the start its AP gave, not the time it came.
 	if code, body := post(stale); code != 200 || body["recorded"] != float64(0) {
 		t.Fatalf("an unset clock, sent again: %d %v", code, body)
+	}
+	// Several from such an AP at once are each given their own time, so a
+	// page that ends between two of them loses neither.
+	var three []any
+	for i := 0; i < 3; i++ {
+		three = append(three, map[string]any{"mac": "02:00:00:00:00:0b", "bss": "phy0-ap0", "started": 86400000 + i*5000, "took_ms": 10 + i,
+			"outcome": "left", "stage": "auth", "reason": "", "events": []any{}})
+	}
+	if code, _, body := f.apDo("POST", "/v1/ap/connections", token, map[string]any{"connections": three}, nil); code != 200 || body["recorded"] != float64(3) {
+		t.Fatalf("three with an unset clock: %d %v", code, body)
+	}
+	took, before := []float64{}, ""
+	for page := 0; page < 4; page++ {
+		_, got = f.do("GET", "/v1/clients/02:00:00:00:00:0b/connections?limit=1"+before, "griff", nil)
+		list := got["connections"].([]any)
+		if len(list) == 0 {
+			break
+		}
+		one := list[0].(map[string]any)
+		took = append(took, one["took_ms"].(float64))
+		before = "&before=" + url.QueryEscape(one["started"].(string))
+	}
+	if len(took) != 3 || took[0] != 12 || took[1] != 11 || took[2] != 10 {
+		t.Fatalf("paged one at a time, newest first = %v", took)
 	}
 
 	// One record with a field of another kind, and one with a field this

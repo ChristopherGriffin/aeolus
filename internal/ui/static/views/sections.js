@@ -9,6 +9,7 @@ import { fieldPanels } from './fields.js';
 import { systemEditor } from './system.js';
 import { renameButton } from './rename.js';
 import { moveButton } from './move.js';
+import { healthBrief } from './health.js';
 
 // only keeps the fields whose paths pass keep.
 export function only(fields, keep) {
@@ -59,7 +60,10 @@ export function channelsSection(ctx, rows, status, canEdit) {
 		const st = status?.get(ap.id);
 		const state = st && h('span', { class: 'chip ' + st.chip, title: st.detail }, st.label);
 		const agent = cfg && agentCell(cfg.agent);
-		if (!radios.length) return [h('tr', null, h('td', null, apLink), h('td', null, state), h('td', null, agent), h('td', { colspan: 6, class: 'sub' }, cfg ? 'No report yet.' : 'You cannot see this AP.'))];
+		// How it is doing, by its latest report (0119); its Health tab has the rest.
+		const brief = healthBrief(rep?.report?.health);
+		const health = brief && h('a', { class: 'chip ' + brief.grade, href: `#/aps/${encodeURIComponent(ap.id)}/health`, title: 'By its latest report. Open its health and history' }, brief.text);
+		if (!radios.length) return [h('tr', null, h('td', null, apLink), h('td', null, state), h('td', null, agent), h('td', { class: 'nowrap' }, health), h('td', { colspan: 6, class: 'sub' }, cfg ? 'No report yet.' : 'You cannot see this AP.'))];
 		return radios.map((r, i) => {
 			const path = `radio.${r.band}.channel`;
 			const set = cfg.location?.[path];
@@ -67,6 +71,7 @@ export function channelsSection(ctx, rows, status, canEdit) {
 				h('td', null, i === 0 && apLink),
 				h('td', null, i === 0 && state),
 				h('td', null, i === 0 && agent),
+				h('td', { class: 'nowrap' }, i === 0 && health),
 				h('td', null, bandName(r.band)),
 				h('td', { class: 'mono' }, r.channel || 'starting'),
 				h('td', { class: 'mono' }, r.width ? r.width + ' MHz' : '—'),
@@ -78,7 +83,7 @@ export function channelsSection(ctx, rows, status, canEdit) {
 	return h('section', { class: 'panel' },
 		h('h2', null, 'APs', h('span', { class: 'note' }, 'radios as each last reported')),
 		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'State', 'Agent', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
+			h('tr', null, ['AP', 'State', 'Agent', 'Health', 'Band', 'Channel', 'Width', 'Clients', 'Aeolus sets', 'Reported'].map((c) => h('th', null, c))),
 			lines),
 		box);
 }

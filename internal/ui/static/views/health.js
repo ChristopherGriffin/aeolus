@@ -33,6 +33,33 @@ function upFor(s) {
 // history. Kept while the page is redrawn.
 const view = { hours: 24, history: 168 };
 
+// How each figure stands, by the lines its alerts are drawn at (0119):
+// ok, warn or bad.
+const cpuGrade = (cpu) => (cpu >= 90 ? 'bad' : cpu >= 70 ? 'warn' : 'ok');
+const memGrade = (free) => (free < 5 ? 'bad' : free < 10 ? 'warn' : 'ok');
+const tempGrade = (temp) => (temp >= 95 ? 'bad' : temp >= 85 ? 'warn' : 'ok');
+const freeOf = (free, total) => Math.floor((100 * free) / total);
+
+// healthBrief is an AP's health in a line, for a list of APs: its
+// processor, its memory and its temperature, and its storage where that is
+// nearly full, with the worst of them as its grade. Null where the AP has
+// not said.
+export function healthBrief(x) {
+	if (!x) return null;
+	const rank = { ok: 1, warn: 2, bad: 3 };
+	const parts = [];
+	let grade = 'ok';
+	const add = (text, g) => {
+		parts.push(text);
+		if (rank[g] > rank[grade]) grade = g;
+	};
+	if (x.cpu != null) add(`CPU ${x.cpu}%`, cpuGrade(x.cpu));
+	if (x.mem_total) add(`memory ${100 - freeOf(x.mem_available, x.mem_total)}%`, memGrade(freeOf(x.mem_available, x.mem_total)));
+	if (x.temp != null) add(`${Math.round(x.temp)} °C`, tempGrade(x.temp));
+	if (x.storage_total && freeOf(x.storage_free, x.storage_total) < 5) add('storage nearly full', 'warn');
+	return parts.length ? { text: parts.join(' · '), grade } : null;
+}
+
 // tiles are how the AP is doing now, by its latest report.
 function tiles(now) {
 	const x = now?.health;
@@ -42,16 +69,16 @@ function tiles(now) {
 	const out = [];
 	const load = x.load ? `load ${x.load[0]} on ${x.cores || '?'} core${x.cores === 1 ? '' : 's'}` : '';
 	out.push(tile('Processor', x.cpu != null ? `${x.cpu}%` : '—', x.cpu != null ? `busy since its last report · ${load}` : `${load || 'no figure yet'}`,
-		x.cpu >= 90 ? 'bad' : x.cpu >= 70 ? 'warn' : x.cpu != null ? 'ok' : ''));
+		x.cpu != null ? cpuGrade(x.cpu) : ''));
 	if (x.mem_total) {
-		const free = Math.floor((100 * x.mem_available) / x.mem_total);
-		out.push(tile('Memory', `${100 - free}%`, `in use · ${mb(x.mem_available)} free of ${mb(x.mem_total)}`, free < 5 ? 'bad' : free < 10 ? 'warn' : 'ok'));
+		const free = freeOf(x.mem_available, x.mem_total);
+		out.push(tile('Memory', `${100 - free}%`, `in use · ${mb(x.mem_available)} free of ${mb(x.mem_total)}`, memGrade(free)));
 	}
 	if (x.storage_total) {
-		const free = Math.floor((100 * x.storage_free) / x.storage_total);
+		const free = freeOf(x.storage_free, x.storage_total);
 		out.push(tile('Storage', `${100 - free}%`, `in use · ${mb(x.storage_free)} free of ${mb(x.storage_total)}, where its config is kept`, free < 5 ? 'warn' : 'ok'));
 	}
-	if (x.temp != null) out.push(tile('Temperature', `${x.temp} °C`, 'its hottest sensor', x.temp >= 95 ? 'bad' : x.temp >= 85 ? 'warn' : 'ok'));
+	if (x.temp != null) out.push(tile('Temperature', `${x.temp} °C`, 'its hottest sensor', tempGrade(x.temp)));
 	out.push(tile('Up', upFor(now.uptime), `since ${stamp(new Date(now.at).getTime() - now.uptime * 1000)}`, ''));
 	if (x.procs) out.push(tile('Running', String(x.procs), `processes${x.conntrack_max ? ` · ${x.conntrack} connections tracked of ${x.conntrack_max}` : ''}`, ''));
 	return h('div', { class: 'tiles' }, out);
@@ -110,14 +137,19 @@ export async function healthTab(ctx, id) {
 	const seg = (now, set, choices) => h('span', { class: 'segmented', role: 'group' }, choices.map(([v, name]) => h('button', {
 		type: 'button', class: now === v ? 'on' : '', 'aria-pressed': now === v, onclick: () => { set(v); draw(); },
 	}, name)));
+	// Only the latest asking is drawn: an answer to an earlier choice that
+	// comes in late does not replace it.
+	let asked = 0;
 	const draw = async () => {
+		const mine = ++asked;
 		let hl, tl;
 		try {
 			[hl, tl] = await Promise.all([get(`/v1/aps/${enc}/health?hours=${view.hours}`), get(`/v1/aps/${enc}/timeline?hours=${view.history}`)]);
 		} catch (e) {
-			box.replaceChildren(h('div', { class: 'error' }, e.message));
+			if (mine === asked) box.replaceChildren(h('div', { class: 'error' }, e.message));
 			return;
 		}
+		if (mine !== asked) return;
 		box.replaceChildren(
 			tiles(hl.now),
 			h('section', { class: 'panel' },
