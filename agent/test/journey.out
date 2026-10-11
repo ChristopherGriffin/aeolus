@@ -365,6 +365,21 @@ a roam by fast transition, with no debug lines: connected, stage key, 30984 ms, 
 associated, and nothing said after: connected, stage assoc, 21000 ms, reason "", address null, host null
   { "t": 0, "stage": "assoc", "what": "associated", "ok": true }
   how it came: { "on_ms": 0, "began": "assoc" }
+silent, before hostapd is asked: true
+associated, and nothing said after; hostapd, asked, has it on: connected, stage assoc, 21000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  how it came: { "alg": "open", "on_ms": 4 }
+silent, before hostapd is asked: true
+associated, and nothing said after; hostapd, asked, has it gone: left, stage key, 4 ms, reason "before it was let on: gone, with nothing said of its going", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  how it came: { "alg": "open" }
+silent, before hostapd is asked: true
+associated, and nothing said after; hostapd, asked, has it off: failed, stage key, 21000 ms, reason "it was never let on", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  how it came: { "alg": "open" }
 associated, its keys begun, and nothing after: failed, stage key, 21000 ms, reason "it was never let on", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
@@ -404,6 +419,18 @@ a roam with a key from another AP: connected, stage key, 31000 ms, reason "", ad
   { "t": 12, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
   { "t": 30, "stage": "key", "what": "let on to the network", "ok": true }
   how it came: { "alg": "open", "pmk": "okc", "re": true, "on_ms": 30 }
+silent, once let on: false
+let on by a fast transition, and authenticated again while watched: connected, stage key, 41000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated, by a fast transition from another AP (802.11r)", "ok": true }
+  { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 17, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 17, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
+  { "t": 10000, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 10040, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 10060, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 10061, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
+  { "t": 10080, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "alg": "ft", "on_ms": 16, "re": true }
 log time [1791742263.455]: 5000.455 s, 1791742263455
 log time [1791742263.494]: 5000.494 s, 1791742263494
 log time [1791742263.503]: 5000.503 s, 1791742263503

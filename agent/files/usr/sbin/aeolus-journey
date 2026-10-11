@@ -466,6 +466,19 @@ function emit(r) {
 
 function finish(key, at) {
 	let a = open[key];
+	// Associated, and nothing said of it since (0136): hostapd is asked
+	// whether it holds the client as let on, and how strongly it hears it.
+	// A client that went of itself before its keys leaves the same silence
+	// as one whose keys came with it.
+	if (journey.silent(a)) {
+		let all = bus.call('hostapd.' + a.bss, 'get_clients')?.clients;
+		if (type(all) == 'object') {
+			let c = all[a.mac];
+			a.held = !c ? 'gone' : c.authorized ? 'on' : 'off';
+			if (c?.authorized && a.signal == null && type(c.signal) in ['int', 'double'] && c.signal <= 0 && c.signal >= -127)
+				a.signal = int(c.signal);
+		}
+	}
 	let r = journey.record(a, at);
 	delete open[key];
 	// Every failure has a capture, where anything was heard of it (0135):

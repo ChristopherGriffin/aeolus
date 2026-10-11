@@ -54,7 +54,7 @@ func TestRoaming(t *testing.T) {
 		}
 	}
 	client := func(n int) string { return fmt.Sprintf("72:bb:66:12:2a:%02x", n) }
-	phone, laptop, tablet, watch, gadget, oldie, mixed, odd := client(1), client(2), client(3), client(4), client(5), client(6), client(7), client(8)
+	phone, laptop, tablet, watch, gadget, oldie, mixed, odd, relet := client(1), client(2), client(3), client(4), client(5), client(6), client(7), client(8), client(9)
 	// A phone joins North afresh; goes to South and back by fast
 	// transitions; to South once more with the four messages, slowly;
 	// fails to get back on North; gets back on it; and asks there again as
@@ -91,6 +91,12 @@ func TestRoaming(t *testing.T) {
 	attempt(northToken, mixed, "phy0-ap0", "5g", 900*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
 	attempt(southToken, mixed, "phy0-ap0", "5g", 850*time.Second, "online", "dns", "", nil)
 	attempt(northToken, mixed, "phy0-ap0", "5g", 800*time.Second, "connected", "key", "", map[string]any{"re": true, "alg": "open", "on_ms": 33})
+	// One comes to South as one already on, and is let on, by a record
+	// that has no time for it, as an agent of the first release with
+	// roaming wrote of a client that authenticated again once it was on:
+	// it went well, and is not timed.
+	attempt(northToken, relet, "phy0-ap0", "5g", 950*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
+	attempt(southToken, relet, "phy0-ap0", "5g", 940*time.Second, "connected", "key", "", map[string]any{"re": true, "alg": "sae"})
 	// North's own scan radio, testing: no client's roaming.
 	attempt(southToken, scan, "phy0-ap0", "5g", 60*time.Second, "connected", "key", "", map[string]any{"re": true, "alg": "ft", "on_ms": 15})
 	// How it came costs no record. What this manager cannot take of it is
@@ -115,7 +121,7 @@ func TestRoaming(t *testing.T) {
 		t.Fatalf("roaming: %d %v", code, v)
 	}
 	if got, want := fmt.Sprintf("%v roams, %v failed, %v slow, %v left, %v not timed, %v clients, typically %v ms, slow past %v, more %v", v["roams"], v["failed"], v["slow"], v["left"], v["untimed"], v["clients"], v["typical_ms"], v["slow_over_ms"], v["more"]),
-		"11 roams, 1 failed, 2 slow, 1 left, 1 not timed, 6 clients, typically 33 ms, slow past 250, more <nil>"; got != want {
+		"12 roams, 1 failed, 2 slow, 1 left, 2 not timed, 7 clients, typically 33 ms, slow past 250, more <nil>"; got != want {
 		t.Errorf("in all: %s, want %s", got, want)
 	}
 	var kinds []string
@@ -123,7 +129,7 @@ func TestRoaming(t *testing.T) {
 		k := k.(map[string]any)
 		kinds = append(kinds, fmt.Sprintf("%v: %v, %v failed, %v slow, %v ms (%v to %v)", k["kind"], k["roams"], k["failed"], k["slow"], k["typical_ms"], k["low_ms"], k["high_ms"]))
 	}
-	if got, want := strings.Join(kinds, "; "), "ft: 4, 0 failed, 0 slow, 19 ms (17 to 21); okc: 1, 0 failed, 0 slow, 30 ms (30 to 30); pmksa: 1, 0 failed, 1 slow, 1198 ms (1198 to 1198); keys: 5, 1 failed, 1 slow, 45 ms (33 to 280)"; got != want {
+	if got, want := strings.Join(kinds, "; "), "ft: 4, 0 failed, 0 slow, 19 ms (17 to 21); okc: 1, 0 failed, 0 slow, 30 ms (30 to 30); pmksa: 1, 0 failed, 1 slow, 1198 ms (1198 to 1198); keys: 5, 1 failed, 1 slow, 45 ms (33 to 280); full: 1, 0 failed, 0 slow, <nil> ms (<nil> to <nil>)"; got != want {
 		t.Errorf("a kind at a time:\n got %s\nwant %s", got, want)
 	}
 	said := func(list any) []string {
@@ -164,6 +170,7 @@ func TestRoaming(t *testing.T) {
 		"01 to North 5g from South 5g, ft, ok in 21 ms",
 		"01 to South 5g from North 5g, ft, ok in 17 ms",
 		"07 to North 5g from South 5g, keys, ok in 33 ms",
+		"09 to South 5g from North 5g, full, ok, not timed",
 	}, "\n"); got != want {
 		t.Errorf("the latest:\n%s\nwant:\n%s", got, want)
 	}

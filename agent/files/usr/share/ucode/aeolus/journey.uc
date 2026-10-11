@@ -459,7 +459,7 @@ function begin(who, at, wall) {
 		bss: who.bss, mac: who.mac, network: who.network ?? '', ssid: who.ssid ?? '', band: who.band ?? '',
 		started: at, wall: wall, last: at, events: [], more: 0,
 		done: {}, failed: null, on: null, ended: null, left: null, online: null,
-		sent: {}, sae: null, how: {}, assoc: null, silent: false,
+		sent: {}, sae: null, how: {}, settled: false, held: null, assoc: null, silent: false,
 		address: null, host: null, router: null, signal: null, probes: null,
 		dhcp: { asked: 0, first: null, offer: false, ack: false, nak: false },
 		arp: { asked: null, at: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
@@ -526,21 +526,32 @@ function on_log(a, e, at) {
 	// with a key from before, and how often the AP asked the client it
 	// remembered to prove itself. An authentication is a new try: what
 	// was known of the one before, as that it was a fast transition, is
-	// not said of this one.
-	if (e.stage == 'auth' && e.alg && e.alg != a.how.alg)
-		a.how = { alg: e.alg };
-	else if (e.alg)
-		a.how.alg = e.alg;
-	if (e.re)
-		a.how.re = true;
+	// not said of this one. Let on, how it came is settled once it
+	// authenticates or associates again while it is still watched: it came
+	// as it did, and what it does then is in its steps. What hostapd says
+	// of its coming just after it is let on, as that it asked as one
+	// already on the network, is still of how it came.
+	if (a.on != null && !e.aside && (e.stage == 'auth' || (e.stage == 'assoc' && e.ok === true)))
+		a.settled = true;
+	let came = a.settled;
+	if (!came) {
+		if (e.stage == 'auth' && e.alg && e.alg != a.how.alg)
+			a.how = { alg: e.alg };
+		else if (e.alg)
+			a.how.alg = e.alg;
+		if (e.re)
+			a.how.re = true;
+	}
 	// Of a key made from a sign-in elsewhere hostapd says that, and then
 	// that the key was found, as of one of its own: said once.
 	if (e.pmk == 'pmksa' && a.how.pmk == 'okc')
 		return;
-	if (e.pmk)
-		a.how.pmk = e.pmk;
-	if (e.saq)
-		a.how.saq = min(64, max(a.how.saq ?? 0, e.saq));
+	if (!came) {
+		if (e.pmk)
+			a.how.pmk = e.pmk;
+		if (e.saq)
+			a.how.saq = min(64, max(a.how.saq ?? 0, e.saq));
+	}
 	// Whether anything is said after its association but what is said
 	// beside it: see record.
 	if (!e.aside)
@@ -685,23 +696,41 @@ function due(a, at) {
 	return at - a.on > WATCH;
 }
 
+// silent says whether an attempt got as far as its association and has had
+// nothing said of it since, but what is said beside one. Of such a client
+// hostapd is to be asked, before its record is made, whether it holds it as
+// let on: the daemon does, and puts the answer in held, on, off (there, and
+// not let on) or gone. See record.
+function silent(a) {
+	return a.on == null && a.ended == null && !a.failed && a.silent && a.assoc != null;
+}
+
 // record is the attempt as it is reported. Its outcome: online, an address
 // and an answer from beyond itself; connected, let on, with nothing more
 // seen of it, as a device that keeps its address and says little; failed,
 // with the stage it stopped at and why; left, gone of its own accord before
 // anything failed, wherever it had got to.
 function record(a, at) {
-	// Associated, and nothing said after: it is on. A client that is to
-	// have keys has a handshake, which hostapd says completed, or gives
-	// up on, sending the client off, and of one that signs in it says the
-	// sign-in began: each at any level. Nothing at all is a client whose
-	// keys came with it, by a fast transition, to an AP that still held
-	// it as on, of which hostapd then says no more, having no change to
-	// report; where it logs at debug it says the fast transition, and the
-	// client is let on by that.
-	if (a.on == null && a.ended == null && !a.failed && a.silent && a.assoc != null) {
-		a.on = a.assoc;
-		a.how.on_ms = max(0, int((a.assoc - a.started) * 1000 + 0.5));
+	// Associated, and nothing said after: it is on, where hostapd holds it
+	// so. A client that is to have keys has a handshake, which hostapd
+	// says completed, or gives up on, sending the client off, and of one
+	// that signs in it says the sign-in began: each at any level. Nothing
+	// at all is a client whose keys came with it, by a fast transition, to
+	// an AP that still held it as on, of which hostapd then says no more,
+	// having no change to report; where it logs at debug it says the fast
+	// transition, and the client is let on by that. It is also a client
+	// that went of itself before its keys, which hostapd says at debug
+	// alone: so hostapd is asked. One it no longer has went without a
+	// word; one it has and has not let on was never let on. Where it could
+	// not be asked, the client is taken to be on.
+	if (silent(a)) {
+		if (a.held == null || a.held == 'on') {
+			a.on = a.assoc;
+			a.how.on_ms = max(0, int((a.assoc - a.started) * 1000 + 0.5));
+		} else if (a.held == 'gone') {
+			a.ended = a.assoc;
+			a.left = 'gone, with nothing said of its going';
+		}
 	}
 	// Where no line said its authentication, its time to be let on is
 	// from its association, and less than it took: said, for whoever
@@ -804,4 +833,4 @@ function log_time(line, at, wall_at) {
 	return [at + off / 1000.0, wall_at + off];
 }
 
-export { STAGES, WATCH, assemble, capture, log_event, log_time, frame, begins, begin, on_log, on_frame, due, record };
+export { STAGES, WATCH, assemble, capture, log_event, log_time, frame, begins, begin, on_log, on_frame, due, silent, record };

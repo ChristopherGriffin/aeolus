@@ -49,7 +49,13 @@ export function roamingPanel(r) {
 	if (!r || !(r.roams || r.left)) return null;
 	const out = h('div');
 	const client = (m) => h('a', { href: '#', class: 'clientlink', title: 'Its journey, and each time it came online',
-		onclick: (e) => { e.preventDefault(); out.scrollIntoView({ block: 'nearest' }); journeyPanel(out, m.mac); } }, m.host || m.mac);
+		onclick: async (e) => {
+			e.preventDefault();
+			out.scrollIntoView({ block: 'nearest' });
+			await journeyPanel(out, m.mac);
+			// Folded while it was read, the panel shows none: see below.
+			if (!d.open) out.replaceChildren();
+		} }, m.host || m.mac);
 	const row = (m, more) => h('tr', { class: m.state === 'failed' ? 'failed' : '' },
 		h('td', { class: 'sub nowrap' }, ago(m.at)),
 		h('td', null, client(m)),

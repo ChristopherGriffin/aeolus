@@ -320,6 +320,10 @@ func (s *Server) roamsAmong(c call, list []conditions.Connection) ([]roam, error
 			if *r.MS > roamSlowMS {
 				r.State = "slow"
 			}
+		case letOn(cn, rec):
+			// Let on, as its outcome says, by a record that has no time
+			// for it: it went well, and is not timed.
+			r.State, r.Untimed = "ok", true
 		case cn.Outcome == "failed":
 			r.State, r.Reason = "failed", cn.Reason
 		default:
