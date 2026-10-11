@@ -35,7 +35,7 @@ export function hasScanRadio(page) {
 function chip(a) {
 	const d = a.detail;
 	if (a.state === 'pending') return h('span', { class: 'chip', title: 'It starts on the AP’s next poll, within about a minute' }, 'waiting for the AP');
-	if (a.state === 'running') return h('span', { class: 'chip warn', title: 'It waits for the scan radio to be between its own jobs, then tests for under a minute' }, 'testing');
+	if (a.state === 'running') return h('span', { class: 'chip warn', title: 'It waits for the scan radio to be between its own jobs, tests for under a minute, then sees that the scan radio hears again' }, 'testing');
 	if (a.state === 'expired') return h('span', { class: 'chip warn' }, 'expired: the AP did not finish it');
 	if (d?.outcome === 'passed') return h('span', { class: 'chip ok' }, d.took_ms ? `Passed in ${took(d.took_ms)}` : 'Passed');
 	return h('span', { class: 'chip bad' }, d?.stage ? `Failed at ${NAME[d.stage] || d.stage}` : 'Failed');
@@ -83,12 +83,23 @@ function found(d) {
 	];
 }
 
+// deaf says what the test did to the scan radio, where it left it hearing
+// nothing: bound again and hearing, which is only worth a note, or still
+// deaf, which someone has to see to.
+function deaf(radio) {
+	if (!radio?.deaf) return null;
+	const was = `After the test the scan radio heard nothing, where it heard ${radio.before} networks before.`;
+	if (radio.again > 0)
+		return h('p', { class: 'sub' }, `${was} Its driver was bound again, and it hears ${radio.again}.`);
+	return h('div', { class: 'banner problems' }, `${was} ${radio.rebound ? 'Binding its driver again did not bring it back' : 'Its driver could not be bound again from here'}: until it is, on the AP, neither airscan nor another test can use it.`);
+}
+
 // opened is a test opened: its stages in a row, why it failed, what it
 // measured, and each step with how long after its start it came.
 function opened(a) {
 	const d = a.detail;
 	if (!d) return h('p', { class: 'sub' }, a.state === 'pending' || a.state === 'running'
-		? 'Its result follows when the AP has done it: within about two minutes of its next poll.'
+		? 'Its result follows when the AP has done it and has seen its scan radio hear again: within about three minutes of its next poll.'
 		: a.result || 'It left no result.');
 	const steps = d.steps || [];
 	const radio = d.scan_radio;
@@ -97,7 +108,7 @@ function opened(a) {
 	return h('div', { class: 'attempt' },
 		rail(d),
 		d.reason && h('p', { class: 'why bad' }, `Why: ${d.reason}.`),
-		radio?.deaf && h('div', { class: 'banner problems' }, `After the test the scan radio hears nothing, where it heard ${radio.before} networks before. Its driver needs binding again on the AP before airscan or another test can use it.`),
+		deaf(radio),
 		h('div', { class: 'testfound' }, found(d)),
 		steps.length > 0 && h('table', { class: 'list steps' },
 			h('tr', null, ['After', 'Stage', 'What happened', ''].map((t) => h('th', null, t))),
@@ -108,7 +119,8 @@ function opened(a) {
 				h('td', null, e.ok === true ? h('span', { class: 'chip ok' }, 'ok') : e.ok === false ? h('span', { class: 'chip bad' }, 'failed') : null)))),
 		h('p', { class: 'sub attemptlinks' }, [
 			d.waited_ms > 1000 && `It waited ${took(d.waited_ms)} for the scan radio to be between its own jobs. `,
-			radio && !radio.deaf && `The scan radio heard ${radio.after} networks once it had it back (${radio.before} before). `,
+			radio?.was_deaf && 'Before the test the scan radio heard nothing, so its driver was bound again first. ',
+			radio && !radio.deaf && `The scan radio heard ${radio.after} networks once it had it back and had swept the spectrum (${radio.before} before). `,
 			d.client && h('a', { href: '#', class: 'clientlink', title: 'The same join, as the AP it joined recorded it',
 				onclick: (e) => { e.preventDefault(); journeyPanel(other, d.client); } }, `What the AP it joined saw of ${d.client}`),
 		]),
@@ -165,7 +177,7 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 			if (on.value) body.on = on.value;
 			if (chosen.band) body.band = chosen.band;
 			await post(`/v1/aps/${enc}/actions`, body);
-			flash(`Client test asked of ${page.node.name}: it starts on its next poll, within about a minute, and takes a minute or two.`, 60);
+			flash(`Client test asked of ${page.node.name}: it starts on its next poll, within about a minute, and takes two or three.`, 60);
 			hurry(240);
 			redrawNow();
 		} catch (err) {

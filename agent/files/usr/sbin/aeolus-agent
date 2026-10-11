@@ -1674,7 +1674,7 @@ function disconnect(a) {
 // there (tests_done).
 const CT_TOOL = '/usr/sbin/aeolus-clienttest';
 const CT_DIR = '/var/run/aeolus/clienttest';
-const CT_LONGEST = 360;   // seconds a test is given before it is taken to have died
+const CT_LONGEST = 480;   // seconds a test is given before it is taken to have died
 
 // test_running is the client test under way: { id, at, pid }, or null.
 function test_running() {

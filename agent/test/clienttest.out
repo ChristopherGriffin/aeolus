@@ -1,5 +1,5 @@
-wanted { "ssid": "Aeolus Lab", "bssids": [ "20:05:b6:01:8b:ec" ], "band": "5g", "speed": { "url": "http://192.168.20.106", "host": "192.168.20.106", "port": 80 }, "dns_name": "openwrt.org" }
-wanted least { "ssid": "Aeolus Lab", "bssids": [ ], "band": null, "speed": null, "dns_name": "example.com" }
+wanted { "ssid": "Aeolus Lab", "network": null, "bssids": [ "20:05:b6:01:8b:ec" ], "band": "5g", "speed": { "url": "http://192.168.20.106", "host": "192.168.20.106", "port": 80 }, "dns_name": "openwrt.org" }
+wanted least { "ssid": "Aeolus Lab", "network": null, "bssids": [ ], "band": null, "speed": null, "dns_name": "example.com" }
 wanted named server { "url": "http://zephyrus.symtus.com:3000/", "host": "zephyrus.symtus.com", "port": 3000 }
 wanted null: null
 wanted { }: null
@@ -98,6 +98,10 @@ dns answer { "rcode": 0, "answers": 2, "address": "104.20.23.154" }
 dns no such name { "rcode": 3, "answers": 0, "address": null }
 dns another question null, the question itself null, cut short { "rcode": 0, "answers": 2, "address": null } null
 rate 21.0 1912.4 null
+between: looking at clients true, idle true, sweeping false, scanning false, no status false
+between: a scan due in 3 s false, in 4 s true, a sweep due now false, 10 s late false, long past true, nothing said of the next true
+credentials: by ID { "encryption": "sae", "key": "the lab one", "ppsk": null }, another network with the SSID { "encryption": "none", "key": null, "ppsk": null }, an ID with a hyphen { "encryption": "psk2", "key": "two", "ppsk": "1" }
+credentials: an ID the AP has no section for null, its section under another SSID null, no ID { "encryption": "psk2", "key": "made by hand", "ppsk": null }, an ID that is none null
 all of it: passed, stage done, reason ""
    passed: joined in 0.6 s, address in 0.3 s, gateway 4 ms, DNS 42 ms, 21 down / 22.1 up Mbit/s
 no speed server: passed, stage done, reason ""
@@ -110,6 +114,10 @@ wrong passphrase: failed, stage key, reason "wrong passphrase"
    failed at key: wrong passphrase
 no address: failed, stage dhcp, reason "no DHCP server gave it an address"
    failed at dhcp: no DHCP server gave it an address
+a lease with no gateway: failed, stage gateway, reason "DHCP gave it no gateway"
+   failed at gateway: DHCP gave it no gateway
+a lease with no DNS server: failed, stage dns, reason "DHCP gave it no DNS server"
+   failed at dns: DHCP gave it no DNS server
 gateway silent: failed, stage gateway, reason "its gateway, 192.168.20.1, does not answer"
    failed at gateway: its gateway, 192.168.20.1, does not answer
 DNS silent: failed, stage dns, reason "its DNS server, 192.168.20.254, does not answer"
