@@ -24,7 +24,7 @@
   - **What of a round cannot be asked for now does not hold the schedule up:** a thing on an AP that has not said its BSSIDs yet, say. The schedule has its turn as if there were no round.
   - **Each thing is asked once.** One that fails is not tried again by the round; the schedule's own second try (0123) is the schedule's.
 - **A round is worked at for an hour.** What is left of it then, as of an AP that never called in, is let go.
-- **A later round at the same node takes the place of the earlier.** An AP below two rounds is in the later.
+- **A later round at the same node takes the place of the earlier.** An AP below two rounds is in the later. Since rounds say which tests they are of (0131), that is of each kind: a round of one kind leaves one of the other going.
 - **Rounds are kept in the manager's memory, not its log:** asking one changes nothing that is configured. A manager that restarts forgets a round under way, and whoever asked asks again.
 - **A round's tests count as any others:** in what is tested, in the tests listed, and for what is failing and its alert (0123).
 - **The Assurance tab has the button,** "Test everything now", and says how the round is going: how many things, how many tested, and when it is done. A thing counts by the round's own test of it, whatever the schedule asks after. Another round can be asked while one is under way, as after something was put right; where what is left cannot be asked for, the tab says so.

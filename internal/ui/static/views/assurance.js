@@ -28,13 +28,31 @@ const SECTIONS = [['Client tests on a schedule', SET]];
 // a sentence does.
 const OVER = [['both', 'Both'], ['air', 'Wireless'], ['wire', 'Wired']];
 const OVERSAID = { air: ', through the air only', wire: ', over the wire only' };
-// What was chosen last, kept in the browser.
+// What was chosen last: kept here for as long as the page is open, as the
+// tab is drawn again every few seconds, and in the browser for the next
+// time, where it keeps anything.
 const KEPT = 'aeolus.round.over';
+let chosenOver = null;
 function kept() {
+	if (chosenOver) return chosenOver;
 	try {
 		const v = localStorage.getItem(KEPT);
 		return OVER.some(([k]) => k === v) ? v : 'both';
 	} catch { return 'both'; }
+}
+function keep(k) {
+	chosenOver = k;
+	try { localStorage.setItem(KEPT, k); } catch { /* storage blocked */ }
+}
+
+// asSet is the fields as the schedule's editor is shown them. Where which
+// tests is not set and the setting before, over the wire too, is on, both
+// is in force (0131): the editor is shown that, from where the setting
+// before comes, so that choosing through the air there is a change.
+function asSet(fields) {
+	const before = fields['assurance.tests.wire'];
+	if (fields['assurance.tests.over'] || before?.value !== true) return fields;
+	return { ...fields, 'assurance.tests.over': { ...before, value: 'both' } };
 }
 
 // The checks opened, by what they are of, so a redraw keeps them open.
@@ -144,7 +162,7 @@ const fresh = (r) => Date.now() - new Date(r.at).getTime() < 20 * 60 * 1000;
 
 // rounded says how a round of tests asked by hand is going (0129).
 function rounded(r, here) {
-	if (!r) return null;
+	if (!r || !r.of) return null;
 	const where = r.node === here ? '' : r.name ? ` at ${r.name}` : ' above here';
 	// Who asked is said to one who may view where it was asked.
 	const by = r.by ? ` by ${r.by}` : '';
@@ -203,7 +221,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 	// once, now. While one is being worked at, the page looks again soon.
 	// The page looks again soon only while a round should still be moving:
 	// one left unfinished, as by an AP that is away, is not watched all hour.
-	const going = view.round && view.round.done < view.round.of;
+	const going = view.round && view.round.of > 0 && view.round.done < view.round.of;
 	if (going && (fresh(view.round) || view.round.asked > view.round.done)) hurry(60);
 	// Another round may be asked at any time, and takes the place of one
 	// under way: what was fixed can be tried again at once.
@@ -222,7 +240,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 	const pick = () => {
 		seg.replaceChildren(...OVER.map(([k, name]) => h('button', { type: 'button', class: k === over ? 'on' : '', 'aria-pressed': String(k === over), disabled: !can[k],
 			title: can[k] ? TITLE[k] : k === 'air' ? 'No AP here has a scan radio' : 'No AP here can test that way',
-			onclick: () => { over = k; try { localStorage.setItem(KEPT, k); } catch { /* storage blocked */ } pick(); } }, name)));
+			onclick: () => { over = k; keep(k); pick(); } }, name)));
 		round.disabled = !can[over];
 		round.title = TITLE[over];
 	};
@@ -255,7 +273,7 @@ export async function assuranceTab(ctx, here, page, edit) {
 			: h('div', { class: 'banner info' }, 'No AP here can test from a client’s side yet: one needs a scan radio, to test through the air, or an agent that tests over the wire (v0.79.0 on).'),
 		rounded(view.round, here),
 		edit && h('div', { class: 'below' },
-			h('button', { type: 'button', class: 'button', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, page.fields, box,
+			h('button', { type: 'button', class: 'button', onclick: async () => systemEditor(ctx, await schema(), here, page.node.name, asSet(page.fields), box,
 				{ sections: SECTIONS, heading: 'Edit the schedule', what: 'Client tests' }) }, 'Edit the schedule'),
 			' ', seg, ' ', round),
 		said,

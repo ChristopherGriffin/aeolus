@@ -21,8 +21,11 @@
 - **`assurance.tests.wire`, the setting before, stays in the schema,** as the log has changes that set it. On, it says both where `over` is not set; `over` set says which whatever it is. The page sets `over`, and shows `wire` where a folder has it still, to be taken away.
 - **A round says which tests for itself:** `over` in `POST /v1/assurance/round`, `air`, `wire` or `both`, which it is unless said. Whatever the folders ask for on a schedule, as a round is someone asking now.
   - It is refused where no AP there can make a test of the kind asked.
-  - What a round is of is said with how it is going, `round.over`, and its count is of those tests.
-- **The Assurance tab has the choice beside "Test everything now":** Both, Wireless, Wired. A kind no AP there can make cannot be chosen. The browser keeps what was chosen last.
+  - **A round of one kind leaves one of the other going.** Asked where a round of the other kind is worked at still, at the same node or above, it does not take that one's place: each kind is worked at from when it was asked for, and the round is of both. One of the same kind takes the earlier's place, as before (0129).
+  - What a round is of is said with how it is going, `round.over`, and its count is of those tests: the kinds worked at, which is more than was last asked for where the other is going still.
+  - **An AP is in a round where the round asks something of it.** One through the air says nothing at an AP with no scan radio: no round is said there, and its schedule goes on.
+- **The Assurance tab has the choice beside "Test everything now":** Both, Wireless, Wired. A kind no AP there has the means for cannot be chosen: Wireless with no scan radio there, Wired with no agent that tests over the wire. One with the means and nothing it can test is refused when asked, and says why. What was chosen last is kept, by the page while it is open and by the browser after.
+- **The schedule's editor is shown both for a folder on the setting before,** from where that comes, so that choosing through the air there is a change.
 - **An AP's own page keeps its one button,** a round of both: its form beside it asks for one test of either kind.
 - **Each AP that tests says which tests its folders ask of it,** `over`, in `GET /v1/assurance`, and the tab says it in words: one with a scan radio asked for the wire alone says so.
 - **Claude and other clients ask a round of one kind through `ask_assurance_round`,** with `over`.
@@ -30,6 +33,7 @@
 ## Consequences
 
 - **A site can be watched over the wire alone,** every network on every AP, with no scan radio borrowed and none needed.
-- **A thing tested the other way before is listed still,** as what was tested and is on the schedule no longer, until its tests age out of the time shown.
+- **A thing tested the other way before is listed still,** as what was tested and is on the schedule no longer, until its tests age out of the time shown. Where it was failing, it is said to be for as long as its alert is (0123), three rounds of its AP's schedule and an hour, and not for as long as it is listed: nothing tests it any more.
+- **A lock on the setting before does not hold `over`:** a lock is a field's. A folder that locked `assurance.tests.wire` on locks `over` too, or a folder below can ask for the air alone.
 - **Both is two tests of a network, not one test two ways:** each with its own way online (0130), side by side in what is tested.
 - **Not in this:** one test that is both, the wire's steps and the air's as one path from the client to the gateway.
