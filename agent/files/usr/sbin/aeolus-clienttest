@@ -421,8 +421,14 @@ function measure(res, want) {
 		step('gateway', 'DHCP gave it no gateway', false);
 	else {
 		res.gateway = { address: lease.router, ...ct.ping_of(output(`ping -I ${IF} -c 3 -W 1 ${lease.router}`)) };
-		step('gateway', res.gateway.got ? `${lease.router}, its gateway, answers ${res.gateway.got} of ${res.gateway.sent} pings` : `${lease.router}, its gateway, does not answer`,
-			res.gateway.got > 0, res.gateway.avg);
+		// Whether it answered ARP, which the pings asked of it: a gateway
+		// that answers no ping may be there all the same.
+		let mac = ct.neigh_of(output(`ip neigh show ${lease.router} dev ${IF}`));
+		if (mac)
+			res.gateway.mac = mac;
+		step('gateway', res.gateway.got ? `${lease.router}, its gateway, answers ${res.gateway.got} of ${res.gateway.sent} pings`
+			: mac ? `${lease.router}, its gateway, is there, at ${mac}, and answers no ping` : `${lease.router}, its gateway, does not answer`,
+			res.gateway.got > 0 || !!mac, res.gateway.avg);
 	}
 
 	// A name looked up: the speed server's, where it has one.
