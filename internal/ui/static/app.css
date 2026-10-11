@@ -359,6 +359,8 @@ div.field.start input[type=number] { height: 34px; width: 110px; padding: 0 10px
 /* A band's 802.11 generations and its guard intervals, one for each kind
    (0089). */
 .ticks.inline { margin: 0; display: inline-flex; }
+/* One of several among the tick boxes, as a band's DFS channels (0120). */
+.tick.choice { cursor: default; }
 /* Where a node's band settings come from, and Customize (Griff,
    2026-10-09): until it is pressed, a node that sets none of them shows
    them greyed out. */

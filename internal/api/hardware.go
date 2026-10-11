@@ -140,7 +140,7 @@ func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardware
 		}
 		bv := bandView{Band: band, APs: len(have), Ahead: len(have) == 0, Widths: []widthView{}}
 		lockedBy := channelLock(t, node, band)
-		avoid := dfsAvoided(t, node, band)
+		avoid := dfsSet(t, node, band)
 		for _, w := range radio.Widths[band] {
 			bv.Widths = append(bv.Widths, judge(band, w, have, alone, lockedBy, avoid))
 		}
@@ -165,11 +165,14 @@ func (s *Server) hardware(state *change.State, node hierarchy.NodeID) (*hardware
 	return hw, nil
 }
 
-// dfsAvoided says whether node keeps a band's automatic channels off DFS
-// (0071).
-func dfsAvoided(t *hierarchy.Tree, node hierarchy.NodeID, band string) bool {
+// dfsSet is how node has a band's automatic channels keep off DFS: avoid
+// (0071), look-first, where a radio starts outside them (0120), or neither.
+func dfsSet(t *hierarchy.Tree, node hierarchy.NodeID, band string) string {
 	r, ok := t.Resolve(node, hierarchy.Path("radio."+band+".dfs"))
-	return ok && r.Value == "avoid"
+	if v, _ := r.Value.(string); ok && (v == "avoid" || v == "look-first") {
+		return v
+	}
+	return ""
 }
 
 // channelLock names the node whose lock on a band's channel stops node
@@ -188,8 +191,8 @@ func channelLock(t *hierarchy.Tree, node hierarchy.NodeID, band string) string {
 // channel cannot carry the width, the width comes with setting the channel
 // to automatic, unless a channel set below or a lock above is in the way
 // (0045). With DFS avoided, a width only DFS channels can carry is not
-// offered (0071).
-func judge(band string, w int, aps []apRadios, alone bool, lockedBy string, avoid bool) widthView {
+// offered (0071); nor where a radio starts outside them (0120).
+func judge(band string, w int, aps []apRadios, alone bool, lockedBy string, avoid string) widthView {
 	var cannot []string
 	var stuck []apRadios
 	move := false
@@ -209,8 +212,10 @@ func judge(band string, w int, aps []apRadios, alone bool, lockedBy string, avoi
 		return widthView{Width: w, Why: "its radio cannot do it"}
 	case len(cannot) > 0:
 		return widthView{Width: w, Why: names(cannot) + " cannot do it"}
-	case avoid && radio.Radar(band, 0, w):
+	case avoid == "avoid" && radio.Radar(band, 0, w):
 		return widthView{Width: w, Why: "it needs DFS channels, which are avoided here"}
+	case avoid == "look-first" && radio.Radar(band, 0, w):
+		return widthView{Width: w, Why: "it needs DFS channels, and a radio here starts outside them"}
 	case len(stuck) > 0:
 		first, by := stuck[0], stuck[0].setBelow[band]
 		why := fmt.Sprintf("%s sets its own channel %d", first.ref.Name, first.channels[band])

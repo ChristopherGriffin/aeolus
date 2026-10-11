@@ -173,6 +173,7 @@ Each milestone ends in something checkable before the next starts.
 | [0117](docs/decisions/0117-two-four-at-forty.md) | 2.4 GHz at 40 MHz, and channels that do not overlap |
 | [0118](docs/decisions/0118-client-connections.md) | Every client, and each time it came online |
 | [0119](docs/decisions/0119-ap-health-and-history.md) | An AP's own health, and what happened to it |
+| [0120](docs/decisions/0120-dfs-after-a-look.md) | DFS channels after a look |
 
 ## Open questions
 

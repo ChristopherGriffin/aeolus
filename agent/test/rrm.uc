@@ -176,3 +176,100 @@ printf('around 5g 36 %J\n', rrm.around(look.networks, '5g', 36));
 printf('around 5g 40 %J\n', rrm.around(look.networks, '5g', 40));
 printf('swept nothing %J\n', rrm.swept(null, null));
 printf('printable %J %J %J %J\n', rrm.printable('Sweet Spot'), rrm.printable(''), rrm.printable('\x00\x00'), rrm.printable('???'));
+
+// DFS channels after a look (0120). What Linux says of them, in the words
+// iw printed on the office AP on 2026-10-10: 100 and 104 free to check, 120
+// with the ten-minute check Europe gives the channels weather radar uses,
+// 132 checked, 136 closed for radar found there, 140 not allowed; and a
+// 6 GHz channel, which is none of them.
+let iw = join('\n', [
+	'Band 2:',
+	'\t* 5180 MHz [36] ',
+	'\t  Maximum TX power: 23.0 dBm',
+	'\t  Channel widths: 20MHz HT40+ VHT80 VHT160',
+	'\t* 5500 MHz [100] ',
+	'\t  Maximum TX power: 24.0 dBm',
+	'\t  Radar detection',
+	'\t  Channel widths: 20MHz HT40- HT40+ VHT80 VHT160',
+	'\t  DFS state: usable (for 523480 sec)',
+	'\t  DFS CAC time: 60000 ms',
+	'\t* 5520 MHz [104] ',
+	'\t  Radar detection',
+	'\t  DFS state: usable (for 523480 sec)',
+	'\t  DFS CAC time: 60000 ms',
+	'\t* 5600 MHz [120] ',
+	'\t  Radar detection',
+	'\t  DFS state: usable (for 523480 sec)',
+	'\t  DFS CAC time: 600000 ms',
+	'\t* 5660 MHz [132] ',
+	'\t  Radar detection',
+	'\t  DFS state: available (for 20539 sec)',
+	'\t  DFS CAC time: 60000 ms',
+	'\t* 5680 MHz [136] ',
+	'\t  Radar detection',
+	'\t  DFS state: unavailable (for 12 sec)',
+	'\t  DFS CAC time: 60000 ms',
+	'\t* 5700 MHz [140] (disabled)',
+	'\t* 5720 MHz [144] ',
+	'\t  Maximum TX power: 24.0 dBm',
+	'\t* 5745 MHz [149] ',
+	'\t  Maximum TX power: 30.0 dBm',
+	'Band 4:',
+	'\t* 6215 MHz [53] ',
+	'\t  Radar detection',
+]);
+let states = rrm.dfs_states(iw);
+for (let c in sort(keys(states), (x, y) => int(x) - int(y)))
+	printf('dfs state %s %J\n', c, states[c]);
+printf('dfs states of nothing %J\n', rrm.dfs_states(null));
+printf('clear: free to check %J, a long check %J, radar found %J, not allowed %J\n',
+	rrm.clear('5g', [100, 104], states), rrm.clear('5g', [116, 120], states), rrm.clear('5g', [132, 136], states), rrm.clear('5g', [140, 144], states));
+printf('clear: checked %J, no radar there %J, outside radar %J, nothing known %J\n',
+	rrm.clear('5g', [132], states), rrm.clear('5g', [144], states), rrm.clear('5g', [36, 40], states), rrm.clear('5g', [100, 104], null));
+
+// A block a radio left for a reason, or did not get to, is left alone for
+// a day; one it only started on is not, nor one left longer ago.
+let wall = 1791700000;
+let went = [
+	{ band: '5g', from: 36, to: 100, why: 'better', state: 'moved', at: wall - 7200 },
+	{ band: '5g', from: 100, to: 36, why: 'interference', state: 'moved', at: wall - 3600 },
+	{ band: '5g', from: 36, to: 132, why: 'better', state: 'failed', at: wall - 600 },
+	{ band: '5g', from: 60, to: 44, why: 'radar', state: 'moved', at: wall - 60 },
+	{ band: '5g', from: 52, to: 36, why: 'start', state: 'moved', at: wall - 60 },
+	{ band: '5g', from: 116, to: 36, why: 'better', state: 'moved', at: wall - 90000 },
+	{ band: '5g', from: 108, to: 36, why: 'better', state: 'withdrawn', at: wall - 60 },
+	{ band: '2g', from: 124, to: 1, why: 'better', state: 'moved', at: wall - 60 },
+];
+printf('barred: left %J, did not get there %J, radar %J\n', rrm.barred(went, '5g', [100, 104], wall), rrm.barred(went, '5g', [132, 136], wall), rrm.barred(went, '5g', [60, 64], wall));
+printf('barred: started on %J, long ago %J, withdrawn %J, another band %J, gone to and still there %J\n', rrm.barred(went, '5g', [52, 56], wall),
+	rrm.barred(went, '5g', [116, 120], wall), rrm.barred(went, '5g', [108, 112], wall), rrm.barred(went, '5g', [124, 128], wall), rrm.barred([went[0]], '5g', [100, 104], wall));
+
+// Where a radio steps off to when it does not know where it came from.
+printf('fallback %J %J %J %J %J %J\n', rrm.fallback('5g', 20, null), rrm.fallback('5g', 40, [44, 48, 100, 104]), rrm.fallback('5g', 80, [149, 153, 157, 161]),
+	rrm.fallback('5g', 160, null), rrm.fallback('5g', 40, [100, 104]), rrm.fallback('2g', 20, null));
+
+// A DFS block must be clearly the best: better than where the radio is, and
+// than the best it could go to without a radar check.
+let blk = (ch, cost, by, members) => ({ channel: ch, cost: cost, blotted_by: by, members: members ?? [ch, ch + 4], visits: 2 });
+printf('radar reason: better than both %J\n', rrm.radar_reason(blk(36, 60, []), blk(44, 50, []), blk(100, 5, []), close, 20));
+printf('radar reason: a free move does as well %J\n', rrm.radar_reason(blk(36, 60, []), blk(44, 20, []), blk(100, 5, []), close, 20));
+printf('radar reason: no better than where it is %J\n', rrm.radar_reason(blk(36, 20, []), blk(36, 20, []), blk(100, 5, []), close, 20));
+printf('radar reason: where it is is the best without one %J\n', rrm.radar_reason(blk(36, 60, []), blk(36, 60, []), blk(100, 5, []), close, 20));
+printf('radar reason: shared, and every other is too %J\n', rrm.radar_reason(blk(36, 10, ['ap-000000000001']), blk(44, 10, ['ap-000000000001']), blk(100, 30, []), close, 20));
+printf('radar reason: shared, and another is free %J\n', rrm.radar_reason(blk(36, 10, ['ap-000000000001']), blk(44, 10, []), blk(100, 5, []), close, 20));
+printf('radar reason: nowhere to go without one %J\n', rrm.radar_reason(blk(36, 60, []), null, blk(100, 5, []), close, 20));
+printf('radar reason: nothing %J\n', rrm.radar_reason(blk(36, 60, []), blk(44, 50, []), null, close, 20));
+
+// Both moves at once: the one it can make now, and the one that costs a
+// radar check, which the daemon makes only when the time is right.
+let show = (name, w) => printf('wanted %s: plain %J, far %J\n', name, w.plain ? [w.plain.to.channel, w.plain.why] : null, w.far ? [w.far.to.channel, w.far.why] : null);
+show('a DFS block clearly best', rrm.wanted(blk(36, 60, []), [blk(36, 60, []), blk(44, 50, [])], [blk(100, 5, []), blk(132, 9, [])], close, 20, null, false));
+show('both', rrm.wanted(blk(36, 80, []), [blk(36, 80, []), blk(44, 50, [])], [blk(100, 5, [])], close, 20, null, false));
+show('a free move is as good', rrm.wanted(blk(36, 60, []), [blk(36, 60, []), blk(44, 10, [])], [blk(100, 5, [])], close, 20, null, false));
+show('the best is not DFS', rrm.wanted(blk(36, 60, []), [blk(36, 60, []), blk(44, 2, [])], [blk(100, 5, [])], close, 20, null, false));
+show('interference goes at once, not to DFS', rrm.wanted(blk(36, 70, []), [blk(36, 70, []), blk(44, 30, [])], [blk(100, 25, [])], close, 20, 0.7, false));
+show('just started', rrm.wanted(blk(36, 30, []), [blk(36, 30, []), blk(44, 25, [])], [blk(100, 20, [])], close, 20, null, true));
+show('on a DFS block, another clearly better', rrm.wanted(blk(100, 60, []), [blk(36, 55, [])], [blk(132, 5, [])], close, 20, null, false));
+show('no DFS allowed', rrm.wanted(blk(36, 60, []), [blk(36, 60, []), blk(44, 30, [])], [], close, 20, null, false));
+show('nothing rated', rrm.wanted(null, [], [], close, 20, null, false));
+printf('blocks 40 visits %J\n', map(rrm.blocks([{ channel: 36, cost: 1, visits: 3 }, { channel: 40, cost: 1, visits: 1 }, { channel: 44, cost: 1 }, { channel: 48, cost: 1, visits: 2 }], '5g', 40), x => x.visits));

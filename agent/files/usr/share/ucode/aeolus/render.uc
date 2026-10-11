@@ -349,9 +349,11 @@ function radios(w, intent, facts) {
 			s.beacon_int = '' + set.beacon_interval;
 		// With DFS avoided, an automatic channel is picked outside the
 		// channels shared with radar (0071). A set channel needs nothing:
-		// the config check refuses one that is DFS.
+		// the config check refuses one that is DFS. So too where the AP
+		// looks before it uses one (0120): the radio starts outside them,
+		// and radio resource management moves it there, or nothing does.
 		if (set.dfs != null) {
-			if (set.dfs == 'avoid' && (s.channel ?? 'auto') == 'auto')
+			if (set.dfs in ['avoid', 'look-first'] && (s.channel ?? 'auto') == 'auto')
 				s.acs_exclude_dfs = '1';
 			else if (s.acs_exclude_dfs in ['1', 'yes', 'on', 'true', 'enabled'])
 				delete s.acs_exclude_dfs;
@@ -1129,6 +1131,9 @@ function rrm(a, w, intent, facts, keep) {
 	put(a, 'aeolus_rrm', 'rrm', {
 		enabled: 1, ap: facts.ap || null, moves: r.moves == false ? 0 : 1,
 		scan: scan_radio(w) ? 'airscan' : null,
+		// Where the 5 GHz radio looks before it uses a DFS channel (0120),
+		// the daemon may move it to one.
+		dfs: intent.radio?.['5g']?.dfs == 'look-first' && r.moves != false ? 1 : null,
 		window: r.window ?? '02:00-05:00', margin: r.margin ?? 20,
 		apc: p ? 1 : null, apc_neighbours: p ? p.neighbours ?? 3 : null, apc_target: p ? p.target ?? -70 : null,
 	});

@@ -39,7 +39,7 @@ pick unknown is near 6
 pick none null
 covers [ 11 ] [ 149, 153 ] [ 149, 153, 157, 161 ] [ 165 ] [ 100, 104, 108, 112, 116, 120, 124, 128 ]
 blocks 20 [ 36, 40, 44, 48, 149 ]
-blocks 40 [ { "channel": 36, "cost": 30, "now": 20, "blotted_by": [ ], "members": [ 36, 40 ] }, { "channel": 44, "cost": 8, "now": 8, "blotted_by": [ "ap-000000000001" ], "members": [ 44, 48 ] } ]
+blocks 40 [ { "channel": 36, "cost": 30, "now": 20, "blotted_by": [ ], "members": [ 36, 40 ], "visits": 0 }, { "channel": 44, "cost": 8, "now": 8, "blotted_by": [ "ap-000000000001" ], "members": [ 44, 48 ], "visits": 0 } ]
 blocks 2g [ [ 1 ], [ 6 ], [ 11 ] ]
 radar true false true false
 reason shared "shared"
@@ -90,3 +90,33 @@ around 5g 36 [ -70 ]
 around 5g 40 [ ]
 swept nothing { "aps": { }, "tails": [ ], "others": [ ], "networks": { } }
 printable "Sweet Spot" null null "???"
+dfs state 100 { "radar": true, "state": "usable", "cac": 60 }
+dfs state 104 { "radar": true, "state": "usable", "cac": 60 }
+dfs state 120 { "radar": true, "state": "usable", "cac": 600 }
+dfs state 132 { "radar": true, "state": "available", "cac": 60 }
+dfs state 136 { "radar": true, "state": "unavailable", "cac": 60 }
+dfs state 144 { "radar": false, "state": null, "cac": null }
+dfs states of nothing { }
+clear: free to check true, a long check false, radar found false, not allowed false
+clear: checked true, no radar there true, outside radar true, nothing known false
+barred: left true, did not get there true, radar true
+barred: started on false, long ago false, withdrawn false, another band false, gone to and still there false
+fallback 36 44 149 null null null
+radar reason: better than both "better"
+radar reason: a free move does as well null
+radar reason: no better than where it is null
+radar reason: where it is is the best without one "better"
+radar reason: shared, and every other is too "shared"
+radar reason: shared, and another is free null
+radar reason: nowhere to go without one "better"
+radar reason: nothing null
+wanted a DFS block clearly best: plain null, far [ 100, "better" ]
+wanted both: plain [ 44, "better" ], far [ 100, "better" ]
+wanted a free move is as good: plain [ 44, "better" ], far null
+wanted the best is not DFS: plain [ 44, "better" ], far null
+wanted interference goes at once, not to DFS: plain [ 44, "interference" ], far null
+wanted just started: plain [ 44, "start" ], far null
+wanted on a DFS block, another clearly better: plain null, far [ 132, "better" ]
+wanted no DFS allowed: plain [ 44, "better" ], far null
+wanted nothing rated: plain null, far null
+blocks 40 visits [ 1, 0 ]

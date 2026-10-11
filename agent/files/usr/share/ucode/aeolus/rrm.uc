@@ -28,6 +28,9 @@ const MARGIN = 20;            // rating points a channel must beat the radio's o
 const APC_STEP = 3;           // dB a radio's power moves at a time (0077)
 const APC_FLOOR = 8;          // dBm a radio's power goes no lower than
 const APC_ABOVE = 6;          // dB above the target all must hear it before its power goes down
+const CAC_MOST = 60;          // seconds of listening for radar a move to a DFS channel may cost (0120)
+const DFS_LOOKS = 2;          // looks at each channel of a DFS block before a radio may go there
+const BARRED_FOR = 86400;     // seconds a DFS block is left alone once a radio left it, or did not get there
 
 // The 5 GHz channels taken up together at each width, by the lowest and
 // highest 20 MHz channel, as internal/radio has them.
@@ -338,10 +341,13 @@ function radar(band, channel) {
 // ([{ channel, cost, now, blotted_by }]): on 2.4 GHz, or at 20 MHz, each
 // channel; on 5 GHz at 40 MHz or more, each block whose channels are all
 // rated, rated as its worst, blotted out by whoever uses any of them, and
-// entered on its best-rated channel. Each lists its channels as members.
+// entered on its best-rated channel. Each lists its channels as members,
+// and has the visits of the one least looked at.
 function blocks(list, band, width) {
 	if (band != '5g' || !width || width <= 20)
-		return map(list ?? [], x => ({ channel: x.channel, cost: x.cost, now: x.now ?? x.cost, blotted_by: x.blotted_by ?? [], members: [x.channel] }));
+		return map(list ?? [], x => ({
+			channel: x.channel, cost: x.cost, now: x.now ?? x.cost, blotted_by: x.blotted_by ?? [], members: [x.channel], visits: x.visits ?? 0,
+		}));
 	let by = {};
 	for (let x in list ?? [])
 		by['' + x.channel] = x;
@@ -355,17 +361,18 @@ function blocks(list, band, width) {
 		}
 		if (!all)
 			continue;
-		let entry = null, cost = 0, now = 0, blot = [];
+		let entry = null, cost = 0, now = 0, blot = [], visits = null;
 		for (let c in members) {
 			let x = by['' + c];
 			cost = max(cost, x.cost);
 			now = max(now, x.now ?? x.cost);
+			visits = visits == null ? x.visits ?? 0 : min(visits, x.visits ?? 0);
 			for (let ap in x.blotted_by ?? [])
 				push(blot, ap);
 			if (!entry || x.cost < entry.cost)
 				entry = x;
 		}
-		push(out, { channel: entry.channel, cost: cost, now: now, blotted_by: uniq(sort(blot)), members: members });
+		push(out, { channel: entry.channel, cost: cost, now: now, blotted_by: uniq(sort(blot)), members: members, visits: visits ?? 0 });
 	}
 	return out;
 }
@@ -390,6 +397,124 @@ function reason(cur, best, close, margin, hot, start) {
 	if (best.cost + margin <= cur.cost && (free || (used && nearest(best, close) <= nearest(cur, close))))
 		return 'better';
 	return start && best_of([cur, best], close) == best ? 'start' : null;
+}
+
+// dfs_states reads what `iw phy <phy> channels` prints of the 5 GHz
+// channels from 52 to 144 (0120): { <channel>: { radar, state, cac } }.
+// radar says the channel is shared with radar there; state is Linux's:
+// usable (a radio may check it), available (checked, and may be sent on)
+// or unavailable (radar was found, and it is closed for half an hour); cac
+// is how many seconds its radar check takes. A channel the country does
+// not allow is left out.
+function dfs_states(text) {
+	let out = {}, cur = null;
+	for (let line in split(text ?? '', '\n')) {
+		let m = match(line, /^[ \t]*\* ([0-9]+) MHz \[([0-9]+)\](.*)$/);
+		if (m) {
+			let f = int(m[1]);
+			cur = f >= 5250 && f <= 5730 && index(m[3], 'disabled') < 0 ? { radar: false, state: null, cac: null } : null;
+			if (cur)
+				out['' + int(m[2])] = cur;
+			continue;
+		}
+		if (!cur)
+			continue;
+		if (index(line, 'Radar detection') >= 0)
+			cur.radar = true;
+		else if ((m = match(line, /DFS state: ([a-z]+)/)))
+			cur.state = m[1];
+		else if ((m = match(line, /DFS CAC time: ([0-9]+) ms/)))
+			cur.cac = int(m[1]) / 1000;
+	}
+	return out;
+}
+
+// clear says whether a radio may go to a block with channels shared with
+// radar (0120), by dfs_states: each is allowed, none is closed for radar
+// found there, and none takes more than CAC_MOST seconds to check, as the
+// channels weather radar uses do in Europe: ten minutes.
+function clear(band, members, states) {
+	for (let c in members ?? []) {
+		if (!radar(band, c))
+			continue;
+		let s = states?.['' + c];
+		if (!s)
+			return false;
+		if (s.radar && (!(s.state in ['usable', 'available']) || s.cac == null || s.cac > CAC_MOST))
+			return false;
+	}
+	return true;
+}
+
+// barred says whether a block is one a radio left of late, or did not get
+// to (0120), by its moves ([{ band, from, to, why, state, at }], at in Unix
+// seconds) within BARRED_FOR of wall: it moved off one of the block's
+// channels for a reason, radar found there among them, or a move to one
+// failed. Such a block is left alone for a day, so a radio does not go
+// back and forth.
+function barred(moves, band, members, wall) {
+	for (let m in moves ?? []) {
+		if (m?.band != band || type(m.at) != 'int' || wall - m.at >= BARRED_FOR)
+			continue;
+		if (m.state == 'failed' && index(members, m.to) >= 0)
+			return true;
+		if (m.state == 'moved' && m.why != 'start' && index(members, m.from) >= 0)
+			return true;
+	}
+	return false;
+}
+
+// fallback is where a radio steps off a DFS channel to when it does not
+// know where it came from (0120): the lowest channel of the lowest block
+// at its width outside radar, wholly in its set where it has one; or null.
+function fallback(band, width, set) {
+	if (band != '5g')
+		return null;
+	let list = !width || width <= 20 ? map([36, 40, 44, 48, 149, 153, 157, 161, 165], c => [c, c]) : (BLOCKS5['' + width] ?? []);
+	for (let b in list) {
+		let ok = true;
+		for (let c = b[0]; c <= b[1]; c += 4)
+			if (radar(band, c) || (length(set ?? []) && index(set, c) < 0))
+				ok = false;
+		if (ok)
+			return b[0];
+	}
+	return null;
+}
+
+// radar_reason says why a radio on block cur should go to block far, one
+// with channels shared with radar (0120), or null. Going there costs a
+// radar check, a minute off the air, so far must be clearly the best:
+// shared or better, as reason has them, and the same from plain, the best
+// block the radio could go to at once. What a move that costs nothing gets
+// it is not worth a minute's silence to better by less. Interference is no
+// reason: a radio leaves that at once, for a channel it can use at once;
+// nor is having just started.
+function radar_reason(cur, plain, far, close, margin) {
+	let why = reason(cur, far, close, margin, null, false);
+	if (!why)
+		return null;
+	if (plain && index(cur?.members ?? [cur?.channel], plain.channel) < 0 && !reason(plain, far, close, margin, null, false))
+		return null;
+	return why;
+}
+
+// wanted says where a radio on block cur should go: of the blocks it can
+// go to at once (to), and of those that cost a radar check (far, 0120).
+// plain is the move reason gives to the best of to. far is a move to the
+// best of them all, where that is one of far and radar_reason holds. Each
+// is { to, why } or null; when each may be made is the daemon's to say.
+function wanted(cur, to, far, close, margin, hot, start) {
+	let plain = best_of(to, close);
+	let why = reason(cur, plain, close, margin, hot, start);
+	let out = { plain: why ? { to: plain, why: why } : null, far: null };
+	let top = best_of([...(to ?? []), ...(far ?? [])], close);
+	if (top && length(filter(far ?? [], x => x.channel == top.channel))) {
+		let w = radar_reason(cur, plain, top, close, margin);
+		if (w)
+			out.far = { to: top, why: w };
+	}
+	return out;
 }
 
 // first says whether claim a ({ ap, cost }) goes before claim b, made at
@@ -471,6 +596,7 @@ function power_step(signals, wanted, target, power, ceiling) {
 // that follows an exported function declaration.
 export {
 	OUI, PORT, NEIGHBOURS, HELLO_EVERY, DEAD, SKEW, LASTING, NOW, SUDDEN, NEAR, WINDOW, MARGIN, APC_STEP, APC_FLOOR, APC_ABOVE,
+	CAC_MOST, DFS_LOOKS, BARRED_FOR, dfs_states, clear, barred, fallback, radar_reason, wanted,
 	hexstr, unhex, hmac, same, advert, read_advert, seal, open, fresh, choose, smooth, freq, band_of, visits,
 	printable, swept, around, weight, cost, blend, covers, nearest, best_of, pick, radar, blocks, reason, first, window, in_window, switch_args, power_step
 };

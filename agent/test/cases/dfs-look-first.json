@@ -1,0 +1,23 @@
+{
+	"about": "Automatic channels on 5 GHz at 80 MHz with DFS used only after a look (0120), and radio resource management on: the 5 GHz radio is told to pick outside DFS at its start, as with DFS avoided, and the daemon's section lets it move the radio to a DFS channel.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"ap": "ap-a0046021365e",
+		"uplink": "wan",
+		"radios": {
+			"radio0": { "htmodes": ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT80+80", "VHT160"] },
+			"radio1": { "htmodes": ["HT20", "HT40"] }
+		}
+	},
+	"intent": {
+		"rrm": { "enabled": true },
+		"system": { "country": "US", "poll": 60 },
+		"radio": {
+			"2g": { "channel": "auto" },
+			"5g": { "channel": "auto", "width": 80, "dfs": "look-first" }
+		},
+		"network": {
+			"lab": { "ssid": "Aeolus Lab", "security": "wpa2-psk", "passphrase": "fixture-passphrase-1", "transport": { "primary": { "type": "vlan", "vlan": 20 } } }
+		}
+	}
+}

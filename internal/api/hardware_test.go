@@ -128,6 +128,25 @@ func TestFolderOffersWhatEveryAPCanDo(t *testing.T) {
 	}
 }
 
+// Where a radio looks before it uses a DFS channel (0120) it starts
+// outside them, so a width only DFS channels can carry is not offered.
+func TestLookFirstWithdraws160(t *testing.T) {
+	f := newFixture(t)
+	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	wide := []any{map[string]any{"radio": "radio0", "band": "5g", "htmodes": []string{"HT20", "HT40", "VHT80", "VHT160"}}}
+	ap := strings.Split(f.enrollAt("WideAP", "02:00:00:00:00:0a", "house", wide, map[string]int{"5g": 36}), "|")[0]
+	if code, b := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "radio.5g.dfs", "value": "look-first"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	for _, node := range []string{"house", ap} {
+		if hw, _ := f.hardwareOf(node); hw["5g"][160] != "it needs DFS channels, and a radio here starts outside them" || hw["5g"][80] != "" {
+			t.Fatalf("%s = %v", node, hw)
+		}
+	}
+}
+
 // A folder is set up before its APs are there (Griff, 2026-10-11): it
 // offers every band with all the band can do, those no AP in it has a radio
 // for marked as set ahead, and takes their settings. An AP's own page has

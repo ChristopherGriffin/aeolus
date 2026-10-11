@@ -682,6 +682,49 @@ func TestAvoidingDFSRefusesWhatNeedsIt(t *testing.T) {
 	}
 }
 
+// Where a radio looks before it uses a DFS channel (0120), it starts
+// outside them: a width, or a set of channels, that leaves it nowhere to
+// start is held. A channel set to a DFS one is used as set.
+func TestLookFirstNeedsSomewhereToStart(t *testing.T) {
+	s, sch := site(t)
+	set := func(path string, v any) {
+		raw, _ := json.Marshal(v)
+		if _, _, err := change.Apply(s, change.Op{Kind: change.Set, Tree: change.Locations, Node: "gate-ap", Path: hierarchy.Path(path), Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	problems := func() string {
+		t.Helper()
+		res, err := AP(s, sch, "gate-ap", nil)
+		must(t, err)
+		return strings.Join(res.Problems, "\n")
+	}
+	set("radio.5g.dfs", "look-first")
+	set("radio.5g.width", 80)
+	set("radio.5g.channel", "auto")
+	if p := problems(); strings.Contains(p, "dfs") {
+		t.Fatalf("auto at 80 MHz: %s", p)
+	}
+	set("radio.5g.channel", 108)
+	if p := problems(); strings.Contains(p, "dfs") {
+		t.Fatalf("a channel set is used as set: %s", p)
+	}
+	set("radio.5g.channel", "auto")
+	set("radio.5g.width", 160)
+	if p := problems(); !strings.Contains(p, "radio.5g.width: every 160 MHz channel uses DFS channels, but radio.5g.dfs is look-first: a radio starts outside them") {
+		t.Fatalf("160: %s", p)
+	}
+	set("radio.5g.width", 40)
+	set("radio.5g.channels", []int{52, 56, 60, 64})
+	if p := problems(); !strings.Contains(p, "radio.5g.channels: no 40 MHz block outside DFS is wholly in the set, and radio.5g.dfs is look-first: a radio has nowhere to start") {
+		t.Fatalf("only DFS: %s", p)
+	}
+	set("radio.5g.channels", []int{36, 40, 52, 56})
+	if p := problems(); strings.Contains(p, "channels") {
+		t.Fatalf("one block to start on, one to go to: %s", p)
+	}
+}
+
 // A set of channels an automatic channel may be (0075) that leaves the
 // radio no whole block at its width, or none outside DFS while it is
 // avoided, is held.
