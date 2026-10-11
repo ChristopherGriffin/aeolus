@@ -272,12 +272,24 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 	return out, rows.Err()
 }
 
-// ConnectionsSince lists the attempts begun since a time, on every AP, the
-// latest first, at most limit: for what they come to together, a step at a
-// time (0130).
-func (s *Store) ConnectionsSince(since time.Time, limit int) ([]Connection, error) {
+// ConnectionsSince lists the attempts begun since a time on aps, but for
+// those of the clients not names, the latest first, at most limit: for what
+// they come to together, a step at a time (0130).
+func (s *Store) ConnectionsSince(since time.Time, aps []hierarchy.NodeID, not []string, limit int) ([]Connection, error) {
+	ids, err := json.Marshal(aps)
+	if err != nil {
+		return nil, err
+	}
+	if not == nil {
+		not = []string{}
+	}
+	macs, err := json.Marshal(not)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.Query(`SELECT id, ap, mac, at, network, ssid, band, outcome, stage, reason, took_ms, record FROM connections
-		WHERE at >= ? ORDER BY at DESC, id DESC LIMIT ?`, since.UnixMilli(), limit)
+		WHERE at >= ? AND ap IN (SELECT value FROM json_each(?)) AND mac NOT IN (SELECT value FROM json_each(?))
+		ORDER BY at DESC, id DESC LIMIT ?`, since.UnixMilli(), string(ids), string(macs), limit)
 	if err != nil {
 		return nil, err
 	}

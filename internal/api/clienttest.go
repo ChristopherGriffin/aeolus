@@ -364,7 +364,10 @@ type testStep struct {
 	K string `json:"k,omitempty"`
 }
 
-// The points a step may name.
+// The points a step may name. One this manager does not know is left out
+// as the result is kept, and the step is read as its stage: a result is not
+// refused for it, as an AP whose result is refused holds its later tests
+// up.
 var testPoints = map[string]bool{"": true, "offer": true, "release": true}
 
 type testRate struct {
@@ -456,7 +459,7 @@ func (t *clientTest) check() error {
 		}
 	}
 	for _, s := range t.Steps {
-		if !span(s.T) || !testStages[s.Stage] || s.What == "" || !words(s.What, 160) || !millis(s.MS) || !testPoints[s.K] {
+		if !span(s.T) || !testStages[s.Stage] || s.What == "" || !words(s.What, 160) || !millis(s.MS) {
 			return bad("a step is when, in ms, a stage and what happened, printable and at most 160 characters")
 		}
 	}
@@ -512,6 +515,11 @@ func clientTestDetail(raw json.RawMessage) (json.RawMessage, error) {
 	}
 	if t.Steps == nil {
 		t.Steps = []testStep{}
+	}
+	for i := range t.Steps {
+		if !testPoints[t.Steps[i].K] {
+			t.Steps[i].K = ""
+		}
 	}
 	t.Way = nil
 	out, err := json.Marshal(t)
