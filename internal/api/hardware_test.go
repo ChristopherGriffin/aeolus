@@ -338,3 +338,74 @@ func TestWidthMovesTheChannel(t *testing.T) {
 		t.Fatalf("house = %v", house)
 	}
 }
+
+// A folder with no AP in it yet is set up for the kinds of AP the Org has
+// (0092; Griff, 2026-10-11): each board its APs said they are, with its
+// model's name and the ports one of them last reported, the uplink marked.
+// A folder that reaches an AP, and an AP's own page, have none.
+func TestAnEmptyFolderHasTheOrgsKinds(t *testing.T) {
+	f := newFixture(t)
+	if code, b := f.change("griff", map[string]any{"kind": "add-builtins"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	if code, b := f.change("griff", map[string]any{"kind": "add-folder", "tree": "locations", "node": "new-site", "name": "New site", "parent": "symtus"}); code != 200 {
+		t.Fatalf("%d %v", code, b)
+	}
+	enroll := func(name, mac, board, model string, ports []any) string {
+		t.Helper()
+		code, _, body := f.apDo("POST", "/v1/enroll", "", map[string]any{"mac": mac, "hostname": name, "board": board, "model": model}, nil)
+		if code != 201 {
+			t.Fatalf("enroll %s: %d %v", name, code, body)
+		}
+		ap, token := body["ap"].(string), body["token"].(string)
+		if code, b := f.change("griff", map[string]any{"kind": "move", "tree": "locations", "node": ap, "parent": "house"}); code != 200 {
+			t.Fatalf("adopt %s: %d %v", name, code, b)
+		}
+		if ports != nil {
+			_, _, cfg := f.apDo("GET", "/v1/ap/config", token, nil, nil)
+			if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": cfg["version"], "ports": ports}, nil); code != 200 {
+				t.Fatalf("state: %d %v", code, b)
+			}
+		}
+		return ap
+	}
+	one := enroll("One", "02:00:00:00:00:1a", "openwrt,one", "OpenWrt One", []any{
+		map[string]any{"name": "eth0", "up": true, "carrier": true, "uplink": true},
+		map[string]any{"name": "eth1", "up": true, "carrier": false},
+	})
+	// Two of another kind: the first has reported no ports, the second has.
+	enroll("Quiet", "02:00:00:00:00:1b", "netgear,r7800", "Netgear R7800", nil)
+	enroll("Loud", "02:00:00:00:00:1c", "netgear,r7800", "Netgear R7800", []any{
+		map[string]any{"name": "wan", "up": true, "carrier": true, "uplink": true},
+		map[string]any{"name": "lan1", "up": true, "carrier": false},
+	})
+	_, hw := f.hardwareOf("new-site")
+	kinds, _ := hw["kinds"].([]any)
+	if len(kinds) != 2 {
+		t.Fatalf("kinds = %v", hw["kinds"])
+	}
+	got := map[string]string{}
+	for _, k := range kinds {
+		kv := k.(map[string]any)
+		var ports []string
+		for _, p := range kv["ports"].([]any) {
+			pv := p.(map[string]any)
+			name := pv["name"].(string)
+			if pv["uplink"] == true {
+				name += "^"
+			}
+			ports = append(ports, name)
+		}
+		got[kv["board"].(string)] = kv["name"].(string) + ": " + strings.Join(ports, " ")
+	}
+	if got["openwrt,one"] != "OpenWrt One: eth0^ eth1" || got["netgear,r7800"] != "Netgear R7800: wan^ lan1" {
+		t.Fatalf("kinds = %v", got)
+	}
+	// Where an AP is, the page has its own kinds from it.
+	if _, hw := f.hardwareOf("house"); hw["kinds"] != nil {
+		t.Fatalf("a folder with APs: %v", hw["kinds"])
+	}
+	if _, hw := f.hardwareOf(one); hw["kinds"] != nil {
+		t.Fatalf("an AP: %v", hw["kinds"])
+	}
+}
