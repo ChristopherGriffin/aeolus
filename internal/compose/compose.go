@@ -441,7 +441,10 @@ func dfsProblems(doc map[string]any) []string {
 	for _, band := range sortedKeys(radios) {
 		set, _ := radios[band].(map[string]any)
 		w, _ := set["width"].(float64)
-		if set["dfs"] == "look-first" && radio.Radar(band, 0, int(w)) {
+		// Only an automatic channel starts outside DFS: one set by hand is
+		// used as set, at whatever width.
+		_, pinned := set["channel"].(float64)
+		if set["dfs"] == "look-first" && !pinned && radio.Radar(band, 0, int(w)) {
 			out = append(out, fmt.Sprintf("radio.%s.width: every %d MHz channel uses DFS channels, but radio.%s.dfs is look-first: a radio starts outside them", band, int(w), band))
 		}
 		if set["dfs"] != "avoid" {
@@ -492,7 +495,8 @@ func channelsProblems(doc map[string]any) []string {
 		width := max(20, int(w))
 		// Where a radio looks before it uses a DFS channel (0120), it must
 		// have a block outside them to start on, as with DFS avoided.
-		look := band == "5g" && set["dfs"] == "look-first"
+		_, pinned := set["channel"].(float64)
+		look := band == "5g" && set["dfs"] == "look-first" && !pinned
 		avoid := band == "5g" && set["dfs"] == "avoid"
 		if len(radio.Usable(band, chans, width, avoid || look, psc, spread)) > 0 {
 			continue

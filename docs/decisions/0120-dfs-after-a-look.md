@@ -29,7 +29,7 @@
   - **RRM moves it to a DFS block that is clearly the best.** The daemon's section says it may (`dfs '1'`).
 - **It applies to an automatic channel.** A channel set by hand is used as set.
 - **It needs RRM moving radios.** Where RRM is off, or moves none, nothing would look: the radio stays off DFS, as with `avoid`.
-- **A width or a set of channels that leaves the radio nowhere to start is refused,** as with `avoid`: 160 MHz, or a set (0075) with no whole block outside DFS.
+- **A width or a set of channels that leaves the radio nowhere to start is refused,** as with `avoid`: 160 MHz, or a set (0075) with no whole block outside DFS. That is for an automatic channel: one set by hand is used as set, at 160 MHz too.
 - **`allow` stays the default, and means what it did.** Nothing changes on an AP until `look-first` is chosen for it.
 
 ### Which DFS block, and when
@@ -66,7 +66,7 @@
   - at once, when interference fills its channel;
   - in the window, when its channel has grown worse than that one was by the margin, or a neighbour has taken its channel and that one is free.
 - **Stepping off is an announced switch,** which clients follow without reconnecting: a channel outside DFS needs no radar check.
-- **From there it looks at every channel again,** and may go to another DFS block by the rules above. The one it left is left alone for a day.
+- **From there it looks at every channel again,** and may go to another DFS block by the rules above. The one it left is left alone for a day: the daemon keeps when each of its channels opens again, across its restarts.
 - **Where it came from is kept across the daemon's restarts,** as an agent update is. A radio that does not know has the lowest block outside DFS in its set.
 
 ### Radar

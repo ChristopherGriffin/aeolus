@@ -99,8 +99,8 @@ dfs state 144 { "radar": false, "state": null, "cac": null }
 dfs states of nothing { }
 clear: free to check true, a long check false, radar found false, not allowed false
 clear: checked true, no radar there true, outside radar true, nothing known false
-barred: left true, did not get there true, radar true
-barred: started on false, long ago false, withdrawn false, another band false, gone to and still there false
+shut { "5g 100": 1791782800, "5g 104": 1791782800, "5g 132": 1791696400 }
+barred: shut an hour ago true, at 80 MHz true, a day and an hour ago false, never false, outside radar false, another band false, nothing shut false
 fallback 36 44 149 null null null
 radar reason: better than both "better"
 radar reason: a free move does as well null
