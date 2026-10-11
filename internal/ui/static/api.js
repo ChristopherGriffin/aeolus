@@ -59,6 +59,35 @@ export async function get(path) {
 	return body;
 }
 
+// download reads a file from the API and hands it to the browser to keep,
+// under the name the manager gives it; it returns that name. The API takes
+// a token and no cookie, so a plain link to the file would not do.
+export async function download(path) {
+	const t = token();
+	if (!t) throw new APIError(401, 'not signed in');
+	let res;
+	try {
+		res = await fetch(path, { headers: { Authorization: 'Bearer ' + t } });
+	} catch {
+		throw new APIError(0, 'Cannot reach the manager.');
+	}
+	if (!res.ok) {
+		const body = await res.json().catch(() => ({}));
+		if (res.status === 401) signOut();
+		throw new APIError(res.status, body.error || res.statusText);
+	}
+	const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'download';
+	const url = URL.createObjectURL(await res.blob());
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = name;
+	document.body.append(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 30000);
+	return name;
+}
+
 // health reads /healthz, which needs no token.
 export async function health() {
 	const res = await fetch('/healthz', { headers: { Accept: 'application/json' } });

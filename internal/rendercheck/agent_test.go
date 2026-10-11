@@ -520,6 +520,21 @@ func TestAgentHidesNoBuiltin(t *testing.T) {
 // frames it makes itself and a small interpreter of the kernel's filter;
 // journey.out is what it must print.
 func TestAgentJourney(t *testing.T) {
+	agentPrints(t, "journey", "a client coming online is recorded")
+}
+
+// TestAgentCapture runs the agent's test of the captures it keeps of
+// attempts that fail (0135): the kernel's filter for a radio, a ring of
+// frames, what a radio adds to a frame and is taken off again, and the
+// file Wireshark opens; capture.out is what it must print.
+func TestAgentCapture(t *testing.T) {
+	agentPrints(t, "capture", "a failed attempt is captured")
+}
+
+// agentPrints runs agent/test/<name>.uc and holds what it prints to
+// <name>.out beside it.
+func agentPrints(t *testing.T, name, what string) {
+	t.Helper()
 	ucode, err := exec.LookPath("ucode")
 	if err != nil {
 		t.Skip("ucode is not installed; CI builds it (0040)")
@@ -528,11 +543,11 @@ func TestAgentJourney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := os.ReadFile(filepath.Join(agentDir, "test", "journey.out"))
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", name+".out"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "journey.uc"))
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", name+".uc"))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -540,7 +555,7 @@ func TestAgentJourney(t *testing.T) {
 		t.Fatalf("%v\n%s", err, stderr.String())
 	}
 	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
-		t.Errorf("a client coming online is recorded other than journey.out says:\n%s", out)
+		t.Errorf("%s other than %s.out says:\n%s", what, name, out)
 	}
 }
 

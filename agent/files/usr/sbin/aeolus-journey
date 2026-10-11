@@ -138,7 +138,9 @@ function packet(dev, prog) {
 	}
 	// The kernel says when each frame came, for a capture (0135): the
 	// daemon reads them when it gets to it, which may be a while after.
-	s.setopt(socket.SOL_SOCKET, socket.SO_TIMESTAMP, 1);
+	// Asked for in nanoseconds: ucode hands that stamp as the kernel wrote
+	// it, and reads the one in microseconds wrongly on a 32-bit processor.
+	s.setopt(socket.SOL_SOCKET, socket.SO_TIMESTAMPNS, 1);
 	// What arrived before the filter took hold goes.
 	while (s.recv(2048, socket.MSG_DONTWAIT) != null)
 		;
@@ -151,11 +153,9 @@ function packet(dev, prog) {
 function came(m) {
 	let t = now(), w = wall();
 	for (let c in m?.ancillary ?? []) {
-		if (c.level != socket.SOL_SOCKET || c.type != socket.SO_TIMESTAMP || type(c.data?.sec) != 'int')
-			continue;
-		let stamped = c.data.sec * 1000 + (c.data.usec ?? 0) / 1000.0, ago = w - stamped;
-		if (ago >= 0 && ago < 5000)
-			return [t - ago / 1000.0, stamped];
+		let stamped = c.level == socket.SOL_SOCKET ? capture.stamp(c.data, w) : null;
+		if (stamped != null)
+			return [t - (w - stamped) / 1000.0, stamped];
 	}
 	return [t, w];
 }
@@ -223,6 +223,19 @@ function unwatch(phy, gone) {
 	delete mons[phy];
 }
 
+// monitor_addr is the address a radio's monitor interface is given: one of
+// its own, out of the way of those the radio's networks have. Wi-Fi set up
+// afresh takes the addresses of the interfaces a radio already has as
+// used, and gives its networks the next: a monitor interface with the
+// radio's own address, which it has unless told another, moved every
+// network of the radio on by one, and with it the address each client
+// knows its network by. The interface sends nothing, so its address is
+// never on the air.
+function monitor_addr(phy) {
+	let m = match(read(`/sys/class/ieee80211/${phy}/macaddress`) ?? '', /^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:([0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2})$/);
+	return m ? '06:ae:0c:' + m[1] : sprintf('06:ae:0c:00:00:%02x', int(substr(phy, 3)) & 255);
+}
+
 // watch_radios has a monitor interface on each radio that serves (0135):
 // one with no flags, so the radio hears what it heard before, read through
 // a filter that keeps management frames and key messages alone. A radio's
@@ -246,8 +259,11 @@ function watch_radios(at) {
 		if (mons[phy] || (no_mon[phy] != null && at - no_mon[phy] < MONITOR_AGAIN))
 			continue;
 		let name = MONITOR + substr(phy, 3);
+		// One a run before this left, with whatever address, is made again.
+		if (ifindex(name) && read(`/sys/class/net/${name}/address`) != monitor_addr(phy))
+			system(['iw', 'dev', name, 'del']);
 		if (!ifindex(name))
-			system(['iw', 'phy', phy, 'interface', 'add', name, 'type', 'monitor', 'flags', 'none']);
+			system(['iw', 'phy', phy, 'interface', 'add', name, 'type', 'monitor', 'addr', monitor_addr(phy), 'flags', 'none']);
 		let s = ifindex(name) && system(['ip', 'link', 'set', name, 'up']) == 0 ? packet(name, RADIO) : null;
 		if (!s) {
 			note('%s: no monitor interface could be had, so a failed attempt there has no capture of its radio', phy);

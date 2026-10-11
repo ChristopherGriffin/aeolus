@@ -22,8 +22,10 @@ const RING_BYTES = 1048576;  // and how much of them, at most
 const BEFORE = 10;           // seconds before an attempt's start taken with it, as the probes that led to it
 const AFTER = 2;             // and after its end
 const MOST = 600;            // frames at most in one capture
+const MOST_BYTES = 524288;   // and bytes of them: past that the earliest go
 const WIRE = 96;             // frames kept from the wire side of one attempt
 const LATE = 5000;           // ms at most a radio may hand a frame up after it heard it, and be put right
+const SOON = 250;            // ms at most a radio may say it sent a message after the answer to it came, and be put right
 const LINK_RADIO = 127;      // pcapng's link types: 802.11 with a radiotap header
 const LINK_WIRE = 1;         // and Ethernet
 
@@ -73,6 +75,41 @@ function u32(s, at) {
 	return ord(s, at) | (ord(s, at + 1) << 8) | (ord(s, at + 2) << 16) | (ord(s, at + 3) * 16777216);
 }
 
+function u32be(s, at) {
+	return ord(s, at) * 16777216 + ((ord(s, at + 1) << 16) | (ord(s, at + 2) << 8) | ord(s, at + 3));
+}
+
+// stamp is when the kernel says a frame came, in ms on the calendar's
+// clock, from what a socket hands with the frame where it was asked for
+// the time in nanoseconds; null where it does not say, or says a time
+// that is not within five seconds before near (ms), as one read wrongly
+// is not. The kernel's stamp is seconds and the part of one, eight bytes
+// each or four, in the processor's own order; ucode hands those bytes as
+// they are. Read into numbers, as a later ucode may, a stamp with no part
+// of a second at all is one half read, and is not believed: so ucode reads
+// the stamp in microseconds on a 32-bit processor, where every frame
+// would be put at the start of its second.
+function stamp(data, near) {
+	let tries = [];
+	if (type(data) == 'object' && type(data.sec) == 'int') {
+		let part = type(data.nsec) == 'int' ? data.nsec / 1e6 : type(data.usec) == 'int' ? data.usec / 1e3 : 0;
+		if (part > 0)
+			push(tries, data.sec * 1000 + part);
+	}
+	else if (type(data) == 'string' && length(data) == 16) {
+		push(tries, u32(data, 0) * 1000 + u32(data, 8) / 1e6);
+		push(tries, u32be(data, 4) * 1000 + u32be(data, 12) / 1e6);
+	}
+	else if (type(data) == 'string' && length(data) == 8) {
+		push(tries, u32(data, 0) * 1000 + u32(data, 4) / 1e6);
+		push(tries, u32be(data, 0) * 1000 + u32be(data, 4) / 1e6);
+	}
+	for (let ms in tries)
+		if (near - ms >= 0 && near - ms < 5000)
+			return ms;
+	return null;
+}
+
 // header reads a frame's radiotap header: rt, where the 802.11 frame
 // begins; sum, whether it says the frame ends in its check sequence; and
 // heard, the radio's own time of a frame it heard, in microseconds on a
@@ -110,6 +147,31 @@ function addresses(m) {
 	if (rt < 8 || length(m) < rt + 16)
 		return null;
 	return [mac_text(m, rt + 4), mac_text(m, rt + 10), length(m) >= rt + 22 ? mac_text(m, rt + 16) : null];
+}
+
+// exchange is what ties a message of the AP's to the client's answer to
+// it, where a frame is one of a key handshake or of a sign-in, in the
+// clear: a key message's replay counter, which the answer repeats, or an
+// EAP request's identifier, which its response does. Null for any other.
+function exchange(m) {
+	let h = header(m), rt = h?.rt;
+	if (!h || length(m) < rt + 24)
+		return null;
+	let fc0 = ord(m, rt), fc1 = ord(m, rt + 1);
+	// A data frame, not encrypted: with its QoS field where it has one,
+	// and a fourth address where it goes from one AP to another.
+	if ((fc0 & 0x0c) != 0x08 || (fc1 & 0x40))
+		return null;
+	let at = rt + 24 + ((fc0 & 0x80) ? 2 : 0) + ((fc1 & 3) == 3 ? 6 : 0);
+	if (length(m) < at + 12 || substr(m, at, 8) != chr(0xaa, 0xaa, 0x03, 0, 0, 0, 0x88, 0x8e))
+		return null;
+	at += 8;
+	let kind = ord(m, at + 1);
+	if (kind == 3 && length(m) >= at + 17)
+		return 'key ' + join('', map([9, 10, 11, 12, 13, 14, 15, 16], i => sprintf('%02x', ord(m, at + i))));
+	if (kind == 0 && length(m) >= at + 6 && (ord(m, at + 4) == 1 || ord(m, at + 4) == 2))
+		return 'eap ' + ord(m, at + 5);
+	return null;
 }
 
 // ring is a radio's frames, the latest last.
@@ -172,7 +234,8 @@ function option(code, value) {
 // pcapng is a capture as a file: frames, each { wall, m, link }, link 0 for
 // one from the radio and 1 for one from the wire side, in the order given;
 // and what the two are named in it. Times are the calendar's, wall in ms,
-// written in microseconds, which a file's times are unless it says.
+// written in microseconds, which a file's times are unless it says. A
+// frame with a note has it as its comment, which Wireshark shows with it.
 function pcapng(radio, wire, frames) {
 	let out = block(0x0a0d0d0a, le32(0x1a2b3c4d) + le16(1) + le16(0) + le32(0xffffffff) + le32(0xffffffff) +
 		option(4, 'Aeolus') + option(0, ''));
@@ -180,7 +243,8 @@ function pcapng(radio, wire, frames) {
 	out += iface(LINK_RADIO, radio) + iface(LINK_WIRE, wire);
 	for (let f in frames) {
 		let us = int(f.wall * 1000 + 0.5), hi = int(us / 4294967296), lo = us % 4294967296;
-		out += block(6, le32(f.link) + le32(hi) + le32(lo) + le32(length(f.m)) + le32(length(f.m)) + padded(f.m));
+		out += block(6, le32(f.link) + le32(hi) + le32(lo) + le32(length(f.m)) + le32(length(f.m)) + padded(f.m) +
+			(f.note ? option(1, f.note) + option(0, '') : ''));
 	}
 	return out;
 }
@@ -240,6 +304,15 @@ function tidy(m) {
 // calendar's by the frame of those minutes that came soonest after it was
 // heard: one that came later than that by up to LATE ms is put back by as
 // much.
+//
+// A frame the AP sent has no such time: it is put at when the radio said
+// it had sent it, which some say late (mt76's monitor interface gave a key
+// message 1 to 12 ms after the client's answer to it had come: the
+// OpenWrt One, 2026-10-11), so the answer seems to come first. A message
+// the client answered was sent before the answer, whatever the radio
+// said: where it is said up to SOON ms after, it is put just before the
+// answer, with a note of how much later it was said; and what the AP had
+// sent before it stays before it.
 function capture(r, mac, from, to, wire, radio_name, wire_name) {
 	let frames = [], least = null;
 	for (let f in r?.list ?? []) {
@@ -253,16 +326,43 @@ function capture(r, mac, from, to, wire, radio_name, wire_name) {
 		let late = f.heard != null ? f.wall - f.heard / 1000.0 - least : 0;
 		if (late <= 0 || late >= LATE)
 			late = 0;
-		push(frames, { at: f.at - late / 1000.0, wall: f.wall - late, m: tidy(f.m), link: 0, n: length(frames) });
+		push(frames, { at: f.at - late / 1000.0, wall: f.wall - late, m: tidy(f.m), link: 0, n: length(frames), mine: f.a[1] != mac, x: exchange(f.m) });
+	}
+	// The AP's messages, the last first, so that one put back takes with
+	// it those the AP had sent before it.
+	let next = null;
+	for (let i = length(frames) - 1; i >= 0; i--) {
+		let f = frames[i], answer = null;
+		if (!f.mine)
+			continue;
+		for (let g in (f.x ? frames : []))
+			if (!g.mine && g.x == f.x && g.wall < f.wall && f.wall - g.wall <= SOON && (!answer || g.wall < answer.wall))
+				answer = g;
+		if (answer) {
+			f.note = sprintf('Sent before the answer to it, and put there: the radio said it had sent this %.1f ms after the answer came.', f.wall - answer.wall);
+			f.wall = answer.wall - 0.001;
+		}
+		if (next != null && f.wall >= next) {
+			f.note = f.note ?? 'Put before the next message the AP sent, which is put before the answer to it: the radio said it had sent this after that answer came.';
+			f.wall = next - 0.001;
+		}
+		if (f.note)
+			next = f.wall;
 	}
 	for (let f in wire ?? [])
 		push(frames, { at: f.at, wall: f.wall, m: f.m, link: 1, n: length(frames) });
 	if (!length(frames))
 		return null;
-	// By when they came; two at once as they were kept.
-	frames = sort(frames, (a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : a.n - b.n);
+	// By when they came, as the file says it; two at once as they were kept.
+	frames = sort(frames, (a, b) => a.wall < b.wall ? -1 : a.wall > b.wall ? 1 : a.n - b.n);
+	// The latest, where there is more than a file may hold: how it ended
+	// says more of a failure than how it began.
+	let first = length(frames);
+	for (let size = 0; first > 0 && size + length(frames[first - 1].m) <= MOST_BYTES; first--)
+		size += length(frames[first - 1].m);
+	frames = slice(frames, first);
 	let radio = length(filter(frames, f => f.link == 0));
 	return { frames: length(frames), radio: radio, wire: length(frames) - radio, file: pcapng(radio_name, wire_name, frames) };
 }
 
-export { SNAP, WIRE, radio_filter, header, addresses, ring, ring_add, ring_of, fcs, tidy, pcapng, capture };
+export { SNAP, WIRE, MOST_BYTES, stamp, exchange, radio_filter, header, addresses, ring, ring_add, ring_of, fcs, tidy, pcapng, capture };

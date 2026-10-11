@@ -47,6 +47,7 @@ var Coverage = map[string]string{
 	"radio.*.beacon_interval": "",
 
 	"system.country":               "",
+	"system.captures":              "",
 	"system.tz":                    "",
 	"system.ntp":                   "",
 	"system.syslog":                "",
@@ -269,6 +270,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.stp(obj(doc, "uplink"))
 	k.bond(obj(doc, "uplink"))
 	k.guardInterval(obj(doc, "radio"), radios)
+	k.captures(obj(doc, "system"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -510,6 +512,30 @@ func (k *checker) guardInterval(set map[string]any, radios []device) {
 	for _, o := range slices.Sorted(maps.Keys(want)) {
 		k.option(where, s, o, want[o])
 	}
+}
+
+// captures checks whether aeolus-journey keeps a capture of each attempt
+// that fails (0135): it does unless told not to, so the agent's journey
+// section is there only where system.captures is off, and says so.
+func (k *checker) captures(system map[string]any) {
+	const where = "aeolus.aeolus_journey"
+	s := k.c.Package("aeolus").Named("aeolus_journey")
+	if system["captures"] != false {
+		if s != nil {
+			k.add("%s: captures of failed attempts are not set off, but the section is there", where)
+		}
+		return
+	}
+	if s == nil || s.Type != "journey" {
+		k.add("%s: captures of failed attempts are set off, but the section is missing", where)
+		return
+	}
+	for _, o := range s.Names() {
+		if o != "captures" {
+			k.add("%s: %s is %q, and nothing calls for it", where, o, value(s, o))
+		}
+	}
+	k.option(where, s, "captures", "0")
 }
 
 // dfs checks a radio against radio.<band>.dfs (0071): with avoid, an
@@ -1947,9 +1973,10 @@ func (k *checker) probes(doc map[string]any) {
 	for _, name := range k.watches(doc, uplink) {
 		expected[name] = true
 	}
-	expected["aeolus_rrm"] = true // radio resource management's, which k.rrm judges (0073)
-	expected["aeolus_gi"] = true  // the 802.11ax guard interval's, which k.guardInterval judges (0089)
-	expected[Unbond] = true       // a bond taken apart, which k.bond judges (0096)
+	expected["aeolus_rrm"] = true     // radio resource management's, which k.rrm judges (0073)
+	expected["aeolus_gi"] = true      // the 802.11ax guard interval's, which k.guardInterval judges (0089)
+	expected["aeolus_journey"] = true // captures of failed attempts set off, which k.captures judges (0135)
+	expected[Unbond] = true           // a bond taken apart, which k.bond judges (0096)
 	if a != nil {
 		for _, s := range a.Sections {
 			if strings.HasPrefix(s.Name, "aeolus_") && !expected[s.Name] {

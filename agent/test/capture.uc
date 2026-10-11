@@ -181,3 +181,59 @@ for (let at = 0, n = 0; at < length(c2.file); at += u32(c2.file, at + 4))
 // What is older than three minutes goes from a ring.
 capture.ring_add(r, 290.000, 1791744690000, auth);
 printf('three minutes on: %d frames, the oldest from %.3f\n', length(r.list), r.list[0].at);
+
+// A file holds so many bytes of frames at the most: the latest.
+let fat = capture.ring();
+for (let i = 0; i < 400; i++)
+	capture.ring_add(fat, 700 + i / 100.0, 1791745700000 + i * 10, radiotap(13) + dot11(0xb0, 0, AP, STA, AP) + zeros(1960));
+let c3 = capture.capture(fat, STA, 700, 704, [], 'phy0', 'phy0-ap1');
+printf('of %d large frames of one client, %d are in its file: %s, as it may hold %d bytes of them\n', length(fat.list), c3.frames,
+	c3.frames * length(fat.list[0].m) <= capture.MOST_BYTES && (c3.frames + 1) * length(fat.list[0].m) > capture.MOST_BYTES ? 'as many as fit' : 'not as many as fit', capture.MOST_BYTES);
+
+// When the kernel says a frame came: its stamp as a socket hands it, the
+// bytes as they are, in either order and of either size; or read into
+// numbers. One that is not near now, or has no part of a second at all, as
+// ucode reads the stamp on a 32-bit processor, is not believed.
+let near = 1791750185400;
+let raw = (list) => bytes(list);
+printf('a stamp of 16 bytes: %.3f; the other way round: %.3f; of 8 bytes: %.3f\n',
+	capture.stamp(raw([0x29, 0xf0, 0xcb, 0x6a, 0, 0, 0, 0, 0x5d, 0x7f, 0x27, 0x15, 0, 0, 0, 0]), near),
+	capture.stamp(raw([0, 0, 0, 0, 0x6a, 0xcb, 0xf0, 0x29, 0, 0, 0, 0, 0x15, 0x27, 0x7f, 0x5d]), near),
+	capture.stamp(raw([0x29, 0xf0, 0xcb, 0x6a, 0x5d, 0x7f, 0x27, 0x15]), near));
+printf('read into numbers: %.3f, %.3f; with no part of a second: %J; from another day: %J; later than now: %J; nothing: %J\n',
+	capture.stamp({ sec: 1791750185, usec: 354910 }, near), capture.stamp({ sec: 1791750185, nsec: 354910045 }, near),
+	capture.stamp({ sec: 1791750185, usec: 0 }, near), capture.stamp({ sec: 1791663785, usec: 354910 }, near),
+	capture.stamp({ sec: 1791750186, usec: 354910 }, near), capture.stamp(null, near));
+
+// A message of the AP's is put before the client's answer to it, whatever
+// time the radio gave it. This radio says what it sent some milliseconds
+// after it did, as the OpenWrt One's does: the client's answer to the
+// first key message, heard 4 ms after the association's answer went, is
+// in hand before the radio says the message was sent; so with the second.
+// The association's answer, said after the client's answer too, stays
+// before the message that followed it. A message said a second after an
+// answer with its number is another's, and is left.
+let keymsg = (n) => bytes([2, 3, 0, 95, 2, 0, 0x8a, 0, 16, 0, 0, 0, 0, 0, 0, 0, n]) + zeros(82);
+let from_ap = (body) => radiotap(13) + dot11(0x08, 0x02, STA, AP, AP) + llc(0x888e) + body;
+let from_sta = (us, body) => at_radio(us) + dot11(0x88, 0x01, AP, STA, AP) + bytes([0, 0]) + llc(0x888e) + body;
+printf('what ties a key message to its answer: %J and %J; an EAP request to its response: %J and %J; a frame of neither: %J\n',
+	capture.exchange(from_ap(keymsg(1))), capture.exchange(from_sta(1, keymsg(1))),
+	capture.exchange(from_ap(bytes([2, 0, 0, 5, 1, 7, 0, 5, 1]))), capture.exchange(from_sta(1, bytes([2, 0, 0, 5, 2, 7, 0, 5, 1]))),
+	capture.exchange(from_ap(key)));
+let slow = capture.ring();
+capture.ring_add(slow, 600.000, 1791745100000, at_radio(88000000) + dot11(0x00, 0, AP, STA, AP) + zeros(6));        // it asks to associate
+capture.ring_add(slow, 600.006, 1791745100006, from_sta(88006000, keymsg(1)));                                      // its answer to the first message
+capture.ring_add(slow, 600.0065, 1791745100006.5, radiotap(13) + dot11(0x10, 0, STA, AP, AP) + zeros(6));           // the association's answer, said late
+capture.ring_add(slow, 600.007, 1791745100007, from_ap(keymsg(1)));                                                 // the first message, later still
+capture.ring_add(slow, 601.004, 1791745101004, from_sta(89004000, keymsg(2)));
+capture.ring_add(slow, 601.016, 1791745101016, from_ap(keymsg(2)));
+capture.ring_add(slow, 602.300, 1791745102300, from_ap(keymsg(1)));                                                 // of another handshake
+let c4 = capture.capture(slow, STA, 600, 603, [], 'phy1', 'phy1-ap3');
+for (let at = 0, n = 0; at < length(c4.file); at += u32(c4.file, at + 4)) {
+	if (u32(c4.file, at) != 6)
+		continue;
+	let size = u32(c4.file, at + 20), after = at + 28 + size + (4 - size % 4) % 4, noted = after < at + u32(c4.file, at + 4) - 4;
+	printf('  frame %d: at %d us, %s%s\n', ++n, (u32(c4.file, at + 12) * 4294967296 + u32(c4.file, at + 16)) % 10000000,
+		ord(c4.file, at + 28 + 2) == 16 ? 'from the client' : 'from the AP',
+		noted ? sprintf(', noted: %s', substr(c4.file, after + 4, u32(c4.file, after) >> 16)) : '');
+}

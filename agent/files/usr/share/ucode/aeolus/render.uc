@@ -1168,6 +1168,16 @@ function guard_interval(a, w, intent, keep) {
 	keep['aeolus_gi'] = true;
 }
 
+// captures holds aeolus-journey from keeping a capture of each attempt
+// that fails (0135), where the config says not to. It keeps them unless
+// told otherwise, so with them on there is no section.
+function captures(a, intent, keep) {
+	if (intent.system?.captures != false)
+		return;
+	put(a, 'aeolus_journey', 'journey', { captures: 0 });
+	keep['aeolus_journey'] = true;
+}
+
 // host_port splits "host", "host:port", "[v6]" or "[v6]:port".
 function host_port(s) {
 	let m = match(s, /^\[([^\]]+)\](:([0-9]+))?$/);
@@ -1511,6 +1521,7 @@ function render(intent, current, facts) {
 	rrm(cfg.aeolus, cfg.wireless, intent, facts ?? {}, keep);
 	stp(cfg.network, intent, facts ?? {}, errors, needs);
 	guard_interval(cfg.aeolus, cfg.wireless, intent, keep);
+	captures(cfg.aeolus, intent, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
 			delete cfg.aeolus[k];

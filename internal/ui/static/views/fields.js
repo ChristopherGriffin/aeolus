@@ -13,6 +13,7 @@ const RANK = [
 	'transport.switching', 'transport.ha', 'transport.failback', 'transport.holddown', 'rate_limit.down_kbps', 'rate_limit.up_kbps',
 	'channel', 'width', 'dfs', 'power', 'country', 'tz', 'ntp', 'poll', 'syslog', 'speed_server', 'ssh_keys',
 	'vlan', 'addressing', 'address', 'gateway', 'dns', 'uplink', 'mode', 'untagged', 'tagged', 'bond',
+	'captures',
 ];
 
 // rank places a field by what follows its panel's own part of the path:
