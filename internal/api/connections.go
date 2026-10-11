@@ -367,14 +367,14 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 	out := []entry{}
 	// Which of them were roams: to an AP or a radio other than the one
 	// the client was last let on at.
-	roams, err := s.roamsAmong(c, list)
-	if err != nil {
-		return err
-	}
 	// A test's own client goes from AP to AP as the tests have it: no
 	// roaming.
-	if _, tests := testClients(c.state)[mac]; tests {
-		roams = nil
+	var roams []roam
+	if _, tests := testClients(c.state)[mac]; !tests {
+		var err error
+		if roams, err = s.roamsAmong(c, list); err != nil {
+			return err
+		}
 	}
 	roamed := map[int64]roam{}
 	for _, m := range roams {

@@ -56,9 +56,12 @@ const (
 	// roam, where the client did not come as one already on the network;
 	// or, within roamingReported, been reported by that AP as moving
 	// something through it. An AP reports every stateEvery, at its next
-	// poll after, a minute later at the most: a report of a client that
-	// was there until it moved is no older than that, and the time it took
-	// to move.
+	// poll after, a minute later at the most where it polls every minute,
+	// as it does unless system.poll says otherwise: a report of a client
+	// that was there until it moved is no older than that, and the time it
+	// took to move. An AP that polls less often than every two minutes
+	// reports less often than the window is long, and some roams of its
+	// clients are not seen.
 	roamingFresh    = 5 * time.Minute
 	roamingReported = stateEvery + 2*time.Minute
 	// roamingBack is how far before the first roam looked at a client's
