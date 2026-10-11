@@ -24,6 +24,7 @@
 
 - **A Locations folder's tabs:** Interfaces, APs, Networks, Clients, System.
 - **APs shows each AP below,** with its radios as each last reported: band, channel, width, clients, and what Aeolus sets. That's what Interfaces › Radios › Channels showed.
+  - Since 2026-10-11 an AP is one line there: its radios are chips, band with channel and width, each leading to the AP's own Interfaces › Radios, and saying its clients and what Aeolus sets to whoever points at it. Griff found the general screens wordy; the table had a line a radio.
   - Each AP's state, such as In sync, Out of sync or Held, is a column there. The Inside list at the foot of a Locations folder's page is gone: its APs are on the APs tab, and its folders in the tree beside it (Griff, 2026-10-05).
 - An AP's own page keeps its Overview.
 - **The tree on the left holds folders only** (Griff, 2026-10-05): a folder's APs are on its APs tab, and on an AP's page its folder is the one marked.
