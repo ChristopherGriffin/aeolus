@@ -424,6 +424,9 @@ function measure(res, want) {
 		// Whether it answered ARP, which the pings asked of it: a gateway
 		// that answers no ping may be there all the same.
 		let mac = ct.neigh_of(output(`ip neigh show ${lease.router} dev ${IF}`));
+		// Said either way: that it did not is a finding, where a result
+		// that says nothing of ARP never asked.
+		res.gateway.arp = !!mac;
 		if (mac)
 			res.gateway.mac = mac;
 		step('gateway', res.gateway.got ? `${lease.router}, its gateway, answers ${res.gateway.got} of ${res.gateway.sent} pings`
@@ -580,7 +583,8 @@ function main() {
 	let was_deaf = !!before && before.time > 0 && before.count == 0;
 	if (was_deaf) {
 		note('the scan radio hears nothing: binding its driver again before the test');
-		let at = time();
+		// a look newer than the one that heard nothing
+		let at = max(time(), before.time + 1);
 		let again = rebind(addr) ? looked(at, HEAR_WAIT) : null;
 		if (!again)
 			return stop('find', 'the scan radio hears nothing, and binding its driver again did not bring it back');
@@ -666,7 +670,7 @@ function main() {
 			if (!(again > 0)) {
 				// a look made once the driver is bound again, not one from
 				// before it
-				at = time();
+				at = max(time(), (heard_now()?.time ?? 0) + 1);
 				if (rebind(addr)) {
 					radio.rebound = true;
 					again = looked(at, HEAR_WAIT);

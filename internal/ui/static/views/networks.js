@@ -688,7 +688,7 @@ function setOp(folder, values) {
 // shown writes a value for the preview; a secret is never shown.
 // SECRET is the network fields whose values are never shown (0027): the
 // passphrase, and a RADIUS server's secrets (0098).
-const SECRET = /\.(passphrase|radius\.(auth|acct)_secret|radius\.das\.secret)$/;
+const SECRET = /\.(passphrase|radius\.(auth|acct)_secret|radius\.das\.secret|radius\.test\.password)$/;
 
 function shown(path, v) {
 	if (!SECRET.test(path)) return value(path, v);
