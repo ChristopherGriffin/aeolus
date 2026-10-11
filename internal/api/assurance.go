@@ -430,7 +430,7 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 		every, speed, _ := assureSettings(state, ap)
 		scheduled := every > 0 && s.tester(state, ap)
 		// A round asked by hand (0129) is worked at whatever the schedule.
-		rnd, inRound := s.rounds.of(state.Org.Locations, ap, now)
+		airRound, wireRound, inRound := s.rounds.of(state.Org.Locations, ap, now)
 		if !scheduled && !inRound {
 			continue
 		}
@@ -485,8 +485,8 @@ func (s *Server) assure(now time.Time) []conditions.Action {
 		var next *assureCombo
 		if inRound {
 			var due []assureCombo
-			for _, c := range s.roundCombos(state, ap, docs, rnd.Over) {
-				if at[c].Before(rnd.since(c)) {
+			for _, c := range s.roundCombos(state, ap, docs, roundsOver(airRound, wireRound)) {
+				if at[c].Before(roundSince(airRound, wireRound, c)) {
 					due = append(due, c)
 				}
 			}
@@ -826,11 +826,29 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 		testers = append(testers, assuranceTester{AP: id, Name: name(id), Every: int(every / time.Minute), Speed: speed, Things: things,
 			Air: scanRadio(c.state, id), Wire: byWire(over) && canWire, CanWire: canWire, Round: len(could), Over: over})
 		// An AP is in a round where the round asks something of it: one
-		// through the air says nothing of an AP with no scan radio.
-		one, ok := s.rounds.of(t, id, now)
+		// through the air says nothing of an AP with no scan radio. The
+		// round said of it is the one asked last of those that do: where,
+		// when and by whom are that one's. Two kinds asked at one node are
+		// one round there.
+		airRound, wireRound, ok := s.rounds.of(t, id, now)
 		var mine []assureCombo
 		if ok {
-			mine = s.roundCombos(c.state, id, docs, one.Over)
+			mine = s.roundCombos(c.state, id, docs, roundsOver(airRound, wireRound))
+		}
+		var one round
+		hasAir, hasWire := false, false
+		for _, cb := range mine {
+			if cb.Band == wireBand {
+				hasWire = true
+			} else {
+				hasAir = true
+			}
+		}
+		if hasAir {
+			one = airRound
+		}
+		if hasWire && wireRound.At.After(one.At) {
+			one = wireRound
 		}
 		if len(mine) > 0 {
 			if inRound == nil || one.At.After(inRound.At) {
@@ -848,14 +866,14 @@ func (s *Server) assurance(w http.ResponseWriter, r *http.Request, c call) error
 				// What this AP tests in it: of the tests the round asked for.
 				could := mine
 				inRound.Of += len(could)
-				roundAir, roundWire = roundAir || byAir(one.Over), roundWire || byWire(one.Over)
+				roundAir, roundWire = roundAir || hasAir, roundWire || hasWire
 				// Each thing once, by the first test of it since its kind
 				// was asked for, which is the round's: the tests come newest
 				// first, and the schedule may have come to the thing again.
 				first := map[assureCombo]*testRecord{}
 				for i := range list {
 					r := &list[i]
-					if hierarchy.NodeID(r.AP) == id && r.Actor == change.SystemActor && slices.Contains(could, r.combo()) && !r.At.Before(one.since(r.combo())) {
+					if hierarchy.NodeID(r.AP) == id && r.Actor == change.SystemActor && slices.Contains(could, r.combo()) && !r.At.Before(roundSince(airRound, wireRound, r.combo())) {
 						first[r.combo()] = r
 					}
 				}
