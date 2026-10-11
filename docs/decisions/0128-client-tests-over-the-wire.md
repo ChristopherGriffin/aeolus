@@ -68,6 +68,8 @@
 
 - **After a review, the same day,** with the probe for an address in use, the port asked for the test's MAC, and the release sent to its server's own MAC: both networks on the C-360 again, 2.4 s each. The DHCP server's table held no lease of any test's afterwards: every release had arrived.
 
+- **On the manager's schedule, 2026-10-11 06:43,** the C-360 alone asked for tests over the wire too: `aeolus_50` through its tunnel, an address in 2.0 s, the gateway's ARP answer in 2.1 ms, a name from 8.8.8.8 in 43 ms, 2.4 s in all, and its result with the manager 12 seconds after it was asked.
+
 ## Not done here
 
 - **A network on the uplink with no VLAN.**
