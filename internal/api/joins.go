@@ -16,8 +16,9 @@ import (
 
 // How the clients' own joins go (0127): the attempts each AP records of
 // every client coming online (0118), counted by network. A client that
-// tried a network in a time got on it, where an attempt of its came online
-// or was let on; did not, where one failed and none got on; and is neither
+// tried a network in a time is counted as it stands at the end of it: it
+// got on, where the latest of its attempts to come to anything came online
+// or was let on; it did not, where that one failed; and it is neither
 // where it only ever left of its own accord.
 const (
 	// joinsWindow is the time an alert looks back over.
@@ -86,39 +87,49 @@ func joinsOf(network, ssid string) string {
 	return "\x00" + ssid
 }
 
-// joinTally counts clients: each once, however many APs it tried on.
+// joinTally counts clients: each once, however many APs it tried on, by
+// when it last got on and when it last failed.
 type joinTally struct {
-	got, failed map[string]bool
-	tried       map[string]bool
-	attempts    int
-	bad         int
+	on, failed map[string]time.Time
+	tried      map[string]bool
+	attempts   int
+	bad        int
 }
 
 func newTally() *joinTally {
-	return &joinTally{got: map[string]bool{}, failed: map[string]bool{}, tried: map[string]bool{}}
+	return &joinTally{on: map[string]time.Time{}, failed: map[string]time.Time{}, tried: map[string]bool{}}
 }
 
 func (t *joinTally) add(j conditions.Join) {
 	t.tried[j.MAC] = true
 	t.attempts += j.Attempts
 	t.bad += j.Failed
-	if j.Online > 0 {
-		t.got[j.MAC] = true
+	if j.LastOn.After(t.on[j.MAC]) {
+		t.on[j.MAC] = j.LastOn
 	}
-	if j.Failed > 0 {
-		t.failed[j.MAC] = true
+	if j.LastFailed.After(t.failed[j.MAC]) {
+		t.failed[j.MAC] = j.LastFailed
 	}
 }
 
-// did is how many clients got on, and how many did not: failed, and never
-// got on.
+// got says whether a client got on, as it stands: it did, and has not
+// failed since. One that was on and then fails has not: it is what it found
+// last that says how the network is now.
+func (t *joinTally) got(mac string) bool {
+	on := t.on[mac]
+	return !on.IsZero() && !on.Before(t.failed[mac])
+}
+
+// did is how many clients got on, and how many did not.
 func (t *joinTally) did() (online, failed int) {
-	for mac := range t.failed {
-		if !t.got[mac] {
+	for mac := range t.tried {
+		if t.got(mac) {
+			online++
+		} else if !t.failed[mac].IsZero() {
 			failed++
 		}
 	}
-	return len(t.got), failed
+	return online, failed
 }
 
 // mostStopped is where most of the clients that did not get on stopped:
@@ -199,7 +210,10 @@ func (s *Server) joined(state *change.State, since time.Time) ([]conditions.Join
 // failingJoins are the networks clients cannot get on now, by the AP each
 // is on, for the alerts (0127): over the last hour, three clients or more
 // were let on a network there and got no further, and they are half or more
-// of the clients let on, those that got on and those.
+// of the clients let on, those that got on and those. A client is counted
+// by what it found last: one that was on and has failed since, as when a
+// DHCP server stops answering, got no further. It is so since the third of
+// them got no further.
 func (s *Server) failingJoins(state *change.State, now time.Time) map[hierarchy.NodeID][]alerts.FailingJoins {
 	out := map[hierarchy.NodeID][]alerts.FailingJoins{}
 	joins, stops, err := s.joined(state, now.Add(-joinsWindow))
@@ -212,6 +226,7 @@ func (s *Server) failingJoins(state *change.State, now time.Time) map[hierarchy.
 	}
 	tallies := map[key]*joinTally{}
 	ssids := map[key]string{}
+	named := map[key]time.Time{}
 	ids := map[key]string{}
 	var order []key
 	for _, j := range joins {
@@ -221,34 +236,53 @@ func (s *Server) failingJoins(state *change.State, now time.Time) map[hierarchy.
 			order = append(order, k)
 		}
 		tallies[k].add(j)
-		ssids[k], ids[k] = j.SSID, j.Network
+		ids[k] = j.Network
+		// The SSID it had at its latest attempt.
+		if !j.Last.Before(named[k]) {
+			ssids[k], named[k] = j.SSID, j.Last
+		}
 	}
 	for _, k := range order {
 		t := tallies[k]
-		var first time.Time
-		mine := []conditions.JoinStop{}
-		stuck := map[string]bool{}
+		// Where each client that has not got on last failed: the stop with
+		// its latest failure. It got no further where that was after it
+		// was let on.
+		latest := map[string]conditions.JoinStop{}
 		for _, st := range stops {
-			if st.AP != k.ap || joinsOf(st.Network, st.SSID) != k.net || t.got[st.MAC] || !afterLetOn[st.Stage] {
+			if st.AP != k.ap || joinsOf(st.Network, st.SSID) != k.net || t.got(st.MAC) {
+				continue
+			}
+			if l, ok := latest[st.MAC]; !ok || st.Last.After(l.Last) {
+				latest[st.MAC] = st
+			}
+		}
+		mine := []conditions.JoinStop{}
+		var since []time.Time
+		for mac, st := range latest {
+			if !afterLetOn[st.Stage] {
 				continue
 			}
 			mine = append(mine, st)
-			stuck[st.MAC] = true
-			if first.IsZero() || st.First.Before(first) {
-				first = st.First
+			// Since its first failure after it was last on, as near as the
+			// stops say: the first of this kind, where that was after.
+			at := st.Last
+			if st.First.After(t.on[mac]) {
+				at = st.First
 			}
+			since = append(since, at)
 		}
-		let := len(t.got) + len(stuck)
-		if len(stuck) < joinsFewest || 2*len(stuck) < let {
+		online, _ := t.did()
+		let := online + len(mine)
+		if len(mine) < joinsFewest || 2*len(mine) < let {
 			continue
 		}
-		f := alerts.FailingJoins{Network: ids[k], SSID: ssids[k], LetOn: let, Failed: len(stuck)}
+		f := alerts.FailingJoins{Network: ids[k], SSID: ssids[k], LetOn: let, Failed: len(mine)}
 		if most, ok := mostStopped(stopsOf(mine)); ok {
 			f.Stage, f.Reason = most.Stage, most.Reason
 		}
-		if !first.IsZero() {
-			f.Since = &first
-		}
+		// It became so when the last of the fewest it takes got no further.
+		slices.SortFunc(since, func(a, b time.Time) int { return a.Compare(b) })
+		f.Since = &since[joinsFewest-1]
 		out[k.ap] = append(out[k.ap], f)
 	}
 	return out
@@ -297,6 +331,7 @@ func (s *Server) joinsView(c call, under hierarchy.NodeID, from, now time.Time) 
 	perAP := map[apKey]*joinTally{}
 	// How long each client took to come online on a network, on average.
 	took := map[string]map[string][2]int64{}
+	named := map[string]time.Time{}
 	var order []string
 	for _, j := range joins {
 		if !shown[j.AP] {
@@ -309,8 +344,10 @@ func (s *Server) joinsView(c call, under hierarchy.NodeID, from, now time.Time) 
 			took[k] = map[string][2]int64{}
 			order = append(order, k)
 		}
-		// The SSID is the one of its latest rows: the rows come in order.
-		nets[k].SSID = j.SSID
+		// The SSID it had at its latest attempt.
+		if !j.Last.Before(named[k]) {
+			nets[k].SSID, named[k] = j.SSID, j.Last
+		}
 		tallies[k].add(j)
 		ak := apKey{k, j.AP}
 		if perAP[ak] == nil {

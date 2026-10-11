@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
@@ -116,23 +117,38 @@ func scanRadio(state *change.State, ap hierarchy.NodeID) bool {
 // testClients are the Wi-Fi clients that are the APs' own: an AP's scan
 // radio, joining a network as a client for a test (0121), is a client to
 // the AP it joins, under one of its own AP's MACs. By MAC, in lower case,
-// the AP whose it is, of the APs that have a scan radio. A list of clients
-// says so of each, as it is no device of anyone's.
+// the AP whose it is, of the adopted APs that have a scan radio. A list of
+// clients says so of each, as it is no device of anyone's.
 func testClients(state *change.State) map[string]hierarchy.NodeID {
 	out := map[string]hierarchy.NodeID{}
-	for ap, raw := range state.Facts {
+	t := state.Org.Locations
+	aps := make([]hierarchy.NodeID, 0, len(state.Facts))
+	for ap := range state.Facts {
+		aps = append(aps, ap)
+	}
+	// In the same order each time: a MAC two APs both say is theirs is the
+	// first's, whoever asks and whenever.
+	slices.Sort(aps)
+	for _, ap := range aps {
 		var f struct {
 			MAC  string   `json:"mac"`
 			MACs []string `json:"macs"`
 		}
-		// Only an AP with a scan radio makes tests: another AP's MAC among
-		// the clients is something else, a link between APs say.
-		if !scanRadio(state, ap) || json.Unmarshal(raw, &f) != nil {
+		// Not an AP no one has adopted: anything may enroll, and say any
+		// MAC is its own, a client's among them, which would then be
+		// counted as no client. And only an AP with a scan radio makes
+		// tests: another AP's MAC among the clients is something else, a
+		// link between APs say.
+		if n, ok := t.Node(ap); !ok || n.Kind != hierarchy.KindAP || t.InIsolated(ap) {
+			continue
+		}
+		if !scanRadio(state, ap) || json.Unmarshal(state.Facts[ap], &f) != nil {
 			continue
 		}
 		for _, m := range append(f.MACs, f.MAC) {
-			if m != "" {
-				out[strings.ToLower(m)] = ap
+			m = strings.ToLower(m)
+			if _, taken := out[m]; m != "" && !taken {
+				out[m] = ap
 			}
 		}
 	}

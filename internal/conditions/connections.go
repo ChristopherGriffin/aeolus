@@ -275,17 +275,22 @@ func (s *Store) Connections(mac string, aps []hierarchy.NodeID, limit int, befor
 // Join is how one client's attempts to come online on one network of one
 // AP went since a time (0127): how many it made; how many got it on, online
 // or let on and seen no further; how many of those were seen online, and
-// how long they took to be, in ms, added up; and how many failed.
+// how long they took to be, in ms, added up; how many failed; and when the
+// latest of each began, the zero time where there was none: the latest that
+// got it on, the latest that failed, and the latest of any.
 type Join struct {
-	AP       hierarchy.NodeID
-	Network  string
-	SSID     string
-	MAC      string
-	Attempts int
-	Online   int
-	Seen     int
-	SeenMS   int64
-	Failed   int
+	AP         hierarchy.NodeID
+	Network    string
+	SSID       string
+	MAC        string
+	Attempts   int
+	Online     int
+	Seen       int
+	SeenMS     int64
+	Failed     int
+	LastOn     time.Time
+	LastFailed time.Time
+	Last       time.Time
 }
 
 // JoinStop is where one client's failed attempts on one network of one AP
@@ -310,7 +315,9 @@ type JoinStop struct {
 func (s *Store) Joins(since time.Time) ([]Join, []JoinStop, error) {
 	rows, err := s.db.Query(`SELECT ap, network, ssid, mac, COUNT(*),
 			SUM(outcome IN ('online', 'connected')), SUM(outcome = 'online'),
-			SUM(CASE WHEN outcome = 'online' THEN took_ms ELSE 0 END), SUM(outcome = 'failed')
+			SUM(CASE WHEN outcome = 'online' THEN took_ms ELSE 0 END), SUM(outcome = 'failed'),
+			MAX(CASE WHEN outcome IN ('online', 'connected') THEN at ELSE 0 END),
+			MAX(CASE WHEN outcome = 'failed' THEN at ELSE 0 END), MAX(at)
 		FROM connections WHERE at >= ? GROUP BY ap, network, ssid, mac ORDER BY ap, network, ssid, mac`, since.UnixMilli())
 	if err != nil {
 		return nil, nil, err
@@ -320,10 +327,18 @@ func (s *Store) Joins(since time.Time) ([]Join, []JoinStop, error) {
 	for rows.Next() {
 		var j Join
 		var ap string
-		if err := rows.Scan(&ap, &j.Network, &j.SSID, &j.MAC, &j.Attempts, &j.Online, &j.Seen, &j.SeenMS, &j.Failed); err != nil {
+		var on, failed, last int64
+		if err := rows.Scan(&ap, &j.Network, &j.SSID, &j.MAC, &j.Attempts, &j.Online, &j.Seen, &j.SeenMS, &j.Failed, &on, &failed, &last); err != nil {
 			return nil, nil, err
 		}
 		j.AP = hierarchy.NodeID(ap)
+		when := func(ms int64) time.Time {
+			if ms <= 0 {
+				return time.Time{}
+			}
+			return time.UnixMilli(ms).UTC()
+		}
+		j.LastOn, j.LastFailed, j.Last = when(on), when(failed), when(last)
 		joins = append(joins, j)
 	}
 	if err := rows.Err(); err != nil {

@@ -94,6 +94,19 @@ func TestAnAPsOwnTestClientIsSaidSo(t *testing.T) {
 		t.Fatalf("a phone's journey = %v", other)
 	}
 
+	// Whose it is is said only to one who sees something of it: not to one
+	// with no right to any AP here, nor of an AP's MAC that was never a
+	// client, which would say which MACs are an AP's.
+	if _, none := f.do("GET", "/v1/clients/"+scan, "office", nil); none["tester"] != nil {
+		t.Fatalf("to one who sees none of it = %v", none)
+	}
+	if _, never := f.do("GET", "/v1/clients/02:00:00:00:00:2a", "tenant", nil); never["tester"] != nil {
+		t.Fatalf("of an AP's MAC that was no client = %v", never)
+	}
+	if _, part := f.do("GET", "/v1/clients/"+scan, "tenant", nil); part["tester"] != "an AP" {
+		t.Fatalf("to one who sees it and not its AP = %v", part)
+	}
+
 	// And among those that used the most.
 	more := func(m string) map[string]any {
 		c := client(m)
