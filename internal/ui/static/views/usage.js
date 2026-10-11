@@ -46,20 +46,22 @@ export async function usagePanel(id, folder) {
 	const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'usage', role: 'img',
 		'aria-label': `Over the last 24 hours, ${size(u.down)} to clients and ${size(u.up)} from them; at most ${plural(u.peak, 'client')} at once` },
 		bars, line,
-		svg('line', { x1: 0, x2: W, y1: TOP + high, y2: TOP + high, class: 'base' }),
-		svg('text', { x: 0, y: H - 4, class: 'axis' }, clock(u.from)),
-		svg('text', { x: W / 2, y: H - 4, class: 'axis', 'text-anchor': 'middle' }, clock(u.buckets[Math.floor(n / 2)].at)),
-		svg('text', { x: W, y: H - 4, class: 'axis', 'text-anchor': 'end' }, 'now'));
+		svg('line', { x1: 0, x2: W, y1: TOP + high, y2: TOP + high, class: 'base' }));
+	// Its times are a row under it: text in a drawing that fills the
+	// page's width grows with it.
+	const axis = h('div', { class: 'usageaxis', 'aria-hidden': 'true' },
+		h('span', null, clock(u.from)), h('span', null, clock(u.buckets[Math.floor(n / 2)].at)), h('span', null, 'now'));
 	const aps = folder ? u.aps.slice(0, 10) : [];
 	const me = !folder && u.aps[0];
 	const top = (u.clients || []).slice(0, folder ? 10 : 5);
 	return h('section', { class: 'panel' },
-		h('h2', null, 'Usage', h('span', { class: 'note' }, "the last 24 hours, from the APs' reports; a bar shows its numbers on hover")),
-		h('div', { class: 'sub' },
+		h('h2', { title: "From the APs' reports. A bar shows its numbers on hover." }, 'Usage', h('span', { class: 'note' }, 'last 24 h')),
+		h('div', { class: 'sub usagekey' },
 			h('span', { class: 'swatch down' }), ` ↓ ${size(u.down)} to clients · `,
 			h('span', { class: 'swatch up' }), ` ↑ ${size(u.up)} from them · `,
 			h('span', { class: 'swatch clients' }), ` at most ${plural(u.peak, 'client')} at once`),
 		chart,
+		axis,
 		top.length > 0 && h('table', { class: 'list' },
 			h('tr', null, ['Top clients', '↓ To it', '↑ From it', folder ? 'On' : null].filter(Boolean).map((t) => h('th', null, t))),
 			top.map((c) => h('tr', null,

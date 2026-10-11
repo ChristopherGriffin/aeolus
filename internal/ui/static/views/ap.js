@@ -1,5 +1,10 @@
 // One AP: whether it runs what it should, its settings in the same tabs as a
 // folder's (0047), what it reported, and its history (0039, 0041).
+//
+// Its Overview is kept quiet (Griff, 2026-10-11): how it is at a glance, a
+// tile each; what it can be asked to do; its usage. What it said of itself
+// when it enrolled, its latest check and apply, and its history are closed
+// until asked for. Its client tests have a tab of their own, as a folder's.
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
@@ -17,8 +22,22 @@ import { actionsPanel } from './actions.js';
 import { canWire, clientTestPanel, hasScanRadio } from './clienttest.js';
 import { usagePanel } from './usage.js';
 import { healthTab } from './health.js';
+import { tile } from './overview.js';
 
 const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['health', 'Health'], ['system', 'System']];
+// An AP that can test a network from a client's side (0121, 0128) has its
+// tests under Assurance, as a folder has (0123).
+const ASSURANCE = ['assurance', 'Assurance'];
+
+// What is opened on an AP's Overview, by AP and by what it is, so the
+// page's own redraw every half minute does not close it: a folded panel,
+// and a check, an apply or the state reports in its history.
+const opened = new Set();
+function kept(key, d) {
+	d.open = opened.has(key);
+	d.addEventListener('toggle', () => (d.open ? opened.add(key) : opened.delete(key)));
+	return d;
+}
 
 export async function apPage(ctx, id, tab, sub, view) {
 	const enc = encodeURIComponent(id);
@@ -42,8 +61,13 @@ export async function apPage(ctx, id, tab, sub, view) {
 	const nameBox = h('div', { class: 'edit' });
 	const base = `/aps/${enc}`;
 	[tab, sub, view] = moved(base, tab, sub, view);
-	tab = pick(TABS, tab);
+	const tests = hasScanRadio(page) || canWire(cfg);
+	const tabs = tests ? [...TABS.slice(0, 4), ASSURANCE, ...TABS.slice(4)] : TABS;
+	tab = pick(tabs, tab);
 	const thisAP = { ap: { id, name: page.node.name }, cfg };
+	// The template it follows is said with what it is; one it does not
+	// follow whole has a banner of its own.
+	const follows = cfg.template?.id && cfg.template.follows && !cfg.template.replaced?.length && !cfg.unassigned;
 	const main = [
 		crumbs(ctx, 'locations', page.ancestry),
 		h('div', { class: 'head' },
@@ -51,28 +75,31 @@ export async function apPage(ctx, id, tab, sub, view) {
 				h('h1', null, page.node.name,
 					edit && renameButton(ctx, 'locations', { id, name: page.node.name, kind: 'ap' }, nameBox, 'rename head'),
 					edit && moveButton(ctx, 'locations', { id, name: page.node.name, kind: 'ap' }, nameBox, 'rename head')),
-				h('div', { class: 'sub' }, ['AP', facts.model, cond.seen?.source].filter(Boolean).join(' · '))),
+				h('div', { class: 'sub' }, ['AP', facts.model, cond.seen?.source].filter(Boolean).join(' · '),
+					follows && [' · ', link(`/library/${encodeURIComponent(cfg.template.id)}`, `template ${cfg.template.name}`)])),
 			edit && own.length > 0 && followButton(ctx, 'locations', id, page.node.name, edit.parentName, own, revertBox,
 				`Revert to ${edit.parentName} (${own.length} custom setting${own.length === 1 ? '' : 's'})`)),
 		revertBox,
 		nameBox,
 		statusPanel(st, cfg, cond),
-		templateNote(ctx, id, cfg),
+		!follows && templateNote(ctx, id, cfg),
 		cfg.check?.problems?.length > 0 && h('div', { class: 'banner problems' },
 			h('strong', null, 'Its config breaks these rules, so it is not sent'),
 			h('ul', null, cfg.check.problems.map((p) => h('li', null, p)))),
 		tunnelTrouble(cfg, base),
 		clockTrouble(cfg, base),
-		tabBar(base, TABS, tab),
+		tabBar(base, tabs, tab),
 	];
 	if (tab === 'overview') {
-		main.push(h('div', { class: 'grid2' },
-			h('div', { class: 'col' }, latest(cond), await actionsPanel(id, page.node.name, !!edit)),
-			h('div', { class: 'col' }, enrollment(facts))),
-			// An AP with a scan radio can test a network as a client would
-			// (0121); any whose agent says so can over the wire (0128).
-			(hasScanRadio(page) || canWire(cfg)) && await clientTestPanel(ctx, id, page, cfg, !!edit),
-			await usagePanel(id, false), history(hist));
+		main.push(glance(cond, base),
+			await actionsPanel(id, page.node.name, !!edit),
+			await usagePanel(id, false),
+			about(id, cond, facts),
+			history(id, hist));
+	} else if (tab === 'assurance') {
+		// An AP with a scan radio can test a network as a client would
+		// (0121); any whose agent says so can over the wire (0128).
+		main.push(await clientTestPanel(ctx, id, page, cfg, !!edit));
 	} else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, thisAP, edit));
 	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 	else if (tab === 'clients') main.push(await clientsTab(ctx, page, thisAP));
@@ -147,24 +174,61 @@ function keysLine(cfg) {
 		`${want.count} per-user ${want.count === 1 ? 'key' : 'keys'}${current ? '' : ', not yet on the AP'}`)];
 }
 
+// statusPanel is how the AP stands, in a line: its state, why, and when it
+// was last seen. Which version it runs, and from where it called, are on
+// hover; its per-user keys are said only where it has not the latest.
 function statusPanel(st, cfg, cond) {
+	const more = [cond.seen && `called in from ${cond.seen.source}`, `its version is ${cfg.version}`,
+		cond.seen?.running != null && `running ${cond.seen.running}`].filter(Boolean).join(' · ');
+	const keys = cfg.keys && cfg.condition?.state?.report?.keys?.version !== cfg.keys.version ? keysLine(cfg) : null;
 	return h('section', { class: 'panel' },
 		h('div', { class: 'status' },
 			h('span', { class: 'chip ' + st.chip + ' big' }, st.label),
-			h('div', null,
-				h('div', null, st.detail),
-				h('div', { class: 'detail' },
-					cond.seen ? `Last seen ${ago(cond.seen.at)} from ${cond.seen.source}` : 'Never seen',
-					' · its version is ', String(cfg.version),
-					cond.seen?.running != null && ` · running ${cond.seen.running}`,
-					keysLine(cfg)))));
+			h('div', { class: 'grow' }, st.detail),
+			h('div', { class: 'detail', title: more }, cond.seen ? `seen ${ago(cond.seen.at)}` : 'never seen', keys)));
+}
+
+// glance is the AP at a glance, a tile each, from its latest report: its
+// clients, its radios and their channels, its uplink, how long it has been
+// up, and how hard it works. Nothing where it has not reported.
+function glance(cond, base) {
+	const r = cond.state?.report;
+	if (!r) return null;
+	const radios = r.radios || [];
+	const on = radios.filter((x) => x.up !== false);
+	const clients = r.clients ? r.clients.length : radios.reduce((n, x) => n + (x.clients || 0), 0);
+	const byBand = ['2g', '5g', '6g'].map((b) => [b, (r.clients || []).filter((c) => c.band === b).length]).filter(([, n]) => n);
+	const up = (r.ports || []).find((p) => p.path) || (r.ports || []).find((p) => p.uplink);
+	const m = /^(\d+)([FH])$/.exec(up?.speed || '');
+	const speed = m ? (Number(m[1]) >= 1000 ? `${Number(m[1]) / 1000}G` : `${m[1]}M`) : null;
+	const sw = r.uplink_neighbor;
+	const x = r.health || {};
+	const used = x.mem_total ? 100 - Math.round(100 * (x.mem_available || 0) / x.mem_total) : null;
+	const out = [
+		tile('Clients', String(clients), byBand.map(([b, n]) => `${bandName(b)} ${n}`).join(' · ') || 'none now', '', `#${base}/clients`),
+		radios.length > 0 && tile('Radios', `${on.length} of ${radios.length}`,
+			radios.map((x) => `${bandName(x.band).replace(' GHz', '')}: ${x.channel || '—'}`).join(' · '), on.length < radios.length ? 'warn' : '', `#${base}/interfaces/radios`),
+		up && tile('Uplink', up.carrier ? speed || 'up' : 'no link', [up.name, sw && [sw.system, sw.port].filter(Boolean).join(' ')].filter(Boolean).join(' · '),
+			up.carrier ? '' : 'bad', `#${base}/interfaces`),
+		r.uptime != null && tile('Up for', uptime(r.uptime).split(' ').slice(0, 4).join(' '), r.openwrt || '', ''),
+		x.cpu != null && tile('Load', `${x.cpu}%`, used != null ? `memory ${used}%` : 'processor', x.cpu >= 90 || used >= 90 ? 'warn' : '', `#${base}/health`),
+	].filter(Boolean);
+	return out.length ? h('div', { class: 'tiles' }, out) : null;
+}
+
+// about is what is seldom asked of an AP, closed until it is: its latest
+// check and apply, and what it said of itself when it enrolled.
+function about(id, cond, facts) {
+	return kept(`${id}/about`, h('details', { class: 'panel logpanel' },
+		h('summary', null, h('h2', null, 'About this AP', h('span', { class: 'note' }, [facts.board, facts.mac].filter(Boolean).join(' · ')))),
+		h('div', { class: 'grid2 inpanel' }, latest(cond), enrollment(facts))));
 }
 
 function latest(cond) {
 	const c = cond.check;
 	const a = cond.apply;
-	return h('section', { class: 'panel' },
-		h('h2', null, 'Latest check and apply'),
+	return h('section', null,
+		h('h3', { class: 'subhead' }, 'Latest check and apply'),
 		h('dl', { class: 'kv' },
 			h('dt', null, 'Render check'),
 			h('dd', null, c ? `${c.result} · version ${c.version} · ${ago(c.at)}` : 'none yet'),
@@ -185,8 +249,8 @@ function uptime(s) {
 // enrollment is what the AP said about itself when it enrolled (0033).
 function enrollment(facts) {
 	if (!facts.mac) return null;
-	return h('section', { class: 'panel' },
-		h('h2', null, 'Enrollment'),
+	return h('section', null,
+		h('h3', { class: 'subhead' }, 'Enrollment'),
 		h('dl', { class: 'kv' },
 			h('dt', null, 'MAC'), h('dd', null, facts.mac),
 			h('dt', null, 'All MACs'), h('dd', null, (facts.macs || []).join(', ')),
@@ -198,31 +262,33 @@ function enrollment(facts) {
 
 // history lists recent checks (with the UCI the AP sent, secrets blanked:
 // 0041), applies and state reports, newest first.
-function history(hist) {
+function history(id, hist) {
 	const checks = hist.checks || [];
 	const applies = hist.applies || [];
 	const states = hist.states || [];
-	return h('section', { class: 'panel' },
-		h('h2', null, 'History', h('span', { class: 'note' }, 'newest first')),
-		checks.map((c) => h('details', null,
+	const n = checks.length + applies.length + (states.length ? 1 : 0);
+	return kept(`${id}/history`, h('details', { class: 'panel logpanel' },
+		h('summary', null, h('h2', { title: 'Its recent checks, with the config it sent; its applies; and its state reports, newest first' },
+			'History', h('span', { class: 'note' }, n ? `${checks.length} checks · ${applies.length} applies` : 'nothing yet'))),
+		checks.map((c) => kept(`${id}/check/${c.at}/${c.hash}`, h('details', null,
 			h('summary', null,
 				h('span', { class: 'when' }, when(c.at)),
 				h('span', { class: 'chip ' + (c.result === 'ok' ? 'ok' : c.result === 'stale' ? 'idle' : 'bad') }, 'check ' + c.result),
 				h('span', { class: 'grow' }, `version ${c.version}`, c.problems?.length ? ` · ${c.problems.length} problem${c.problems.length === 1 ? '' : 's'}` : ''),
 				h('span', { class: 'mono' }, c.hash.slice(0, 12))),
 			c.problems?.length > 0 && h('ul', { class: 'problems' }, c.problems.map((p) => h('li', null, p))),
-			c.uci ? h('pre', { class: 'uci' }, c.uci) : h('div', { class: 'empty' }, 'No UCI kept for this check.'))),
+			c.uci ? h('pre', { class: 'uci' }, c.uci) : h('div', { class: 'empty' }, 'No UCI kept for this check.')))),
 		applies.map((a) => h('details', null,
 			h('summary', null,
 				h('span', { class: 'when' }, when(a.at)),
 				h('span', { class: 'chip ' + (a.ok ? 'ok' : 'bad') }, a.ok ? 'applied' : 'apply failed'),
 				h('span', { class: 'grow' }, `version ${a.version}`, a.checked ? '' : ' · not covered by an ok check', a.error ? ' · ' + a.error : ''),
 				h('span', { class: 'mono' }, a.hash.slice(0, 12))))),
-		states.length > 0 && h('details', null,
+		states.length > 0 && kept(`${id}/states`, h('details', null,
 			h('summary', null, h('span', { class: 'when' }, when(states[0].at)), h('span', { class: 'chip idle' }, 'state'),
 				h('span', { class: 'grow' }, `${states.length} recent state reports`)),
-			h('pre', { class: 'uci' }, states.map((s) => `${when(s.at)}  ${JSON.stringify(s.report)}`).join('\n'))),
-		!checks.length && !applies.length && !states.length && h('div', { class: 'empty' }, 'Nothing yet.'));
+			h('pre', { class: 'uci' }, states.map((s) => `${when(s.at)}  ${JSON.stringify(s.report)}`).join('\n')))),
+		!checks.length && !applies.length && !states.length && h('div', { class: 'empty' }, 'Nothing yet.')));
 }
 
 // templateNote says which AP template the AP takes (0085), and whether it

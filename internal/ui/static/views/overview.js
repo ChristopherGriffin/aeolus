@@ -15,7 +15,7 @@ import { usagePanel } from './usage.js';
 
 const BANDS = ['2g', '5g', '6g'];
 
-function tile(label, big, sub, cls, href) {
+export function tile(label, big, sub, cls, href) {
 	const body = [h('div', { class: 'tlabel' }, label), h('div', { class: 'tbig' }, big), sub && h('div', { class: 'tsub' }, sub)];
 	return href ? h('a', { class: `tile ${cls || ''}`, href }, body) : h('div', { class: `tile ${cls || ''}` }, body);
 }
