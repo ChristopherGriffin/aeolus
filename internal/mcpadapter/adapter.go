@@ -181,9 +181,12 @@ type previewIn struct {
 }
 
 type actionIn struct {
-	AP     string `json:"ap" jsonschema:"AP ID in the Locations tree"`
-	Kind   string `json:"kind,omitempty" jsonschema:"locate, restart-wifi, reboot or disconnect; empty to list its latest actions"`
-	Target string `json:"target,omitempty" jsonschema:"for disconnect: the client's MAC"`
+	AP      string `json:"ap" jsonschema:"AP ID in the Locations tree"`
+	Kind    string `json:"kind,omitempty" jsonschema:"locate, restart-wifi, reboot, disconnect or client-test; empty to list its latest actions"`
+	Target  string `json:"target,omitempty" jsonschema:"for disconnect: the client's MAC"`
+	Network string `json:"network,omitempty" jsonschema:"for client-test: the network to join, by its ID, one the AP offers"`
+	On      string `json:"on,omitempty" jsonschema:"for client-test: the AP whose networks to join, the testing AP itself among them; empty for the strongest other AP it hears"`
+	Band    string `json:"band,omitempty" jsonschema:"for client-test: 2g, 5g or 6g; empty for any"`
 }
 
 type changeIn struct {
@@ -349,7 +352,7 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "POST", "/v1/preview", map[string]any{"op": in.Op})
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "ap_action", Description: "Ask an AP to do something once (0104): locate (blink every LED for a minute, to find it), restart-wifi (every client drops and joins again), reboot (off the air for about two minutes) or disconnect (0107: one client, by MAC in target, leaves every network it is on there and may join again at once, to make it reconnect). It needs operator on the AP. The AP takes it up on its next poll, within about a minute; one it does not take up within 10 minutes expires. A second ask of the same kind while one waits is the same action. Without kind, lists the AP's latest actions and what came of each.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
+	mcp.AddTool(s, &mcp.Tool{Name: "ap_action", Description: "Ask an AP to do something once (0104): locate (blink every LED for a minute, to find it), restart-wifi (every client drops and joins again), reboot (off the air for about two minutes) or disconnect (0107: one client, by MAC in target, leaves every network it is on there and may join again at once, to make it reconnect); or client-test (0121: an AP with a scan radio joins one of its own networks, named in network, as a client would, on the AP named in on or else the strongest other AP it hears, and times each step: finding it, the keys, DHCP, the gateway, DNS and, where a speed server is set, how fast; its result is the action's detail, read by listing the AP's actions a minute or two later). It needs operator on the AP. The AP takes it up on its next poll, within about a minute; one it does not take up within 10 minutes expires. A second ask of the same kind while one waits is the same action. Without kind, lists the AP's latest actions and what came of each.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in actionIn) (*mcp.CallToolResult, any, error) {
 			path := "/v1/aps/" + url.PathEscape(in.AP) + "/actions"
 			if in.Kind == "" {
@@ -359,6 +362,11 @@ func server(c client, version string) *mcp.Server {
 			body := map[string]any{"kind": in.Kind}
 			if in.Target != "" {
 				body["target"] = in.Target
+			}
+			for k, v := range map[string]string{"network": in.Network, "on": in.On, "band": in.Band} {
+				if v != "" {
+					body[k] = v
+				}
 			}
 			out, err := c.call(ctx, "POST", path, body)
 			return nil, out, err

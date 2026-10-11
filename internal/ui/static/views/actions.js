@@ -12,6 +12,9 @@ const KINDS = [
 	['restart-wifi', 'Restart Wi-Fi', 'Restart its Wi-Fi: every client on it drops, and joins again in a few seconds.', 'Its clients drop for a few seconds.'],
 	['reboot', 'Reboot', 'Reboot it: it is off the air, and its wired clients cut off, for about two minutes.', 'It is off the air for about two minutes.'],
 ];
+// What else an AP may be asked, from elsewhere on its page: named here for
+// the list of what was asked.
+const ALSO = { 'client-test': 'Client test' };
 const STATE = { pending: ['', 'waiting for the AP'], running: ['', 'taken up by the AP'], done: ['ok', 'done'], failed: ['bad', 'failed'], expired: ['warn', 'expired: the AP did not take it up'] };
 
 export async function actionsPanel(id, name, canAct) {
@@ -47,7 +50,7 @@ export async function actionsPanel(id, name, canAct) {
 		list.length ? h('table', { class: 'list' },
 			h('tr', null, ['Action', 'Asked', 'By', 'What came of it'].map((t) => h('th', null, t))),
 			list.slice(0, 8).map((a) => h('tr', null,
-				h('td', null, a.kind === 'disconnect' ? ['Reconnect ', h('span', { class: 'mono' }, a.target)] : KINDS.find(([k]) => k === a.kind)?.[1] ?? a.kind),
+				h('td', null, a.kind === 'disconnect' ? ['Reconnect ', h('span', { class: 'mono' }, a.target)] : KINDS.find(([k]) => k === a.kind)?.[1] ?? ALSO[a.kind] ?? a.kind),
 				h('td', null, ago(a.at)),
 				h('td', null, a.actor),
 				h('td', null, h('span', { class: `chip ${STATE[a.state]?.[0] ?? ''}` }, STATE[a.state]?.[1] ?? a.state), a.result && h('span', { class: 'sub' }, ` ${a.result}`)))))

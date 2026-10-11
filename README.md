@@ -174,6 +174,7 @@ Each milestone ends in something checkable before the next starts.
 | [0118](docs/decisions/0118-client-connections.md) | Every client, and each time it came online |
 | [0119](docs/decisions/0119-ap-health-and-history.md) | An AP's own health, and what happened to it |
 | [0120](docs/decisions/0120-dfs-after-a-look.md) | DFS channels after a look |
+| [0121](docs/decisions/0121-client-tests.md) | A client test from the scan radio |
 
 ## Open questions
 

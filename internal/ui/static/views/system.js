@@ -15,6 +15,8 @@ const MORE = 'Management and more';
 const SECTIONS = [
 	['Place and time', ['system.country', 'system.tz', 'system.ntp']],
 	['Logging', ['system.syslog']],
+	// What an AP with a scan radio measures its speed against (0121).
+	['Client tests', ['system.speed_server']],
 	['SNMP', ['system.snmp.enabled', 'system.snmp.community', 'system.snmp.v3.user', 'system.snmp.v3.auth',
 		'system.snmp.v3.privacy', 'system.snmp.location', 'system.snmp.contact']],
 	['Agent', ['system.poll', 'system.ssh_keys']],

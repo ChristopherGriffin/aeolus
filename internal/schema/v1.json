@@ -27,6 +27,7 @@
         "poll": { "type": "integer", "minimum": 10, "maximum": 3600, "description": "Seconds between config polls (0007)." },
         "agent": { "type": "string", "pattern": "^(current|[A-Za-z0-9._-]{1,64})$", "default": "current", "description": "The agent release the APs run (0079): current, the manager's own, unless set, or a release the manager keeps, such as v0.49.0. Each AP updates itself, and rolls itself back if the new agent doesn't confirm itself." },
         "syslog": { "$ref": "#/$defs/host", "description": "Remote syslog host, optionally host:port." },
+        "speed_server": { "type": "string", "pattern": "^http://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?/?$", "description": "An OpenSpeedTest server, as http://host or http://host:port, that a client test measures against (0121): it moves bytes from its /downloading and to its /upload for a few seconds each way. Plain HTTP, as the test's own interface sends it. Unset, a client test measures no speed." },
         "ssh_keys": { "type": "array", "items": { "type": "string", "pattern": "^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]+( .*)?$" } },
         "snmp": {
           "type": "object",
