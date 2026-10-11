@@ -16,7 +16,7 @@
   - `auth_alg=` is in the line hostapd says at any level.
 - **Of a client it still holds as on, hostapd does not say it is connected.** After the four messages it says they completed; after a fast transition, nothing. Such returns were recorded as failed (fixed for the four messages in v0.83.1; for the fast transition here).
 - **On a network that signs clients in by 802.1X hostapd is not asked for its debug lines (0133).** Of a roam there it says `associated`, the sign-in where there is one, and `auth_alg=`.
-- **Not tried:** a roam on a network that signs clients in. OpenWrt has hostapd keep no keys for such a network unless told to, so each roam there is a sign-in again; hostapd's words for a key from before (`PMKID found from PMKSA cache`, `PMKID found from OKC`) are from its source.
+- **On a network that signs clients in, each roam is a sign-in again, and nothing says it is a roam.** The same radio, with a user made for the trial, between the same two APs: `authenticated`, `associated`, `CTRL-EVENT-EAP-STARTED`, `CTRL-EVENT-EAP-SUCCESS2`, the key handshake completed, `AP-STA-CONNECTED … auth_alg=open`, `authenticated - EAP type: 25 (PEAP)`. 91 ms at the AP, the sign-in resumed from the one before. The client offered a key made from its first sign-in (OKC), and the AP signed it in again all the same: OpenWrt has hostapd keep no keys for such a network unless told to. hostapd's words for a key from before on such a network (`PMKID found from OKC`) are from its source, and were not seen.
 - **What the AP sees is the end of a roam.** The client has left one AP, changed channel, and looked for the next before its first frame arrives: that part of the gap no AP sees.
 
 ## Decision
