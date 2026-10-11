@@ -12,6 +12,7 @@
   - ath11k (the C-360): a harmless `No VIF found for vdev` in the kernel's log as it is made.
   - ath10k-ct (the R7800): its firmware then hands up every frame on the channel, 17,000 in 45 s on a quiet one. With a filter in the kernel, soft interrupts on an idle AP went from 1.4 % of its two processors to 2.7 %.
   - mt76 (the OpenWrt One): its own frames and those sent to it.
+- **On some radios a monitor interface costs every client.** A radio that builds and takes apart each frame's 802.11 header itself (mac80211's `SUPPORTS_TX_ENCAP_OFFLOAD`, `SUPPORTS_RX_DECAP_OFFLOAD`) does so for no client while a monitor interface is on it: mac80211 turns both off for the radio's networks, every frame goes through the AP's processor the slow way, and none can be handed straight to the wire. mt76 on the OpenWrt One says it has both, and not that it can hand frames up both ways at once (`SUPPORTS_CONC_MON_RX_DECAP`); ath11k and ath10k-ct, as they run here, have neither, and lose nothing. Read from mac80211's source in review, and from each radio's `hwflags`; what it costs in throughput was not measured.
 - **The key messages cannot be had from the network's own interface:** they go to hostapd over nl80211 (0133).
 - **What a radio hands up is not quite a frame, and not quite on time.**
   - ath11k leaves a management frame's check sequence, and four bytes more, behind it, and says neither in the radiotap header: Wireshark calls such a frame malformed.
@@ -29,16 +30,20 @@
 - **`aeolus-journey` has a monitor interface on each radio that serves,** `aemon<n>`, with no flags, and reads it through a filter in the kernel: management frames but beacons, and the messages of a key handshake or a sign-in (EAPOL). Everything else is dropped there.
   - **Its address is its own:** `06:ae:0c` and the last three bytes of the radio's. It sends nothing, so the address is never on the air; and the radio's networks keep theirs when the radio is set up afresh.
   - A radio with a scan radio's work (0081) has none: it serves nothing.
+  - **A radio whose clients would lose what it does for them in hardware has none,** by what the radio says of itself (`hwflags`), and where that cannot be read. On such an AP a failed attempt's capture is what crossed the wire side, where anything did. Today that is mt76: the OpenWrt One. Whether to have it there all the same, once what it costs is measured, is Griff's to say.
   - One whose interface went, as when its Wi-Fi is set up afresh, has it made again at the next look. As the daemon stops, they go.
-- **A radio's frames are kept in a ring:** three minutes of them, 1 MB at the most, in memory.
+- **A radio's frames are kept in a ring:** three minutes of them, 2 MB and 8,000 frames at the most, in memory, where each frame costs the daemon some hundreds of bytes beside its own. It is cut back when it is a quarter past one of those, not at each frame.
 - **Of an attempt that fails, the client's frames are taken from the ring:** those it sent and those sent to it, from ten seconds before the attempt began, for the probes that led to it, to two after it ended; with the frames of it that crossed the wire side, which the daemon reads already (DHCP, ARP, DNS, a first connection). 600 frames from the radio at the most, and 512 kB, the latest.
 - **They are a pcapng file,** of two interfaces: the radio, 802.11 with radiotap headers, and the wire side, Ethernet. Wireshark opens it.
   - A management frame's check sequence, and what a radio left after it, go, where they are the check sequence of what is before them.
   - **A frame the radio heard is put at the radio's own time of it,** set against the calendar's clock by the frame of those minutes that came soonest after it was heard.
   - **A message of the AP's that the client answered is put just before the answer,** where the radio said it had sent it up to 250 ms after the answer came; and what the AP sent before it stays before it. Which answer is which message's is told by the key message's replay counter, or the EAP request's identifier. Such a frame has a comment in the file that says by how much.
   - A frame's time is the kernel's of it, in nanoseconds, read from the kernel's own bytes; where there is none that can be right, when the daemon read it.
-- **One capture a client a minute, at the most, on an AP;** and ten of them wait for the manager, the latest, in memory (`/var/run/aeolus/captures`). An AP that restarts loses those not yet sent.
-- **The attempt's record says there is one:** `capture: {id, frames}`. The agent sends the capture after the records, two a poll: `POST /v1/ap/captures`.
+- **The file is made three seconds after the attempt ended,** for the frames that follow it and those a radio hands up late; the attempt's record waits with it.
+- **One capture a client a minute, at the most, on an AP;** and ten of them wait for the manager, the latest, in memory (`/var/run/aeolus/captures`, for root alone to read). An AP that restarts loses those not yet sent.
+- **A capture is the agent's to send once its attempt's record is written,** and has another name until then: sent before the record, the manager has no attempt for it.
+- **The attempt's record says there is one:** `capture: {id, frames}`. The agent sends the capture after the records, two a poll: `POST /v1/ap/captures`. One that will not go, three times over, is let go.
+- **The monitor interfaces' addresses are not among those an AP says are its own.**
 - **The manager keeps a capture only of an attempt it has as failed,** and holds its file to what an agent writes: one section, its interfaces, and as many frames as it says; 1 MB at the most.
   - **Ten an AP are kept, the latest; and three of one client at the most,** so that a client that fails over and over, as with a wrong passphrase, leaves the other seven for others. Griff asked for the last ten; the three are Claude's, and his to change.
   - They go with the attempts, by age.
@@ -50,6 +55,8 @@
 ## Not done
 
 - **What a monitor interface costs a radio that is busy is not measured.** On the R7800 its firmware hands every frame on the channel to the kernel, to be dropped there. A phone's speed test with captures on and off, on each kind of AP, would say; until then the switch is there.
+- **No radio capture on the OpenWrt One,** for what its clients would lose to it; and no setting to have it all the same.
+- **A network called `journey`, `rrm` or `gi` has a section of the same name as one of the agent's own,** in another package: the agent's is now taken away by name where it is off, and no longer kept for the network's.
 - **The Assurance tab's list of clients that did not come online** names each client and leads to its page; the capture is one step on, beside the attempt, and not on the tab itself.
 - **A frame the AP sent that no answer places** has the time the radio said it was sent, which on mt76 is some milliseconds late.
 - **Data frames are not kept,** but the key messages: a capture says how a client failed to come online, not what it did once on. After the keys are in place, management frames are encrypted where the network protects them (802.11w), and are kept as they are.

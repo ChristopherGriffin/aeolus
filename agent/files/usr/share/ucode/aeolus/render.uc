@@ -1134,8 +1134,12 @@ function stp(n, intent, facts, errors, needs) {
 // that radio instead, which airscan runs (0116).
 function rrm(a, w, intent, facts, keep) {
 	let r = intent.rrm;
-	if (r?.enabled != true)
+	// Taken away here, where it is off, and not left to what is kept by
+	// name: a network called rrm keeps a section of that name elsewhere.
+	if (r?.enabled != true) {
+		delete a.aeolus_rrm;
 		return;
+	}
 	// Power control (0077) runs in the same daemon, with RRM's neighbours.
 	let p = intent.apc?.enabled == true ? intent.apc : null;
 	put(a, 'aeolus_rrm', 'rrm', {
@@ -1162,8 +1166,10 @@ function guard_interval(a, w, intent, keep) {
 			any = true;
 		}
 	}
-	if (!any)
+	if (!any) {
+		delete a.aeolus_gi;
 		return;
+	}
 	put(a, 'aeolus_gi', 'gi', opts);
 	keep['aeolus_gi'] = true;
 }
@@ -1172,8 +1178,12 @@ function guard_interval(a, w, intent, keep) {
 // that fails (0135), where the config says not to. It keeps them unless
 // told otherwise, so with them on there is no section.
 function captures(a, intent, keep) {
-	if (intent.system?.captures != false)
+	// Taken away here, and not left to what is kept by name: a network
+	// called journey keeps a section of that name in its own package.
+	if (intent.system?.captures != false) {
+		delete a.aeolus_journey;
 		return;
+	}
 	put(a, 'aeolus_journey', 'journey', { captures: 0 });
 	keep['aeolus_journey'] = true;
 }

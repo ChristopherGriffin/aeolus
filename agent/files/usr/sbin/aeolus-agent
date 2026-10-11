@@ -337,6 +337,10 @@ function hold_gi() {
 function macs() {
 	let out = [];
 	for (let n in sort(fs.lsdir('/sys/class/net') ?? [])) {
+		// Not the monitor interfaces aeolus-journey makes for its captures
+		// (0135): their addresses are made up, and no one's.
+		if (match(n, /^aemon[0-9]+$/))
+			continue;
 		let m = read(`/sys/class/net/${n}/address`);
 		if (m && match(m, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/) && m != '00:00:00:00:00:00' &&
 		    !(int(substr(m, 0, 2), 16) & 1) && index(out, m) < 0)
@@ -1588,6 +1592,8 @@ function send_connections(token) {
 // as keeping it helps no one: not well formed, too large, of an attempt it
 // has not, or the manager an older one with no place for them. Anything
 // else is tried again at the next poll.
+let capture_tries = {};   // a capture that did not go -> how often it was tried
+
 function send_captures(token) {
 	let order = (n) => map(split(n, /[-.]/), x => int(x));
 	let files = sort(filter(fs.lsdir(CAPTURES) ?? [], n => match(n, /^[0-9]+-[0-9]+\.json$/)), (x, y) => {
@@ -1601,9 +1607,22 @@ function send_captures(token) {
 		} catch (e) {
 		}
 		if (type(c) == 'object') {
-			let res = http('POST', '/v1/ap/captures', c, token, null, 60000);
+			// Less than the manager gives a request to arrive in.
+			let res = http('POST', '/v1/ap/captures', c, token, null, 25000);
 			if (!(res.status in [200, 400, 404, 413])) {
 				fail('a capture of a failed attempt: %s', describe(res));
+				// Tried again at the next poll. One that will not go, three
+				// times over, with the manager there to be reached, as one
+				// too large for the link in the time it has, is let go, so
+				// it does not hold the rest and the agent's own work back.
+				// With the manager away they wait, as the records do.
+				if (res.status != 0 || !match(res.error ?? '', /cannot connect|connection error 1$/)) {
+					capture_tries[n] = (capture_tries[n] ?? 0) + 1;
+					if (capture_tries[n] >= 3) {
+						fs.unlink(`${CAPTURES}/${n}`);
+						delete capture_tries[n];
+					}
+				}
 				return;
 			}
 			if (res.status in [400, 413])

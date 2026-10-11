@@ -123,12 +123,23 @@ printf('ring: %d frames, %d bytes\n', length(r.list), r.bytes);
 printf('the client\'s, from 105 to 107: %d; from 90: %d; another\'s: %d; no one\'s: %d\n',
 	length(capture.ring_of(r, STA, 105, 107)), length(capture.ring_of(r, STA, 90, 107)), length(capture.ring_of(r, OTHER, 90, 107)),
 	length(capture.ring_of(r, '02:00:00:00:00:01', 90, 107)));
-// Where it holds too much, the oldest go; and of one client so many are
-// given at the most, the latest.
-let big = capture.ring();
-for (let i = 0; i < 700; i++)
+// Where it holds too much, the oldest go: when it is a quarter past what
+// it may hold, back to that, so that the list is made anew now and then
+// and not at each frame. And of one client so many are given at the most,
+// the latest.
+let big = capture.ring(), trims = 0, most_held = 0;
+for (let i = 0; i < 2600; i++) {
+	let before = length(big.list);
 	capture.ring_add(big, 1000 + i / 100, 1791745000000 + i * 10, radiotap(18) + dot11(0x00, 0, AP, STA, AP) + zeros(2000));
-printf('a full ring: %d frames, %d bytes, the oldest from %.2f\n', length(big.list), big.bytes, big.list[0].at);
+	if (length(big.list) <= before)
+		trims++;
+	most_held = max(most_held, big.bytes);
+}
+printf('a full ring: %d frames, %d bytes, never more than %d, made anew %d times in 2600 frames, the oldest from %.2f\n', length(big.list), big.bytes, most_held, trims, big.list[0].at);
+let small = capture.ring();
+for (let i = 0; i < 10100; i++)
+	capture.ring_add(small, 1000 + i / 1000, 1791745000000 + i, auth);
+printf('a ring of small frames: %d at the most, %d now\n', 10000, length(small.list));
 let many = capture.ring();
 for (let i = 0; i < 700; i++)
 	capture.ring_add(many, 1000 + i / 100, 1791745000000 + i * 10, auth);
@@ -178,9 +189,12 @@ for (let at = 0, n = 0; at < length(c2.file); at += u32(c2.file, at + 4))
 	if (u32(c2.file, at) == 6)
 		printf('  frame %d: at %d us, begins %s\n', ++n, (u32(c2.file, at + 12) * 4294967296 + u32(c2.file, at + 16)) % 10000000, hexdump(substr(c2.file, at + 28, 4)));
 
-// What is older than three minutes goes from a ring.
+// What is older than three minutes goes from a ring, once it is a quarter
+// past that; and is given of no client before then, by its time.
 capture.ring_add(r, 290.000, 1791744690000, auth);
-printf('three minutes on: %d frames, the oldest from %.3f\n', length(r.list), r.list[0].at);
+printf('three minutes on: %d frames held, %d of the client given from then\n', length(r.list), length(capture.ring_of(r, STA, 290 - 180, 290)));
+capture.ring_add(r, 340.000, 1791744740000, auth);
+printf('four minutes on: %d frames, the oldest from %.3f\n', length(r.list), r.list[0].at);
 
 // A file holds so many bytes of frames at the most: the latest.
 let fat = capture.ring();
@@ -237,3 +251,30 @@ for (let at = 0, n = 0; at < length(c4.file); at += u32(c4.file, at + 4)) {
 		ord(c4.file, at + 28 + 2) == 16 ? 'from the client' : 'from the AP',
 		noted ? sprintf(', noted: %s', substr(c4.file, after + 4, u32(c4.file, after) >> 16)) : '');
 }
+
+// A frame the radio heard from another, to the client, is not the AP's
+// own, and is not moved for an answer: a neighbour's probe response among
+// the client's key messages stays where the radio heard it.
+let third = capture.ring();
+capture.ring_add(third, 800.000, 1791745300000, at_radio(99000000) + dot11(0x00, 0, AP, STA, AP) + zeros(6));
+capture.ring_add(third, 800.006, 1791745300006, from_sta(99006000, keymsg(1)));
+capture.ring_add(third, 800.007, 1791745300007, at_radio(99006500) + dot11(0x50, 0, STA, OTHER, OTHER) + zeros(12));
+capture.ring_add(third, 800.008, 1791745300008, from_ap(keymsg(1)));
+let c5 = capture.capture(third, STA, 800, 801, [], 'phy1', 'phy1-ap3');
+for (let at = 0, n = 0; at < length(c5.file); at += u32(c5.file, at + 4)) {
+	if (u32(c5.file, at) != 6)
+		continue;
+	let size = u32(c5.file, at + 20), after = at + 28 + size + (4 - size % 4) % 4;
+	printf('  frame %d: at %d us%s\n', ++n, (u32(c5.file, at + 12) * 4294967296 + u32(c5.file, at + 16)) % 10000000, after < at + u32(c5.file, at + 4) - 4 ? ', noted' : '');
+}
+
+// Whether a radio's clients would lose what it does for them in hardware
+// to a monitor interface, by what the radio says it can do.
+for (let name, flags in {
+	'a radio that leaves the 802.11 header to the AP (ath11k, ath10k)': 'HAS_RATE_CONTROL\nSIGNAL_DBM\nSUPPORTS_FAST_FRAG\n',
+	'one that makes and unmakes it itself (mt76)': 'SIGNAL_DBM\nSUPPORTS_TX_ENCAP_OFFLOAD\nSUPPORTS_RX_DECAP_OFFLOAD\n',
+	'one that unmakes it, and can hand frames up both ways': 'SUPPORTS_RX_DECAP_OFFLOAD\nSUPPORTS_CONC_MON_RX_DECAP\n',
+	'one that says nothing': '',
+})
+	printf('%s: %s\n', name, capture.loses_offload(flags) ? 'it would' : 'it would not');
+printf('a radio whose list cannot be read: %s\n', capture.loses_offload(null) ? 'it would' : 'it would not');

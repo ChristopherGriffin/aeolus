@@ -18,7 +18,8 @@ import { assemble } from 'aeolus.journey';
 
 const SNAP = 2048;           // bytes kept of a frame: a management frame whole
 const RING_SECONDS = 180;    // how far back a radio's frames are kept
-const RING_BYTES = 1048576;  // and how much of them, at most
+const RING_BYTES = 2097152;  // and how much of them, at most
+const RING_FRAMES = 8000;    // and how many: each costs the daemon more than its bytes
 const BEFORE = 10;           // seconds before an attempt's start taken with it, as the probes that led to it
 const AFTER = 2;             // and after its end
 const MOST = 600;            // frames at most in one capture
@@ -179,29 +180,46 @@ function ring() {
 	return { list: [], bytes: 0 };
 }
 
-// ring_add keeps a frame a radio's monitor interface gave: when it came,
-// by the steady clock in seconds and by the calendar's in ms, and the
-// radio's own time of it where it gives one. What is older than
-// RING_SECONDS goes, and the oldest where the ring holds more than
-// RING_BYTES. A frame that names no station is not kept.
+// ring_add keeps a frame a radio's monitor interface gave, with when it
+// came: by the steady clock in seconds and by the calendar's in ms. What
+// is older than RING_SECONDS goes, and the oldest where the ring holds
+// more than RING_BYTES or RING_FRAMES: not at each frame, as making the
+// list anew costs as much as it holds, but when it is a quarter past one
+// of them, back to it. A frame that names no station is not kept.
 function ring_add(r, at, wall, m) {
-	let a = addresses(m);
-	if (!a)
+	if (length(m) < 8)
 		return;
-	push(r.list, { at: at, wall: wall, m: m, a: a, heard: header(m)?.heard });
+	let rt = ord(m, 2) | (ord(m, 3) << 8);
+	if (rt < 8 || length(m) < rt + 16)
+		return;
+	push(r.list, { at: at, wall: wall, m: m });
 	r.bytes += length(m);
+	if (r.bytes <= RING_BYTES * 1.25 && length(r.list) <= RING_FRAMES * 1.25 && at - r.list[0].at <= RING_SECONDS * 1.25)
+		return;
 	let gone = 0;
-	while (gone < length(r.list) - 1 && (at - r.list[gone].at > RING_SECONDS || r.bytes > RING_BYTES))
+	while (gone < length(r.list) - 1 && (at - r.list[gone].at > RING_SECONDS || r.bytes > RING_BYTES || length(r.list) - gone > RING_FRAMES))
 		r.bytes -= length(r.list[gone++].m);
 	if (gone)
 		r.list = slice(r.list, gone);
+}
+
+// mac_bytes is a MAC as it is in a frame.
+function mac_bytes(mac) {
+	return join('', map(split(mac, ':'), x => chr(hex(x))));
 }
 
 // ring_of is a client's frames in a ring, from a time to a time by the
 // steady clock: those it sent, and those sent to it. MOST at the most, the
 // latest of them.
 function ring_of(r, mac, from, to) {
-	let out = filter(r.list, f => f.at >= from && f.at <= to && (f.a[0] == mac || f.a[1] == mac));
+	let raw = mac_bytes(mac), out = [];
+	for (let f in r.list) {
+		if (f.at < from || f.at > to)
+			continue;
+		let rt = ord(f.m, 2) | (ord(f.m, 3) << 8);
+		if (substr(f.m, rt + 4, 6) == raw || substr(f.m, rt + 10, 6) == raw)
+			push(out, f);
+	}
 	return length(out) > MOST ? slice(out, -MOST) : out;
 }
 
@@ -253,9 +271,9 @@ function pcapng(radio, wire, frames) {
 // needed, as a capture is made seldom.
 let crc_table = null;
 
-// fcs is a frame check sequence, the CRC-32 of bytes from to, as it is
-// sent: low byte first.
-function fcs(s, from, to) {
+// crc_run takes a CRC-32 on over bytes from to; crc_bytes is it as a frame
+// check sequence is sent: low byte first.
+function crc_run(c, s, from, to) {
 	if (!crc_table) {
 		crc_table = [];
 		for (let n = 0; n < 256; n++) {
@@ -265,11 +283,19 @@ function fcs(s, from, to) {
 			push(crc_table, c);
 		}
 	}
-	let c = 0xffffffff;
 	for (let i = from; i < to; i++)
 		c = crc_table[(c ^ ord(s, i)) & 255] ^ (c >> 8);
+	return c;
+}
+
+function crc_bytes(c) {
 	c = (c ^ 0xffffffff) & 0xffffffff;
 	return chr(c & 255, (c >> 8) & 255, (c >> 16) & 255, (c >> 24) & 255);
+}
+
+// fcs is a frame check sequence, the CRC-32 of bytes from to.
+function fcs(s, from, to) {
+	return crc_bytes(crc_run(0xffffffff, s, from, to));
 }
 
 // tidy takes from a management frame what a radio left after it. Some
@@ -280,21 +306,44 @@ function fcs(s, from, to) {
 // eight, end in the check sequence of all that is before them, they go; a
 // frame whose header says it has a check sequence is as it says, and one
 // that is no management frame is left be, as its check sequence is not
-// always the frame's own.
+// always the frame's own. The frame is gone over once for both.
 function tidy(m) {
 	let h = header(m), rt = h?.rt, n = length(m);
 	if (!h || h.sum || n < rt + 24 + 4 || (ord(m, rt) & 0x0c) != 0)
 		return m;
-	for (let more in [4, 0])
-		if (n - more - 4 >= rt + 24 && substr(m, n - more - 4, 4) == fcs(m, rt, n - more - 4))
-			return substr(m, 0, n - more - 4);
-	return m;
+	let c = 0xffffffff, at = rt;
+	if (n - 8 >= rt + 24) {
+		c = crc_run(c, m, rt, n - 8);
+		at = n - 8;
+		if (substr(m, n - 8, 4) == crc_bytes(c))
+			return substr(m, 0, n - 8);
+	}
+	c = crc_run(c, m, at, n - 4);
+	return substr(m, n - 4, 4) == crc_bytes(c) ? substr(m, 0, n - 4) : m;
+}
+
+// loses_offload says whether a radio's clients would lose what the radio
+// does for them in hardware were a monitor interface made on it, from the
+// radio's own list of what it can do (mac80211's hwflags, a line each).
+// One that builds and takes apart each frame's 802.11 header itself does
+// so for no client while a monitor interface is there, unless it can hand
+// frames up both ways at once: every frame of every client then goes the
+// slow way through the AP's processor, and cannot be handed straight to
+// the wire (mt76: the OpenWrt One, 2026-10-11). True where it is not
+// known: what a radio is not known to keep, it is not risked.
+function loses_offload(hwflags) {
+	if (type(hwflags) != 'string')
+		return true;
+	let has = (f) => match(hwflags, regexp('(^|\n)' + f + '(\n|$)')) != null;
+	return has('SUPPORTS_TX_ENCAP_OFFLOAD') || (has('SUPPORTS_RX_DECAP_OFFLOAD') && !has('SUPPORTS_CONC_MON_RX_DECAP'));
 }
 
 // capture is the file of one attempt, or null where nothing was kept of
 // it: the client's frames from its radio's ring, around the attempt, and
 // those kept from the wire side, each { at, wall, m }, in the order they
 // came. from and to are the attempt's start and end by the steady clock.
+// 512 kB of frames at the most, the latest: how it ended says more of a
+// failure than how it began.
 //
 // A frame the radio heard is put at the radio's own time of it, where it
 // gives one. Some hand a frame up late: ath11k's monitor interface gave the
@@ -312,31 +361,51 @@ function tidy(m) {
 // the client answered was sent before the answer, whatever the radio
 // said: where it is said up to SOON ms after, it is put just before the
 // answer, with a note of how much later it was said; and what the AP had
-// sent before it stays before it.
+// sent before it stays before it. Only what this radio sent is so moved:
+// what it heard, of whoever, has the radio's own time.
 function capture(r, mac, from, to, wire, radio_name, wire_name) {
-	let frames = [], least = null;
+	let least = null;
 	for (let f in r?.list ?? []) {
-		if (f.heard == null || f.at < from - BEFORE - 30 || f.at > to + AFTER + 30)
+		if (f.at < from - BEFORE - 30 || f.at > to + AFTER + 30)
 			continue;
-		let after = f.wall - f.heard / 1000.0;
+		let heard = header(f.m)?.heard;
+		if (heard == null)
+			continue;
+		let after = f.wall - heard / 1000.0;
 		if (least == null || after < least)
 			least = after;
 	}
-	for (let f in (r ? ring_of(r, mac, from - BEFORE, to + AFTER) : [])) {
-		let late = f.heard != null ? f.wall - f.heard / 1000.0 - least : 0;
+	let got = r ? ring_of(r, mac, from - BEFORE, to + AFTER) : [];
+	let first = length(got), size = 0;
+	for (let f in wire ?? [])
+		size += length(f.m);
+	for (; first > 0 && size + length(got[first - 1].m) <= MOST_BYTES; first--)
+		size += length(got[first - 1].m);
+	got = slice(got, first);
+	let raw = mac_bytes(mac), frames = [], answers = {};
+	for (let f in got) {
+		let h = header(f.m), heard = h?.heard;
+		let late = heard != null && least != null ? f.wall - heard / 1000.0 - least : 0;
 		if (late <= 0 || late >= LATE)
 			late = 0;
-		push(frames, { at: f.at - late / 1000.0, wall: f.wall - late, m: tidy(f.m), link: 0, n: length(frames), mine: f.a[1] != mac, x: exchange(f.m) });
+		let its = h != null && substr(f.m, h.rt + 10, 6) == raw;
+		let e = { wall: f.wall - late, m: tidy(f.m), link: 0, n: length(frames), sent: heard == null && !its, x: exchange(f.m) };
+		push(frames, e);
+		if (its && e.x) {
+			if (!answers[e.x])
+				answers[e.x] = [];
+			push(answers[e.x], e);
+		}
 	}
 	// The AP's messages, the last first, so that one put back takes with
 	// it those the AP had sent before it.
 	let next = null;
 	for (let i = length(frames) - 1; i >= 0; i--) {
 		let f = frames[i], answer = null;
-		if (!f.mine)
+		if (!f.sent)
 			continue;
-		for (let g in (f.x ? frames : []))
-			if (!g.mine && g.x == f.x && g.wall < f.wall && f.wall - g.wall <= SOON && (!answer || g.wall < answer.wall))
+		for (let g in (f.x ? answers[f.x] ?? [] : []))
+			if (g.wall < f.wall && f.wall - g.wall <= SOON && (!answer || g.wall < answer.wall))
 				answer = g;
 		if (answer) {
 			f.note = sprintf('Sent before the answer to it, and put there: the radio said it had sent this %.1f ms after the answer came.', f.wall - answer.wall);
@@ -350,19 +419,13 @@ function capture(r, mac, from, to, wire, radio_name, wire_name) {
 			next = f.wall;
 	}
 	for (let f in wire ?? [])
-		push(frames, { at: f.at, wall: f.wall, m: f.m, link: 1, n: length(frames) });
+		push(frames, { wall: f.wall, m: f.m, link: 1, n: length(frames) });
 	if (!length(frames))
 		return null;
 	// By when they came, as the file says it; two at once as they were kept.
 	frames = sort(frames, (a, b) => a.wall < b.wall ? -1 : a.wall > b.wall ? 1 : a.n - b.n);
-	// The latest, where there is more than a file may hold: how it ended
-	// says more of a failure than how it began.
-	let first = length(frames);
-	for (let size = 0; first > 0 && size + length(frames[first - 1].m) <= MOST_BYTES; first--)
-		size += length(frames[first - 1].m);
-	frames = slice(frames, first);
 	let radio = length(filter(frames, f => f.link == 0));
 	return { frames: length(frames), radio: radio, wire: length(frames) - radio, file: pcapng(radio_name, wire_name, frames) };
 }
 
-export { SNAP, WIRE, MOST_BYTES, stamp, exchange, radio_filter, header, addresses, ring, ring_add, ring_of, fcs, tidy, pcapng, capture };
+export { SNAP, WIRE, AFTER, MOST_BYTES, stamp, exchange, radio_filter, header, addresses, ring, ring_add, ring_of, fcs, tidy, loses_offload, pcapng, capture };
