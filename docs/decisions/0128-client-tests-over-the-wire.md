@@ -26,7 +26,9 @@
 - **From a MAC of the test's own:** `0e`, the last three bytes of the AP's MAC, and the VLAN's or the tunnel's number in four digits. Not one the prober uses (`02`, `06`, `0a`), so a test never gives back the prober's lease.
 - **What it does, each step timed:**
   - **DHCP,** as a client: discover, offer, request, acknowledgement. It asks for its mask, router, DNS servers and lease, and to be answered by broadcast, having no address yet. Asked again, it says how long it has been asking, which a relay may wait on.
-  - **Whether the address is another's already:** an ARP probe from no address (RFC 5227), and three tenths of a second to hear an answer. One that someone answers for is turned down (DHCP decline), and the test has failed at DHCP: it would otherwise answer for the address too, and take the other's traffic.
+  - **Whether the address is another's already:** an ARP probe from no address (RFC 5227), and three tenths of a second to hear an answer. One that someone answers for is not used, and the test has failed at DHCP, saying who has it: it would otherwise answer for the address too, and take the other's traffic.
+    - **It does not turn the address down** (DHCP decline), as a client would. A server sets a declined address aside; a test on a schedule would empty a pool where something answers for every address. The lease is left to run out.
+    - **A gateway that answers for every address is no holder of this one,** as one does that keeps a network's clients apart (proxy ARP). It shows itself by answering for its own address from the same MAC, which the test asks next; the test then goes on.
   - **The gateway:** an ARP request for it, from the address given. Its answer, and how long it took, is the gateway being there. No ping: the test has no IP of its own to be pinged back at but its frames.
   - **A name looked up,** at the first DNS server the lease named: by ARP where that is on the same subnet, through the gateway where not. The datagram has its UDP checksum.
   - **The address is given back** (DHCP release): straight to its server on the test's own subnet, through the gateway elsewhere. Its datagram has its checksum too.
@@ -51,6 +53,7 @@
 - **No speed is measured over the wire:** there is no TCP in it.
 - **The switch learns one more MAC on the AP's port for each VLAN tested,** as it does for every client.
 - **A network on the uplink with no VLAN at all is not tested yet:** the AP's own address is there.
+- **A pool that gives out an address a device already uses fails every test that is given it,** at DHCP, with that device's MAC: the same address each time, as the lease is the test's. It is a fault of the pool's, and stays an alert until it is put right.
 - **A DHCP server set to refuse locally administered MACs refuses the test's,** as it does the prober's (0060) and a phone's private address. Such a network fails at DHCP over the wire, and says so.
 - **The test's host name is `aeolus-test`,** as the scan radio's is (0121). A DHCP server that writes names into DNS writes that one, for the seconds the address is held.
 
