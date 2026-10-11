@@ -45,6 +45,7 @@ type Server struct {
 	agents  *bundle.Store   // the agent bundles it offers its APs (0079); nil if none
 	agent   bundle.Bundle   // its own release's bundle
 	install *Install        // what it hands out to an AP installing from it (0083); nil if nothing
+	arrive  arrivals        // the times given to attempts from APs whose clocks are unset (0118)
 }
 
 // New returns a Server. The log should be opened with Check(sch) as its
