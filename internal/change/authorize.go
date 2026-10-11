@@ -164,15 +164,20 @@ func Authorize(s *State, actor string, op Op) error {
 		if !ok {
 			return nil // Apply reports the unknown node
 		}
+		if n.Parent == "" {
+			return need(access.Admin, op.Tree, op.Node)
+		}
+		// Operator where it hangs, whatever is granted on the folder itself:
+		// an admin of the folder alone does not decide what its parent holds.
+		if err := need(access.Operator, op.Tree, n.Parent); err != nil {
+			return err
+		}
 		for _, g := range s.Access.Grants() {
 			if g.Tree == string(op.Tree) && g.Node == op.Node {
 				return need(access.Admin, op.Tree, op.Node)
 			}
 		}
-		if n.Parent == "" {
-			return need(access.Admin, op.Tree, op.Node)
-		}
-		return need(access.Operator, op.Tree, n.Parent)
+		return nil
 	case IssueToken:
 		if op.Account == who {
 			return nil

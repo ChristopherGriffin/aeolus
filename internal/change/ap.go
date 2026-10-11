@@ -73,7 +73,9 @@ func removeFolder(s *State, op Op) (Effect, error) {
 	if !ok {
 		return Effect{}, fmt.Errorf("%w: %s", hierarchy.ErrNotFound, op.Node)
 	}
-	if op.Node == Sandbox || op.Node == LandingZone {
+	// Sandbox is built in in both trees; Landing Zone in Locations alone, so
+	// a Services folder that happens to share its ID is a folder like any.
+	if op.Node == Sandbox || (op.Tree == Locations && op.Node == LandingZone) {
 		return Effect{}, fmt.Errorf("%w: %s is a built-in folder", hierarchy.ErrNotAFolder, op.Node)
 	}
 	var by []string
