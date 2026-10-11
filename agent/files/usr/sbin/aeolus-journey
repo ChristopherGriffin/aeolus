@@ -1,0 +1,368 @@
+#!/usr/bin/ucode -S
+// aeolus-journey: the Aeolus agent's record of each Wi-Fi client coming
+// online (0118).
+//
+// From a client's authentication to its first traffic, it notes each step
+// as it happens: what hostapd says of it (authenticated, associated, signed
+// in, its keys made, or why not), then, from the frames that cross the
+// network's Wi-Fi interface, its DHCP, the ARP for its gateway, its first
+// DNS lookups and the first connection it opens. An attempt ends when the
+// client is online, when it leaves, or when it gets no further; each is one
+// record, passed or failed, with the stage it stopped at.
+//
+// hostapd's words come from the system log: logread, which this daemon
+// starts, sends the lines that name hostapd to it over UDP on the loopback.
+// The frames come from a packet socket on each Wi-Fi interface, with a
+// kernel filter that keeps only ARP and DHCP until a client is being
+// watched, and then DNS and the frames that open TCP connections too.
+// Nothing is sent, and no client is held up.
+//
+// The records go to /var/run/aeolus/connections.json, which the agent sends
+// to the manager; the agent writes back how far it got, and what was sent
+// is let go. procd runs it beside the agent.
+//
+//	aeolus-journey [-o <records file>] [-p <UDP port>]
+//
+// -o and -p are for trying it out beside the one procd runs.
+
+'use strict';
+
+import * as fs from 'fs';
+import * as socket from 'socket';
+import { connect } from 'ubus';
+import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING } from 'log';
+import * as journey from 'aeolus.journey';
+
+let out = '/var/run/aeolus/connections.json', port = 16731;
+for (let i = 0; i < length(ARGV); i++) {
+	if (ARGV[i] == '-o')
+		out = ARGV[++i];
+	else if (ARGV[i] == '-p')
+		port = int(ARGV[++i]);
+}
+
+const SENT = out + '.sent';        // how far the agent got: { boot, seq }
+const PIDFILE = out + '.logread';  // the logread this daemon started
+const LOOK_EVERY = 10;             // seconds between looks at the Wi-Fi interfaces
+const WRITE_EVERY = 2;             // seconds between writes of the records, at most
+const KEPT = 128;                  // records kept for the agent; past that, the oldest go
+const OPEN = 256;                  // attempts followed at once
+const WIDE = journey.filter(true), NARROW = journey.filter(false);
+
+let bus = connect();
+openlog('aeolus-journey', LOG_PID, LOG_DAEMON);
+
+function log(fmt, ...args) {
+	syslog(LOG_INFO, fmt, ...args);
+}
+
+function note(fmt, ...args) {
+	syslog(LOG_WARNING, fmt, ...args);
+}
+
+function read(path) {
+	let v = fs.readfile(path);
+	return v == null ? null : trim(v);
+}
+
+function store(path, data) {
+	let tmp = path + '.new';
+	if (fs.writefile(tmp, data) == null)
+		return false;
+	return fs.rename(tmp, path);
+}
+
+// now is monotonic time in seconds, to the microsecond.
+function now() {
+	let c = clock(true);
+	return c[0] + c[1] / 1e9;
+}
+
+// wall is the calendar's time in milliseconds.
+function wall() {
+	let c = clock();
+	return c[0] * 1000 + int(c[1] / 1e6);
+}
+
+let boot = wall();    // this run, so the agent tells its records from the last run's
+let bsses = {};       // a network's Wi-Fi interface, as hostapd names it -> { network, ssid, band }
+let ifaces = {};      // an interface watched -> { sock, bss, index, wide }: a BSS, or a VLAN's interface on it
+let open = {};        // '<bss> <mac>' -> the attempt being followed
+let done = [];        // the records not yet sent, oldest first
+let seq = 0, dropped = 0, dirty = false;
+let logsock = null;
+let heard = null;     // usteer's clients, when last asked, and when
+
+function ifindex(name) {
+	return read(`/sys/class/net/${name}/ifindex`);
+}
+
+// packet opens a packet socket on dev that sees what prog keeps.
+function packet(dev, prog) {
+	let s = socket.create(socket.AF_PACKET, socket.SOCK_RAW, 0);
+	if (!s)
+		return null;
+	if (!s.bind({ family: socket.AF_PACKET, protocol: 3, address: '00:00:00:00:00:00', interface: dev }) ||
+	    !s.setopt(socket.SOL_SOCKET, socket.SO_ATTACH_FILTER, { len: length(prog), filter: prog })) {
+		note('cannot watch %s: %s', dev, socket.error());
+		s.close();
+		return null;
+	}
+	// What arrived before the filter took hold goes.
+	while (s.recv(2048, socket.MSG_DONTWAIT) != null)
+		;
+	return s;
+}
+
+// look takes up the AP's Wi-Fi networks as netifd has them now: each one's
+// interface, and the interfaces hostapd makes on it for clients a key or
+// the RADIUS server put in a VLAN (<bss>-k<vlan>, <bss>-r<vlan>), whose
+// frames cross there.
+function look() {
+	let want = {};
+	bsses = {};
+	for (let r, v in bus.call('network.wireless', 'status') ?? {})
+		for (let i in v.interfaces ?? []) {
+			if (!i.ifname || (i.config?.mode ?? 'ap') != 'ap')
+				continue;
+			let n = filter(i.config?.network ?? [], x => match(x, /^aeolus_/))[0];
+			bsses[i.ifname] = {
+				network: n ? replace(substr(n, 7), /_/g, '-') : '',
+				ssid: substr(replace('' + (i.config?.ssid ?? ''), /[^ -~]/g, '?'), 0, 32), band: v.config?.band ?? '',
+			};
+			want[i.ifname] = i.ifname;
+		}
+	for (let name in fs.lsdir('/sys/class/net') ?? []) {
+		let m = match(name, /^(.+)-[kr][0-9]+$/);
+		if (m && bsses[m[1]])
+			want[name] = m[1];
+	}
+	for (let name in keys(ifaces))
+		if (want[name] != ifaces[name].bss || ifindex(name) != ifaces[name].index) {
+			ifaces[name].sock.close();
+			delete ifaces[name];
+		}
+	for (let name, bss in want)
+		if (!ifaces[name]) {
+			let s = packet(name, NARROW);
+			if (s)
+				ifaces[name] = { sock: s, bss: bss, index: ifindex(name), wide: 0 };
+		}
+}
+
+// widen has a network's interfaces keep DNS and new connections too, until
+// a time: while a client on it is being watched.
+function widen(bss, until) {
+	for (let name, i in ifaces)
+		if (i.bss == bss) {
+			if (!i.wide)
+				i.sock.setopt(socket.SOL_SOCKET, socket.SO_ATTACH_FILTER, { len: length(WIDE), filter: WIDE });
+			i.wide = max(i.wide, until);
+		}
+}
+
+// narrow puts back the filter that lets the AP's traffic be, where no
+// client is watched any more.
+function narrow(at) {
+	for (let name, i in ifaces)
+		if (i.wide && at > i.wide) {
+			i.sock.setopt(socket.SOL_SOCKET, socket.SO_ATTACH_FILTER, { len: length(NARROW), filter: NARROW });
+			i.wide = 0;
+		}
+}
+
+// probes is where a client was heard asking for networks before it joined,
+// as band steering's usteer has it, the strongest first: this AP's radios,
+// and the other APs' it shares what it hears with. Null where usteer does
+// not run.
+function probes(mac, at) {
+	if (!heard || at - heard.at > 2)
+		heard = { at: at, clients: bus.call('usteer', 'get_clients') };
+	let nodes = heard.clients?.[mac];
+	if (type(nodes) != 'object')
+		return null;
+	let best = {};
+	for (let node, n in nodes) {
+		let m = match(node, /^(([0-9a-f.:]+)#)?hostapd\.(.+)$/);
+		if (!m || !(type(n?.signal) in ['int', 'double']) || n.signal > 0 || n.signal < -127)
+			continue;
+		let ap = m[2] ?? '', radio = match(m[3], /^([a-z0-9]+)-/)?.[1] ?? m[3];
+		let k = ap + ' ' + radio;
+		if (!best[k] || n.signal > best[k].signal)
+			best[k] = { ap: ap, band: ap == '' ? bsses[m[3]]?.band ?? '' : '', signal: int(n.signal) };
+	}
+	let list = sort(values(best), (a, b) => b.signal - a.signal);
+	return length(list) ? slice(list, 0, 6) : null;
+}
+
+// start begins following a client's attempt on a network.
+function start(bss, mac, at) {
+	if (length(keys(open)) >= OPEN)
+		return null;
+	let a = journey.begin({ bss: bss, mac: mac, ...(bsses[bss] ?? {}) }, at, wall());
+	a.probes = probes(mac, at);
+	open[bss + ' ' + mac] = a;
+	// Its DHCP comes right after it is let on: the wide filter is on by then.
+	widen(bss, at + journey.WATCH * 2);
+	return a;
+}
+
+// finish closes an attempt: its record joins those the agent sends.
+function finish(key, at) {
+	let r = journey.record(open[key], at);
+	delete open[key];
+	r.seq = ++seq;
+	push(done, r);
+	if (length(done) > KEPT) {
+		dropped += length(done) - KEPT;
+		done = slice(done, -KEPT);
+	}
+	dirty = true;
+}
+
+// write stores the records the agent has not said it sent.
+function write() {
+	let sent = null;
+	try {
+		sent = json(read(SENT) ?? 'null');
+	} catch (e) {
+	}
+	if (sent?.boot == boot && type(sent.seq) == 'int')
+		done = filter(done, r => r.seq > sent.seq);
+	store(out, sprintf('%J\n', { at: time(), boot: boot, seq: seq, dropped: dropped, list: done }));
+	dirty = false;
+}
+
+// on_log takes one of hostapd's log lines: a client's step, into the
+// attempt being followed, or the start of one.
+function on_log(msg, at) {
+	let e = journey.log_event(rtrim(split(split(msg, '\n')[0], chr(0))[0], '\r '));
+	if (!e || !bsses[e.bss])
+		return;
+	let key = e.bss + ' ' + e.mac, a = open[key];
+	if (!a) {
+		// A client leaving, or a line that only explains, begins nothing.
+		if (e.end || !e.stage)
+			return;
+		a = start(e.bss, e.mac, at);
+		if (!a)
+			return;
+	}
+	journey.on_log(a, e, at);
+	// How strongly the AP hears it, once it is let on.
+	if (e.on && a.signal == null) {
+		let s = bus.call('hostapd.' + e.bss, 'get_clients')?.clients?.[e.mac]?.signal;
+		if (type(s) in ['int', 'double'] && s <= 0 && s >= -127)
+			a.signal = int(s);
+	}
+}
+
+// on_frames reads what crossed one interface: the frames of the clients
+// being followed.
+function on_frames(i, at) {
+	let m;
+	while ((m = i.sock.recvmsg(2048, 0, socket.MSG_DONTWAIT)) != null) {
+		let p = journey.frame(m.data, m.address?.packet_type == 4);
+		let a = p ? open[i.bss + ' ' + p.mac] : null;
+		if (a)
+			journey.on_frame(a, p, at);
+	}
+}
+
+// logread_pid is the logread this daemon started, where it still runs.
+function logread_pid() {
+	let pid = int(read(PIDFILE) ?? '0');
+	return pid > 1 && index(fs.readfile(`/proc/${pid}/cmdline`) ?? '', 'logread') >= 0 ? pid : 0;
+}
+
+// listen opens the socket hostapd's log lines come in on, and starts the
+// logread that sends them: only lines that name hostapd, as they are
+// logged, none from before.
+function listen() {
+	if (!logsock) {
+		let s = socket.create(socket.AF_INET, socket.SOCK_DGRAM);
+		if (!s || !s.bind({ address: '127.0.0.1', port: port })) {
+			note('cannot listen for the log on 127.0.0.1:%d: %s', port, socket.error());
+			s?.close();
+			return;
+		}
+		logsock = s;
+	}
+	if (logread_pid())
+		return;
+	system(sprintf("logread -f -u -r 127.0.0.1 %d -e 'hostapd: ' -p %s >/dev/null 2>&1 &", port, PIDFILE));
+}
+
+// stop ends the logread with the daemon.
+function stop() {
+	let pid = logread_pid();
+	if (pid)
+		system(['kill', '' + pid]);
+	exit(0);
+}
+
+function main() {
+	signal('SIGTERM', stop);
+	signal('SIGINT', stop);
+	fs.mkdir('/var/run/aeolus');
+	// A logread the last run left sends to a socket that is gone.
+	let old = logread_pid();
+	if (old)
+		system(['kill', '' + old]);
+	let next_look = 0, next_write = 0;
+	log('watching clients come online');
+	while (true) {
+		let at = now();
+		if (at >= next_look) {
+			look();
+			listen();
+			narrow(at);
+			next_look = at + LOOK_EVERY;
+		}
+		for (let key in keys(open))
+			if (journey.due(open[key], at))
+				finish(key, at);
+		if (at >= next_write) {
+			// Written when there is something new, and now and then so what
+			// the agent sent is let go.
+			if (dirty || length(done))
+				write();
+			next_write = at + WRITE_EVERY;
+		}
+		let polls = [], by = {};
+		if (logsock)
+			push(polls, [logsock, socket.POLLIN]);
+		for (let name, i in ifaces) {
+			by[i.sock.fileno()] = name;
+			push(polls, [i.sock, socket.POLLIN]);
+		}
+		if (!length(polls)) {
+			sleep(1000);
+			continue;
+		}
+		// While a client is followed, its attempt is looked at again soon.
+		let wait = length(keys(open)) ? 250 : 1000;
+		for (let r in socket.poll(wait, ...polls) ?? []) {
+			if (!(r[1] & (socket.POLLIN | socket.POLLERR | socket.POLLHUP)))
+				continue;
+			let t = now(), fd = r[0].fileno();
+			if (logsock && fd == logsock.fileno()) {
+				let msg;
+				while ((msg = logsock.recv(2048, socket.MSG_DONTWAIT)) != null)
+					on_log(msg, t);
+				continue;
+			}
+			let name = by[fd], i = ifaces[name];
+			if (!i)
+				continue;
+			on_frames(i, t);
+			// An interface that went: closed, and looked for again.
+			if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
+				i.sock.close();
+				delete ifaces[name];
+			}
+		}
+	}
+}
+
+main();

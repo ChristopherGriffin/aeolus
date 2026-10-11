@@ -21,6 +21,6 @@ set -eu
 here=$(dirname "$0")
 
 cp -R "$here/files/." /
-chmod 0755 /usr/sbin/aeolus-agent /usr/sbin/aeolus-prober /usr/sbin/aeolus-rrm /usr/sbin/aeolus-setup /usr/libexec/aeolus-enroll /usr/libexec/aeolus-gi /usr/libexec/aeolus-packages /usr/libexec/aeolus-rollback /etc/init.d/aeolus
+chmod 0755 /usr/sbin/aeolus-agent /usr/sbin/aeolus-prober /usr/sbin/aeolus-rrm /usr/sbin/aeolus-journey /usr/sbin/aeolus-setup /usr/libexec/aeolus-enroll /usr/libexec/aeolus-gi /usr/libexec/aeolus-packages /usr/libexec/aeolus-rollback /etc/init.d/aeolus
 
 exec /usr/sbin/aeolus-setup "$@"

@@ -275,7 +275,7 @@ func anyList(v any) []string {
 func TestAgentCallsOnlyWhatIsDeclaredAbove(t *testing.T) {
 	decl := regexp.MustCompile(`^(?:export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	call := regexp.MustCompile(`(^|[^A-Za-z0-9_.$])([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/libexec/aeolus-gi"}
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/libexec/aeolus-gi"}
 	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
 	for _, m := range mods {
 		rel, _ := filepath.Rel(agentDir, m)
@@ -475,6 +475,36 @@ func TestUnbondCheckCatchesALostVLAN(t *testing.T) {
 	t.Fatal("no unbond case")
 }
 
+// A client coming online, as the AP records it (0118): what hostapd's log
+// lines mean, what the packet filter keeps and how each frame reads, and
+// the record made of an attempt. agent/test/journey.uc prints them, with
+// frames it makes itself and a small interpreter of the kernel's filter;
+// journey.out is what it must print.
+func TestAgentJourney(t *testing.T) {
+	ucode, err := exec.LookPath("ucode")
+	if err != nil {
+		t.Skip("ucode is not installed; CI builds it (0040)")
+	}
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", "journey.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "journey.uc"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Errorf("a client coming online is recorded other than journey.out says:\n%s", out)
+	}
+}
+
 // The check catches passphrases from the RADIUS server rendered badly
 // (0115): ppsk left off, so hostapd would take the network's own passphrase
 // from anyone; a key written beside it; and ppsk on a network that takes
@@ -521,7 +551,7 @@ func TestPassphrasesFromRADIUSCheck(t *testing.T) {
 // agent, on every state report, where ports_state had a local uplink).
 func TestAgentHidesNoModule(t *testing.T) {
 	imp := regexp.MustCompile(`^import \* as ([A-Za-z_][A-Za-z0-9_]*) from`)
-	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/libexec/aeolus-gi"}
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/libexec/aeolus-gi"}
 	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
 	for _, m := range mods {
 		rel, _ := filepath.Rel(agentDir, m)

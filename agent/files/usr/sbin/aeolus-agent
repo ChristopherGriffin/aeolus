@@ -35,6 +35,7 @@ const WIFI_WAIT = 150;     // seconds for the Wi-Fi to come back after an apply,
 const STATE_EVERY = 300;   // seconds between state reports
 const PROBES = '/var/run/aeolus/probes.json';   // what the prober found (0059)
 const PROBES_STALE = 60;   // seconds after which the prober's results are too old to report
+const CONNECTIONS = '/var/run/aeolus/connections.json';   // each client's attempt to come online, as aeolus-journey records it (0118)
 const PACKAGES_TOOL = '/usr/libexec/aeolus-packages';   // its packages, through the manager (0069)
 const PACKAGES_DONE = '/usr/lib/aeolus/packages';      // gone after a sysupgrade, until they are back
 const RESTORE_EVERY = 3600;   // seconds between tries to install them again
@@ -1398,6 +1399,41 @@ function report_state(running, token) {
 		fail('state report: %s', describe(res));
 }
 
+// send_connections sends the manager the records aeolus-journey made of
+// clients coming online (0118), the oldest first, 32 at a time, and notes
+// how far it got beside them, so the daemon lets those go. The manager
+// passes over a record it can't take; one it has no place for at all, an
+// older manager, is passed over here too, as keeping them helps no one.
+function send_connections(token) {
+	let c = null, sent = null;
+	try {
+		c = json(read(CONNECTIONS) ?? 'null');
+		sent = json(read(CONNECTIONS + '.sent') ?? 'null');
+	} catch (e) {
+	}
+	if (type(c?.list) != 'array' || type(c.boot) != 'int')
+		return;
+	let from = sent?.boot == c.boot && type(sent.seq) == 'int' ? sent.seq : 0;
+	let todo = filter(c.list, r => type(r?.seq) == 'int' && r.seq > from);
+	for (let i = 0; i < length(todo); i += 32) {
+		let batch = slice(todo, i, i + 32);
+		let res = http('POST', '/v1/ap/connections', { connections: map(batch, r => {
+			let x = { ...r };
+			delete x.seq;
+			return x;
+		}) }, token);
+		if (!(res.status in [200, 400, 404])) {
+			fail('clients\' connections: %s', describe(res));
+			return;
+		}
+		if (res.status != 200)
+			fail('clients\' connections: the manager took none of %d: %s', length(batch), describe(res));
+		else if (res.json?.refused > 0)
+			fail('clients\' connections: the manager refused %d of %d: %s', res.json.refused, length(batch), res.json.why ?? '');
+		store(CONNECTIONS + '.sent', sprintf('%J\n', { boot: c.boot, seq: batch[length(batch) - 1].seq }));
+	}
+}
+
 // keys_digest is a digest of the key agent's sections in the wireless config,
 // to tell whether something else, such as a revert, changed them since it
 // wrote them (0070).
@@ -1688,6 +1724,8 @@ function main() {
 			last_state = time();
 			hold_gi();
 		}
+		if (assigned)
+			send_connections(token);
 		if (time() >= next_packages && !fs.access(PACKAGES_DONE))
 			next_packages = packages(time());
 		want();

@@ -9,6 +9,8 @@ User=aeolus
 Group=aeolus
 # AEOLUS_HOSTS names the host in a self-signed certificate made on first start.
 # AEOLUS_KEEP_STATE_DAYS, if set, is how long AP state reports are kept (0039).
+# AEOLUS_KEEP_CONNECTION_DAYS, if set, is how long each client's attempts to come
+# online are kept, 90 days otherwise (0118).
 # AEOLUS_RELAY_LISTEN and AEOLUS_KNOCK_LISTEN move the DHCP listeners from
 # :67 (UDP) and :15002 (TCP), or turn either off with "off" (0068).
 # AEOLUS_FEED_CACHE and AEOLUS_FEED_CACHE_MB move and size the cache of
