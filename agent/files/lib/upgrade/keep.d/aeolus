@@ -8,6 +8,7 @@
 /usr/sbin/aeolus-agent
 /usr/sbin/aeolus-prober
 /usr/sbin/aeolus-rrm
+/usr/sbin/aeolus-journey
 /usr/sbin/aeolus-setup
 /usr/libexec/aeolus-enroll
 /usr/libexec/aeolus-gi

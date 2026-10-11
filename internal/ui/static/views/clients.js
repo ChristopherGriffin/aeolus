@@ -7,22 +7,25 @@
 // the page refreshes.
 
 import { h, link } from '../dom.js';
-import { post } from '../api.js';
+import { get, post } from '../api.js';
 import { flash } from '../refresh.js';
 import { bandName, ago, size } from '../format.js';
 import { configs } from './sections.js';
 import { ask, confirm } from './confirm.js';
 import { journeyPanel } from './journey.js';
+import { outcomeChip } from './connections.js';
 
 const DHCP = { ok: ['ok', 'DHCP'], static: ['idle', 'static'], none: ['bad', 'no address'], unknown: ['idle', 'not yet'] };
 
 // What the person chose, kept across the page's refreshes.
-const view = { network: '', ap: '', q: '', sort: 'connected', up: true };
+const view = { network: '', ap: '', q: '', sort: 'connected', up: true, which: 'now', find: '' };
 
 // clientsTab draws the tab: of one AP (ap: {ap, cfg}), or of every AP below
-// a folder's page.
+// a folder's page. It shows the clients on now, or everyone ever seen here
+// (0118); either way a client opens its journey and its connections.
 export async function clientsTab(ctx, page, ap) {
 	const rows = ap ? [ap] : await configs(page.hardware?.aps || []);
+	if (!rows.length) return h('div', { class: 'banner info' }, 'No APs here yet.');
 	const now = Date.now() / 1000;
 	const all = rows.flatMap(({ ap: a, cfg }) => {
 		const st = cfg?.condition?.state;
@@ -30,19 +33,79 @@ export async function clientsTab(ctx, page, ap) {
 		// Connected for as long as it was at the report, and since.
 		return (st?.report?.clients || []).map((c) => ({ ...c, ap: a, cfg, at: st.at, connected: c.connected + since }));
 	});
-	if (!all.length)
-		return h('div', { class: 'banner info' }, rows.length
-			? 'No Wi-Fi clients reported here. An AP whose agent is older than v0.33.0 doesn\'t report them.'
-			: 'No APs here yet.');
+	const under = ap ? ap.ap.id : page.node?.id;
 	const box = h('div');
 	// A block's preview, or a client's journey, opens here, above the
 	// table (0100, 0103).
 	const out = h('div', { class: 'edit' });
-	const draw = () => box.replaceChildren(table(ctx, all, !ap, draw, out));
+	const bar = h('div');
+	const note = h('span', { class: 'note' });
+	const which = h('span', { class: 'segmented', role: 'group', 'aria-label': 'Which clients' });
+	const draw = () => {
+		which.replaceChildren(...[['now', 'On now'], ['all', 'Everyone seen']].map(([k, name]) => h('button', {
+			type: 'button', class: view.which === k ? 'on' : '', 'aria-pressed': view.which === k, onclick: () => { view.which = k; draw(); },
+		}, name)));
+		if (view.which === 'all') {
+			note.textContent = 'every client an AP here has seen, the latest first; a client opens its journey and each time it came online';
+			everyone(under, !ap, bar, box, out);
+			return;
+		}
+		note.textContent = 'as each AP last reported; signal, rates and data refresh every few minutes; a client opens its journey';
+		bar.replaceChildren(all.length ? controls(all, !ap, draw) : '');
+		box.replaceChildren(all.length ? table(ctx, all, !ap, draw, out)
+			: h('p', { class: 'sub pad' }, 'No Wi-Fi client is on here now. An AP whose agent is older than v0.33.0 doesn\'t report them.'));
+	};
 	draw();
 	return h('section', { class: 'panel' },
-		h('h2', null, 'Wi-Fi clients', h('span', { class: 'note' }, 'as each AP last reported; signal, rates and data refresh every few minutes; a client opens its journey')),
-		controls(all, !ap, draw), out, box);
+		h('h2', null, h('span', { class: 'title' }, 'Wi-Fi clients', which), note),
+		bar, out, box);
+}
+
+// everyone draws every client ever seen below a node (0118), the latest
+// first, a hundred at a time: when and where each was last seen, what it
+// says of itself, and how its attempts to come online went.
+async function everyone(under, folder, bar, box, out) {
+	let rows = [], total = 0;
+	const count = h('span', { class: 'note' });
+	const q = h('input', { type: 'search', placeholder: 'Name, user, MAC or address', value: view.find, 'data-kept': true });
+	bar.replaceChildren(h('div', { class: 'filters' }, q, count));
+	const paint = (err) => {
+		count.textContent = err || `${total} client${total === 1 ? '' : 's'}`;
+		box.replaceChildren(h('table', { class: 'list clients' },
+			h('tr', null, ['Client', 'Last seen', folder && 'Last on', 'Network', 'Address', 'Came online', 'Last time'].filter(Boolean).map((t) => h('th', null, t))),
+			rows.map((c) => h('tr', null,
+				h('td', null, h('a', { href: '#', class: 'clientlink', title: 'Its journey, and each time it came online',
+					onclick: (e) => { e.preventDefault(); out.scrollIntoView({ block: 'nearest' }); journeyPanel(out, c.mac); } },
+				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac),
+				c.user && h('div', { class: 'sub' }, 'signed in as ', h('strong', null, c.user)),
+				(c.maker || c.private) && h('div', { class: 'sub' }, c.private ? 'private address' : c.maker)),
+				h('td', null, ago(c.last_seen), h('div', { class: 'sub' }, `first ${ago(c.first_seen)}`)),
+				folder && h('td', null, c.ap_name ? link(`/aps/${encodeURIComponent(c.ap)}`, c.ap_name) : c.ap),
+				h('td', null, c.ssid || c.network || '—'),
+				h('td', { class: 'mono' }, c.address || '—'),
+				h('td', null, c.attempts ? `${c.attempts} time${c.attempts === 1 ? '' : 's'}` : '—',
+					c.failed > 0 && h('div', { class: 'sub' }, h('span', { class: 'chip bad' }, `${c.failed} failed`))),
+				h('td', null, c.last_outcome ? outcomeChip({ outcome: c.last_outcome, stage: '', took_ms: 0 }, true) : '—'))),
+			!rows.length && h('tr', null, h('td', { colspan: folder ? 7 : 6, class: 'sub' }, err ? '' : view.find ? 'No client matches.' : 'No client has been seen here yet.'))),
+		rows.length < total && h('div', { class: 'below' }, h('button', { type: 'button', class: 'button', onclick: () => load(true) }, `More (${total - rows.length} left)`)));
+	};
+	const load = async (more) => {
+		try {
+			const r = await get(`/v1/clients?under=${encodeURIComponent(under || '')}&q=${encodeURIComponent(view.find)}&limit=100&offset=${more ? rows.length : 0}`);
+			rows = more ? rows.concat(r.clients) : r.clients;
+			total = r.total;
+			paint();
+		} catch (e) {
+			paint(e.message);
+		}
+	};
+	let timer;
+	q.addEventListener('input', () => {
+		view.find = q.value.trim();
+		clearTimeout(timer);
+		timer = setTimeout(() => load(false), 250);
+	});
+	await load(false);
 }
 
 function controls(all, folder, draw) {

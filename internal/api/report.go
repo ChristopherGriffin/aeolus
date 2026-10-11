@@ -1365,6 +1365,14 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err := s.conds.RecordUse(c.ap, len(req.Clients), moved); err != nil {
 		return err
 	}
+	// Every client it has is one more seen, or seen again (0118).
+	seen := make([]conditions.ClientSeen, 0, len(req.Clients))
+	for _, cl := range req.Clients {
+		seen = append(seen, conditions.ClientSeen{MAC: strings.ToLower(cl.MAC), Network: cl.Network, SSID: cl.SSID, Host: cl.Host, User: cl.User, Address: cl.Address})
+	}
+	if err := s.conds.SeeClients(c.ap, seen); err != nil {
+		return err
+	}
 	if err := s.conds.Running(c.ap, req.Version); err != nil {
 		return err
 	}

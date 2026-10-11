@@ -127,6 +127,19 @@ type journeyIn struct {
 	Hours int    `json:"hours,omitempty" jsonschema:"optional: how many hours back, 24 unless set, at most 720"`
 }
 
+type clientsIn struct {
+	Under  string `json:"under,omitempty" jsonschema:"optional: a Locations folder or AP; only clients last seen on the APs below it"`
+	Find   string `json:"find,omitempty" jsonschema:"optional: part of a MAC, a host name, a user or an address"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"optional: how many, 100 unless set, at most 500"`
+	Offset int    `json:"offset,omitempty" jsonschema:"optional: how many to pass over, to page through"`
+}
+
+type connectionsIn struct {
+	MAC    string `json:"mac" jsonschema:"the client's MAC, such as aa:bb:cc:00:11:22"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"optional: how many attempts, 50 unless set, at most 200"`
+	Before string `json:"before,omitempty" jsonschema:"optional: an attempt's started time, to page back from"`
+}
+
 type usageIn struct {
 	Under string `json:"under,omitempty" jsonschema:"optional: a Locations folder or AP; only the APs below it"`
 	Hours int    `json:"hours,omitempty" jsonschema:"optional: how many hours back, 24 unless set, at most 720"`
@@ -272,6 +285,36 @@ func server(c client, version string) *mcp.Server {
 				path += "?hours=" + fmt.Sprint(in.Hours)
 			}
 			out, err := c.call(ctx, "GET", path, nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "list_clients", Description: "Every Wi-Fi client ever seen whose last AP you can view (0118), the latest first, kept for good: each one's MAC, when it was first and last seen and on which AP and network, the host name it gives, who it signed in as, its address, how many times it tried to come online and how many of those failed, and how its latest attempt went. Find one by part of its MAC, host name, user or address.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in clientsIn) (*mcp.CallToolResult, any, error) {
+			q := url.Values{}
+			if in.Under != "" {
+				q.Set("under", in.Under)
+			}
+			if in.Find != "" {
+				q.Set("q", in.Find)
+			}
+			if in.Limit > 0 {
+				q.Set("limit", fmt.Sprint(in.Limit))
+			}
+			if in.Offset > 0 {
+				q.Set("offset", fmt.Sprint(in.Offset))
+			}
+			out, err := c.call(ctx, "GET", "/v1/clients?"+q.Encode(), nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_client_connections", Description: "One Wi-Fi client's attempts to come online, on the APs you can view (0118), by its MAC, the latest first, kept 90 days: each with its AP, network and band, when it began, how it went (online, connected, failed or left), the stage it reached or stopped at (auth, assoc, signin, key, dhcp, gateway, dns, internet) and why, and its record: every step the AP saw, with its time in ms after the start. The steps are hostapd's own words for authentication, association, an 802.1X sign-in and the keys; DHCP's messages with the server, gateway and DNS servers given; the ARP for the gateway and its answer; the first DNS lookups and answers; and the first TCP connection opened and answered. Also where the client was heard asking for networks before it joined, where band steering runs. A failed attempt is here though the client never appears in a state report.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in connectionsIn) (*mcp.CallToolResult, any, error) {
+			q := url.Values{}
+			if in.Limit > 0 {
+				q.Set("limit", fmt.Sprint(in.Limit))
+			}
+			if in.Before != "" {
+				q.Set("before", in.Before)
+			}
+			out, err := c.call(ctx, "GET", "/v1/clients/"+url.PathEscape(in.MAC)+"/connections?"+q.Encode(), nil)
 			return nil, out, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list_detected", Description: "Devices that may be unconfigured OpenWiFi APs (0034, 0068): possible when a relayed DHCP request asks for options 138 and 224, confirmed when the device knocked on the manager's option 224 listener; and the knocks no device could be matched to by address.", Annotations: readOnly},

@@ -79,6 +79,7 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 	hosts := fs.String("hosts", "", "comma-separated names and IPs for a self-signed certificate")
 	condsPath := fs.String("conditions", "", "conditions database (default: conditions.db beside the change log)")
 	keepDays := fs.Int("keep-state-days", defaultKeepDays(), "days to keep AP state reports (default from AEOLUS_KEEP_STATE_DAYS, else 30)")
+	keepConns := fs.Int("keep-connection-days", envInt("AEOLUS_KEEP_CONNECTION_DAYS", 90), "days to keep each client's attempts to come online (0118); the clients themselves are kept for good")
 	relayListen := fs.String("relay-listen", envOr("AEOLUS_RELAY_LISTEN", ":67"), "UDP address for relays' copies of DHCP requests, or off (0068)")
 	knockListen := fs.String("knock-listen", envOr("AEOLUS_KNOCK_LISTEN", ":15002"), "TCP address for the option 224 listener, or off (0068)")
 	feedDir := fs.String("feed-cache", envOr("AEOLUS_FEED_CACHE", ""), "directory for the cache of OpenWrt's feeds, or off (0069; default: feeds beside the change log)")
@@ -89,6 +90,9 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 	}
 	if *keepDays < 1 {
 		return nil, nil, nil, errors.New("-keep-state-days must be at least 1")
+	}
+	if *keepConns < 1 {
+		return nil, nil, nil, errors.New("-keep-connection-days must be at least 1")
 	}
 	if *condsPath == "" {
 		*condsPath = filepath.Join(filepath.Dir(*db), "conditions.db")
@@ -144,7 +148,7 @@ func newServer(args []string, stderr io.Writer) (*http.Server, func(), func() er
 		log.Close()
 		return nil, nil, nil, fmt.Errorf("DHCP listeners: %w", err)
 	}
-	stopTrim := trimStates(conds, time.Duration(*keepDays)*24*time.Hour)
+	stopTrim := trimStates(conds, time.Duration(*keepDays)*24*time.Hour, time.Duration(*keepConns)*24*time.Hour)
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	start := func() { listenDHCP(ctx, &wg, watch, *relayListen, *knockListen, cert) }
@@ -271,9 +275,10 @@ func defaultKeepDays() int {
 	return 30
 }
 
-// trimStates deletes state reports older than keep, now and every hour,
-// until the returned function is called.
-func trimStates(conds *conditions.Store, keep time.Duration) (stop func()) {
+// trimStates deletes state reports older than keep, and clients' attempts
+// to come online older than keepConns (0118), now and every hour, until the
+// returned function is called.
+func trimStates(conds *conditions.Store, keep, keepConns time.Duration) (stop func()) {
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	trim := func() {
@@ -281,6 +286,11 @@ func trimStates(conds *conditions.Store, keep time.Duration) (stop func()) {
 			slog.Error("trimming state reports", "err", err)
 		} else if n > 0 {
 			slog.Info("trimmed state reports", "deleted", n)
+		}
+		if n, err := conds.TrimConnections(keepConns); err != nil {
+			slog.Error("trimming clients' connections", "err", err)
+		} else if n > 0 {
+			slog.Info("trimmed clients' connections", "deleted", n)
 		}
 	}
 	go func() {

@@ -1,0 +1,93 @@
+filter narrow 38 steps, wide 38 steps
+a later fragment, in: narrow drops, wide drops; reads null
+arp answer, out: narrow keeps, wide keeps; reads { "kind": "arp", "mac": "72:bb:66:12:2a:94", "what": "answer", "address": "192.168.20.1", "holder": "d4:01:c3:00:00:01" }
+arp ask from another host, out: narrow drops, wide drops; reads null
+arp ask, in: narrow keeps, wide keeps; reads { "kind": "arp", "mac": "72:bb:66:12:2a:94", "what": "ask", "address": "192.168.20.61", "about": "192.168.20.1" }
+arp probe for a free address, in: narrow keeps, wide keeps; reads null
+dhcp ack, out: narrow keeps, wide keeps; reads { "kind": "dhcp", "mac": "72:bb:66:12:2a:94", "type": "ack", "address": "192.168.20.61", "server": "192.168.20.1", "router": "192.168.20.1", "dns": [ "192.168.20.1", "9.9.9.9" ], "host": null }
+dhcp discover, in: narrow keeps, wide keeps; reads { "kind": "dhcp", "mac": "72:bb:66:12:2a:94", "type": "discover", "address": null, "server": null, "router": null, "dns": [ ], "host": "Griffs-iPhone" }
+dns answer, out: narrow drops, wide keeps; reads { "kind": "dns", "id": 7, "answer": true, "name": "captive.apple.com", "type": "A", "rcode": "NOERROR", "records": 2, "mac": "72:bb:66:12:2a:94", "server": "192.168.20.1" }
+dns lookup over IPv6, in: narrow drops, wide keeps; reads { "kind": "dns", "id": 8, "answer": false, "name": "example.com", "type": "AAAA", "rcode": "NOERROR", "records": 0, "mac": "72:bb:66:12:2a:94", "server": "2001:db8:0:0:0:0:0:53", "own": "fe80:0:0:0:0:0:0:1" }
+dns lookup, in: narrow drops, wide keeps; reads { "kind": "dns", "id": 7, "answer": false, "name": "captive.apple.com", "type": "A", "rcode": "NOERROR", "records": 0, "mac": "72:bb:66:12:2a:94", "server": "192.168.20.1", "own": "192.168.20.61" }
+ntp, in: narrow drops, wide drops; reads null
+tcp answer, out: narrow drops, wide keeps; reads { "kind": "tcp", "mac": "72:bb:66:12:2a:94", "what": "answer", "address": "17.253.144.10", "port": 80 }
+tcp data, in: narrow drops, wide drops; reads null
+tcp open over IPv6, in: narrow drops, wide keeps; reads { "kind": "tcp", "mac": "72:bb:66:12:2a:94", "what": "open", "address": "2001:db8:0:0:0:0:0:53", "port": 443, "own": "fe80:0:0:0:0:0:0:1" }
+tcp open, in: narrow drops, wide keeps; reads { "kind": "tcp", "mac": "72:bb:66:12:2a:94", "what": "open", "address": "17.253.144.10", "port": 80, "own": "192.168.20.61" }
+too short: narrow drops, wide drops; reads null
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "auth", "what": "authenticated", "ok": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "assoc", "what": "associated", "ok": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "let on to the network", "ok": true, "on": true }
+log null
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "key handshake completed", "ok": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "key handshake completed", "ok": true }
+log null
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "key", "what": "wrong passphrase", "ok": false }
+log { "bss": "phy1-ap5", "mac": "72:bb:66:12:2a:94", "stage": "signin", "what": "signed in with PEAP", "ok": true }
+log { "bss": "phy1-ap5", "mac": "72:bb:66:12:2a:94", "stage": "signin", "what": "the server refused the sign-in", "ok": false }
+log { "bss": "phy1-ap0", "mac": "6c:ac:c2:60:aa:3f", "stage": "end", "what": "disassociated due to inactivity", "ok": null, "end": true }
+log { "bss": "phy1-ap0", "mac": "6c:ac:c2:60:aa:3f", "stage": "end", "what": "deauthenticated due to inactivity (timer DEAUTH/REMOVE)", "ok": null, "end": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "end", "what": "disconnected", "ok": null, "end": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": null, "what": "Station tried to associate before authentication (aid=-1 flags=0x0)", "ok": null }
+log null
+log null
+log null
+due before anything answers false
+due at once false, after the wait true
+online: online, stage internet, 302 ms, reason "", address "192.168.20.61", host "Griffs-iPhone"
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 210, "stage": "dhcp", "what": "asks for an address (discover)" }
+  { "t": 230, "stage": "dhcp", "what": "given 192.168.20.61", "ok": true, "server": "192.168.20.1", "router": "192.168.20.1", "dns": "192.168.20.1 9.9.9.9" }
+  { "t": 300, "stage": "gateway", "what": "asks who has 192.168.20.1, its gateway" }
+  { "t": 302, "stage": "gateway", "what": "192.168.20.1, its gateway, answers", "ok": true, "holder": "d4:01:c3:00:00:01" }
+  { "t": 350, "stage": "dns", "what": "asks 192.168.20.1 for captive.apple.com (A)" }
+  { "t": 362, "stage": "dns", "what": "192.168.20.1 answers captive.apple.com: 2 records", "ok": true, "ms": 12 }
+  { "t": 400, "stage": "internet", "what": "opens a connection to 17.253.144.10 port 80" }
+  { "t": 423, "stage": "internet", "what": "17.253.144.10 answers", "ok": true, "ms": 23 }
+due once it left true
+wrong passphrase: failed, stage key, 4200 ms, reason "wrong passphrase", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 5, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 1100, "stage": "key", "what": "wrong passphrase", "ok": false }
+  { "t": 4200, "stage": "end", "what": "deauthenticated due to local deauth request" }
+due while watched false, after true
+no DHCP: failed, stage dhcp, 31000 ms, reason "no answer to its 2 DHCP requests", address null, host "Griffs-iPhone"
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 200, "stage": "dhcp", "what": "asks for an address (discover)" }
+  { "t": 8200, "stage": "dhcp", "what": "asks for an address (discover)" }
+gateway silent: failed, stage gateway, 31000 ms, reason "192.168.20.1, its gateway, did not answer", address "192.168.20.61", host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 200, "stage": "dhcp", "what": "given 192.168.20.61", "ok": true, "server": "192.168.20.1", "router": "192.168.20.1", "dns": "192.168.20.1 9.9.9.9" }
+  { "t": 300, "stage": "gateway", "what": "asks who has 192.168.20.1, its gateway" }
+due after 10 s false, after 21 s true
+stopped after authenticating: failed, stage assoc, 21000 ms, reason "it was never let on", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+quiet: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+roamed in: online, stage dns, 120 ms, reason "", address "192.168.20.61", host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 4, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 31, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 32, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 100, "stage": "dns", "what": "asks 192.168.20.1 for captive.apple.com (A)" }
+  { "t": 120, "stage": "dns", "what": "192.168.20.1 answers captive.apple.com: 2 records", "ok": true, "ms": 20 }
+sign-in refused: failed, stage signin, 1600 ms, reason "the server refused the sign-in", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 10, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 20, "stage": "signin", "what": "sign-in started" }
+  { "t": 1500, "stage": "signin", "what": "the server refused the sign-in", "ok": false }
+  { "t": 1500, "stage": "signin", "what": "authentication failed - EAP type: 25 (PEAP)", "ok": false }
+  { "t": 1600, "stage": "end", "what": "disconnected" }
+many steps: 48 kept, 12 more

@@ -171,6 +171,7 @@ Each milestone ends in something checkable before the next starts.
 | [0115](docs/decisions/0115-passphrases-from-radius.md) | Each device's passphrase from the RADIUS server |
 | [0116](docs/decisions/0116-rrm-through-the-scan-radio.md) | Radio resource management listens through the scan radio |
 | [0117](docs/decisions/0117-two-four-at-forty.md) | 2.4 GHz at 40 MHz, and channels that do not overlap |
+| [0118](docs/decisions/0118-client-connections.md) | Every client, and each time it came online |
 
 ## Open questions
 

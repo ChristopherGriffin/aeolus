@@ -1,10 +1,12 @@
 // A Wi-Fi client's journey (0103): its sessions across the APs over the
 // last day, where it roamed, and what looks wrong, from the APs' state
-// reports. Opened from the Clients tab.
+// reports; and each attempt it made to come online, passed or failed, which
+// opens to its steps (0118). Opened from the Clients tab.
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
 import { bandName, ago } from '../format.js';
+import { connectionsSection } from './connections.js';
 
 const when = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
@@ -16,9 +18,9 @@ function span(s) {
 // journeyPanel shows a client's journey in box, for the last hours.
 export async function journeyPanel(box, mac, hours = 24) {
 	box.replaceChildren(h('div', { class: 'sub', 'data-editing': true }, 'Reading its journey…'));
-	let j;
+	let j, attempts;
 	try {
-		j = await get(`/v1/clients/${encodeURIComponent(mac)}?hours=${hours}`);
+		[j, attempts] = await Promise.all([get(`/v1/clients/${encodeURIComponent(mac)}?hours=${hours}`), connectionsSection(mac)]);
 	} catch (e) {
 		box.replaceChildren(h('div', { class: 'error' }, e.message));
 		return;
@@ -34,6 +36,8 @@ export async function journeyPanel(box, mac, hours = 24) {
 			: h('p', { class: 'sub' }, `First seen ${ago(j.first)}, last ${ago(j.last)} · ${sessions.length} session${sessions.length === 1 ? '' : 's'} · ${j.roams} roam${j.roams === 1 ? '' : 's'}`),
 		j.issues.length > 0 && h('ul', { class: 'issues' }, j.issues.map((i) => h('li', null,
 			h('span', { class: `chip ${i.severity === 'warning' ? 'warn' : ''}` }, i.severity === 'warning' ? 'Look at' : 'Note'), ' ', i.message))),
+		attempts,
+		sessions.length > 0 && h('h3', { class: 'subhead' }, 'Sessions', h('span', { class: 'note' }, 'where it was, from the APs\' reports every few minutes')),
 		sessions.length > 0 && h('table', { class: 'list' },
 			h('tr', null, ['From', 'For', 'AP', 'Network', 'Band', 'Signal', 'Rate', 'Retries', 'Address'].map((t) => h('th', null, t))),
 			sessions.map((s) => h('tr', null,

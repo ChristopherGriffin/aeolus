@@ -171,6 +171,21 @@ details.fold > summary a { flex-shrink: 0; font-size: 13px; }
 details.fold > table.list { margin-bottom: 8px; }
 .panel > details.fold:first-of-type { border-top: 0; }
 
+/* A client's connections (0118): each attempt a line that opens, its stages
+   in a row, then its steps. */
+.subhead { margin: 0; padding: 14px 20px 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line-2); }
+.subhead .note { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.attempt { padding: 2px 20px 6px 38px; }
+.attempt .rail { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
+.attempt .why { margin: 0 0 10px; font-size: 14px; }
+.attempt .why.bad { color: #6B1A13; font-weight: 600; }
+.attempt table.steps { margin: 0 0 8px; }
+.attempt table.steps td, .attempt table.steps th { padding: 6px 16px 6px 0; }
+.attempt table.steps td:first-child, .attempt table.steps td:nth-child(2) { white-space: nowrap; }
+.attempt table.steps tr.failed td { background: #FBEDEB; }
+.attemptlinks { padding: 0 20px 10px 38px; margin: 0; }
+p.pad { padding: 4px 20px 16px; margin: 0; }
+
 /* Changes */
 .change { display: grid; grid-template-columns: 70px 170px 110px minmax(0, 1fr); gap: 12px; padding: 10px 20px; border-top: 1px solid var(--line-2); font-size: 14px; align-items: baseline; }
 .change .seq { font-family: var(--mono); color: var(--muted); }
@@ -475,3 +490,7 @@ a.tile:hover { border-color: var(--accent); }
 .chanlist { display: flex; flex-wrap: wrap; gap: 6px; }
 /* A client's journey (0103). */
 .journey .issues { list-style: none; padding: 0; margin: 8px 0 12px; display: flex; flex-direction: column; gap: 6px; }
+/* The switch between the clients on now and everyone seen sits in the
+   panel's heading, and reads as it is written. */
+.panel > h2 .segmented button { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.panel > h2 .segmented button.on { font-weight: 600; }
