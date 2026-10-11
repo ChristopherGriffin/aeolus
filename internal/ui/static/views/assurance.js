@@ -1,6 +1,7 @@
 // The Assurance tab of a Locations folder (0123): the service tried from a
 // client's side. The APs here that have a scan radio are asked for a client
-// test (0121) on a schedule, each time another network, AP and band; what
+// test (0121) on a schedule, each time another network, AP and band, and
+// any AP for one over the wire (0128), where the folder says so; what
 // each thing tested comes to is a line, the failing first, that opens to
 // its latest test; and the latest tests follow, newest first. Before the
 // tests, how the clients' own attempts to come online went (0127): what
