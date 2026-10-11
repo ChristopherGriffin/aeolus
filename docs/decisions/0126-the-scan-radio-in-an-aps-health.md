@@ -18,7 +18,8 @@
 - **An AP with a scan radio says how it is doing in each report:** `scan_radio`.
   - **what airscan is at:** between jobs, looking at clients or for networks, sweeping, lent, binding its driver again; `waiting` where it has no radio to work, `missing` where airscan does not answer;
   - **how many networks its latest look heard,** and how long ago that was;
-  - **how often airscan bound its driver again,** how many of those did not bring it back, and how long ago the last was, where airscan says.
+  - **how often airscan bound its driver again,** how many times running that did not bring it back, which is none once it has, and how long ago the last was, where airscan says.
+  - **A client test that had to stop airscan** (0121), as one does with an airscan that lends no radio, is said as the radio being lent, not as airscan gone.
 - **It is shown with the AP's health** (0119): a tile, Scan radio, with the networks heard, what airscan is at, and how often it was brought back.
 - **It is an alert, a warning, only where nothing is putting it right:**
   - airscan does not answer;

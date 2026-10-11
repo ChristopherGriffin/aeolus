@@ -316,6 +316,8 @@ func fromReport(in Input, st *conditions.State) []Alert {
 	// and client tests borrow: its service not answering, no radio for it,
 	// or a radio that hears nothing and that nothing is bringing back. One
 	// airscan is binding again, or has just, is no alert: it sees to it.
+	// heal_failed counts the binds that failed running, and is none again
+	// once one works: more than none, the latest did not bring it back.
 	if sr := r.ScanRadio; sr != nil {
 		switch {
 		case sr.State == "missing":

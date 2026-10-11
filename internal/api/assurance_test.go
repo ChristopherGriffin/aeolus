@@ -189,6 +189,15 @@ func TestAssurance(t *testing.T) {
 	if ok := checks[1].(map[string]any); ok["on"] != scanner[0] || ok["failing"] != false || ok["passed"] != float64(1) {
 		t.Fatalf("the passing check = %v", ok)
 	}
+	// Each with its tests in brief, the oldest first.
+	runs := worst["runs"].([]any)
+	if len(runs) != 2 || runs[0].(map[string]any)["passed"] != false || runs[0].(map[string]any)["stage"] != "dhcp" ||
+		runs[0].(map[string]any)["at"].(string) > runs[1].(map[string]any)["at"].(string) {
+		t.Fatalf("the failing check's runs = %v", runs)
+	}
+	if r := checks[1].(map[string]any)["runs"].([]any); len(r) != 1 || r[0].(map[string]any)["passed"] != true || r[0].(map[string]any)["stage"] != nil {
+		t.Fatalf("the passing check's runs = %v", r)
+	}
 	if code, _ := f.do("GET", "/v1/assurance?hours=0", "griff", nil); code != 400 {
 		t.Fatalf("hours=0: %d", code)
 	}

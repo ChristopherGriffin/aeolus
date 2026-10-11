@@ -32,6 +32,40 @@ function tester(t) {
 	return `${t.name} is asked for one ${value('assurance.tests.every', t.every)}${t.speed ? ', with speed' : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
 }
 
+const secs = (ms) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+// span is the least, middle and most of a step's times over the tests that
+// took it, as "0.5 to 0.7 s, mostly 0.6 s"; nothing with fewer than two.
+function span(runs, key) {
+	const v = runs.map((r) => r[key]).filter((x) => x != null && x > 0).sort((a, b) => a - b);
+	if (v.length < 2) return null;
+	const mid = v[Math.floor(v.length / 2)];
+	return v[0] === v[v.length - 1] ? secs(mid) : `${secs(v[0])} to ${secs(v[v.length - 1])}, mostly ${secs(mid)}`;
+}
+
+// over is how a thing did over the time shown: a mark for each test, the
+// oldest first, green or red, which says when and how it went on hover; and
+// how long its steps took across those that passed.
+function over(c) {
+	const runs = c.runs || [];
+	if (runs.length < 2) return null;
+	const good = runs.filter((r) => r.passed);
+	const said = (r) => `${clock(r.at)}: ${r.passed ? `passed, let on in ${secs(r.joined_ms)}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}`
+		: `failed at ${r.stage}`}`;
+	const times = [['let on in', span(good, 'joined_ms')], ['an address in', span(good, 'dhcp_ms')], ['DNS in', span(good, 'dns_ms')]]
+		.filter(([, v]) => v).map(([k, v]) => `${k} ${v}`);
+	const speeds = good.filter((r) => r.down != null);
+	if (speeds.length > 1) {
+		const d = speeds.map((r) => r.down).sort((a, b) => a - b);
+		times.push(`${d[0]} to ${d[d.length - 1]} Mbit/s down`);
+	}
+	return h('div', { class: 'runs' },
+		h('span', { class: 'marks', role: 'img', 'aria-label': `${good.length} of ${runs.length} tests passed` },
+			runs.map((r) => h('span', { class: `mark ${r.passed ? 'ok' : 'bad'}`, title: said(r) }))),
+		h('span', { class: 'sub' }, `${runs.length} tests since ${clock(runs[0].at)}${times.length ? ` · ${times.join(' · ')}` : ''}`));
+}
+
 // check is one thing tested by one AP: a line that opens to its latest test.
 function check(ctx, c) {
 	const key = `${c.tester}/${c.network}/${c.on}/${c.band}`;
@@ -47,6 +81,7 @@ function check(ctx, c) {
 				tried > 0 && `${c.passed} of ${tried} passed`, c.last && `last ${ago(c.last.at)}`,
 				!c.scheduled && tried > 0 && 'no longer on the schedule'].filter(Boolean).join(' · ')),
 			status),
+		over(c),
 		c.last ? testOpened(c.last) : h('p', { class: 'sub' }, 'No test of it has been made yet.'));
 	d.addEventListener('toggle', () => (d.open ? open.add(key) : open.delete(key)));
 	return d;
