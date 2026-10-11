@@ -123,6 +123,7 @@ let captures = 0;     // captures kept by this run
 let held = [];        // attempts that failed, waiting for their captures: { a, r, at, until }, the first first
 let waiting = [];     // captures kept whose records are not yet written, by their names
 let spared = {};      // a radio that has no monitor interface for what its clients would lose to one
+let stopping = false; // asked to stop
 let heard = null;     // usteer's clients, when last asked, and when
 
 function ifindex(name) {
@@ -329,9 +330,14 @@ function keep_capture(a, at) {
 	// is written: sent before the record, the manager has no attempt for
 	// it, refuses it, and the agent lets it go.
 	let path = `${CAPTURES}/${id}.json.wait`;
-	if (fs.writefile(path, sprintf('%J\n', { id: id, mac: a.mac, bss: a.bss, started: a.wall, frames: c.frames, radio: c.radio, wire: c.wire, file: b64enc(c.file) })) == null)
+	let file = fs.open(path, 'w', 0o600);
+	let whole = file != null && file.write(sprintf('%J\n', { id: id, mac: a.mac, bss: a.bss, started: a.wall, frames: c.frames, radio: c.radio, wire: c.wire, file: b64enc(c.file) })) != null;
+	if (file)
+		file.close();
+	if (!whole) {
+		fs.unlink(path);
 		return null;
-	fs.chmod(path, 0o600);
+	}
 	push(waiting, id);
 	for (let mac, t in captured)
 		if (at - t >= CAPTURE_EVERY)
@@ -594,8 +600,10 @@ function stop() {
 }
 
 function main() {
-	signal('SIGTERM', stop);
-	signal('SIGINT', stop);
+	// Asked to stop, it does so at the top of its loop, with nothing half
+	// done: a record taken from those that wait and not yet given on.
+	signal('SIGTERM', () => { stopping = true; });
+	signal('SIGINT', () => { stopping = true; });
 	fs.mkdir('/var/run/aeolus');
 	// A capture a run before this kept and never wrote the record of: no
 	// attempt is the manager's to hang it on.
@@ -609,6 +617,8 @@ function main() {
 	let next_look = 0, next_write = 0;
 	log('watching clients come online');
 	while (true) {
+		if (stopping)
+			stop();
 		let at = now();
 		if (at >= next_look) {
 			look();

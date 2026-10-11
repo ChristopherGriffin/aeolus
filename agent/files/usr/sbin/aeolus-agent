@@ -1594,12 +1594,23 @@ function send_connections(token) {
 // else is tried again at the next poll.
 let capture_tries = {};   // a capture that did not go -> how often it was tried
 
-function send_captures(token) {
+// captures_waiting is the captures there are to send now, the oldest
+// first. Asked before the attempts' records are read: a capture is there
+// once its record is written, so each of these has its record among those
+// read after, and one kept in between is the next poll's.
+function captures_waiting() {
 	let order = (n) => map(split(n, /[-.]/), x => int(x));
-	let files = sort(filter(fs.lsdir(CAPTURES) ?? [], n => match(n, /^[0-9]+-[0-9]+\.json$/)), (x, y) => {
+	return sort(filter(fs.lsdir(CAPTURES) ?? [], n => match(n, /^[0-9]+-[0-9]+\.json$/)), (x, y) => {
 		let a = order(x), b = order(y);
 		return a[0] != b[0] ? (a[0] < b[0] ? -1 : 1) : a[1] - b[1];
 	});
+}
+
+function send_captures(token, files) {
+	// What is tried is counted only of the files still there.
+	for (let n in keys(capture_tries))
+		if (index(files, n) < 0)
+			delete capture_tries[n];
 	for (let n in slice(files, 0, 2)) {
 		let c = null;
 		try {
@@ -1612,16 +1623,15 @@ function send_captures(token) {
 			if (!(res.status in [200, 400, 404, 413])) {
 				fail('a capture of a failed attempt: %s', describe(res));
 				// Tried again at the next poll. One that will not go, three
-				// times over, with the manager there to be reached, as one
-				// too large for the link in the time it has, is let go, so
-				// it does not hold the rest and the agent's own work back.
-				// With the manager away they wait, as the records do.
-				if (res.status != 0 || !match(res.error ?? '', /cannot connect|connection error 1$/)) {
-					capture_tries[n] = (capture_tries[n] ?? 0) + 1;
-					if (capture_tries[n] >= 3) {
-						fs.unlink(`${CAPTURES}/${n}`);
-						delete capture_tries[n];
-					}
+				// times over, with the manager there, as one too large for
+				// the link in the time it has, is let go, so it does not
+				// hold the rest and the agent's own work back. They are
+				// sent only at a poll the manager answered: with it away
+				// they wait, as the records do.
+				capture_tries[n] = (capture_tries[n] ?? 0) + 1;
+				if (capture_tries[n] >= 3) {
+					fs.unlink(`${CAPTURES}/${n}`);
+					delete capture_tries[n];
 				}
 				return;
 			}
@@ -2022,8 +2032,11 @@ function main() {
 			last_state = time();
 			hold_gi();
 		}
-		if (assigned && send_connections(token))
-			send_captures(token);
+		if (assigned) {
+			let waiting = captures_waiting();
+			if (send_connections(token) && reached)
+				send_captures(token, waiting);
+		}
 		if (time() >= next_packages && !fs.access(PACKAGES_DONE))
 			next_packages = packages(time());
 		want();
