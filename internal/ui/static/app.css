@@ -247,6 +247,7 @@ details.fold > table.list { margin-bottom: 8px; }
 .runs .mark.bad { background: var(--bad, #c0392b); }
 /* A client test (0121): its form, and what it measured, a line each. */
 .testform .row { border-top: 0; }
+.testform .row[hidden] { display: none; }
 .testform .row .value { font-family: inherit; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .testform > .sub { padding: 0 20px 6px; }
 .testform > .actions { padding: 4px 20px 14px; }

@@ -706,9 +706,11 @@ type assuranceRun struct {
 	DNSMS     *int64    `json:"dns_ms,omitempty"`
 	Down      *float64  `json:"down,omitempty"`
 	Up        *float64  `json:"up,omitempty"`
-	// The same against the remote speed server (0134).
-	RemoteDown *float64 `json:"remote_down,omitempty"`
-	RemoteUp   *float64 `json:"remote_up,omitempty"`
+	// The same against the remote speed server (0134); and that it was
+	// asked for and could not be measured, which fails no test.
+	RemoteDown   *float64 `json:"remote_down,omitempty"`
+	RemoteUp     *float64 `json:"remote_up,omitempty"`
+	RemoteFailed bool     `json:"remote_failed,omitempty"`
 }
 
 // assuranceRunsMost is how many tests of a thing are given in brief.
@@ -738,6 +740,7 @@ func runOf(r testRecord) assuranceRun {
 	}
 	if d.SpeedRemote != nil {
 		out.RemoteDown, out.RemoteUp = d.SpeedRemote.Down, d.SpeedRemote.Up
+		out.RemoteFailed = d.SpeedRemote.Error != ""
 	}
 	return out
 }

@@ -74,9 +74,11 @@ export function input(path, f, current) {
 			h('option', { value: OWN, selected: current !== undefined && !named }, `${f['x-aeolus-own'] || 'Another'}…`));
 		const own = h('input', { type: 'text', maxlength: f.maxLength, value: current !== undefined && !named ? current : '', placeholder: f['x-aeolus-own-as'] || '', 'aria-label': f['x-aeolus-own'] || 'Another' });
 		const show = () => { own.hidden = sel.value !== OWN; };
-		sel.addEventListener('change', () => { show(); if (sel.value === OWN) own.focus(); });
+		sel.addEventListener('change', show);
 		show();
 		el = h('span', { class: 'choiceown' }, sel, own);
+		// A field that is locked is its two controls, locked.
+		Object.defineProperty(el, 'disabled', { get: () => sel.disabled, set: (v) => { sel.disabled = v; own.disabled = v; } });
 		read = () => {
 			if (sel.value === '') return undefined;
 			if (sel.value !== OWN) return sel.value;

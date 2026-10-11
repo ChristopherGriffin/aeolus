@@ -25,8 +25,10 @@ var actionKinds = map[string]bool{"locate": false, "restart-wifi": false, "reboo
 // addAction asks an AP to do something once (0104): POST /v1/aps/{ap}/actions
 // {kind, target?}, target being the client's MAC for disconnect (0107). A
 // client-test (0121) says what to test instead: {kind, network, on?,
-// band?}, one of the AP's networks, the AP whose networks to join, and a
-// band. It needs operator on the AP, as changing it does (0030).
+// band?, remote?}, one of the AP's networks, the AP whose networks to join,
+// a band, and, false, that the speed to the remote server is not measured
+// (0134), as on a link where bytes cost. It needs operator on the AP, as
+// changing it does (0030).
 func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error {
 	id := hierarchy.NodeID(r.PathValue("ap"))
 	t := c.state.Org.Locations
@@ -42,6 +44,7 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		Network string `json:"network"`
 		On      string `json:"on"`
 		Band    string `json:"band"`
+		Remote  *bool  `json:"remote"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		return err
@@ -56,15 +59,15 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 	}
 	var params json.RawMessage
 	if body.Kind == "client-test" {
-		ask, err := s.clientTestFor(c, id, body.Network, body.On, body.Band)
+		ask, err := s.clientTestFor(c, id, body.Network, body.On, body.Band, body.Remote == nil || *body.Remote)
 		if err != nil {
 			return err
 		}
 		if params, err = json.Marshal(ask); err != nil {
 			return err
 		}
-	} else if body.Network != "" || body.On != "" || body.Band != "" {
-		return badRequest("network, on and band are a client-test's")
+	} else if body.Network != "" || body.On != "" || body.Band != "" || body.Remote != nil {
+		return badRequest("network, on, band and remote are a client-test's")
 	}
 	a, err := s.conds.AddActionWith(id, body.Kind, body.Target, string(c.actor), params)
 	if err != nil {

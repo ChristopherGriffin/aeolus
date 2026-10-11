@@ -204,7 +204,7 @@ export function testLine(a, name, from) {
 export const testChip = (a) => chip(a);
 export const testOpened = (a, name) => opened(a, name);
 // What the form last had chosen, so a redraw does not reset it.
-const chosen = { network: '', on: '', band: '' };
+const chosen = { network: '', on: '', band: '', remote: true };
 
 // clientTestPanel is the panel: the form, for someone who may ask, and the
 // tests asked of the AP, latest first. cfg is the AP's config with its
@@ -251,6 +251,11 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 	const run = h('button', { type: 'button', class: 'button primary' });
 	const how = h('div', { class: 'sub' });
 	const where = h('span');
+	// The speed to the remote server can be left out of one test (0134): it
+	// moves a good deal over the internet link.
+	const far = h('input', { type: 'checkbox', class: 'switch', role: 'switch', checked: chosen.remote, 'aria-label': 'Measure the speed to the remote server too' });
+	const farRow = h('div', { class: 'row' }, h('div', { class: 'label' }, 'Remote speed'), h('div', { class: 'value' }, far));
+	far.addEventListener('change', () => { chosen.remote = far.checked; paint(); });
 	const paint = () => {
 		bandSeg.replaceChildren(...bands.map(([v, label]) => h('button', {
 			type: 'button', class: chosen.band === v ? 'on' : '', 'aria-pressed': chosen.band === v, onclick: () => { chosen.band = v; paint(); },
@@ -259,8 +264,9 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 		const wired = chosen.band === WIRE;
 		// Over the wire it is made from this AP, and joins no other.
 		where.replaceChildren(...(wired ? [' from this AP’s uplink '] : [' on ', on, ' ']));
+		farRow.hidden = wired || !remote;
 		how.textContent = wired ? 'From its uplink, on the network’s VLAN or into its tunnel, it asks for an address, its gateway and a name, as a client would. No radio is used, nothing is joined, and it takes a few seconds.'
-			: speed || remote ? `Its speed is measured against ${[speed && `${String(speed).replace(/^[a-z]+:\/\//, '')}, the local speed server`, remote && `${String(remote).replace(/^[a-z]+:\/\//, '')}, the remote one`].filter(Boolean).join(', and ')}, as set for this AP.`
+			: speed || remote ? `Its speed is measured against ${[speed && `${String(speed).replace(/^[a-z]+:\/\//, '')}, the local speed server`, remote && chosen.remote && `${String(remote).replace(/^[a-z]+:\/\//, '')}, the remote one`].filter(Boolean).join(', and ') || 'no server'}, as set for this AP.`
 				: 'No speed server is set here (System › Client tests, or its folder’s Assurance tab), so it measures no speed: it joins, takes an address, and tries its gateway and DNS.';
 		run.disabled = busy || !net.value;
 		run.textContent = busy ? 'A test is under way' : 'Run the test';
@@ -276,6 +282,9 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 			const body = { kind: 'client-test', network: net.value };
 			if (on.value && !wired) body.on = on.value;
 			if (chosen.band) body.band = chosen.band;
+			// The remote speed moves a good deal over the internet link: it
+			// can be left out of one test (0134).
+			if (remote && !wired && !chosen.remote) body.remote = false;
 			await post(`/v1/aps/${enc}/actions`, body);
 			flash(wired ? `Test over the wire asked of ${page.node.name}: it starts on its next poll, within about a minute, and its result comes with the one after.`
 				: `Client test asked of ${page.node.name}: it starts on its next poll, within about a minute, and takes one to three.`, 60);
@@ -306,6 +315,7 @@ export async function clientTestPanel(ctx, id, page, cfg, canAct) {
 	const form = canAct && (nets.length
 		? h('div', { class: 'testform' },
 			h('div', { class: 'row' }, h('div', { class: 'label' }, 'Test'), h('div', { class: 'value' }, net, where, bandSeg)),
+			farRow,
 			how,
 			h('div', { class: 'actions' }, run, ' ', all))
 		: h('p', { class: 'sub' }, 'This AP offers no network to test.'));

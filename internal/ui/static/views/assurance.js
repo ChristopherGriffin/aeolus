@@ -114,7 +114,7 @@ function span(runs, key) {
 }
 
 // ran says one test of a thing: when, and how it went.
-const ran = (r) => `${clock(r.at)}: ${r.passed ? `passed${r.joined_ms ? `, let on in ${secs(r.joined_ms)}` : ''}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}${r.remote_down != null ? `, ${r.remote_down} down / ${r.remote_up ?? '?'} up Mbit/s remote` : ''}`
+const ran = (r) => `${clock(r.at)}: ${r.passed ? `passed${r.joined_ms ? `, let on in ${secs(r.joined_ms)}` : ''}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}${r.remote_down != null ? `, ${r.remote_down} down / ${r.remote_up ?? '?'} up Mbit/s remote` : r.remote_failed ? ', its remote speed not measured' : ''}`
 	: `failed at ${r.stage}`}`;
 
 // over is how a thing did over the time shown: a mark for each test, the
@@ -132,6 +132,9 @@ function over(c) {
 		const d = good.filter((r) => r[key] != null).map((r) => r[key]).sort((a, b) => a - b);
 		if (d.length > 1) times.push(`${d[0]} to ${d[d.length - 1]} ${said}`);
 	}
+	// The remote speed asked for and not measured fails no test: said here.
+	const unmeasured = runs.filter((r) => r.remote_failed).length;
+	if (unmeasured) times.push(`the remote speed not measured in ${unmeasured}`);
 	return h('div', { class: 'runs' },
 		h('span', { class: 'marks', role: 'img', 'aria-label': `${good.length} of ${runs.length} tests passed` },
 			runs.map((r) => h('span', { class: `mark ${r.passed ? 'ok' : 'bad'}`, title: ran(r) }))),

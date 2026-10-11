@@ -418,6 +418,10 @@ type wayTypical struct {
 	MS      *float64 `json:"ms,omitempty"`
 	Low     *float64 `json:"low,omitempty"`
 	High    *float64 `json:"high,omitempty"`
+	// Bad is how many ways it went badly in and went on all the same, as
+	// a speed to the remote server that could not be measured (0134): they
+	// neither passed it nor stopped there.
+	Bad int `json:"bad,omitempty"`
 	// Parts are the same of the point's parts (0133), over the ways that
 	// had them.
 	Parts []wayTypical `json:"parts,omitempty"`
@@ -429,13 +433,14 @@ type wayTally struct {
 	times   map[string][]float64
 	passed  map[string]int
 	stopped map[string]int
+	bad     map[string]int
 	n       int
 	// parts are the tallies of the points that some way had in parts.
 	parts map[string]*wayTally
 }
 
 func newWayTally(kind wayKind) *wayTally {
-	return &wayTally{kind: kind, times: map[string][]float64{}, passed: map[string]int{}, stopped: map[string]int{}}
+	return &wayTally{kind: kind, times: map[string][]float64{}, passed: map[string]int{}, stopped: map[string]int{}, bad: map[string]int{}}
 }
 
 // add adds one way, and the point it stopped at, where it failed. A point
@@ -450,6 +455,9 @@ func (t *wayTally) add(way []wayPoint, stopped string) {
 			if p.MS != nil {
 				t.times[p.K] = append(t.times[p.K], *p.MS)
 			}
+		}
+		if p.State == "bad" && p.K != stopped {
+			t.bad[p.K]++
 		}
 		if len(p.Parts) == 0 {
 			continue
@@ -488,8 +496,8 @@ func (t *wayTally) typical() []wayTypical {
 	}
 	out := []wayTypical{}
 	for _, k := range t.kind.order {
-		p := wayTypical{K: k, Passed: t.passed[k], Stopped: t.stopped[k]}
-		if p.Passed == 0 && p.Stopped == 0 && t.kind.optional[k] {
+		p := wayTypical{K: k, Passed: t.passed[k], Stopped: t.stopped[k], Bad: t.bad[k]}
+		if p.Passed == 0 && p.Stopped == 0 && p.Bad == 0 && t.kind.optional[k] {
 			continue
 		}
 		if v := t.times[k]; len(v) > 0 {

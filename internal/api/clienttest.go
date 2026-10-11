@@ -229,10 +229,11 @@ func testerOf(c call, own map[string]hierarchy.NodeID, mac string) string {
 // clientTestFor makes what an AP is told to test from what a person asked:
 // one of the AP's own networks, by its ID; on, the AP whose networks to
 // join, the testing AP itself among them, or none for the strongest other
-// AP; and a band, or none.
-func (s *Server) clientTestFor(c call, ap hierarchy.NodeID, network, on, band string) (clientTestAsk, error) {
+// AP; a band, or none; and whether the speed to the remote server is
+// measured too, where one is set (0134).
+func (s *Server) clientTestFor(c call, ap hierarchy.NodeID, network, on, band string, remote bool) (clientTestAsk, error) {
 	t := c.state.Org.Locations
-	return s.clientTestOf(c.state, ap, network, on, band, speedWant{Local: true, Remote: true}, func(id hierarchy.NodeID) bool {
+	return s.clientTestOf(c.state, ap, network, on, band, speedWant{Local: true, Remote: remote}, func(id hierarchy.NodeID) bool {
 		return roleOn(c, change.Locations, t, id) >= access.Viewer
 	})
 }

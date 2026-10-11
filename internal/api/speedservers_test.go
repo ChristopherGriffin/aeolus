@@ -107,17 +107,54 @@ func TestATestMeasuresBothSpeeds(t *testing.T) {
 		}
 	}
 
-	// The setting takes a public server's name, or a URL of one's own, and
-	// nothing else.
+	// The setting takes a name, or a URL of one's own, and nothing else. A
+	// name the manager's list has not is taken too: one it had, and has no
+	// longer, must not hold an AP's config back.
 	for v, good := range map[string]bool{"cloudflare": true, "librespeed-atlanta": true, "tele2": true, "http://speed.example.net:3000": true,
-		"ookla": false, "librespeed-mars": false, "https://speed.example.net": false, "Cloudflare": false, "http://speed.example.net:99999": false} {
+		"a-server-of-later": true, "https://speed.example.net": false, "Cloudflare": false, "two words": false, "http://speed.example.net:99999": false} {
 		if code, b := set("system.speed_server_remote", v); (code == 200) != good {
 			t.Errorf("a remote speed server of %q: %d %v", v, code, b)
 		}
 	}
 	must("system.speed_server", "http://192.168.20.106")
+	// Such a name measures nothing, and holds nothing back.
+	must("system.speed_server_remote", "a-server-of-later")
+	say()
+	if _, _, cfg := f.apDo("GET", "/v1/ap/config", scanner[1], nil, nil); cfg["config"] == nil {
+		t.Errorf("a name the list has not held the AP's config: %v", cfg)
+	}
+	if code, body := f.do("POST", "/v1/aps/"+scanner[0]+"/actions", "griff", map[string]any{"kind": "client-test", "network": "sweet", "on": scanner[0], "band": "5g"}); code != 200 {
+		t.Fatalf("asked with a name the list has not: %d %v", code, body)
+	} else if p := body["action"].(map[string]any)["params"].(map[string]any); p["speed"] != "http://192.168.20.106" || p["speed_remote"] != nil {
+		t.Errorf("asked with a name the list has not: %v", p)
+	} else {
+		// Done, so the next can be asked.
+		f.apDo("GET", "/v1/ap/actions", scanner[1], nil, nil)
+		id := fmt.Sprintf("%d", int64(body["action"].(map[string]any)["id"].(float64)))
+		ok := map[string]any{"v": 1, "ssid": "Sweet Spot", "band": "5g", "bssid": "02:00:00:00:00:6a", "outcome": "passed", "stage": "done", "reason": "", "steps": []any{}}
+		if code, _, b := f.apDo("POST", "/v1/ap/actions/"+id, scanner[1], map[string]any{"ok": true, "result": "passed", "detail": ok}, nil); code != 200 {
+			t.Fatalf("done: %d %v", code, b)
+		}
+	}
 	must("system.speed_server_remote", "cloudflare")
 	say()
+	// Asked by hand without the remote speed, as on a link where bytes
+	// cost: the local alone.
+	if code, body := f.do("POST", "/v1/aps/"+scanner[0]+"/actions", "griff", map[string]any{"kind": "client-test", "network": "sweet", "on": scanner[0], "band": "5g", "remote": false}); code != 200 {
+		t.Fatalf("asked without the remote speed: %d %v", code, body)
+	} else if p := body["action"].(map[string]any)["params"].(map[string]any); p["speed"] != "http://192.168.20.106" || p["speed_remote"] != nil {
+		t.Errorf("asked without the remote speed: %v", p)
+	} else {
+		f.apDo("GET", "/v1/ap/actions", scanner[1], nil, nil)
+		id := fmt.Sprintf("%d", int64(body["action"].(map[string]any)["id"].(float64)))
+		ok := map[string]any{"v": 1, "ssid": "Sweet Spot", "band": "5g", "bssid": "02:00:00:00:00:6a", "outcome": "passed", "stage": "done", "reason": "", "steps": []any{}}
+		if code, _, b := f.apDo("POST", "/v1/ap/actions/"+id, scanner[1], map[string]any{"ok": true, "result": "passed", "detail": ok}, nil); code != 200 {
+			t.Fatalf("done: %d %v", code, b)
+		}
+	}
+	if code, body := f.do("POST", "/v1/aps/"+scanner[0]+"/actions", "griff", map[string]any{"kind": "locate", "remote": false}); code != 400 {
+		t.Errorf("remote said of what is no test: %d %v", code, body)
+	}
 
 	// Asked by hand: both.
 	type params struct {
@@ -200,8 +237,14 @@ func TestATestMeasuresBothSpeeds(t *testing.T) {
 	if code, _, b := f.apDo("POST", "/v1/ap/actions/"+next, scanner[1], map[string]any{"ok": true, "result": "passed", "detail": bad}, nil); code != 400 {
 		t.Errorf("a remote speed below nothing: %d %v", code, b)
 	}
-	// It could not be measured: the test passed all the same, and says why.
+	// It could not be measured: the test passed all the same, and says why;
+	// its point went badly, and the way went on.
 	bad["speed_remote"] = map[string]any{"server": "Cloudflare", "error": "its name was not found"}
+	bad["ssid"], bad["band"], bad["bssid"], bad["client"] = "Sweet Spot", "5g", "02:00:00:00:00:6a", "02:00:00:00:00:f0"
+	bad["steps"] = []any{
+		map[string]any{"t": 636, "stage": "key", "what": "let on to the network", "ok": yes},
+		map[string]any{"t": 15240, "stage": "speed", "what": "192.168.20.254 has no address for speed.cloudflare.com", "ok": false, "k": "remote"},
+	}
 	if code, _, b := f.apDo("POST", "/v1/ap/actions/"+next, scanner[1], map[string]any{"ok": true, "result": "passed", "detail": bad}, nil); code != 200 {
 		t.Errorf("a remote speed not measured: %d %v", code, b)
 	}
@@ -262,5 +305,28 @@ func TestATestMeasuresBothSpeeds(t *testing.T) {
 	}
 	if got, want := strings.Join(remote, " "), "480/39"; got != want {
 		t.Errorf("the remote speeds in brief = %q, want %q", got, want)
+	}
+	// And the one whose remote speed was asked for and not measured says
+	// so, in brief and in what the thing's tests come to: the point went
+	// badly in one, and stopped none.
+	var unmeasured, typical []string
+	for _, c := range view["checks"].([]any) {
+		for _, r := range c.(map[string]any)["runs"].([]any) {
+			if r.(map[string]any)["remote_failed"] == true {
+				unmeasured = append(unmeasured, fmt.Sprint(r.(map[string]any)["passed"]))
+			}
+		}
+		way, _ := c.(map[string]any)["way"].([]any)
+		for _, p := range way {
+			if p := p.(map[string]any); p["k"] == "remote" {
+				typical = append(typical, fmt.Sprintf("passed %v, stopped %v, bad %v", p["passed"], p["stopped"], p["bad"]))
+			}
+		}
+	}
+	if got, want := strings.Join(unmeasured, " "), "true"; got != want {
+		t.Errorf("tests whose remote speed was not measured = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(typical, "; "), "passed 1, stopped 0, bad 1"; got != want {
+		t.Errorf("the remote point over its tests = %q, want %q", got, want)
 	}
 }
