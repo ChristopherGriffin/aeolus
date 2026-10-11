@@ -14,6 +14,20 @@ import * as ct from 'aeolus.clienttest';
 printf('wanted %J\n', ct.wanted({ ssid: 'Aeolus Lab', bssids: ['20:05:B6:01:8B:EC'], band: '5g', speed: 'http://192.168.20.106', dns_name: 'openwrt.org' }));
 printf('wanted least %J\n', ct.wanted({ ssid: 'Aeolus Lab' }));
 printf('wanted named server %J\n', ct.wanted({ ssid: 'x', speed: 'http://zephyrus.symtus.com:3000/' })?.speed);
+// A remote speed server too (0134): its host, its port, and the paths that
+// give bytes and take them; how many bytes a POST carries, where it says.
+let far = { name: 'Cloudflare', host: 'speed.cloudflare.com', port: 80, down: '/__down?bytes=50000000', up: '/__up', body: 4194304 };
+printf('wanted remote %J\n', ct.wanted({ ssid: 'x', speed: 'http://192.168.20.106', speed_remote: far })?.speed_remote);
+printf('wanted remote alone, unnamed %J\n', ct.wanted({ ssid: 'x', speed_remote: { host: 'speed.example.net', port: 8080, down: '/downloading', up: '/upload' } })?.speed_remote);
+// One whose host or paths are not plain is not used, and the test is one
+// all the same: they go into the requests as they are, so nothing may
+// follow what was looked at, as after a zero byte.
+for (let bad in [{ ...far, host: 'bad host' }, { ...far, host: 'h\r\nX: y' }, { ...far, host: 'speed.example.net\u0000\r\nX: y' }, { ...far, port: 0 },
+	{ ...far, port: '80' }, { ...far, down: 'no-slash' }, { ...far, down: '/a b' }, { ...far, up: '/up\r\nHost: other' },
+	{ ...far, up: '/u\u0000\r\nX-Injected: 1\r\n\r\nGET /second HTTP/1.1' }, { ...far, up: null }, { ...far, body: 12 }, { ...far, body: 99999999 }, 'cloudflare']) {
+	let w = ct.wanted({ ssid: 'x', speed_remote: bad });
+	printf('wanted remote %J: a test %J, its remote server %J\n', bad, w != null, w?.speed_remote);
+}
 for (let bad in [null, {}, { ssid: '' }, { ssid: 'x', bssids: ['not one'] }, { ssid: 'x', band: '60g' }, { ssid: 'x', speed: 'https://secure.example' },
 	{ ssid: 'x', speed: 'http://host:99999' }, { ssid: 'x', speed: 'http://host/path' }, { ssid: 'x', dns_name: 'bad name' },
 	{ ssid: 'a name of more than thirty-two bytes' }])
@@ -184,5 +198,10 @@ show('gateway silent', { ...found(), gateway: { address: '192.168.20.1', sent: 3
 show('DNS silent', { ...found(), dns: { server: '192.168.20.254', name: 'example.com' } });
 show('DNS has no such name', { ...found(), dns: { server: '192.168.20.254', name: 'nowhere.invalid', rcode: 3, answers: 0, ms: 12 } });
 show('speed server unreachable', { ...found(), speed: { server: 'http://192.168.20.106', error: 'Connection refused' } });
+// The remote server's speed is said beside the local one's; that it could
+// not be measured fails no test (0134).
+show('both speeds', { ...found(), speed_remote: { server: 'Cloudflare', down: 480, up: 39 } });
+show('the remote speed alone', { ...found(), speed: null, speed_remote: { server: 'Cloudflare', down: 480, up: 39 } });
+show('the remote server unreachable', { ...found(), speed_remote: { server: 'Cloudflare', error: 'its name was not found' } });
 show('a reason that is not plain text', { stopped: { stage: 'find', why: 'caf\xc3\xa9 ' + join('', map([1, 2, 3, 4, 5, 6, 7, 8], x => 'a long reason that goes on and on and on, ')) } });
 show('the sign-in refused', { stopped: { stage: 'signin', why: 'the sign-in was refused' } });

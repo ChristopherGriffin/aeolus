@@ -59,6 +59,36 @@ export function input(path, f, current) {
 			current === undefined && h('option', { value: '' }, '—'),
 			choices.map((v) => h('option', { value: String(v), selected: v === current }, label(v))));
 		read = () => (el.value === '' ? undefined : choices.find((v) => String(v) === el.value));
+	} else if (Array.isArray(f['x-aeolus-choices'])) {
+		// One of some named choices, or a value of one's own: a remote
+		// speed server (0134), a public one by its name or one's own by its
+		// URL. The pulldown has the choices, and one's own last, which shows
+		// a field to write it in; and none, where none is set: one that is
+		// set is taken away as any setting is, where it is shown (0046).
+		const choices = f['x-aeolus-choices'];
+		const OWN = '\u0000own';
+		const named = choices.some(([v]) => v === current);
+		// A name the list has not, as one a later manager had: shown as
+		// that, and it measures nothing. One's own is a URL.
+		const stray = typeof current === 'string' && !named && !current.includes('://');
+		const sel = h('select', null,
+			current === undefined && h('option', { value: '' }, 'none'),
+			stray && h('option', { value: current, selected: true }, `${current} (not in the list: it measures nothing)`),
+			choices.map(([v, label]) => h('option', { value: v, selected: v === current }, label)),
+			h('option', { value: OWN, selected: current !== undefined && !named && !stray }, `${f['x-aeolus-own'] || 'Another'}…`));
+		const own = h('input', { type: 'text', maxlength: f.maxLength, value: current !== undefined && !named && !stray ? current : '', placeholder: f['x-aeolus-own-as'] || '', 'aria-label': f['x-aeolus-own'] || 'Another' });
+		const show = () => { own.hidden = sel.value !== OWN; };
+		sel.addEventListener('change', show);
+		show();
+		el = h('span', { class: 'choiceown' }, sel, own);
+		// A field that is locked is its two controls, locked.
+		Object.defineProperty(el, 'disabled', { get: () => sel.disabled, set: (v) => { sel.disabled = v; own.disabled = v; } });
+		read = () => {
+			if (sel.value === '') return undefined;
+			if (sel.value !== OWN) return sel.value;
+			if (own.value.trim() === '') throw new Error(`write it${f['x-aeolus-own-as'] ? `, as ${f['x-aeolus-own-as']}` : ''}, or choose another`);
+			return own.value.trim();
+		};
 	} else if (f.enum) {
 		el = h('select', null,
 			current === undefined && h('option', { value: '' }, '—'),

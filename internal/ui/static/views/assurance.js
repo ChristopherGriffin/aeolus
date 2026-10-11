@@ -21,12 +21,12 @@ import { systemEditor } from './system.js';
 import { testChip, testLine, testOpened } from './clienttest.js';
 import { typicalPath } from './way.js';
 
-// What the tab sets: how often, which tests (0131), with speed or without,
-// and the server a speed is measured against, which is the APs' own
-// setting (0121). The setting before which tests, over the wire too, is
+// What the tab sets: how often, which tests (0131), with its speeds or
+// without, and the servers a speed is measured against, the local one and
+// the remote one (0134), which are the APs' own settings (0121). The setting before which tests, over the wire too, is
 // set no more: it is shown with the others where a folder has it still,
 // under Schedule, and is taken away there as any setting is (0046).
-const SET = ['assurance.tests.every', 'assurance.tests.over', 'assurance.tests.speed', 'system.speed_server'];
+const SET = ['assurance.tests.every', 'assurance.tests.over', 'assurance.tests.speed', 'system.speed_server', 'assurance.tests.speed_remote', 'system.speed_server_remote'];
 const FIELDS = [...SET, 'assurance.tests.wire'];
 const SECTIONS = [['Client tests on a schedule', SET]];
 // The tests a round is asked for (0131), as the choice names them, and as
@@ -84,7 +84,7 @@ function tester(t) {
 	if (!t.things && !t.round) return `${t.name} ${how}, and offers no network a test can try.`;
 	if (!t.every) return `${t.name} ${how}, and is not asked for tests on a schedule.${asked}`;
 	if (!t.things) return `${t.name} ${how}, and has nothing its schedule can test.${asked}`;
-	return `${t.name} ${how}. It is asked for one test ${value('assurance.tests.every', t.every)}${t.speed && air ? ', with speed through the air' : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
+	return `${t.name} ${how}. It is asked for one test ${value('assurance.tests.every', t.every)}${air && (t.speed || t.speed_remote) ? `, with its ${[t.speed && 'local', t.speed_remote && 'remote'].filter(Boolean).join(' and ')} speed through the air` : ''}: ${t.things} thing${t.things === 1 ? '' : 's'} in turn, so each about every ${round(t)}.`;
 }
 
 // testerRow is an AP that tests, as a line: its name, the tests it is asked
@@ -114,7 +114,7 @@ function span(runs, key) {
 }
 
 // ran says one test of a thing: when, and how it went.
-const ran = (r) => `${clock(r.at)}: ${r.passed ? `passed${r.joined_ms ? `, let on in ${secs(r.joined_ms)}` : ''}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}`
+const ran = (r) => `${clock(r.at)}: ${r.passed ? `passed${r.joined_ms ? `, let on in ${secs(r.joined_ms)}` : ''}${r.dhcp_ms ? `, an address in ${secs(r.dhcp_ms)}` : ''}${r.down != null ? `, ${r.down} down / ${r.up ?? '?'} up Mbit/s` : ''}${r.remote_down != null ? `, ${r.remote_down} down / ${r.remote_up ?? '?'} up Mbit/s remote` : r.remote_failed ? ', its remote speed not measured' : ''}`
 	: `failed at ${r.stage}`}`;
 
 // over is how a thing did over the time shown: a mark for each test, the
@@ -126,11 +126,15 @@ function over(c) {
 	const good = runs.filter((r) => r.passed);
 	const times = [['let on in', span(good, 'joined_ms')], ['an address in', span(good, 'dhcp_ms')], ['DNS in', span(good, 'dns_ms')]]
 		.filter(([, v]) => v).map(([k, v]) => `${k} ${v}`);
-	const speeds = good.filter((r) => r.down != null);
-	if (speeds.length > 1) {
-		const d = speeds.map((r) => r.down).sort((a, b) => a - b);
-		times.push(`${d[0]} to ${d[d.length - 1]} Mbit/s down`);
+	// Its speeds down, the least to the most: to the local server, and to
+	// the remote one (0134).
+	for (const [key, said] of [['down', 'Mbit/s down'], ['remote_down', 'Mbit/s down from the remote server']]) {
+		const d = good.filter((r) => r[key] != null).map((r) => r[key]).sort((a, b) => a - b);
+		if (d.length > 1) times.push(`${d[0]} to ${d[d.length - 1]} ${said}`);
 	}
+	// The remote speed asked for and not measured fails no test: said here.
+	const unmeasured = runs.filter((r) => r.remote_failed).length;
+	if (unmeasured) times.push(`the remote speed not measured in ${unmeasured}`);
 	return h('div', { class: 'runs' },
 		h('span', { class: 'marks', role: 'img', 'aria-label': `${good.length} of ${runs.length} tests passed` },
 			runs.map((r) => h('span', { class: `mark ${r.passed ? 'ok' : 'bad'}`, title: ran(r) }))),

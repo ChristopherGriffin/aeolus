@@ -13,7 +13,7 @@ const SECURITY = {
 
 const SYSTEM = {
 	'country': 'Country', 'tz': 'Time zone', 'ntp': 'NTP servers', 'poll': 'Poll interval', 'agent': 'Agent version',
-	'syslog': 'Syslog', 'ssh_keys': 'SSH keys', 'speed_server': 'Speed server',
+	'syslog': 'Syslog', 'ssh_keys': 'SSH keys', 'speed_server': 'Speed server, local', 'speed_server_remote': 'Speed server, remote',
 	'management.vlan': 'VLAN', 'management.addressing': 'Addressing', 'management.address': 'Address',
 	'management.gateway': 'Gateway', 'management.dns': 'DNS',
 	'captures': 'Capture failed joins',
@@ -62,7 +62,7 @@ const PORT_VNI = { tunnel: 'tunnel', vni: 'VNI', probe: 'probe address' };
 
 // group says which panel a field belongs in, and its label there.
 // Service assurance (0123): client tests on a schedule.
-const ASSURANCE = { 'tests.every': 'A client test', 'tests.over': 'Which tests', 'tests.speed': 'With its speed', 'tests.wire': 'Over the wire too (before)' };
+const ASSURANCE = { 'tests.every': 'A client test', 'tests.over': 'Which tests', 'tests.speed': 'With its local speed', 'tests.speed_remote': 'With its remote speed', 'tests.wire': 'Over the wire too (before)' };
 
 export function group(path) {
 	const p = path.split('.');

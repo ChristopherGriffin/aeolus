@@ -17,14 +17,17 @@ import { pathOf } from './path.js';
 // has little room, with the whole of it said on hover.
 const POINT = {
 	find: 'Found', auth: 'Auth', assoc: 'Assoc', signin: 'Sign-in', key: 'Keys',
-	offer: 'Offer', dhcp: 'Address', gateway: 'Gateway', dns: 'DNS', internet: 'Internet', speed: 'Speed', release: 'Given back',
+	offer: 'Offer', dhcp: 'Address', gateway: 'Gateway', dns: 'DNS', internet: 'Internet', speed: 'Speed', remote: 'Remote', release: 'Given back',
 };
-const WHOLE = { ...POINT, auth: 'Authentication', assoc: 'Association', dhcp: 'An address', internet: 'Its first connection', release: 'The address given back' };
+// A way with a speed to the remote server too (0134) names the other one.
+const named = (way, k) => (k === 'speed' && way.some((p) => p.k === 'remote') ? 'Local' : POINT[k] || k);
+const WHOLE = { ...POINT, auth: 'Authentication', assoc: 'Association', dhcp: 'An address', internet: 'Its first connection', release: 'The address given back',
+	speed: 'Its speed to the local speed server', remote: 'Its speed to the remote speed server' };
 // And as a sentence says them.
 const SAID = {
 	find: 'finding the network', auth: 'authentication', assoc: 'association', signin: 'the sign-in', key: 'the keys',
 	offer: 'the offer of an address', dhcp: 'the address', gateway: 'the gateway', dns: 'DNS', internet: 'the first connection',
-	speed: 'the speed', release: 'giving the address back',
+	speed: 'the local speed', remote: 'the remote speed', release: 'giving the address back',
 };
 
 // took says a time: under ten ms to a tenth, as an ARP answer is; then
@@ -70,7 +73,7 @@ export function wayPath(way, opts = {}) {
 	const hops = [...(opts.lead || [])];
 	const told = hops.map((p) => p.title).filter(Boolean);
 	for (const p of way) {
-		const name = POINT[p.k] || p.k;
+		const name = named(way, p.k);
 		const time = p.ms != null ? took(p.ms) : null;
 		const bad = p.state === 'bad';
 		const main = opts.main?.[p.k] || (bad ? 'failed' : time || (p.state === 'ok' ? 'done' : p.state === 'begun' ? 'begun' : '—'));
@@ -99,10 +102,12 @@ export function typicalPath(way, of) {
 	if (!way?.length) return null;
 	const told = [];
 	const hops = way.map((p) => {
-		const name = POINT[p.k] || p.k;
+		const name = named(way, p.k);
 		const range = p.ms != null && p.low !== p.high ? `${took(p.low)} to ${took(p.high)}` : null;
-		const stopped = p.stopped > 0 ? `${p.stopped} stopped` : null;
-		const says = `${WHOLE[p.k] || name}: ${p.passed} passed it${p.ms != null ? `, typically in ${took(p.ms)}${range ? `, from ${range}` : ''}` : ''}${p.stopped ? `; ${p.stopped} stopped at ${SAID[p.k] || p.k}` : ''}`;
+		// Who stopped there; or, where none did, in how many it went badly
+		// and the way went on, as a speed that could not be measured.
+		const stopped = p.stopped > 0 ? `${p.stopped} stopped` : p.bad > 0 ? `${p.bad} failed` : null;
+		const says = `${WHOLE[p.k] || name}: ${p.passed} passed it${p.ms != null ? `, typically in ${took(p.ms)}${range ? `, from ${range}` : ''}` : ''}${p.stopped ? `; ${p.stopped} stopped at ${SAID[p.k] || p.k}` : ''}${p.bad ? `; in ${p.bad} it failed, and the way went on` : ''}`;
 		told.push(says);
 		// Its parts over the ways that said them: at each how long it
 		// typically took, or how many stopped there.
@@ -120,7 +125,7 @@ export function typicalPath(way, of) {
 			// no message; or who stopped there, which matters more than the
 			// spread of the times; that is on hover.
 			sub: under ? (p.stopped > p.parts.reduce((sum, m) => sum + (m.stopped || 0), 0) ? [under, h('span', { class: 'partsmore' }, stopped)] : under) : stopped || range,
-			state: p.stopped ? (p.passed ? 'warn' : 'bad') : p.passed ? 'ok' : null,
+			state: p.stopped || p.bad ? (p.passed ? 'warn' : 'bad') : p.passed ? 'ok' : null,
 			title: says,
 		};
 	});

@@ -33,6 +33,12 @@ function hexstr(s) {
 	return o;
 }
 
+// The bytes one POST carries to a speed server, unless the server takes
+// fewer; and where an OpenSpeedTest server, as the local one is, gives
+// bytes and takes them.
+const SPEED_BODY = 33554432;
+const OPENSPEEDTEST = { down: '/downloading', up: '/upload', body: SPEED_BODY };
+
 // wanted reads what a test is asked for, and returns it checked, or null:
 // the network's SSID, and its ID where the manager asks; the user it signs
 // in as, where the network signs clients in by 802.1X (0124): how, PEAP
@@ -83,6 +89,26 @@ function wanted(p) {
 		if (!m || port < 1 || port > 65535)
 			return null;
 		out.speed = { url: p.speed, host: m[1], port: port };
+	}
+	// The remote speed server (0134): any HTTP server, by its host and
+	// port, with the path a GET of which gives bytes, the path a POST to
+	// which takes them, and how many bytes a POST carries. The test writes
+	// the host and the paths into its requests as they are, so one that is
+	// not plain is not used.
+	if (p.speed_remote != null) {
+		let r = p.speed_remote;
+		// The whole of each, and nothing after what was looked at: a
+		// pattern stops at a zero byte, and the string does not.
+		let whole = (v, re) => type(v) == 'string' && length(v) > 0 && length(match(v, re)?.[0] ?? '') == length(v);
+		let path = (v) => whole(v, /^\/[A-Za-z0-9._~\/?&=%+-]{0,200}$/);
+		let name = type(r?.name) == 'string' && length(r.name) ? replace(substr(r.name, 0, 64), /[^ -~]/g, '?') : null;
+		// One that cannot be used is said so, and fails no test: the rest
+		// of the test is what the network gives, whatever the manager named.
+		if (type(r) != 'object' || !whole(r.host, /^[A-Za-z0-9.-]{1,253}$/) || type(r.port) != 'int' || r.port < 1 || r.port > 65535 ||
+		    !path(r.down) || !path(r.up) || (r.body != null && (type(r.body) != 'int' || r.body < 65536 || r.body > SPEED_BODY)))
+			out.speed_remote = { name: name ?? 'the remote server', unusable: true };
+		else
+			out.speed_remote = { name: name ?? r.host, host: r.host, port: r.port, down: r.down, up: r.up, body: r.body ?? SPEED_BODY };
 	}
 	if (p.dns_name != null) {
 		if (type(p.dns_name) != 'string' || !match(p.dns_name, /^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/))
@@ -455,6 +481,12 @@ function summary(res) {
 			push(parts, `DNS ${res.dns.ms} ms`);
 		if (res.speed?.down != null)
 			push(parts, `${res.speed.down} down / ${res.speed.up ?? '?'} up Mbit/s`);
+		// The remote server's (0134), or why it has none: that fails no
+		// test, as the server is not the site's own.
+		if (res.speed_remote?.down != null)
+			push(parts, `${res.speed_remote.down} down / ${res.speed_remote.up ?? '?'} up Mbit/s to ${res.speed_remote.server}`);
+		else if (res.speed_remote?.error)
+			push(parts, `no speed to ${res.speed_remote.server}: ${res.speed_remote.error}`);
 		s = 'passed: ' + join(', ', parts);
 	}
 	return plain(s, 300);
@@ -463,6 +495,6 @@ function summary(res) {
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
 export {
-	STAGES, STEPS, HEARD, between, hexstr, wanted, credentials, dfs, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of, neigh_of,
+	STAGES, STEPS, HEARD, SPEED_BODY, OPENSPEEDTEST, between, hexstr, wanted, credentials, dfs, band_freqs, band_of, channel_of, target, supplicant, event, link_of, ping_of, lease_of, neigh_of,
 	prefix_net, dns_query, dns_answer, rate, plain, verdict, summary
 };

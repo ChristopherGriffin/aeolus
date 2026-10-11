@@ -66,12 +66,13 @@ func set(keys ...string) map[string]bool {
 
 var (
 	// A test through the air (0121): the scan radio finds the network,
-	// joins it, and asks for what a client asks.
+	// joins it, and asks for what a client asks. Its speed is to the local
+	// server, and remote the same to the one out on the internet (0134).
 	wayAir = wayKind{
-		order:     []string{"find", "auth", "assoc", "signin", "key", "dhcp", "gateway", "dns", "speed"},
+		order:     []string{"find", "auth", "assoc", "signin", "key", "dhcp", "gateway", "dns", "speed", "remote"},
 		own:       set("dhcp", "gateway", "dns"),
-		noGap:     set("gateway", "dns", "speed"),
-		optional:  set("signin", "speed"),
+		noGap:     set("gateway", "dns", "speed", "remote"),
+		optional:  set("signin", "speed", "remote"),
 		fromStart: true,
 	}
 	// A test over the wire (0128): an address offered, then given; the
@@ -417,6 +418,10 @@ type wayTypical struct {
 	MS      *float64 `json:"ms,omitempty"`
 	Low     *float64 `json:"low,omitempty"`
 	High    *float64 `json:"high,omitempty"`
+	// Bad is how many ways it went badly in and went on all the same, as
+	// a speed to the remote server that could not be measured (0134): they
+	// neither passed it nor stopped there.
+	Bad int `json:"bad,omitempty"`
 	// Parts are the same of the point's parts (0133), over the ways that
 	// had them.
 	Parts []wayTypical `json:"parts,omitempty"`
@@ -428,27 +433,36 @@ type wayTally struct {
 	times   map[string][]float64
 	passed  map[string]int
 	stopped map[string]int
+	bad     map[string]int
 	n       int
 	// parts are the tallies of the points that some way had in parts.
 	parts map[string]*wayTally
 }
 
 func newWayTally(kind wayKind) *wayTally {
-	return &wayTally{kind: kind, times: map[string][]float64{}, passed: map[string]int{}, stopped: map[string]int{}}
+	return &wayTally{kind: kind, times: map[string][]float64{}, passed: map[string]int{}, stopped: map[string]int{}, bad: map[string]int{}}
 }
 
 // add adds one way, and the point it stopped at, where it failed. A point
 // that went badly in a way that went on, as a gateway that answers nothing
 // before a name that is looked up all the same, is neither passed nor
-// where it stopped.
+// where it stopped. The points after the one it stopped at were not come
+// to: they went neither well nor badly.
 func (t *wayTally) add(way []wayPoint, stopped string) {
 	t.n++
+	reached := false
 	for _, p := range way {
+		if p.K == stopped {
+			reached = true
+		}
 		if p.State == "ok" && p.K != stopped {
 			t.passed[p.K]++
 			if p.MS != nil {
 				t.times[p.K] = append(t.times[p.K], *p.MS)
 			}
+		}
+		if p.State == "bad" && !reached {
+			t.bad[p.K]++
 		}
 		if len(p.Parts) == 0 {
 			continue
@@ -487,8 +501,8 @@ func (t *wayTally) typical() []wayTypical {
 	}
 	out := []wayTypical{}
 	for _, k := range t.kind.order {
-		p := wayTypical{K: k, Passed: t.passed[k], Stopped: t.stopped[k]}
-		if p.Passed == 0 && p.Stopped == 0 && t.kind.optional[k] {
+		p := wayTypical{K: k, Passed: t.passed[k], Stopped: t.stopped[k], Bad: t.bad[k]}
+		if p.Passed == 0 && p.Stopped == 0 && p.Bad == 0 && t.kind.optional[k] {
 			continue
 		}
 		if v := t.times[k]; len(v) > 0 {

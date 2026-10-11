@@ -1,6 +1,21 @@
 wanted { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ "20:05:b6:01:8b:ec" ], "band": "5g", "speed": { "url": "http://192.168.20.106", "host": "192.168.20.106", "port": 80 }, "dns_name": "openwrt.org", "ap": null }
 wanted least { "ssid": "Aeolus Lab", "network": null, "eap": null, "bssids": [ ], "band": null, "speed": null, "dns_name": "example.com", "ap": null }
 wanted named server { "url": "http://zephyrus.symtus.com:3000/", "host": "zephyrus.symtus.com", "port": 3000 }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }
+wanted remote alone, unnamed { "name": "speed.example.net", "host": "speed.example.net", "port": 8080, "down": "/downloading", "up": "/upload", "body": 33554432 }
+wanted remote { "name": "Cloudflare", "host": "bad host", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "h\r\nX: y", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.example.net\u0000\r\nX: y", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 0, "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": "80", "down": "/__down?bytes=50000000", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "no-slash", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/a b", "up": "/__up", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/up\r\nHost: other", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/u\u0000\r\nX-Injected: 1\r\n\r\nGET /second HTTP/1.1", "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": null, "body": 4194304 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 12 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote { "name": "Cloudflare", "host": "speed.cloudflare.com", "port": 80, "down": "/__down?bytes=50000000", "up": "/__up", "body": 99999999 }: a test true, its remote server { "name": "Cloudflare", "unusable": true }
+wanted remote "cloudflare": a test true, its remote server { "name": "the remote server", "unusable": true }
 wanted null: null
 wanted { }: null
 wanted { "ssid": "" }: null
@@ -144,6 +159,12 @@ DNS has no such name: failed, stage dns, reason "its DNS server, 192.168.20.254,
    failed at dns: its DNS server, 192.168.20.254, has no address for nowhere.invalid
 speed server unreachable: failed, stage speed, reason "the speed server: Connection refused"
    failed at speed: the speed server: Connection refused
+both speeds: passed, stage done, reason ""
+   passed: joined in 0.6 s, address in 0.3 s, gateway 4 ms, DNS 42 ms, 21 down / 22.1 up Mbit/s, 480 down / 39 up Mbit/s to Cloudflare
+the remote speed alone: passed, stage done, reason ""
+   passed: joined in 0.6 s, address in 0.3 s, gateway 4 ms, DNS 42 ms, 480 down / 39 up Mbit/s to Cloudflare
+the remote server unreachable: passed, stage done, reason ""
+   passed: joined in 0.6 s, address in 0.3 s, gateway 4 ms, DNS 42 ms, 21 down / 22.1 up Mbit/s, no speed to Cloudflare: its name was not found
 a reason that is not plain text: failed, stage find, reason "caf?? a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on"
    failed at find: caf?? a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on and on and on, a long reason that goes on
 the sign-in refused: failed, stage signin, reason "the sign-in was refused"
