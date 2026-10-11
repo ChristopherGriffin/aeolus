@@ -64,6 +64,7 @@
   - One test at a time for an AP: asked again while one is open, it is the same one.
 - **An action now carries what it is asked, and brings back what it found:** `params` and `detail`, both JSON, kept with it.
 - **The AP takes it up on its next poll** and runs it beside the agent, as it takes two or three minutes. While one runs the agent polls every five seconds, and says what came of it as soon as it is done.
+- **A test has seven and a half minutes for all its waits together.** Each at its longest, they come to more: for airscan to be free, to look, to sweep, for a driver to come up. So the last of them give way, and the result says what was not seen, where the agent would otherwise have taken a test still waiting for a dead one.
 - **A test that dies is said to have,** after eight minutes at most, and what it may have left is put right: its interface taken down and airscan started.
 - **The result is checked by the manager** as any report is, and kept as what the manager knows of it.
 - **`system.speed_server`** is the OpenSpeedTest server a test measures against, as a plain HTTP address, its port one a socket can be opened to. Unset, a test measures no speed. It is given to the AP with the test, not rendered into its config.
