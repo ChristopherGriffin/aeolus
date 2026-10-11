@@ -16,6 +16,7 @@
 - **The prober asks hostapd who each client on Aeolus's networks signed in as,** once a session: a client newly seen, or seen to have joined again.
   - It sends `STA <mac>` from a socket of its own, `/var/run/aeolus/hostapd-ctl`, which hostapd may write to, and waits 300 ms.
   - A client that signed in with no name, as on a passphrase network, has none.
+  - A client seen while it is still signing in has no name yet. One without a name is asked about again, each time the prober looks, during its first minute on the network.
 - **The name goes in the state report as the client's `user`:** at most 64 characters, anything not printable ASCII a `?`. The manager holds it to that.
 - **The Clients tab shows it under the client,** "signed in as", and the search box finds by it.
 

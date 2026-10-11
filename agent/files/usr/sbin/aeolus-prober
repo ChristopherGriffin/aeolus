@@ -84,6 +84,7 @@ const GUARD_EVERY = 2;                       // seconds between loop guard frame
 const WRITE_EVERY = 5;                       // seconds between writes of the results
 const PLAN_EVERY = 10;                       // seconds between looks at the plan
 const STAY_GAP = 15;                         // seconds from last seen on a network's radios to rejoining, for the same stay
+const USER_WAIT = 60;                        // seconds from joining in which a client with no user name yet is asked about again
 const ATTACH_EVERY = 2;                      // seconds between looks at the networks' bridges (0061)
 const SPELL_EVERY = 60;                      // seconds between spells of listening on the uplink (0064)
 const SPELL_MAX = 10;                        // seconds a spell lasts at most
@@ -1249,12 +1250,16 @@ function dhcp_scan(at) {
 				continue;
 			here[mac] = true;
 			// Who it signed in as (0113), on Aeolus's networks: asked once a
-			// session, which a new time of joining marks.
+			// session, which a new time of joining marks. A client seen
+			// while it is still signing in has no name yet, so one without
+			// is asked about again while it is new.
 			let user = null;
 			if (a.network) {
 				let key = bss + '/' + mac, joined = at - s.connected_time, u = users[key];
 				if (!u || abs(u.joined - joined) > STAY_GAP)
 					u = { joined: joined, user: signed_in(bss, mac) };
+				else if (u.user == null && s.connected_time < USER_WAIT)
+					u.user = signed_in(bss, mac);
 				known[key] = u;
 				user = u.user;
 			}
