@@ -66,8 +66,12 @@ func (s *Server) clientJourney(w http.ResponseWriter, r *http.Request, c call) e
 	// An AP's scan radio, making client tests (0121), is no device to look
 	// into: its signal and its moves are the tests', so what would be worth
 	// a look in a client's journey is left out of its, and it says whose.
-	if who := testerOf(c, testClients(c.state), mac); who != "" {
-		j.Tester = who
+	// Said to one who may view its AP, or who sees it somewhere: to anyone
+	// else it would say which MACs are an AP's, of a client they see
+	// nothing of.
+	own := testClients(c.state)
+	if ap, ok := own[strings.ToLower(mac)]; ok && (len(j.Sessions) > 0 || roleOn(c, change.Locations, t, ap) >= access.Viewer) {
+		j.Tester = testerOf(c, own, mac)
 		j.Issues = j.Issues[:0]
 	}
 	writeJSON(w, http.StatusOK, j)
