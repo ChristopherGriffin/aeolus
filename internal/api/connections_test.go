@@ -188,3 +188,20 @@ func TestClientConnections(t *testing.T) {
 		t.Fatalf("not a MAC: %d", code)
 	}
 }
+
+// Times of arrival are whole milliseconds, each later than the last given
+// that AP: two asked for within one millisecond do not come out the same.
+func TestArrivalsAreAMillisecondApart(t *testing.T) {
+	var a arrivals
+	at := time.Date(2026, 10, 11, 4, 0, 0, 100_000, time.UTC) // a tenth of a millisecond past the second
+	first := a.next("ap-000000000001", at)
+	second := a.next("ap-000000000001", at.Add(300*time.Microsecond))
+	third := a.next("ap-000000000001", at.Add(5*time.Millisecond))
+	other := a.next("ap-000000000002", at)
+	if first.UnixMilli() == second.UnixMilli() || !second.After(first) || second.Sub(first) != time.Millisecond {
+		t.Fatalf("two in one millisecond: %v then %v", first, second)
+	}
+	if third.Sub(first) != 5*time.Millisecond || !other.Equal(first) {
+		t.Fatalf("later, %v; another AP, %v; first %v", third, other, first)
+	}
+}

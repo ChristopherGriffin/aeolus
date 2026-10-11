@@ -124,7 +124,8 @@ func (c connRecord) check() error {
 // arrival (0118): now, or a millisecond after the last it gave that AP,
 // whichever is later. So those sent in one report, and in the reports that
 // follow it at once, as when more are queued than one report holds, stay
-// in the order they were sent, and no two share a time.
+// in the order they were sent, and no two share a time. The times are whole
+// milliseconds, as they are kept: two within one would be kept as the same.
 type arrivals struct {
 	mu   sync.Mutex
 	last map[hierarchy.NodeID]time.Time
@@ -136,6 +137,7 @@ func (a *arrivals) next(ap hierarchy.NodeID, now time.Time) time.Time {
 	if a.last == nil {
 		a.last = map[hierarchy.NodeID]time.Time{}
 	}
+	now = now.Truncate(time.Millisecond)
 	if last, ok := a.last[ap]; ok && !now.After(last) {
 		now = last.Add(time.Millisecond)
 	}
