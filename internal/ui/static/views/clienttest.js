@@ -82,7 +82,8 @@ function found(d) {
 		row('Address', d.dhcp && [`${d.dhcp.address}/${d.dhcp.mask} in ${took(d.dhcp.ms)}`, d.dhcp.server && `from ${d.dhcp.server}`,
 			d.dhcp.router && `gateway ${d.dhcp.router}`, d.dhcp.dns?.length > 0 && `DNS ${d.dhcp.dns.join(', ')}`].filter(Boolean).join(' · ')),
 		row('Gateway', g && (g.got ? `${g.got} of ${g.sent} pings answered, in ${tenth(g.min)} to ${tenth(g.max)} ms, ${tenth(g.avg)} ms on average`
-			: g.mac ? `it is there, at ${g.mac}, and answers no ping: none of ${g.sent}` : `none of ${g.sent} pings answered, nor ARP`)),
+			: g.mac ? `it is there, at ${g.mac}, and answers no ping: none of ${g.sent}`
+				: `none of ${g.sent} pings answered${g.arp === false ? ', nor ARP' : ''}`)),
 		row('DNS', n && (n.rcode == null ? `${n.server} did not answer for ${n.name}`
 			: n.rcode === 0 && n.answers ? `${n.server} gave ${n.name} as ${n.address || `${n.answers} records`} in ${n.ms} ms` : `${n.server} had no address for ${n.name} (code ${n.rcode})`)),
 		row('Speed', s && (s.error ? `not measured: ${s.error}` : `${s.down} Mbit/s down · ${s.up ?? '?'} Mbit/s up, to ${s.server.replace(/^[a-z]+:\/\//, '')}`)),
