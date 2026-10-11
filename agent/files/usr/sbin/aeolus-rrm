@@ -696,6 +696,8 @@ function scan_dev() {
 //
 // A neighbour's radio is known by the BSSID its hellos carry, so an AP is
 // heard here once its hellos come: it hears this AP's advert and sends them.
+// A look is gone through again for a neighbour whose hellos began after it
+// was taken in, so that one need not wait for the next look, minutes away.
 // The other networks go to the manager (0105) and into the channels'
 // ratings. A channel's busy share and noise are the scan radio's; this AP's
 // own channels', its serving radios' own counts, where they have them, as
@@ -713,8 +715,7 @@ function sweep(at) {
 	if (unheard)
 		log('the scan radio is heard from again');
 	unheard = false;
-	if (b.time == swept)
-		return;
+	let again = b.time == swept;
 	if (!swept)
 		log('listening through the scan radio: %d networks in its last look', length(b.list));
 	swept = b.time;
@@ -732,11 +733,19 @@ function sweep(at) {
 		h.address = n?.address;
 		h.port = n?.port;
 		let hb = h.bands[p[1]] ??= {};
+		// Once for each look: the same reading again would count twice.
+		if (hb.look == b.time)
+			continue;
 		hb.signal = rrm.smooth(hb.signal, signal);
 		hb.at = when;
+		hb.look = b.time;
 	}
 	for (let tail in s.tails)
 		aeolus_bss[tail] = when;
+	// The rest of a look, the other networks and the ratings, is taken in
+	// once.
+	if (again)
+		return;
 	for (let o in s.others)
 		others[o.bssid] = { ssid: o.ssid, band: o.band, channel: o.channel, signal: dbm(o.signal), at: when };
 	let sv = {}, dev = scan_dev();

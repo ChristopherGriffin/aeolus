@@ -179,12 +179,23 @@ function layout(ids, edges) {
 	return { pos: best, height };
 }
 
-// draw draws the map for one band.
+// onBand says whether an AP's report has a radio up on a band. An AP that
+// has reported no radios yet is not known to be off it.
+function onBand(report, band) {
+	const radios = report?.radios || [];
+	return !radios.length || radios.some((r) => r.band === band && r.up !== false);
+}
+
+// draw draws the map for one band: the APs here that broadcast on it, and
+// any other a line on that band runs to. An AP with no radio up on the band
+// has no place on its map (Griff, 2026-10-10: the 6 GHz map showed the APs
+// without 6 GHz).
 function draw(ctx, rows, band) {
 	const here = new Map(rows.map(({ ap, cfg }) => [ap.id, { ap, report: cfg?.condition?.state?.report }]));
 	const edges = links(rows).filter((l) => l.band === band);
-	const ids = [...new Set([...here.keys(), ...edges.flatMap((e) => [e.a, e.b])])].sort();
-	if (!ids.length) return h('div', { class: 'sub' }, 'No APs here yet.');
+	const on = [...here.keys()].filter((id) => onBand(here.get(id).report, band));
+	const ids = [...new Set([...on, ...edges.flatMap((e) => [e.a, e.b])])].sort();
+	if (!ids.length) return h('div', { class: 'sub' }, here.size ? `No AP here broadcasts on ${bandName(band)}.` : 'No APs here yet.');
 	const { pos, height } = layout(ids, edges);
 	const name = (id) => here.get(id)?.ap.name || ctx.name('locations', id);
 	const lines = edges.map((e) => {
@@ -218,7 +229,7 @@ function draw(ctx, rows, band) {
 		svg('svg', { viewBox: `0 0 ${W} ${Math.round(height)}`, class: 'nmap', role: 'img',
 			'aria-label': `${bandName(band)} neighbours: ${edges.map((e) => `${name(e.a)} and ${name(e.b)} at ${e.weaker} dBm`).join('; ') || 'none'}` },
 		lines, nodes),
-		!edges.length && h('div', { class: 'sub' }, `No two APs here hear each other on ${bandName(band)}.`),
+		!edges.length && h('div', { class: 'sub' }, ids.length > 1 ? `No two APs here hear each other on ${bandName(band)}.` : `One AP here broadcasts on ${bandName(band)}.`),
 	];
 }
 
