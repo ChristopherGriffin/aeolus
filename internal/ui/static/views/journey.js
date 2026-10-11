@@ -31,6 +31,8 @@ export async function journeyPanel(box, mac, hours = 24) {
 	box.replaceChildren(h('section', { class: 'panel journey', 'data-editing': true },
 		h('h2', null, j.host || mac, h('span', { class: 'note mono' }, j.host ? mac : ''),
 			h('span', { class: 'controls' }, longer, close)),
+		j.tester && h('p', { class: 'sub' }, h('span', { class: 'chip from' }, 'Aeolus test client'),
+			` ${j.tester === 'an AP' ? 'An AP' : j.tester}'s scan radio, joining as a client would to test the network. Its short stays and its signal are the tests', and nothing to look into.`),
 		!sessions.length
 			? h('p', { class: 'sub' }, `No AP you can see reported it in the last ${hours === 168 ? 'week' : `${hours} hours`}.`)
 			: h('p', { class: 'sub' }, `First seen ${ago(j.first)}, last ${ago(j.last)} · ${sessions.length} session${sessions.length === 1 ? '' : 's'} · ${j.roams} roam${j.roams === 1 ? '' : 's'}`),

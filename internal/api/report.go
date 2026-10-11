@@ -536,6 +536,9 @@ type wifiClient struct {
 	Kind    string `json:"kind,omitempty"`
 	OS      string `json:"os,omitempty"`
 	Basis   string `json:"basis,omitempty"`
+	// Added by the manager too: that it is an AP's scan radio, joined as a
+	// client for a test (0121), and no device of anyone's.
+	TestClient bool `json:"test_client,omitempty"`
 }
 
 // gens are the 802.11 generations a client can show: n, ac, ax and be, or
@@ -547,11 +550,16 @@ var paramsRE = regexp.MustCompile(`^([0-9]{1,3}(,[0-9]{1,3}){0,63})?$`)
 
 // identify adds to each client what the manager knows of it (0067): its
 // maker, by OUI; whether its MAC is private; and a guess at its kind and
-// operating system, with what the guess went on.
-func (st *stateReport) identify() {
+// operating system, with what the guess went on. One that is an AP's scan
+// radio making a client test (0121) is said to be that, and not guessed at.
+func (st *stateReport) identify(own map[string]hierarchy.NodeID) {
 	for i := range st.Clients {
 		c := &st.Clients[i]
 		c.Maker, c.Private = oui.Lookup(c.MAC)
+		if _, c.TestClient = own[strings.ToLower(c.MAC)]; c.TestClient {
+			c.Kind, c.OS, c.Basis = "", "", ""
+			continue
+		}
 		g := identify.Of(identify.Evidence{Host: c.Host, VendorClass: c.VendorClass, Params: c.Params, Maker: c.Maker, Private: c.Private})
 		c.Kind, c.OS, c.Basis = g.Kind, g.OS, g.Basis
 	}
@@ -1359,10 +1367,11 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err := req.check(); err != nil {
 		return err
 	}
-	if err := unadopted(s.log.Snapshot(), c.ap); err != nil {
+	state := s.log.Snapshot()
+	if err := unadopted(state, c.ap); err != nil {
 		return err
 	}
-	req.identify()
+	req.identify(testClients(state))
 	report, err := json.Marshal(req)
 	if err != nil {
 		return err

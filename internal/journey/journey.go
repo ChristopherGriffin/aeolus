@@ -79,6 +79,9 @@ type Journey struct {
 	Sessions []Session `json:"sessions"`
 	Roams    int       `json:"roams"`
 	Issues   []Issue   `json:"issues"`
+	// The AP whose scan radio it is, where it is one making client tests
+	// (0121) and no device of anyone's; set by who asks, not by Build.
+	Tester string `json:"tester,omitempty"`
 }
 
 // Gap is how long a client may be missing from reports and still be in the

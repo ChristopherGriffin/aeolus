@@ -72,6 +72,9 @@ type usageClient struct {
 	Down int64    `json:"down"`
 	Up   int64    `json:"up"`
 	APs  []string `json:"aps"`
+	// The AP whose scan radio it is, where it is one making client tests
+	// (0121): its bytes are the tests' speed measurements.
+	Tester string `json:"tester,omitempty"`
 }
 
 // topClients is the clients that moved the most over the span on the APs
@@ -222,6 +225,10 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 	top, err := s.topClients(start, mine)
 	if err != nil {
 		return err
+	}
+	own := testClients(c.state)
+	for i := range top {
+		top[i].Tester = testerOf(c, own, top[i].MAC)
 	}
 	// Before the oldest row kept, a bucket says nothing of an AP.
 	var from any

@@ -88,7 +88,7 @@
 - **Where airscan lends its radio a test takes about half a minute:** the test, and one look after it; and twenty seconds more after a DFS channel, for the driver. A radio that goes deaf later, for another cause, is airscan's to bring back, and the test's result does not say so.
 - **Binding the driver again gives the scan radio a new name** (`phy8` for `phy7`). airscan finds it by where it is, not by that name, and so does the test.
 - **The speed is the test radio's as much as the network's.** The C-360's scan radio on 5 GHz shows about 21 Mbit/s whatever the network can do. On 2.4 GHz it showed 72 down and 69 up over a 143 Mbit/s link.
-- **A test's client is seen by everything that sees clients:** the serving AP's client list and its record of the join, DHCP, which gives it a lease, and airscan on other APs. Its MAC is the scan radio's own, and it calls itself `aeolus-test`.
+- **A test's client is seen by everything that sees clients:** the serving AP's client list and its record of the join, DHCP, which gives it a lease, and airscan on other APs. Its MAC is the scan radio's own, and it calls itself `aeolus-test`. Aeolus knows that MAC as one of the AP's, and says so wherever it lists clients: the client list, a client's journey, which holds nothing to look into for it, and the clients that used the most. It is offered no reconnect and no block.
 - **The passphrase is written to a file for wpa_supplicant,** in memory (`/var/run`), readable by root alone, and removed when the test ends.
 - **No traffic of the AP's own goes over the client interface,** and none of the test's over the wire: checked by what each interface counted.
 

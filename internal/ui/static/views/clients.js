@@ -78,7 +78,7 @@ async function everyone(under, folder, bar, box, out) {
 					onclick: (e) => { e.preventDefault(); out.scrollIntoView({ block: 'nearest' }); journeyPanel(out, c.mac); } },
 				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac),
 				c.user && h('div', { class: 'sub' }, 'signed in as ', h('strong', null, c.user)),
-				(c.maker || c.private) && h('div', { class: 'sub' }, c.private ? 'private address' : c.maker)),
+				c.tester ? own(c.tester) : (c.maker || c.private) && h('div', { class: 'sub' }, c.private ? 'private address' : c.maker)),
 				h('td', null, ago(c.last_seen), h('div', { class: 'sub' }, `first ${ago(c.first_seen)}`)),
 				folder && h('td', null, c.ap_name ? link(`/aps/${encodeURIComponent(c.ap)}`, c.ap_name) : c.ap),
 				h('td', null, c.ssid || c.network || '—'),
@@ -158,8 +158,9 @@ function table(ctx, all, folder, draw, out) {
 		shown.map((c) => h('tr', null,
 			h('td', null, h('a', { href: '#', class: 'clientlink', title: 'Its journey: sessions, roams and issues over the last day', onclick: (e) => { e.preventDefault(); out.scrollIntoView({ block: 'nearest' }); journeyPanel(out, c.mac); } },
 				c.host || h('span', { class: 'mono' }, c.mac)), c.host && h('div', { class: 'sub mono' }, c.mac),
-					c.user && h('div', { class: 'sub', title: 'who it signed in as, by 802.1X' }, 'signed in as ', h('strong', null, c.user)), who(c),
-					h('div', { class: 'rowbuttons' }, reconnectButton(ctx, c, out), blockButton(ctx, c, out))),
+					c.user && h('div', { class: 'sub', title: 'who it signed in as, by 802.1X' }, 'signed in as ', h('strong', null, c.user)),
+					c.test_client ? own() : who(c),
+					!c.test_client && h('div', { class: 'rowbuttons' }, reconnectButton(ctx, c, out), blockButton(ctx, c, out))),
 			folder && h('td', null, link(`/aps/${encodeURIComponent(c.ap.id)}`, c.ap.name)),
 			h('td', null, c.ssid || '—', c.vlan && h('div', { class: 'sub', title: vlanBy(c) }, `VLAN ${c.vlan}`)),
 			h('td', null, bandName(c.band) || '—', c.signal != null && h('div', { class: 'sub' }, `${c.signal} dBm`)),
@@ -236,6 +237,13 @@ export function mayEdit(ctx, tree, node) {
 // who says what a client is (0067): its maker by OUI, or that its MAC is
 // private; and the manager's guess at its kind and system, with what the
 // guess went on.
+// own marks a client that is an AP's scan radio, joined for a client test
+// (0121): no device of anyone's, so nothing to block or to look into.
+export function own(ap) {
+	return h('div', { class: 'sub' }, h('span', { class: 'chip from', title: "An AP's scan radio, joining as a client would to test the network (Assurance). It is not a device of anyone's." },
+		'Aeolus test client'), ap && ap !== 'an AP' ? ` ${ap}'s scan radio` : '');
+}
+
 function who(c) {
 	const maker = c.private ? 'private MAC' : (c.maker || '').replace(/,? (inc|ltd|llc|co|corp|corporation|gmbh|limited)\.?$/i, '');
 	const kind = [c.kind, c.os].filter(Boolean).join(', ');
