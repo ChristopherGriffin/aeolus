@@ -8,8 +8,8 @@
 
 ## Context
 
-- **On an AP with a scan radio, the serving radios never scan** (0081): all scanning is the scan radio's, which airscan runs.
-- **Radio resource management listened by scanning from the serving radios** (0073), so 0081 turned it off on such an AP altogether. The C-360 then put no advert in its beacons and sent no hellos. The office and pumphouse APs neighboured with each other, and the C-360 stood alone on the neighbour map.
+- **The rule is about stopping to scan.** Griff, 2026-10-10: "the rule is to stop and scan only (halting clients); the scanning radio is to make the periodic RF scans that would normally interrupt client traffic." On an AP with a scan radio, which airscan runs, a serving radio never leaves its channel to scan (0081). What halts no client is not under the rule: an advert in a beacon, a hello on the wire, a radio reading its own counts. Nor is a move: "if a channel needs to move due to interference or RF problems, that will also be ok."
+- **0081 read it more widely.** Radio resource management listened by scanning from the serving radios (0073), so 0081 turned all of it off on such an AP. The C-360 then put no advert in its beacons and sent no hellos. The office and pumphouse APs neighboured with each other, and the C-360 stood alone on the neighbour map.
 - **Only the listening needs a scan.** The advert goes in the AP's own beacons, and hellos go over the wire.
 - **The scan radio already hears everything RRM listens for.** Read on the C-360, 2026-10-10:
   - `ubus call airscan bss` lists every network in the air with its BSSID, band, channel and signal, refreshed every 5 minutes: 39 networks;
@@ -19,7 +19,7 @@
 ## Decision
 
 - **RRM is on again on an AP with a scan radio.** The renderer writes the daemon's section as on any AP, with `scan 'airscan'`. The render check wants that option exactly where the AP has a scan radio.
-- **There the serving radios still never scan.** Each only reads its own channel's counts, which sends nothing.
+- **There the serving radios still never stop to scan.** Each only reads its own channel's counts, which sends nothing and leaves no channel.
 - **The daemon takes in what the scan radio heard,** asking airscan every 30 seconds and taking each of its looks in once:
   - **Neighbours:** a neighbour's radio is known by its BSSID, which every AP's hellos now carry for each radio. A radio makes its networks' BSSIDs from one MAC, changing only the first byte, so the last five bytes mark them all. The strongest is how well the AP is heard on that band.
   - **Other networks** go to the manager as before (0105), and into the channels' ratings: on 2.4 GHz those up to three channels away count too, 6 dB weaker each.

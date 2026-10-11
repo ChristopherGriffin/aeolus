@@ -1128,8 +1128,13 @@ func TestPassphrasesFromRADIUS(t *testing.T) {
 	set("network.sweet.keys.vlans", []int{101})
 	set("network.sweet.roaming.ft", true)
 	got := problems()
-	if !strings.Contains(got, "per-user keys and passphrases from the RADIUS server are two ways") || !strings.Contains(got, "802.11r with passphrases from the RADIUS server is not rendered yet") {
-		t.Fatalf("with keys and 802.11r: %s", got)
+	if !strings.Contains(got, "keys.vlans offers VLANs to per-user keys, and a network that takes each device's passphrase from the RADIUS server has none") || !strings.Contains(got, "802.11r with passphrases from the RADIUS server is not rendered yet") {
+		t.Fatalf("with keys' VLANs and 802.11r: %s", got)
+	}
+	// An empty list left behind offers nothing.
+	set("network.sweet.keys.vlans", []int{})
+	if got := problems(); strings.Contains(got, "keys.vlans") {
+		t.Fatalf("with an empty list of keys' VLANs: %s", got)
 	}
 	set("network.sweet.security", "wpa2-wpa3")
 	if got := problems(); !strings.Contains(got, "passphrases from the RADIUS server are for a WPA2 network (wpa2-psk); wpa2-wpa3 is not rendered with them") {

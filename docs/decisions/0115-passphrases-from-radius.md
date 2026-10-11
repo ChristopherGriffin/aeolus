@@ -20,7 +20,7 @@
   - The server's VLAN for the device (`radius.vlans`) works as with MAC authentication alone.
 - **The network's own passphrase is not used,** and the schema no longer asks for one while this is on. One left set from before is kept, sealed, and ignored, so turning this off again needs nothing more.
 - **Only WPA2 (`wpa2-psk`) is rendered.** The manager refuses it on any other security.
-- **It is one way or the other.** The manager refuses it together with per-user keys, and with 802.11r.
+- **It is one way or the other.** A network with per-user keys can't be turned to it, and a network turned to it takes no keys: the manager refuses either change. It refuses VLANs offered to keys (`keys.vlans`) there too, and 802.11r.
 - **The Networks tab shows it under RADIUS,** as "Passphrases from RADIUS", once MAC authentication is on for a WPA2 network. The network's own passphrase field goes away while it is on.
 
 ## Consequences
