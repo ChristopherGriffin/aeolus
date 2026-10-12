@@ -8,7 +8,7 @@
 // Aeolus only touches what it owns (0040): the radio options intent names,
 // the bridge-vlan entries and enabled of the ports intent names (0053),
 // spanning tree on the uplink's bridge, with a hello time where it has
-// none (0095), usteer's band_steering_interval and ssid_list (0050), all of snmpd's
+// none (0095), usteer's band_steering_interval and ssid_list (0050, 0138), all of snmpd's
 // config (0052), sections named aeolus_ (in the firewall, 0054, and in its
 // own package, the prober's plan, 0059), and the time zone, NTP and syslog
 // settings. It takes OpenWrt's internet pool out of the time servers, and
@@ -75,6 +75,20 @@ function iface_name(network, radio) {
 
 function interface_name(network) {
 	return 'aeolus_' + replace(network, '-', '_');
+}
+
+// steered is how a network's clients are steered (0138): each way a switch
+// of its own. band_steering is the older name of suggest (0050).
+function steered(net) {
+	let s = net.steering ?? {};
+	return { suggest: !!(s.suggest ?? net.band_steering), hold: !!s.hold_back, sticky: !!s.sticky, weak: s.sticky_signal ?? -75 };
+}
+
+// asks says a network's clients are asked to move, which is by 802.11v,
+// to a place named by its neighbour report, which is 802.11k's (0050).
+function asks(net) {
+	let s = steered(net);
+	return s.suggest || s.sticky;
 }
 
 // net_hash names a network's own bridge and veth pairs (0061): FNV-1a of the
@@ -473,8 +487,8 @@ function iface_options(net, radio, band, network, btm) {
 		o.ft_over_ds = '0';
 		o.ft_psk_generate_local = '1';
 	}
-	// Band steering works through 802.11k and 802.11v (0050).
-	if (net.roaming?.rrm || net.band_steering)
+	// Steering asks through 802.11k and 802.11v (0050, 0138).
+	if (net.roaming?.rrm || asks(net))
 		o.ieee80211k = '1';
 	if (btm)
 		o.bss_transition = '1';
@@ -765,7 +779,7 @@ function networks(cfg, intent, facts, errors, keep, replaced) {
 		// out where hostapd lacks it: there, the line makes hostapd refuse
 		// its whole config, so every network on the AP goes down (0057).
 		// The render check then refuses the config.
-		let btm = !!(net.roaming?.btm || net.band_steering);
+		let btm = !!(net.roaming?.btm || asks(net));
 		if (btm && facts.bss_transition === false) {
 			push(errors, `network.${id}: band steering and BSS transition need 802.11v, which this AP's hostapd lacks (install wpad-mbedtls)`);
 			btm = false;
@@ -1349,28 +1363,48 @@ function agent(pkg, intent) {
 	pkg.agent.poll = '' + poll;
 }
 
-// steering turns band steering on for the networks that ask for it, through
-// usteer, which the agent's installer adds (0050). Aeolus owns two of its
-// options: band_steering_interval, 0 while no network asks, so usteer
-// steers nothing on its own, and ssid_list.
-function steering(u, intent, errors) {
-	let ssids = [];
-	for (let id in sort(keys(intent.network ?? {}))) {
-		let net = intent.network[id];
-		if (net.band_steering && net.enabled !== false)
-			push(ssids, net.ssid);
-	}
+// steering keeps usteer, which the agent's installer adds (0050), from
+// steering anything: Aeolus's own daemon steers (0138), a network at a
+// time, and two that ask a client at once would ask it for different
+// things. Aeolus owns two of usteer's options: band_steering_interval, 0,
+// so that it steers nothing on its own, and ssid_list, which it leaves
+// empty. An AP without usteer is none the worse.
+function steering(u) {
 	let s = of_type(u, 'usteer')[0];
-	if (!s) {
-		if (length(ssids))
-			push(errors, 'band steering needs usteer, which is not installed on this AP');
+	if (!s)
+		return;
+	s.band_steering_interval = '0';
+	delete s.ssid_list;
+}
+
+// steer tells the agent's steering daemon which networks to steer, and how
+// (0138): each of the three ways lists the networks it is on for, and
+// sticky the signal under which a client is weak. With none on, there is no
+// section, and the daemon stays idle.
+function steer(a, intent, keep) {
+	let suggest = [], hold = [], sticky = [];
+	for (let id in sort(keys(intent.network ?? {}))) {
+		let net = intent.network[id], s = steered(net);
+		if (net.enabled === false)
+			continue;
+		if (s.suggest)
+			push(suggest, id);
+		if (s.hold)
+			push(hold, id);
+		if (s.sticky)
+			push(sticky, `${id}=${s.weak}`);
+	}
+	// Taken away here, where nothing is on, and not left to what is kept
+	// by name: a network called steer keeps a section of that name
+	// elsewhere.
+	if (!length(suggest) && !length(hold) && !length(sticky)) {
+		delete a.aeolus_steer;
 		return;
 	}
-	s.band_steering_interval = length(ssids) ? '30000' : '0';
-	if (length(ssids))
-		s.ssid_list = uniq(sort(ssids));
-	else
-		delete s.ssid_list;
+	put(a, 'aeolus_steer', 'steer', {
+		suggest: length(suggest) ? suggest : null, hold_back: length(hold) ? hold : null, sticky: length(sticky) ? sticky : null,
+	});
+	keep['aeolus_steer'] = true;
 }
 
 // snmp renders snmpd's config (0052). Aeolus owns all of it, as the agent's
@@ -1591,13 +1625,14 @@ function render(intent, current, facts) {
 	stp(cfg.network, intent, facts ?? {}, errors, needs);
 	guard_interval(cfg.aeolus, cfg.wireless, intent, keep);
 	captures(cfg.aeolus, intent, keep);
+	steer(cfg.aeolus, intent, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])
 			delete cfg.aeolus[k];
 	system(cfg.system, intent, facts ?? {});
 	agent(cfg.aeolus, intent);
 	rebind(cfg, intent);
-	steering(cfg.usteer, intent, errors);
+	steering(cfg.usteer);
 	snmp(cfg, intent, facts ?? {}, errors);
 	let changed = filter(PACKAGES, p => text(p, cfg[p]) != text(p, current[p] ?? {}));
 	return { config: cfg, changed: changed, errors: errors, needs: needs, replaced: replaced };

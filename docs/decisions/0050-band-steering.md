@@ -1,6 +1,6 @@
 # 0050. Band steering through usteer, installed with the agent
 
-- Status: Accepted
+- Status: Accepted; refined by 0138 (Aeolus's own daemon steers, a network at a time, and usteer steers nothing; `band_steering` is the older name of `steering.suggest`)
 - Date: 2026-10-02
 - Proposed by: Griff: band steering on the Networks tab, with usteer installed "at the outset"; written up by Claude and accepted with the merge
 - Refines: 0040, 0039, 0048

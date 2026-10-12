@@ -48,6 +48,8 @@ const TIME = '/var/run/aeolus/time.json';   // ntpd's word on the clock, from it
 const KEYS_VERSION = DIR + '/keys.version';  // the per-user keys the AP has (0070)
 const RRM_KEY = DIR + '/rrm.key';   // the key radio neighbours sign their hellos with (0073)
 const RRM = '/var/run/aeolus/rrm.json';   // what radio resource management found (0073)
+const STEER = '/var/run/aeolus/steer.json';   // what the steering daemon asked of clients, and what came of it (0138)
+const STEER_STALE = 60;                       // seconds after which that is old: the daemon writes at every look, five seconds apart
 const KEYS_WAIT = 40;      // seconds the manager may hold a request for keys
 // Fleet updates (0079): the agent updates itself from the manager.
 const AGENT_JSON = DIR + '/agent.json';       // the bundle this AP last confirmed it runs
@@ -789,11 +791,13 @@ function converge(poll, token) {
 // installed and running, its band steering settings, and for each SSID on
 // each band, its clients and the clients usteer moved off it and onto it.
 function steering_state() {
+	// Whether hostapd has 802.11v is said with usteer or without: Aeolus's
+	// own steering asks by it (0138), and an AP need not have usteer.
 	if (!fs.stat('/sbin/usteerd'))
-		return { installed: false, running: false, interval: 0 };
+		return { installed: false, running: false, interval: 0, bss_transition: has_bss_transition() };
 	let cfg = bus.call('usteer', 'get_config');
 	if (!cfg)
-		return { installed: true, running: false, interval: 0 };
+		return { installed: true, running: false, interval: 0, bss_transition: has_bss_transition() };
 	let bss = [];
 	let info = bus.call('usteer', 'local_info') ?? {};
 	for (let name in sort(keys(info))) {
@@ -1175,6 +1179,28 @@ function time_state() {
 		synced: t == null ? null : t.action != 'unsync' && t.action != 'other' && t.stratum < 16,
 		stratum: t?.stratum, offset: t?.offset, ago: ago != null && ago >= 0 ? ago : null,
 		servers: slice(uniq(servers), 0, 8),
+	};
+}
+
+// steer_state reads what the steering daemon asked of clients and what came
+// of it (0138), while it steers a network and its word is recent. Where the
+// config has it steer and it has said nothing of late, that is said: it is
+// not running, and clients there join as on a network that is not steered.
+function steer_state() {
+	let wanted = cursor().get('aeolus', 'aeolus_steer') == 'steer';
+	let r = null;
+	try {
+		r = json(read(STEER) ?? 'null');
+	} catch (e) {
+	}
+	let recent = type(r?.at) == 'int' && time() - r.at <= STEER_STALE && type(r.networks) == 'array';
+	if (!recent)
+		return wanted ? { running: false } : null;
+	if (!length(r.networks) && !wanted)
+		return null;
+	return {
+		running: true, since: r.since ?? 0, networks: slice(r.networks, 0, 32),
+		events: slice(type(r.events) == 'array' ? r.events : [], -50), known: r.known ?? 0,
 	};
 }
 
@@ -1578,6 +1604,10 @@ function state_report(running) {
 		report.keys = { version: have, count: length(filter(values(cursor().get_all('wireless') ?? {}),
 			s => s['.type'] == 'wifi-station' && index(s['.name'], 'aeolus_key_') == 0)) };
 	// Its radio neighbours (0073).
+	// What its steering asked of clients, and what came of it (0138).
+	let sr = steer_state();
+	if (sr)
+		report.steer = sr;
 	let rr = rrm_state();
 	if (rr)
 		report.rrm = rr;

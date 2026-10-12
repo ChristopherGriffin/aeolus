@@ -954,7 +954,11 @@ func ReportedProblems(doc map[string]any, r Reported) []string {
 			continue
 		}
 		roaming, _ := n["roaming"].(map[string]any)
-		if (n["band_steering"] == true || roaming["btm"] == true) && r.BSSTransition != nil && !*r.BSSTransition {
+		// Steering that asks a client to move asks by 802.11v (0138);
+		// band_steering is the older name of steering.suggest (0050).
+		steering, _ := n["steering"].(map[string]any)
+		asks := steering["suggest"] == true || steering["sticky"] == true || (steering["suggest"] == nil && n["band_steering"] == true)
+		if (asks || roaming["btm"] == true) && r.BSSTransition != nil && !*r.BSSTransition {
 			out = append(out, fmt.Sprintf("network.%s: band steering and BSS transition need 802.11v, which this AP's hostapd lacks; install a full wpad, such as wpad-mbedtls (0057)", id))
 		}
 	}

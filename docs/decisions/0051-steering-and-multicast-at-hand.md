@@ -1,6 +1,6 @@
 # 0051. Band steering and multicast at hand, and what usteer does
 
-- Status: Accepted
+- Status: Accepted; refined by 0138 (a switch for each way of steering, and what each AP's steering asked of clients in place of what usteer does)
 - Date: 2026-10-02
 - Proposed by: Griff: toggles on each network, and band steering status per AP; written up by Claude and accepted with the merge
 - Refines: 0039, 0048, 0049, 0050

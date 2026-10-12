@@ -2,9 +2,10 @@
 // that apply there and each network they offer, on the radios here. A
 // network is edited where it is shown (0048), but it lives in its service
 // folder (0013): an edit changes it there, for every location that uses that
-// folder, and the preview names every AP it reaches. Band steering and
-// multicast-to-unicast are switched right on each network, and what usteer
-// does on each AP is shown below them (0051). A VXLAN transport picks one of
+// folder, and the preview names every AP it reaches. Steering and
+// multicast-to-unicast are switched right on each network (0051), and what
+// each AP's steering asked of clients, and what came of it, is shown below
+// them (0138). A VXLAN transport picks one of
 // the tunnels set where it is being edited (0055). The Org's tab also shows
 // what the manager hears from DHCP relays (0068).
 
@@ -31,7 +32,7 @@ const SECTIONS = [
 		'radius.vlans', 'radius.vlan_required', 'radius.das.client', 'radius.das.secret', 'radius.das.port',
 		// The user a client test signs in as (0124).
 		'radius.test.user', 'radius.test.password', 'radius.test.method']],
-	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'band_steering']],
+	['Roaming and steering', ['roaming.ft', 'roaming.rrm', 'roaming.btm', 'steering.suggest', 'steering.hold_back', 'steering.sticky', 'steering.sticky_signal']],
 	['Per-user keys', ['keys.vlans']],
 	['Traffic', [
 		'transport.primary.type', 'transport.primary.vlan', 'transport.primary.concentrator', 'transport.primary.vni', 'transport.primary.probe',
@@ -49,19 +50,17 @@ export async function networksTab(ctx, id, page) {
 	const bandsHere = new Set((page.hardware?.bands || []).filter((b) => !b.ahead).map((b) => b.band));
 	const writable = at.folders.filter((f) => f.canEdit);
 	const addBox = h('div', { class: 'edit flush' });
-	// The APs that say they have no usteer, which would refuse band steering.
-	const noUsteer = new Set(reports.filter((r) => r.cfg?.condition?.state?.report?.steering?.installed === false).map((r) => r.ap.id));
 	return [
 		fieldPanels(ctx, 'locations', id, only(page.fields, (p) => p === 'services'), editing(ctx, 'locations', page)),
 		at.nets.length === 0
 			? h('div', { class: 'banner info' }, 'No network reaches here: no service folder that applies offers one.')
-			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, noUsteer, lib, reports, page.node?.kind === 'ap'))),
+			: h('div', { class: 'bands' }, at.nets.map((n) => networkCard(ctx, d, n, bandsHere, lib, reports, page.node?.kind === 'ap'))),
 		writable.length > 0 && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox, lib) }, 'Add a network')),
 		addBox,
 		// What the APs here have of their own, that is not Aeolus's (0137).
 		othersPanel(page, reports, { folders: writable.map((f) => ({ id: f.id, name: ctx.name('services', f.id) })), taken: new Set(at.nets.map((n) => n.id)), bands: bandsHere }),
-		steeringStatus(ctx, reports),
+		steeringStatus(ctx, reports, at.nets),
 		transportsStatus(reports),
 		radiusStatus(reports),
 		dhcpStatus(reports),
@@ -106,9 +105,9 @@ async function networksAt(page) {
 	return { folders, nets: [...nets.values()] };
 }
 
-function networkCard(ctx, d, n, bandsHere, noUsteer, lib, reports, isAP) {
+function networkCard(ctx, d, n, bandsHere, lib, reports, isAP) {
 	const box = h('div', { class: 'edit' });
-	const viewNow = () => view(ctx, n, bandsHere, box, noUsteer, lib, reports, isAP);
+	const viewNow = () => view(ctx, n, bandsHere, box, lib, reports, isAP);
 	const body = h('div', null, viewNow());
 	const close = () => body.replaceChildren(viewNow());
 	return h('section', { class: 'panel' },
@@ -140,7 +139,7 @@ async function deleteNetwork(ctx, n, box) {
 	]);
 }
 
-function view(ctx, n, bandsHere, box, noUsteer, lib, reports = [], isAP = false) {
+function view(ctx, n, bandsHere, box, lib, reports = [], isAP = false) {
 	const f = (k) => n.fields?.[k]?.value;
 	const asks = f('bands') || BANDS;
 	const row = (label, v) => v != null && v !== '' && h('div', { class: 'row' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, v));
@@ -178,7 +177,7 @@ function view(ctx, n, bandsHere, box, noUsteer, lib, reports = [], isAP = false)
 			h('div', { class: 'label' }, fallback ? 'Travels over, first' : 'Travels over'), primary,
 			fallback && [h('div', { class: 'label' }, 'then', h('span', { class: 'sub' }, ` · ${switching}`)), fallback]),
 		row('Roaming', roaming.length ? roaming.join(', ') : 'off'),
-		steeringRow(ctx, n, box, noUsteer),
+		steeringRow(ctx, n, box),
 		multicastRow(ctx, n, box),
 		f('hidden') && row('Hidden', 'yes'),
 		f('isolation') && row('Client isolation', 'on'),
@@ -210,42 +209,62 @@ function whence(ctx, n, r) {
 
 const RESTART = 'Applying restarts the Wi-Fi on each AP listed; its clients drop for a few seconds and reconnect.';
 
-// steeringRow switches band steering for a network in its service folder
-// (0050, 0051). The switch shows what is in force; a change is previewed
-// first, and only then recorded.
-function steeringRow(ctx, n, box, noUsteer) {
-	const k = 'band_steering';
-	const path = `network.${n.id}.${k}`;
-	const field = n.fields[k];
-	const on = field?.value === true;
-	// Off: unset what this folder set, so it follows what is above; or, when
-	// the value comes from above, set it off here.
-	const op = on
-		? (field.origin === 'self' ? { kind: 'unset', tree: 'services', node: n.from, path } : { kind: 'set', tree: 'services', node: n.from, path, value: false })
-		: { kind: 'set', tree: 'services', node: n.from, path, value: true };
-	const flip = async () => {
-		const p = await ask(box, op);
-		if (!p) return;
-		const after = p.resolved?.[path];
-		const missing = (p.reversioned || []).filter((ap) => noUsteer.has(ap)).map((ap) => ctx.name('locations', ap));
-		confirm(ctx, box, op, p, [
-			h('div', null, h('strong', null, `Band steering for ${ssidOf(n)}: `), on ? 'on' : 'off', ' → ', after?.value === true ? 'on' : 'off',
-				after && after.from !== n.from ? ` (from ${ctx.name('services', after.from)})` : ''),
-			h('div', { class: 'sub' }, `This changes the network in Services › ${ctx.name('services', n.from)}, for every location that uses it.`,
-				!on ? ' Steering also turns on 802.11k and 802.11v for it.' : ''),
-			missing.length > 0 && h('div', { class: 'banner problems' },
-				`${missing.join(', ')} ${missing.length === 1 ? 'has' : 'have'} no usteer, so ${missing.length === 1 ? 'it' : 'they'} would refuse this until it is installed (apk add usteer).`),
-		], [h('div', { class: 'sub warn' }, RESTART)]);
+// The ways a network's clients are steered (0138), each a switch of its
+// own, and what each does, said where it is switched.
+const WAYS = [
+	['suggest', 'Suggest a higher band',
+		'A client that can use a higher band the AP has this network on, and is near enough for it, is asked to move there (802.11v). It may say no, and is asked three times at most while it stays joined.'],
+	['hold_back', 'Hold back 2.4 GHz',
+		'A client known to use a higher band is kept off 2.4 GHz for two and a half seconds as it comes to join, so that it finds the higher band first. Then 2.4 GHz is open to it again.'],
+	['sticky', 'Move weak clients',
+		'A client whose signal stays weak, while the network has a better place for it, is told to go, and put off for two and a half seconds if it is still there, and still weak, ten seconds on. One that comes straight back is left alone for half an hour, and longer each time it does so again.'],
+];
+
+// steeringRow switches each way of steering for a network in its service
+// folder (0138). A switch shows what is in force; a change is previewed
+// first, and only then recorded. band_steering is the older name of
+// suggest (0050), in force where suggest is not set.
+function steeringRow(ctx, n, box) {
+	const way = ([key, label, about]) => {
+		const k = `steering.${key}`, path = `network.${n.id}.${k}`;
+		const own = n.fields[k];
+		const older = key === 'suggest' && n.fields.band_steering?.value === true;
+		const field = own ?? (key === 'suggest' ? n.fields.band_steering : undefined);
+		const on = field?.value === true;
+		// 802.11k and 802.11v are on already, by the network's own
+		// settings or by the other way that asks: turning this one on or
+		// off then changes nothing an AP's Wi-Fi starts again for.
+		const is = (k2) => n.fields[k2]?.value === true;
+		const other = key === 'suggest' ? is('steering.sticky') : is('steering.suggest') || (n.fields['steering.suggest'] === undefined && is('band_steering'));
+		const asking = key !== 'hold_back', kv = (is('roaming.rrm') && is('roaming.btm')) || other;
+		// Off: unset what this folder set, so it follows what is above; or,
+		// where it would then still be on, set it off here.
+		const op = on
+			? (own?.origin === 'self' && !older ? { kind: 'unset', tree: 'services', node: n.from, path } : { kind: 'set', tree: 'services', node: n.from, path, value: false })
+			: { kind: 'set', tree: 'services', node: n.from, path, value: true };
+		const flip = async () => {
+			const p = await ask(box, op);
+			if (!p) return;
+			const after = p.resolved?.[path];
+			confirm(ctx, box, op, p, [
+				h('div', null, h('strong', null, `${label} for ${ssidOf(n)}: `), on ? 'on' : 'off', ' → ', after?.value === true ? 'on' : 'off',
+					after && after.from !== n.from ? ` (from ${ctx.name('services', after.from)})` : ''),
+				h('div', { class: 'sub' }, about),
+				h('div', { class: 'sub' }, `This changes the network in Services › ${ctx.name('services', n.from)}, for every location that uses it. Each AP steers by itself, and its Wi-Fi never waits for that: with an AP's steering stopped, clients join there as on a network that is not steered.`),
+				asking && !on && !kv && h('div', { class: 'sub' }, 'It also turns on 802.11k and 802.11v for the network, by which a client is asked.'),
+			], asking && !kv ? [h('div', { class: 'sub warn' }, RESTART)] : []);
+		};
+		return h('span', { class: 'each' },
+			h('button', {
+				type: 'button', class: 'switch' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(on), 'aria-label': label,
+				title: about, disabled: !n.canEdit || lockedAbove(n, k), onclick: flip,
+			}),
+			h('span', { class: 'switchsays' }, label), ' ',
+			whence(ctx, n, field));
 	};
 	return h('div', { class: 'row' },
-		h('div', { class: 'label' }, 'Band steering'),
-		h('div', { class: 'value' },
-			h('button', {
-				type: 'button', class: 'switch' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(on), 'aria-label': 'Band steering',
-				title: on ? 'Turn band steering off' : 'Turn band steering on', disabled: !n.canEdit || lockedAbove(n, k), onclick: flip,
-			}),
-			h('span', { class: 'switchsays' }, on ? 'On' : 'Off'), ' ',
-			whence(ctx, n, field)));
+		h('div', { class: 'label' }, 'Steering'),
+		h('div', { class: 'value ways' }, WAYS.map(way)));
 }
 
 const MULTICAST = [
@@ -287,36 +306,73 @@ function multicastRow(ctx, n, box) {
 			whence(ctx, n, field)));
 }
 
-// steeringStatus shows what usteer is doing on each AP here, as each last
-// reported (0051): whether it runs, which SSIDs it steers, and for those,
-// the clients on each band and the clients it moved.
-function steeringStatus(ctx, reports) {
-	if (!reports.length) return null;
-	const rows = reports.map(({ ap, cfg }) => {
-		const st = cfg?.condition?.state;
-		const g = st?.report?.steering;
-		let usteer;
-		if (!st) usteer = 'no report yet';
-		else if (!g) usteer = 'its agent does not say';
-		else if (!g.installed) usteer = 'not installed';
-		else if (!g.running) usteer = 'installed, not running';
-		else usteer = 'running';
-		const steered = g?.running && g.interval > 0 ? g.ssids || [] : [];
-		const bands = steered.map((ssid) => h('div', null, h('strong', null, ssid + ': '),
-			(g.bss || []).filter((b) => b.ssid === ssid).map((b) =>
-				`${bandName(b.band)} ${b.clients} client${b.clients === 1 ? '' : 's'}` +
-				(b.steered_away ? `, ${b.steered_away} moved off` : '') + (b.steered_in ? `, ${b.steered_in} moved on` : '')).join(' · ')));
-		return h('tr', null,
-			h('td', null, link(`/aps/${encodeURIComponent(ap.id)}`, ap.name)),
-			h('td', null, h('span', { class: 'chip ' + (usteer === 'running' ? 'ok' : g && !g.installed ? 'warn' : 'idle') }, usteer)),
-			h('td', null, !g?.running ? '—' : g.interval > 0 ? `on for ${steered.join(', ')}` : 'off'),
-			h('td', null, bands.length ? bands : '—'),
-			h('td', null, st ? ago(st.at) : '—'));
-	});
+// What a way of steering is called where its doings are shown, and what
+// counts as its having worked: the client is on a higher band, or, for a
+// weak one, off the band it was weak on.
+const STEERED = {
+	suggest: ['Suggest', ['moved'], 'moved up'],
+	hold: ['Hold back', ['moved'], 'took a higher band'],
+	sticky: ['Weak clients', ['moved', 'left'], 'moved off'],
+};
+const ASKED = { btm: 'asked to move', held: 'held off', kick: 'put off', none: '—' };
+const CAME = {
+	suggest: { moved: 'moved up', refused: 'said no', stayed: 'stayed', left: 'left', back: 'came back down' },
+	hold: { moved: 'joined a higher band', joined: 'joined 2.4 GHz all the same', left: 'did not join here', back: 'came back down' },
+	sticky: { moved: 'moved to a better band here', left: 'left', back: 'came straight back', recovered: 'was heard well again', stayed: 'stayed' },
+};
+
+// steeringStatus shows what each AP's steering asked of clients and what
+// came of it, as each last reported (0138): for each steered network, how
+// many of those asked by each way then moved. The askings themselves are
+// one click down.
+function steeringStatus(ctx, reports, nets) {
+	const ssid = (id) => nets.find((n) => n.id === id)?.fields.ssid?.value || id;
+	const rows = [];
+	for (const { ap, cfg } of reports) {
+		const st = cfg?.condition?.state, s = st?.report?.steer;
+		if (!s) continue;
+		const where = link(`/aps/${encodeURIComponent(ap.id)}`, ap.name);
+		if (!s.running) {
+			rows.push(h('tr', null, h('td', null, where), h('td', null, '—'),
+				h('td', null, h('span', { class: 'chip warn' }, 'not running'), ' ', h('span', { class: 'sub' }, 'Clients join here as on a network that is not steered.')),
+				h('td', null, ago(st.at))));
+			continue;
+		}
+		for (const n of s.networks || []) {
+			const ways = Object.keys(STEERED).filter((w) => n[w]).map((w) => {
+				const [name, good, did] = STEERED[w], c = n.counts?.[w] || {};
+				const asked = c.asked || 0, worked = good.reduce((sum, g) => sum + (c[g] || 0), 0);
+				if (!asked) return h('span', { class: 'chip idle', title: 'It has asked no client yet' }, `${name}: none asked yet`);
+				return h('span', { class: 'chip ' + (worked * 2 >= asked ? 'ok' : 'warn'), title: Object.entries(c).filter(([k]) => k !== 'asked').map(([k, v]) => `${v} ${CAME[w][k] || k}`).join(', ') },
+					`${name}: ${worked} of ${asked} ${did}${c.back ? `, ${c.back} came back` : ''}`);
+			});
+			const askings = (s.events || []).filter((e) => e.network === n.network).reverse();
+			rows.push(h('tr', null,
+				h('td', null, where),
+				h('td', null, ssid(n.network)),
+				h('td', null, h('div', { class: 'ways' }, ways)),
+				h('td', null, ago(st.at))));
+			if (askings.length > 0)
+				rows.push(h('tr', { class: 'under' }, h('td', { colspan: 4 }, h('details', null,
+					h('summary', null, `The last ${askings.length === 1 ? 'asking' : `${askings.length} askings`} of ${ssid(n.network)}’s clients on ${ap.name}`),
+					h('table', { class: 'list' },
+						h('tr', null, ['When', 'Client', 'Way', 'It was', 'On', 'It answered', 'What came of it', 'After'].map((t) => h('th', null, t))),
+						askings.map((e) => h('tr', null,
+							h('td', null, ago(e.at * 1000)),
+							h('td', { class: 'mono' }, e.mac),
+							h('td', null, STEERED[e.method]?.[0] || e.method),
+							h('td', null, ASKED[e.asked] ?? e.asked),
+							h('td', null, [bandName(e.from), e.signal != null && `, ${e.signal} dBm`]),
+							h('td', null, e.answer === 'accepted' ? 'yes' : e.answer === 'refused' ? `no${e.code != null ? ` (${e.code})` : ''}` : '—'),
+							h('td', null, CAME[e.method]?.[e.outcome] || e.outcome),
+							h('td', null, `${e.took} s`))))))));
+		}
+	}
+	if (!rows.length) return null;
 	return h('section', { class: 'panel' },
-		h('h2', null, 'Band steering on each AP', h('span', { class: 'note' }, 'as each last reported; moves are counted since usteer started')),
+		h('h2', null, 'Steering on each AP', h('span', { class: 'note' }, 'as each last reported; counted since its steering started')),
 		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'usteer', 'Steering', 'Steered networks now', 'Reported'].map((c) => h('th', null, c))),
+			h('tr', null, ['AP', 'Network', 'What came of it', 'Reported'].map((t) => h('th', null, t))),
 			rows));
 }
 

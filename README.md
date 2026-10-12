@@ -190,6 +190,7 @@ Each milestone ends in something checkable before the next starts.
 | [0135](docs/decisions/0135-a-capture-of-every-failure.md) | A capture of every failure |
 | [0136](docs/decisions/0136-roaming.md) | Roaming |
 | [0137](docs/decisions/0137-an-aps-own-networks.md) | An AP's own networks |
+| [0138](docs/decisions/0138-steering-a-network-at-a-time.md) | Steering, a network at a time |
 
 ## Open questions
 

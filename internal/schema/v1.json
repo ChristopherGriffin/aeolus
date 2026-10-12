@@ -359,7 +359,18 @@
         "max_clients": { "type": "integer", "minimum": 1, "maximum": 2007, "description": "The most clients at once on each of the network's Wi-Fi interfaces, one a band (0097). Unset, OpenWrt's own, which hostapd allows up to 2007." },
         "dtim": { "type": "integer", "minimum": 1, "maximum": 255, "description": "Beacons between DTIMs, when sleeping clients wake for the multicast and broadcast kept for them (0097): higher saves their batteries, and delays that traffic. Unset, OpenWrt's 2." },
         "multicast_to_unicast": { "type": "boolean", "description": "Send all multicast (ARP, IPv4, IPv6) to each client as unicast (0049). Unset: OpenWrt's default, which does so only for groups clients joined (IGMP/MLD snooping)." },
-        "band_steering": { "type": "boolean", "description": "Steer clients that can use a higher band onto it, through usteer, which the agent's installer adds (0050). Turns on 802.11k and 802.11v for this network, which steering uses." },
+        "band_steering": { "type": "boolean", "description": "An older name for steering.suggest (0050), which it is read as where that is not set (0138)." },
+        "steering": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How this network's clients are steered, each way a switch of its own (0138). The AP does it itself, by a daemon of the agent's that tells hostapd to wait for no listener: the manager is in none of it, and with the daemon stopped clients join as on a network that is not steered. What was asked of each client, and what came of it, is in the AP's report.",
+          "properties": {
+            "suggest": { "type": "boolean", "description": "A client that can use a higher band the AP has this network on, and is near enough for it, is asked to move there, by an 802.11v BSS transition request. It may say no, and is asked three times at most while it stays joined. Turns on 802.11k and 802.11v for this network." },
+            "hold_back": { "type": "boolean", "description": "A client known to use a higher band is kept off 2.4 GHz for two and a half seconds as it comes to join, so that it finds the higher band first; then 2.4 GHz is open to it again. Once in thirty seconds a client at most." },
+            "sticky": { "type": "boolean", "description": "A client whose signal stays under sticky_signal, while the network has a better place for it (a lower band on this AP, or the network on another AP), is told to go, and put off for two and a half seconds if it is still there, and still weak, ten seconds on. One that comes straight back is left alone for half an hour, and twice as long each time it does so again, up to a day. Turns on 802.11k and 802.11v for this network." },
+            "sticky_signal": { "type": "integer", "minimum": -90, "maximum": -60, "description": "The signal, in dBm, under which a client is weak, for sticky. Unset, -75." }
+          }
+        },
         "roaming": {
           "type": "object",
           "additionalProperties": false,

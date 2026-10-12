@@ -48,7 +48,8 @@ const NETWORK = {
 	'radius.das.client': 'Disconnects from (NAC)', 'radius.das.secret': 'Disconnect secret', 'radius.das.port': 'Disconnect port',
 	'radius.test.user': 'Test user', 'radius.test.password': 'Test user’s password', 'radius.test.method': 'Test user signs in by',
 
-	'multicast_to_unicast': 'Multicast to unicast', 'band_steering': 'Band steering',
+	'multicast_to_unicast': 'Multicast to unicast', 'band_steering': 'Band steering (older name of Suggest a higher band)',
+	'steering.suggest': 'Suggest a higher band', 'steering.hold_back': 'Hold back 2.4 GHz', 'steering.sticky': 'Move weak clients', 'steering.sticky_signal': 'Weak is under (dBm)',
 	'roaming.ft': 'Fast roaming (11r)', 'roaming.rrm': 'Neighbor reports (11k)', 'roaming.btm': 'Steering (11v)',
 	'rate_limit.down_kbps': 'Download limit', 'rate_limit.up_kbps': 'Upload limit',
 	'transport.switching': 'Switching', 'transport.ha': 'HA mode', 'transport.failback': 'Failback', 'transport.holddown': 'Hold-down',
