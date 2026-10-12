@@ -264,10 +264,11 @@ func TestBandSteering(t *testing.T) {
 		}
 		return strings.Join(Check(doc, c), "\n")
 	}
-	// Without usteer, and without 11k and 11v on the network.
+	// Without the daemon's section, and without 11k and 11v on the
+	// network: band_steering is the older name of steering.suggest (0138).
 	got := check(rendered)
 	for _, want := range []string{
-		"usteer: band steering needs usteer",
+		"aeolus.aeolus_steer: a network has its clients steered, but the section is missing",
 		"aeolus_sweet_radio0: ieee80211k is \"\", want on",
 		"aeolus_sweet_radio0: bss_transition is \"\", want on",
 	} {
@@ -275,35 +276,81 @@ func TestBandSteering(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	steered := strings.ReplaceAll(rendered, "\toption ieee80211r '1'\n", "\toption ieee80211r '1'\n\toption ieee80211k '1'\n\toption bss_transition '1'\n")
+	if strings.Contains(got, "usteer") {
+		t.Errorf("an AP without usteer is none the worse, yet: %s", got)
+	}
+	asked := strings.ReplaceAll(rendered, "\toption ieee80211r '1'\n", "\toption ieee80211r '1'\n\toption ieee80211k '1'\n\toption bss_transition '1'\n")
+	const section = "\npackage aeolus\n\nconfig steer 'aeolus_steer'\n%s"
 	const usteer = "\npackage usteer\n\nconfig usteer\n\toption network 'lan'\n\toption band_steering_interval '%s'\n%s"
+	if !strings.Contains(asked, "\npackage aeolus\n") {
+		t.Fatal("the fixture has no aeolus package to put the section in")
+	}
+	with := func(lists string) string {
+		return strings.Replace(asked, "\npackage aeolus\n", fmt.Sprintf(section, lists)+"\n", 1)
+	}
 	for _, c := range []struct {
-		interval, list, want string
+		lists, interval, ssids, want string
 	}{
-		{"30000", "\tlist ssid_list 'Sweet Spot'\n", ""},
-		{"0", "\tlist ssid_list 'Sweet Spot'\n", "usteer: band_steering_interval is \"0\", want \"30000\""},
-		{"30000", "", "usteer: ssid_list is [], want [\"Sweet Spot\"]"},
-		{"30000", "\tlist ssid_list 'Sweet Spot'\n\tlist ssid_list 'Sweet_Spot_IoT'\n", "want [\"Sweet Spot\"]"},
+		{"\tlist suggest 'sweet'\n", "0", "", ""},
+		{"\tlist suggest 'sweet'\n", "30000", "", "usteer: band_steering_interval is \"30000\", want \"0\""},
+		{"\tlist suggest 'sweet'\n", "0", "\tlist ssid_list 'Sweet Spot'\n", "usteer is to steer nothing"},
+		{"\tlist suggest 'sweet'\n\tlist hold_back 'sweet'\n", "0", "", "aeolus.aeolus_steer: hold_back is [\"sweet\"], want []"},
+		{"\tlist suggest 'iot'\n", "0", "", "aeolus.aeolus_steer: suggest is [\"iot\"], want [\"sweet\"]"},
+		{"\tlist suggest 'sweet'\n\toption kick '1'\n", "0", "", "aeolus.aeolus_steer: kick is \"1\", and nothing calls for it"},
 	} {
-		got := check(steered + fmt.Sprintf(usteer, c.interval, c.list))
-		if c.want == "" && (strings.Contains(got, "usteer") || strings.Contains(got, "ieee80211k") || strings.Contains(got, "bss_transition")) {
+		got := check(with(c.lists) + fmt.Sprintf(usteer, c.interval, c.ssids))
+		if c.want == "" && (strings.Contains(got, "steer") || strings.Contains(got, "ieee80211k") || strings.Contains(got, "bss_transition")) {
 			t.Errorf("steered right, yet: %s", got)
 		}
 		if c.want != "" && !strings.Contains(got, c.want) {
 			t.Errorf("want %q in:\n%s", c.want, got)
 		}
 	}
-	// With no network asking, usteer must steer nothing.
+	// Each way is a switch of its own: hold back alone asks no client
+	// anything, so it turns on neither 11k nor 11v; sticky does, and says
+	// the signal under which a client is weak; steering.suggest set off
+	// wins over the older name.
+	ways := func(steering string) map[string]any {
+		var d map[string]any
+		if err := json.Unmarshal([]byte(strings.Replace(intent, `"roaming": {"ft": true},`, `"roaming": {"ft": true}, "band_steering": true, "steering": `+steering+`,`, 1)), &d); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	for _, c := range []struct {
+		steering, text, want string
+	}{
+		{`{"suggest": false, "hold_back": true}`, strings.Replace(rendered, "\npackage aeolus\n", fmt.Sprintf(section, "\tlist hold_back 'sweet'\n")+"\n", 1), ""},
+		{`{"suggest": false, "sticky": true, "sticky_signal": -70}`, with("\tlist sticky 'sweet=-70'\n"), ""},
+		{`{"suggest": false, "sticky": true}`, with("\tlist sticky 'sweet=-70'\n"), "aeolus.aeolus_steer: sticky is [\"sweet=-70\"], want [\"sweet=-75\"]"},
+		{`{"suggest": false}`, rendered, ""},
+	} {
+		parsed, err := uci.Parse(c.text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.Join(Check(ways(c.steering), parsed), "\n")
+		if c.want == "" && (strings.Contains(got, "steer") || strings.Contains(got, "ieee80211k") || strings.Contains(got, "bss_transition")) {
+			t.Errorf("%s, rendered right, yet: %s", c.steering, got)
+		}
+		if c.want != "" && !strings.Contains(got, c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.steering, c.want, got)
+		}
+	}
+	// With no network asking, there is no section, and usteer steers nothing.
 	var none map[string]any
 	if err := json.Unmarshal([]byte(intent), &none); err != nil {
 		t.Fatal(err)
 	}
-	c, err := uci.Parse(rendered + fmt.Sprintf(usteer, "30000", ""))
+	c, err := uci.Parse(with("\tlist suggest 'sweet'\n") + fmt.Sprintf(usteer, "30000", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(Check(none, c), "\n"); !strings.Contains(got, "usteer: band_steering_interval is \"30000\", want \"0\"") {
-		t.Errorf("usteer steering on its own: %s", got)
+	got = strings.Join(Check(none, c), "\n")
+	for _, want := range []string{"usteer: band_steering_interval is \"30000\", want \"0\"", "aeolus.aeolus_steer: no network has its clients steered, but the section is there"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("with no network steered, missing %q in: %s", want, got)
+		}
 	}
 }
 

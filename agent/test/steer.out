@@ -1,0 +1,146 @@
+
+== Suggest: a client near enough, that says it can use 5 GHz, is asked up once it has been on ten seconds, and moves
+  10  btm 02:00:00:00:00:0a on phy1-ap2 these only to 36862d0317c0..0301ff
+      { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "test", "method": "suggest", "from": "2g", "asked": "btm", "outcome": "moved", "took": 2.0, "to": [ "5g" ], "answer": "accepted", "code": 0, "signal": -50 }
+  On 5 GHz it is not asked on to 6 GHz, which it never said it can use:
+
+== Suggest: one that says no is asked twice more, further apart, and then left alone
+  10  btm 02:00:00:00:00:0b on phy1-ap2 these only to 36862d0317c0..0301ff
+ 130  btm 02:00:00:00:00:0b on phy1-ap2 these only to 36862d0317c0..0301ff
+ 730  btm 02:00:00:00:00:0b on phy1-ap2 these only to 36862d0317c0..0301ff
+  and no more, in the half hour after
+      { "at": 1791770010, "mac": "02:00:00:00:00:0b", "network": "test", "method": "suggest", "from": "2g", "asked": "btm", "outcome": "refused", "took": 0.0, "to": [ "5g" ], "answer": "refused", "code": 6, "signal": -48 }
+      { "at": 1791770130, "mac": "02:00:00:00:00:0b", "network": "test", "method": "suggest", "from": "2g", "asked": "btm", "outcome": "refused", "took": 0.0, "to": [ "5g" ], "answer": "refused", "code": 6, "signal": -48 }
+      { "at": 1791770730, "mac": "02:00:00:00:00:0b", "network": "test", "method": "suggest", "from": "2g", "asked": "btm", "outcome": "refused", "took": 0.0, "to": [ "5g" ], "answer": "refused", "code": 6, "signal": -48 }
+
+== Suggest: one that says nothing and stays is counted as having stayed; one that is far, one that takes no request, and one never seen higher are not asked
+  10  btm 02:00:00:00:00:0a on phy1-ap2 these only to 36862d0317c0..0301ff
+      { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "test", "method": "suggest", "from": "2g", "asked": "btm", "outcome": "stayed", "took": 20.0, "to": [ "5g" ], "signal": -52 }
+
+== Suggest: on 5 GHz, near, and able to use 6 GHz, a client is asked to 6 GHz; on 2.4 GHz and very near, to 6 GHz before 5
+  10  btm 02:00:00:00:00:0a on phy0-ap2 these only to 30862d0317e0..0301ff
+  10  btm 02:00:00:00:00:0b on phy1-ap2 these only to 30862d0317e0..0301ff 36862d0317c0..0301fe
+      { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "test", "method": "suggest", "from": "5g", "asked": "btm", "outcome": "moved", "took": 1.0, "to": [ "6g" ], "signal": -55 }
+      { "at": 1791770010, "mac": "02:00:00:00:00:0b", "network": "test", "method": "suggest", "from": "2g", "asked": "btm", "outcome": "stayed", "took": 21.0, "to": [ "6g", "5g" ], "signal": -40 }
+
+== Hold: a client that has been on 5 GHz here is kept off 2.4 GHz for a moment when it comes to join, and joins 5 GHz
+  60  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
+      { "at": 1791770060, "mac": "02:00:00:00:00:0a", "network": "test", "method": "hold", "from": "2g", "asked": "held", "outcome": "moved", "took": 1.0, "to": [ "5g" ], "signal": -52 }
+  It leaves; later it joins 2.4 GHz all the same, once the moment is over, and its next try is not held:
+ 461  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
+      { "at": 1791770461, "mac": "02:00:00:00:00:0a", "network": "test", "method": "hold", "from": "2g", "asked": "held", "outcome": "joined", "took": 4.0, "to": [ "5g" ], "signal": -52 }
+
+== Hold: not one that is far, one never seen higher, or one that is on this AP already and comes down; not while the higher band is not up; and a probe that is only a look around leaves no record
+  60  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
+  records: 0
+  A probe, and then it joins 5 GHz: that is a record:
+ 120  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
+      { "at": 1791770120, "mac": "02:00:00:00:00:0a", "network": "test", "method": "hold", "from": "2g", "asked": "held", "outcome": "moved", "took": 2.0, "to": [ "5g" ], "signal": -50 }
+
+== Hold: one the daemon got to late, the client let on before hostapd was asked to keep it off, is no hold and no record; a network with only Hold back on needs no neighbour report of the higher band
+  decided: ban; then let on before it was asked: records 0, counted { }
+ 120  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
+      { "at": 1791770120, "mac": "02:00:00:00:00:0a", "network": "test", "method": "hold", "from": "2g", "asked": "held", "outcome": "moved", "took": 1.0, "to": [ "5g" ], "signal": -50 }
+
+== A client moved up that is back down within five minutes did not stay moved: said, and it is left alone for half an hour
+  10  btm 02:00:00:00:00:0a on phy1-ap2 these only to 36862d0317c0..0301ff
+      { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "test", "method": "suggest", "from": "2g", "asked": "btm", "outcome": "moved", "took": 2.0, "to": [ "5g" ], "signal": -50 }
+      { "at": 1791770042, "mac": "02:00:00:00:00:0a", "network": "test", "method": "suggest", "from": "2g", "asked": "none", "outcome": "back", "took": 30.0 }
+
+== Sticky: a client weak on 5 GHz for three looks is told to go, to 2.4 GHz here first, and goes; there, though near enough, it is not asked back up
+  10  btm 02:00:00:00:00:0a on phy0-ap2 it is to go, these or others to 36862d0317d0..0301ff
+      { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "test", "method": "sticky", "from": "5g", "asked": "btm", "outcome": "moved", "took": 8.0, "signal": -80 }
+
+== Sticky: one that takes no request is put off at once where another AP has the network; back within the minute, it is left alone, and twice as long each time it comes back again
+  10  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+1815  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+5420  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+12625  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+27030  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+55835  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+113440  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+  put off 7 times in a day and a half, at: 0h00 0h30 1h30 3h30 7h30 15h30 31h30
+      { "at": 1791770010, "mac": "02:00:00:00:00:0b", "network": "lab", "method": "sticky", "from": "2g", "asked": "kick", "outcome": "back", "took": 5.0, "signal": -82 }
+
+== Sticky: one told to go that stays is put off after eight seconds, and is gone; one whose signal comes back is left; one with nowhere better to go is never asked
+  10  btm 02:00:00:00:00:0a on phy0-ap1 it is to go, these or others to 36862d0317d0..0301ff 2005b6018be9..0301fe
+  10  btm 02:00:00:00:00:0c on phy0-ap1 it is to go, these or others to 36862d0317d0..0301ff 2005b6018be9..0301fe
+  20  kick 02:00:00:00:00:0a on phy0-ap1 for 2500 ms
+      { "at": 1791770010, "mac": "02:00:00:00:00:0c", "network": "lab", "method": "sticky", "from": "5g", "asked": "btm", "outcome": "recovered", "took": 10.0, "signal": -80 }
+      { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "lab", "method": "sticky", "from": "5g", "asked": "kick", "outcome": "left", "took": 70.0, "answer": "refused", "code": 1, "signal": -80 }
+
+== Sticky: one whose signal is not known when its time is up is not put off; one that has gone to another of the AP's networks has left this one
+  10  btm 02:00:00:00:00:0a on phy0-ap1 it is to go, these or others to 36862d0317d0..0301ff 2005b6018be9..0301fe
+  10  btm 02:00:00:00:00:0b on phy0-ap1 it is to go, these or others to 36862d0317d0..0301ff 2005b6018be9..0301fe
+      { "at": 1791770010, "mac": "02:00:00:00:00:0b", "network": "lab", "method": "sticky", "from": "5g", "asked": "btm", "outcome": "left", "took": 0.0, "signal": -80 }
+      { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "lab", "method": "sticky", "from": "5g", "asked": "btm", "outcome": "stayed", "took": 10.0, "signal": -80 }
+
+== Suggest and Sticky together: near enough on 2.4 GHz to be asked up, and weak on 5 GHz once there, a client is not sent up and down every half hour
+  in two days it is asked: up 0h00, down 0h00, up 0h30, down 0h30, up 1h30, down 1h31, up 3h31, down 3h31, up 7h31, down 7h31, up 15h31, down 15h32, up 31h32, down 31h32
+
+== A network with nothing on is not looked at; one with only Sticky on is not asked up
+  records: 0, on: [ "02:00:00:00:00:0a", "02:00:00:00:00:0b" ]
+
+== What the agent reports
+  10  btm 02:00:00:00:00:0a on phy1-ap2 these only to 36862d0317c0..0301ff
+{
+	"at": 1791770012,
+	"since": 1791770000,
+	"networks": [
+		{
+			"network": "lab",
+			"suggest": false,
+			"hold": false,
+			"sticky": true,
+			"bands": [
+				"2g",
+				"5g"
+			],
+			"counts": {
+			},
+			"weak": -75
+		},
+		{
+			"network": "test",
+			"suggest": true,
+			"hold": true,
+			"sticky": true,
+			"bands": [
+				"2g",
+				"5g",
+				"6g"
+			],
+			"counts": {
+				"suggest": {
+					"asked": 1,
+					"moved": 1
+				}
+			},
+			"weak": -75
+		}
+	],
+	"events": [
+		{
+			"at": 1791770010,
+			"mac": "02:00:00:00:00:0a",
+			"network": "test",
+			"method": "suggest",
+			"from": "2g",
+			"asked": "btm",
+			"outcome": "moved",
+			"took": 2.0,
+			"to": [
+				"5g"
+			],
+			"signal": -50
+		}
+	],
+	"known": 1
+}
+
+== What a client says of itself
+2.4 and 5 GHz: [ "2g", "5g" ]
+all three: [ "2g", "5g", "6g" ]
+says nothing: [ ]
+cut short: [ ]
+takes a transition request: true false false

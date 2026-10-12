@@ -1,0 +1,110 @@
+{
+	"about": "PumphouseAP with its clients steered a network at a time (0138). The lab network has all three ways on, with a weak signal of its own; the guest network holds clients back and asks none of them anything, so it gets neither 802.11k nor 802.11v; the old name band_steering is suggest, and steering.suggest set off wins over it; a network that is off is not steered. The daemon's section lists each way's networks, and usteer, which the AP has, steers nothing.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				},
+				"steering": {
+					"suggest": true,
+					"hold_back": true,
+					"sticky": true,
+					"sticky_signal": -70
+				}
+			},
+			"guest": {
+				"ssid": "Aeolus Guest",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				},
+				"steering": {
+					"hold_back": true
+				}
+			},
+			"older": {
+				"ssid": "Aeolus Older",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				},
+				"band_steering": true
+			},
+			"plain": {
+				"ssid": "Aeolus Plain",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				},
+				"band_steering": true,
+				"steering": {
+					"suggest": false,
+					"sticky": true
+				}
+			},
+			"resting": {
+				"ssid": "Aeolus Resting",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				},
+				"enabled": false,
+				"steering": {
+					"suggest": true,
+					"sticky": true
+				}
+			}
+		}
+	},
+	"errors": []
+}
