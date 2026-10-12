@@ -3,9 +3,8 @@
 // whether their configs are in force, whether their networks work when tried
 // as a client (0123), how their clients roam (0136), their usage over the
 // last day (0108),
-// the busiest APs, the clients on each network, and the channels the APs
-// share. It reads what the other tabs do,
-// and sets nothing.
+// the busiest APs and the clients on each network. It reads what the other
+// tabs do, and sets nothing.
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
@@ -134,23 +133,6 @@ export async function overviewTab(ctx, id, page, fleet) {
 				h('td', null, ssid), h('td', null, String(e.n)), BANDS.map((b) => h('td', { class: 'sub' }, String(e.bands[b] || 0))))))
 			: h('p', { class: 'sub' }, 'No Wi-Fi clients reported here now.'));
 
-	// The channels the APs use, by band: a channel more than one AP shares is
-	// marked, as their clients share its airtime.
-	const chans = h('section', { class: 'panel' }, h('h2', null, 'Channels in use'),
-		BANDS.map((b) => {
-			// Each AP once a channel, though it may have two radios on it.
-			const on = new Map();
-			for (const { ap, r } of reports)
-				for (const x of (r?.radios || []).filter((x) => x.band === b && x.channel)) {
-					if (!on.has(x.channel)) on.set(x.channel, []);
-					if (!on.get(x.channel).includes(ap.name)) on.get(x.channel).push(ap.name);
-				}
-			if (!on.size) return null;
-			return h('div', { class: 'row' }, h('div', { class: 'label' }, bandName(b)),
-				h('div', { class: 'value chanlist' }, [...on.entries()].sort((x, y) => x[0] - y[0]).map(([ch, names]) =>
-					h('span', { class: `chip ${names.length > 1 ? 'warn' : ''}`, title: names.join(', ') + (names.length > 1 ? ': sharing it' : '') }, `${ch}${names.length > 1 ? ` ×${names.length}` : ''}`))));
-		}));
-
 	const trouble = (al.alerts || []).filter((a) => a.severity === 'critical').slice(0, 5);
 	return [
 		tiles,
@@ -159,6 +141,6 @@ export async function overviewTab(ctx, id, page, fleet) {
 			h('ul', null, trouble.map((a) => h('li', null, link(`/locations/${encodeURIComponent(a.ap)}`, a.name), `: ${a.message}`)))),
 		roaming,
 		usage,
-		h('div', { class: 'grid2' }, h('div', { class: 'col' }, busy), h('div', { class: 'col' }, netList, chans)),
+		h('div', { class: 'grid2' }, h('div', { class: 'col' }, busy), h('div', { class: 'col' }, netList)),
 	].filter(Boolean);
 }

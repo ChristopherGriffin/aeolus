@@ -23,6 +23,7 @@
   - the busiest APs, with each radio's channel and clients;
   - the clients on each network, by band;
   - the channels the APs use on each band, a channel shared by more than one AP marked, as their clients share its airtime.
+    - Taken out on 2026-10-12, at Griff's word: the channels are on the APs tab, and the Overview is to say less.
 - **It refreshes every 30 seconds,** as the live tabs do.
 
 ## Consequences
