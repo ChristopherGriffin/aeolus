@@ -2,9 +2,10 @@
 // at a glance. How many are up, their clients by band, what needs attention,
 // whether their configs are in force, whether their networks work when tried
 // as a client (0123), how their clients roam (0136), their usage over the
-// last day (0108),
-// the busiest APs and the clients on each network. It reads what the other
-// tabs do, and sets nothing.
+// last day (0108), and, a click down, the clients on each network. It says
+// state and leaves the rest to the tabs (Griff, 2026-10-12): an AP's
+// clients and channels are on the APs tab. It reads what the other tabs do,
+// and sets nothing.
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
@@ -15,6 +16,16 @@ import { usagePanel } from './usage.js';
 import { roamingPanel, showRoaming, took } from './roaming.js';
 
 const BANDS = ['2g', '5g', '6g'];
+
+// What is under the tiles opens by its name, and stays as it was left over
+// a redraw.
+const open = new Set();
+function fold(key, heading, note, body) {
+	const d = h('details', { class: 'panel logpanel', open: open.has(key) },
+		h('summary', null, h('h2', null, heading, h('span', { class: 'note' }, note))), body);
+	d.addEventListener('toggle', () => (d.open ? open.add(key) : open.delete(key)));
+	return d;
+}
 
 export function tile(label, big, sub, cls, href) {
 	const body = [h('div', { class: 'tlabel' }, label), h('div', { class: 'tbig' }, big), sub && h('div', { class: 'tsub' }, sub)];
@@ -103,20 +114,6 @@ export async function overviewTab(ctx, id, page, fleet) {
 		tile('Configs in force', `${inSync} of ${st.length}`, held ? `${held} held` : 'none held', held ? 'warn' : inSync === st.length ? 'ok' : 'warn', `${base}/aps`),
 		assured(assurance, base), gotOn(assurance, base), roamed(roams, roaming));
 
-	// The busiest APs.
-	const busiest = reports.map(({ ap, r }) => ({ ap, n: (r?.clients || []).length, radios: r?.radios || [] }))
-		.sort((x, y) => y.n - x.n).slice(0, 6);
-	const busy = h('section', { class: 'panel' }, h('h2', null, 'Busiest APs'),
-		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'Clients', ...BANDS.map(bandName)].map((t) => h('th', null, t))),
-			busiest.map(({ ap, n, radios }) => h('tr', null,
-				h('td', null, link(`/locations/${encodeURIComponent(ap.id)}`, ap.name)),
-				h('td', null, String(n)),
-				BANDS.map((b) => {
-					const rs = radios.filter((x) => x.band === b);
-					return h('td', { class: 'sub' }, rs.length ? rs.map((x) => `ch ${x.channel}${x.width ? `/${x.width}` : ''} · ${x.clients ?? 0}`).join(', ') : '—');
-				})))));
-
 	// Clients on each network.
 	const nets = new Map();
 	for (const cl of clients) {
@@ -126,12 +123,13 @@ export async function overviewTab(ctx, id, page, fleet) {
 		e.n++;
 		e.bands[cl.band] = (e.bands[cl.band] || 0) + 1;
 	}
-	const netList = h('section', { class: 'panel' }, h('h2', null, 'Clients by network'),
-		nets.size ? h('table', { class: 'list' },
+	// Folded: the tile says how many clients, and by band. With none on,
+	// there is nothing to open.
+	const netList = nets.size > 0 && fold(`nets/${id}`, 'Clients by network', `${nets.size} network${nets.size === 1 ? '' : 's'}`,
+		h('table', { class: 'list' },
 			h('tr', null, ['Network', 'Clients', ...BANDS.map(bandName)].map((t) => h('th', null, t))),
 			[...nets.entries()].sort((x, y) => y[1].n - x[1].n).map(([ssid, e]) => h('tr', null,
-				h('td', null, ssid), h('td', null, String(e.n)), BANDS.map((b) => h('td', { class: 'sub' }, String(e.bands[b] || 0))))))
-			: h('p', { class: 'sub' }, 'No Wi-Fi clients reported here now.'));
+				h('td', null, ssid), h('td', null, String(e.n)), BANDS.map((b) => h('td', { class: 'sub' }, String(e.bands[b] || 0)))))));
 
 	const trouble = (al.alerts || []).filter((a) => a.severity === 'critical').slice(0, 5);
 	return [
@@ -141,6 +139,6 @@ export async function overviewTab(ctx, id, page, fleet) {
 			h('ul', null, trouble.map((a) => h('li', null, link(`/locations/${encodeURIComponent(a.ap)}`, a.name), `: ${a.message}`)))),
 		roaming,
 		usage,
-		h('div', { class: 'grid2' }, h('div', { class: 'col' }, busy), h('div', { class: 'col' }, netList)),
+		netList,
 	].filter(Boolean);
 }
