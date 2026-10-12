@@ -21,8 +21,12 @@ function svg(tag, attrs, ...kids) {
 const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
+// Whether a folder's tables were left open, over a redraw.
+let more = false;
+
 // usagePanel draws the usage of the APs below node id; folder adds its
-// busiest APs.
+// busiest APs, and has its tables a click down: on a folder's Overview the
+// chart says the day (Griff, 2026-10-12).
 export async function usagePanel(id, folder) {
 	let u;
 	try {
@@ -54,6 +58,14 @@ export async function usagePanel(id, folder) {
 	const aps = folder ? u.aps.slice(0, 10) : [];
 	const me = !folder && u.aps[0];
 	const top = (u.clients || []).slice(0, folder ? 10 : 5);
+	// under is the tables under the chart: as they are on an AP's page, and
+	// folded on a folder's.
+	const under = (tables) => {
+		if (!folder || !tables.length) return tables;
+		const d = h('details', { class: 'fold', open: more }, h('summary', null, 'Top clients and APs'), tables);
+		d.addEventListener('toggle', () => { more = d.open; });
+		return d;
+	};
 	return h('section', { class: 'panel' },
 		h('h2', { title: "From the APs' reports. A bar shows its numbers on hover." }, 'Usage', h('span', { class: 'note' }, 'last 24 h')),
 		h('div', { class: 'sub usagekey' },
@@ -62,7 +74,7 @@ export async function usagePanel(id, folder) {
 			h('span', { class: 'swatch clients' }), ` at most ${plural(u.peak, 'client')} at once`),
 		chart,
 		axis,
-		top.length > 0 && h('table', { class: 'list' },
+		under([top.length > 0 && h('table', { class: 'list' },
 			h('tr', null, ['Top clients', '↓ To it', '↑ From it', folder ? 'On' : null].filter(Boolean).map((t) => h('th', null, t))),
 			top.map((c) => h('tr', null,
 				h('td', null, c.host || h('span', { class: 'mono' }, c.mac), c.host && h('div', { class: 'sub mono' }, c.mac),
@@ -75,7 +87,7 @@ export async function usagePanel(id, folder) {
 			aps.map((a) => h('tr', null,
 				h('td', null, link(`/aps/${encodeURIComponent(a.ap)}`, a.name)),
 				h('td', null, size(a.down)), h('td', null, size(a.up)), h('td', null, String(a.peak)),
-				h('td', null, strip(u, a))))));
+				h('td', null, strip(u, a)))))].filter(Boolean)));
 }
 
 // spans names buckets of b seconds: half-hours, hours, 8-minute spans.

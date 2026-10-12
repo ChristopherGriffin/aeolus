@@ -21,7 +21,9 @@
 - **Under them:**
   - the critical alerts, at most five;
   - the busiest APs, with each radio's channel and clients;
+    - Taken out on 2026-10-12, at Griff's word that the Overview is to say less: an AP's clients and channels are on the APs tab.
   - the clients on each network, by band;
+    - Folded since 2026-10-12, and left out where no client is on: the tile says how many, and by band. The tables under the day's usage (0108), its top clients and its APs, are folded there too.
   - the channels the APs use on each band, a channel shared by more than one AP marked, as their clients share its airtime.
     - Taken out on 2026-10-12, at Griff's word: the channels are on the APs tab, and the Overview is to say less.
 - **It refreshes every 30 seconds,** as the live tabs do.
