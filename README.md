@@ -192,6 +192,7 @@ Each milestone ends in something checkable before the next starts.
 | [0137](docs/decisions/0137-an-aps-own-networks.md) | An AP's own networks |
 | [0138](docs/decisions/0138-steering-a-network-at-a-time.md) | Steering, a network at a time |
 | [0139](docs/decisions/0139-steerings-history.md) | Steering's history |
+| [0140](docs/decisions/0140-trends-by-the-hour.md) | Trends: what the reports came to, kept by the hour |
 
 ## Open questions
 

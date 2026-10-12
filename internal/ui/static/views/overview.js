@@ -2,10 +2,10 @@
 // at a glance. How many are up, their clients by band, what needs attention,
 // whether their configs are in force, whether their networks work when tried
 // as a client (0123), how their clients roam (0136), their usage over the
-// last day (0108), and, a click down, the clients on each network. It says
-// state and leaves the rest to the tabs (Griff, 2026-10-12): an AP's
-// clients and channels are on the APs tab. It reads what the other tabs do,
-// and sets nothing.
+// last day (0108), the busiest APs, and, a click down, the clients on each
+// network. It says state and leaves the rest to the tabs (Griff,
+// 2026-10-12): an AP's channels are on the APs tab. It reads what the other
+// tabs do, and sets nothing.
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
@@ -114,6 +114,21 @@ export async function overviewTab(ctx, id, page, fleet) {
 		tile('Configs in force', `${inSync} of ${st.length}`, held ? `${held} held` : 'none held', held ? 'warn' : inSync === st.length ? 'ok' : 'warn', `${base}/aps`),
 		assured(assurance, base), gotOn(assurance, base), roamed(roams, roaming));
 
+	// The busiest APs: how many clients each has, and on each band. Not its
+	// channels, which are on the APs tab.
+	const busiest = reports.map(({ ap, r }) => ({ ap, n: (r?.clients || []).length, radios: r?.radios || [] }))
+		.sort((x, y) => y.n - x.n).slice(0, 6);
+	const busy = h('section', { class: 'panel' }, h('h2', null, 'Busiest APs'),
+		h('table', { class: 'list' },
+			h('tr', null, ['AP', 'Clients', ...BANDS.map(bandName)].map((t) => h('th', null, t))),
+			busiest.map(({ ap, n, radios }) => h('tr', null,
+				h('td', null, link(`/locations/${encodeURIComponent(ap.id)}`, ap.name)),
+				h('td', null, String(n)),
+				BANDS.map((b) => {
+					const rs = radios.filter((x) => x.band === b);
+					return h('td', { class: 'sub' }, rs.length ? String(rs.reduce((sum, x) => sum + (x.clients ?? 0), 0)) : '—');
+				})))));
+
 	// Clients on each network.
 	const nets = new Map();
 	for (const cl of clients) {
@@ -139,6 +154,7 @@ export async function overviewTab(ctx, id, page, fleet) {
 			h('ul', null, trouble.map((a) => h('li', null, link(`/locations/${encodeURIComponent(a.ap)}`, a.name), `: ${a.message}`)))),
 		roaming,
 		usage,
+		busy,
 		netList,
 	].filter(Boolean);
 }

@@ -80,9 +80,11 @@ type Use struct {
 
 // RecordUse records an AP's clients at a report and what each moved, in
 // one transaction: the AP's row, its traffic the sum of theirs, and a row
-// for each client (0110).
+// for each client (0110); and counts them into the AP's hour and each
+// client's day (0140).
 func (s *Store) RecordUse(ap hierarchy.NodeID, clients int, moved []ClientUse) error {
-	at := stamp(s.now())
+	now := s.now()
+	at := stamp(now)
 	var down, up int64
 	for _, c := range moved {
 		down += c.Down
@@ -100,6 +102,9 @@ func (s *Store) RecordUse(ap hierarchy.NodeID, clients int, moved []ClientUse) e
 		if _, err := tx.Exec(`INSERT INTO client_usage (ap, at, mac, host, down, up) VALUES (?, ?, ?, ?, ?, ?)`, string(ap), at, c.MAC, c.Host, c.Down, c.Up); err != nil {
 			return err
 		}
+	}
+	if err := addUse(tx, ap, now, clients, down, up, moved); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

@@ -142,7 +142,7 @@ type connectionsIn struct {
 
 type usageIn struct {
 	Under string `json:"under,omitempty" jsonschema:"optional: a Locations folder or AP; only the APs below it"`
-	Hours int    `json:"hours,omitempty" jsonschema:"optional: how many hours back, 24 unless set, at most 720"`
+	Hours int    `json:"hours,omitempty" jsonschema:"optional: how many hours back, 24 unless set, at most 720; for get_usage at most 8760, a year"`
 }
 
 type roundIn struct {
@@ -325,7 +325,7 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", path, nil)
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "get_usage", Description: "The Wi-Fi clients and traffic of the APs you can view (0108), over the last hours (24 unless set, at most 720), in at most 48 buckets: in each, the most clients the APs had at once, summed over the APs, and the bytes they sent their clients (down) and received from them (up); the totals; each AP's most clients and traffic, the busiest first; and the ten clients that moved the most (0110), by MAC and host name, with the APs they used. Worked out from the APs' state reports, every few minutes. With under, only the APs below that Locations node.", Annotations: readOnly},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_usage", Description: "The Wi-Fi clients and traffic of the APs you can view (0108), over the last hours (24 unless set, at most 8760, a year; over more than two days from the trends kept by the hour, 0140), in at most 48 buckets: in each, the most clients the APs had at once, summed over the APs, and the bytes they sent their clients (down) and received from them (up); the totals; each AP's most clients and traffic, the busiest first; and the ten clients that moved the most (0110), by MAC and host name, with the APs they used. Worked out from the APs' state reports, every few minutes. With under, only the APs below that Locations node.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in usageIn) (*mcp.CallToolResult, any, error) {
 			q := url.Values{}
 			if in.Under != "" {

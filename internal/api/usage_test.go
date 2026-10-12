@@ -93,10 +93,11 @@ func TestUsageOfAGap(t *testing.T) {
 // Never more than 48 buckets, for any span.
 func TestUsageBuckets(t *testing.T) {
 	f := newFixture(t)
-	for _, hours := range []int{1, 5, 6, 7, 13, 24, 25, 168, 719, 720} {
+	for _, hours := range []int{1, 5, 6, 7, 13, 24, 25, 48, 49, 168, 719, 720, 2000, 8760} {
 		_, body := f.do("GET", "/v1/usage?hours="+fmt.Sprint(hours), "griff", nil)
 		n, b := len(body["buckets"].([]any)), body["bucket"].(float64)
-		if n > 48 || float64(n)*b < float64(hours*3600) || int(b)%60 != 0 {
+		// Over more than two days, whole hours: it is read by the hour (0140).
+		if n > 48 || float64(n)*b < float64(hours*3600) || int(b)%60 != 0 || hours > 48 && int(b)%3600 != 0 {
 			t.Fatalf("hours=%d: %d buckets of %v s", hours, n, b)
 		}
 	}
@@ -128,7 +129,7 @@ func TestTopClientsNameLast(t *testing.T) {
 	}
 	top, err := f.api.topClients(time.Now().Add(-time.Hour), map[hierarchy.NodeID]*usageAP{
 		hierarchy.NodeID(ap): {AP: hierarchy.NodeID(ap), Name: "PumphouseAP"}, "office-ap": {AP: "office-ap", Name: "OfficeOpenWrt"},
-	})
+	}, false)
 	if err != nil || len(top) != 1 || top[0].Host != "new-name" || top[0].Down != 30 || len(top[0].APs) != 2 {
 		t.Fatalf("top = %+v, %v", top, err)
 	}

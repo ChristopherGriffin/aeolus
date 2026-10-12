@@ -62,16 +62,21 @@ type APEvent struct {
 }
 
 // RecordHealth keeps an AP's health at a state report, and what changed
-// since its last, in one transaction.
+// since its last, in one transaction; and counts it into the AP's hour
+// (0140).
 func (s *Store) RecordHealth(ap hierarchy.NodeID, p HealthPoint, events []APEvent) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	now := s.now()
+	if err := addHealth(tx, ap, now, p); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`INSERT INTO health (ap, at, uptime, clients, cpu, load, mem_total, mem_available, storage_total, storage_free, temp, procs)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		string(ap), s.now().UnixMilli(), p.Uptime, p.Clients, p.CPU, p.Load, p.MemTotal, p.MemAvailable, p.StorageTotal, p.StorageFree, p.Temp, p.Procs); err != nil {
+		string(ap), now.UnixMilli(), p.Uptime, p.Clients, p.CPU, p.Load, p.MemTotal, p.MemAvailable, p.StorageTotal, p.StorageFree, p.Temp, p.Procs); err != nil {
 		return err
 	}
 	for _, e := range events {
