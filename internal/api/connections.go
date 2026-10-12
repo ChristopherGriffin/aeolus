@@ -378,13 +378,17 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 	}
 	roamed := map[int64]roam{}
 	for _, m := range roams {
+		// A band switch the client gave up is nothing (0136).
+		if m.BandSwitch && m.State == "left" {
+			continue
+		}
 		roamed[m.ID] = m
 	}
 	for _, cn := range list {
 		way, _ := connWay(cn)
 		e := entry{Connection: cn, Way: way}
 		if m, ok := roamed[cn.ID]; ok {
-			e.Roam = &roamSaid{Kind: m.Kind, MS: m.MS}
+			e.Roam = &roamSaid{Kind: m.Kind, MS: m.MS, BandSwitch: m.BandSwitch}
 		}
 		if k := cn.Capture; k != nil {
 			e.Capture = &captureSaid{Frames: k.Frames, Bytes: k.Bytes, May: roleOn(c, change.Locations, t, cn.AP) >= access.Operator}

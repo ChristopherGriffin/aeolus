@@ -8,7 +8,7 @@ import { h, link } from '../dom.js';
 import { download, get } from '../api.js';
 import { bandName, ago } from '../format.js';
 import { wayPath } from './way.js';
-import { KIND, took as roamTook } from './roaming.js';
+import { KIND, kindWords, took as roamTook } from './roaming.js';
 
 // The stages of coming online, in order, as they are named.
 const STAGES = [
@@ -154,9 +154,10 @@ export async function connectionsSection(mac) {
 				h('span', { class: 'who' }, c.ap_name || c.ap),
 				h('span', { class: 'grow sub' }, [c.ssid || c.network, bandName(c.band)].filter(Boolean).join(' · '),
 					c.outcome === 'failed' && c.reason ? ` · ${c.reason}` : '',
-					// A roam (0136): it came from another AP, or another radio.
-					c.roam && h('span', { class: 'roamed', title: `A roam: it came from another AP, or another radio of this one, where it was moments before. ${KIND[c.roam.kind]?.[1] || ''}` },
-						` · ${roamName(c.roam.kind)}${c.roam.ms != null ? `, ${roamTook(c.roam.ms)}` : ''}`)),
+					// A roam (0136): it came from another AP; or a band
+					// switch, from another radio of this one.
+					c.roam && h('span', { class: 'roamed', title: `${c.roam.band_switch ? 'A band switch: it came from another radio of this AP' : 'A roam: it came from another AP'}, where it was moments before. ${KIND[c.roam.kind]?.[1] || ''}` },
+						` · ${c.roam.band_switch ? `band switch, ${kindWords(c.roam.kind)}` : roamName(c.roam.kind)}${c.roam.ms != null ? `, ${roamTook(c.roam.ms)}` : ''}`)),
 				captureLink(c),
 				outcomeChip(c)),
 			steps(c),
