@@ -8,7 +8,7 @@
 
 import { h, link } from '../dom.js';
 import { get } from '../api.js';
-import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort, dhcpWarnings, templateSays } from '../format.js';
+import { bandName, when, ago, secondsAgo, uplinkJudgment, vlanUsers, switchPort, dhcpWarnings, templateSays, uplinkBrief } from '../format.js';
 import { treeAside, crumbs, apStatus, fleetMap, tabBar, pick, keepPath, moved } from '../layout.js';
 import { editing } from './fields.js';
 import { followButton } from './follow.js';
@@ -233,10 +233,17 @@ function glance(cond, base, page, cfg) {
 	const band = (x) => bandName(x.band).replace(' GHz', '');
 	const clients = r.clients ? r.clients.length : radios.reduce((n, x) => n + (x.clients || 0), 0);
 	const byBand = ['2g', '5g', '6g'].map((b) => [b, (r.clients || []).filter((c) => c.band === b).length]).filter(([, n]) => n);
+	// The tile says it short; its hover, in full.
+	const uplinkTile = (t, w) => {
+		t.title = [w.says, w.errors?.says].filter(Boolean).join(' ');
+		return t;
+	};
 	const up = (r.ports || []).find((p) => p.path) || (r.ports || []).find((p) => p.uplink);
-	const m = /^(\d+)([FH])$/.exec(up?.speed || '');
-	const speed = m ? (Number(m[1]) >= 1000 ? `${Number(m[1]) / 1000}G` : `${m[1]}M`) : null;
 	const sw = r.uplink_neighbor;
+	// Its speed, amber where below what both ends can do; and its errors,
+	// said wherever it has counted any (uplinkBrief).
+	const wire = uplinkBrief(r);
+	const worst = wire?.errors?.grade === 'bad' || wire?.grade === 'bad' ? 'bad' : wire?.errors?.grade === 'warn' || wire?.grade === 'warn' ? 'warn' : '';
 	const x = r.health || {};
 	// Memory in use, counted as Health counts what is free.
 	const used = x.mem_total ? 100 - Math.floor(100 * (x.mem_available || 0) / x.mem_total) : null;
@@ -248,8 +255,8 @@ function glance(cond, base, page, cfg) {
 		tile('Clients', String(clients), clients === 0 ? 'none now' : byBand.map(([b, n]) => `${bandName(b)} ${n}`).join(' · '), '', `#${base}/clients`),
 		radios.length > 0 && tile('Radios', `${on.length} of ${radios.length}`,
 			radios.map((x) => `${band(x)} GHz ${off(x) ? 'off' : x.up === false ? 'down' : `ch ${x.channel || '—'}`}`).join(' · '), down.length ? 'warn' : '', `#${base}/interfaces/radios`),
-		up && tile('Uplink', up.carrier ? speed || 'up' : 'no link', [up.name, sw && [sw.system, sw.port].filter(Boolean).join(' ')].filter(Boolean).join(' · '),
-			up.carrier ? '' : 'bad', `#${base}/interfaces/ethernet`),
+		up && wire && uplinkTile(tile('Uplink', wire.text, [wire.errors ? `${wire.errors.text} since it came up` : up.name, sw && [sw.system, sw.port].filter(Boolean).join(' ')].filter(Boolean).join(' · '),
+			worst, `#${base}/interfaces/ethernet`), wire),
 		upFor && tile('Up for', upFor, r.openwrt || '', ''),
 		x.cpu != null ? tile('Processor', `${x.cpu}%`, used != null ? `memory ${used}%` : '', hard ? 'warn' : '', `#${base}/health`)
 			: used != null && tile('Memory', `${used}%`, 'in use', hard ? 'warn' : '', `#${base}/health`),
