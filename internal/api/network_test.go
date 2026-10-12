@@ -78,12 +78,29 @@ func TestNetwork(t *testing.T) {
 		return map[string]any{"network": network, "server": "192.0.2.10", "port": 1812, "verdict": verdict, "rtt_ms": rtt, "answered_ago": ago,
 			"requests": 1, "accepts": 1, "rejects": 0, "timeouts": 0, "bad": 0}
 	}
-	// The third's answer is from before the report before: counted then.
+	// Each report here comes an hour after the one before. The third's
+	// answer is from before the report before it: counted then.
+	*f.skew = -time.Hour
 	for _, rs := range [][]any{{radius("sweet", "up", 16.5, 12)}, {radius("sweet", "up", 20.5, 40), radius("guest", "unknown", nil, nil)},
-		{radius("sweet", "up", 20.5, 340)}, {radius("sweet", "silent", nil, 900)}} {
+		{radius("sweet", "up", 20.5, 4000)}, {radius("sweet", "silent", nil, 9000)}} {
 		if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60, "radius": rs}, nil); code != 200 {
 			t.Fatalf("its report: %d %v", code, b)
 		}
+	}
+	*f.skew = 0
+	// Two reports seconds apart say the same answer: it is counted once.
+	secs := func(n int64) *int64 { return &n }
+	rtt := 9.5
+	same := []radiusState{{Network: "sweet", Verdict: "up", RTT: &rtt, AnsweredAgo: secs(20)}}
+	if a, b := radiusSteps(same, 5*time.Minute), radiusSteps(same, 8*time.Second); len(a) != 1 || len(b) != 0 {
+		t.Errorf("an answer 20 s old, the report before 5 min ago and 8 s ago: %v, %v", a, b)
+	}
+	gone := &pathState{Gateway: &pathHop{State: "up", MS: &rtt, Ago: secs(20)}, DNS: []pathName{{Server: "192.0.2.1", State: "silent"}}}
+	if a, b := pathSteps(gone, nil, 5*time.Minute), pathSteps(gone, nil, 8*time.Second); len(a) != 2 || len(b) != 1 || b[0].Step != "dns" || b[0].MS != nil {
+		t.Errorf("a way out answered 20 s ago, the report before 5 min ago and 8 s ago: %v, %v", a, b)
+	}
+	if d := sinceBefore(nil, time.Now()); d != stateEvery {
+		t.Errorf("with no report before: %v", d)
 	}
 
 	get := func(as, query string) map[string]any {
@@ -104,7 +121,7 @@ func TestNetwork(t *testing.T) {
 		return strings.Join(out, "; ")
 	}
 	v := get("griff", "")
-	if v["hours"] != float64(24) || v["bucket"] != float64(3600) || len(v["series"].([]any)) != 24 || fmt.Sprint(v["steps"]) != "[dhcp gateway dns aaa signin]" {
+	if v["hours"] != float64(24) || v["bucket"] != float64(3600) || len(v["series"].([]any)) != 24 || fmt.Sprint(v["steps"]) != "[dhcp gateway dns aaa signin internet]" {
 		t.Errorf("a day: hours %v, %d buckets of %v s, steps %v", v["hours"], len(v["series"].([]any)), v["bucket"], v["steps"])
 	}
 	if got, want := steps(v["all"]), "aaa n 2 ms 18.5 most 20.5 failed 1; dhcp n 2 ms 284 most 284 failed 1; dns n 2 ms 42 most 42 failed 0; gateway n 2 ms 4 most 4 failed 0"; got != want {
@@ -165,8 +182,19 @@ func TestNetwork(t *testing.T) {
 	if _, err := f.conds.TrimTrends(-time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(get("griff", "")["segments"].([]any)); n != 0 {
-		t.Fatalf("after all was let go: %d segments", n)
+	// What is timed is gone; the AP's networks are listed still, with
+	// nothing beside them, as one just made is.
+	gone2 := get("griff", "")
+	if len(gone2["all"].(map[string]any)) != 0 {
+		t.Fatalf("after all was let go: %v", gone2["all"])
+	}
+	for _, sg := range gone2["segments"].([]any) {
+		if sg := sg.(map[string]any); len(sg["steps"].(map[string]any)) != 0 || len(sg["networks"].([]any)) == 0 {
+			t.Errorf("a segment with nothing timed: %v", sg)
+		}
+	}
+	if len(gone2["segments"].([]any)) == 0 {
+		t.Error("the AP's own networks are not listed where nothing was timed")
 	}
 	finished := func(network string) {
 		t.Helper()
@@ -198,5 +226,63 @@ func TestNetwork(t *testing.T) {
 	f.api.countKeptTests()
 	if got := steps(get("griff", "")["all"]); !strings.HasPrefix(got, "dhcp n 1 ") {
 		t.Errorf("counted a second time: %s", got)
+	}
+
+	// The AP's own way out (0142) is counted under its management VLAN: its
+	// gateway, each of its name servers and the internet. An answer from
+	// before the report before is not counted again, nor one not yet known;
+	// silence is no answer. And the networks it has of its own, not
+	// Aeolus's (0137), are said on their VLANs, timed or not.
+	port := map[string]any{"name": "eth0", "mac": "02:00:00:00:00:3a", "mtu": 1500, "carrier_changes": 1, "management_vlan": 30,
+		"rx_bytes": 1, "tx_bytes": 1, "rx_packets": 1, "tx_packets": 1, "rx_errors": 0, "tx_errors": 0, "rx_dropped": 0, "tx_dropped": 0}
+	way := map[string]any{"interface": "lan", "device": "br-lan.30", "address": "192.168.30.7", "mask": 24,
+		"gateway": map[string]any{"address": "192.168.30.1", "state": "up", "ms": 2.0, "ago": 10},
+		"dns": []any{map[string]any{"server": "192.168.30.254", "state": "up", "ms": 6.0, "ago": 10, "rcode": 0},
+			map[string]any{"server": "192.168.30.253", "state": "silent", "ms": nil, "ago": nil, "rcode": nil},
+			map[string]any{"server": "192.168.30.252", "state": "up", "ms": 9.0, "ago": 4000, "rcode": 0}},
+		"internet": map[string]any{"target": "one.one.one.one", "state": "unresolved"}}
+	others := []any{
+		map[string]any{"section": "iot2", "radio": "radio1", "band": "2g", "ssid": "House IoT", "security": "psk2", "vlan": 10, "clients": 3},
+		map[string]any{"section": "iot5", "radio": "radio0", "band": "5g", "ssid": "House IoT", "security": "psk2", "vlan": 10, "clients": 0},
+		map[string]any{"section": "house", "radio": "radio0", "band": "5g", "ssid": "House", "security": "psk2", "vlan": 20, "clients": 1},
+		map[string]any{"section": "plain", "radio": "radio0", "band": "5g", "ssid": "No VLAN", "security": "psk2", "clients": 0},
+	}
+	// This report, too, an hour after the one before, and an hour before
+	// the next.
+	*f.skew = -time.Hour
+	if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60, "uplink_port": port, "path": way, "others": others}, nil); code != 200 {
+		t.Fatalf("its report: %d %v", code, b)
+	}
+	*f.skew = 0
+	last30 := get("griff", "")
+	var said30 []string
+	for _, sg := range last30["segments"].([]any) {
+		sg := sg.(map[string]any)
+		var names []string
+		for _, n := range sg["networks"].([]any) {
+			n := n.(map[string]any)
+			names = append(names, fmt.Sprintf("%v/%v/%v", n["network"], n["ssid"], n["kind"]))
+		}
+		said30 = append(said30, fmt.Sprintf("%v [%s] %s", sg["id"], strings.Join(names, " "), steps(sg["steps"])))
+	}
+	want30 := []string{
+		"vlan:10 [<nil>/House IoT/own] ",
+		"vlan:20 [sweet/Sweet Spot/<nil> <nil>/House/own] dhcp n 1 ms 284 most 284 failed 0; dns n 1 ms 42 most 42 failed 0; gateway n 1 ms 4 most 4 failed 0",
+		"vlan:30 [mgmt:30/<nil>/management] dns n 1 ms 6 most 6 failed 1; gateway n 1 ms 2 most 2 failed 0",
+	}
+	if got, want := strings.Join(said30, "\n"), strings.Join(want30, "\n"); got != want {
+		t.Errorf("with its own way out and its own networks:\n got\n%s\nwant\n%s", got, want)
+	}
+	// The internet, once its target answers.
+	way["internet"] = map[string]any{"target": "one.one.one.one", "address": "1.1.1.1", "state": "up", "ms": 22.0, "ago": 5}
+	if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 120, "uplink_port": port, "path": way}, nil); code != 200 {
+		t.Fatalf("its report: %d %v", code, b)
+	}
+	for _, sg := range get("griff", "")["segments"].([]any) {
+		if sg := sg.(map[string]any); sg["id"] == "vlan:30" {
+			if got, want := steps(sg["steps"]), "dns n 2 ms 6 most 6 failed 2; gateway n 2 ms 2 most 2 failed 0; internet n 1 ms 22 most 22 failed 0"; got != want {
+				t.Errorf("with the internet answering:\n got %s\nwant %s", got, want)
+			}
+		}
 	}
 }

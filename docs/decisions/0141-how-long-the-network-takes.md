@@ -17,8 +17,10 @@
 - **The manager keeps what was timed of each network's steps, by the hour:** for an AP, a network and a step, how many times it was timed, the sum of the times and the slowest, and how many times no answer came. It is a trend (0140), kept as long as the others.
   - **From a client test,** as its result comes: `dhcp`, from asking for an address to having one; `gateway`; `dns`; and `signin`, a whole 802.1X sign-in. A test that stopped at one of them counts there as no answer.
   - **From a state report:** `aaa`, the round trip of each network's RADIUS server, where it answered since the report before; and no answer where the AP finds it silent. One not yet asked says nothing.
+  - **From an AP's own way out** (0142), with each state report: its `gateway`, each of its name servers as `dns`, and the `internet` where it has a target, counted under its management VLAN. Griff, on first seeing the table: "I dont see the management vlans". The VLAN the APs themselves live on is a line of its own, or a part of the line of a VLAN their clients share.
   - **The tests still kept are counted in once ever,** so the history begins with them: all of them in one transaction with the mark that it was done, so a manager stopped part way does it whole the next time, and never twice. Those done since the manager started are left out, each having been counted as it came. Of the RADIUS servers the history begins with this manager.
 - **`GET /v1/network` says it of the APs the caller may view,** below a Locations node where one is named, over up to a year:
+  - **Every VLAN that carries Wi-Fi here is listed,** timed or not: the networks an AP has of its own, not Aeolus's (0137), are named on their VLANs, dull, as nothing times them. Griff: "I know there are more ssids than just vlan 20".
   - **a segment at a time:** the networks are put together by the VLAN, or the tunnel, their primary transport has. A VLAN's DHCP server, gateway and names are its own, whichever network a test joined it by. A network on neither is said by itself;
   - for each step, how many times it was timed, its average and its slowest, and how many times no answer came; and the same of all together;
   - each step's average over the time, in at most 48 buckets of whole hours, of all or of one segment.
@@ -30,7 +32,7 @@
 ## Consequences
 
 - **A slow DHCP server, or a gateway that has grown slow, shows as a line that rose,** on the VLAN it serves, without opening a test.
-- **A VLAN is said only where it is tested.** With no tests on a schedule, only the RADIUS servers are timed.
+- **A VLAN is timed only where something asks on it:** a client test of one of Aeolus's networks, or the APs' own way out on their management VLAN. A VLAN that carries only an AP's own networks is listed with nothing beside it.
 - **A network's segment is read from Services as it is set now.** Moved to another VLAN, what was timed of it before is said under the new one.
 - **The address a test waits for is the whole of getting one,** and not the DHCP server's first answer alone: over the wire a test also times the offer (0130), which is not kept here.
 - **AAA is the RADIUS server's answer to the AP,** a few ms; a whole sign-in, many round trips and the client's own time, is kept beside it and shown where a network has one.
@@ -38,6 +40,8 @@
 - **The store's schema moves to 20.**
 
 ## Not decided
+
+- **Tests on the VLANs of the APs' own networks,** over the wire, which needs no key of theirs: so that a VLAN Aeolus serves no network on is timed too.
 
 - **An AP's own way out,** a tab on the AP: its management address, its gateway, its names, its time and the internet, each with how long it took (Griff, the same day; the internet by a target set a folder at a time). The agent does not time these yet.
 - **The same of real clients' own attempts** (0118): their addresses and gateways are timed too, and are not counted here.
