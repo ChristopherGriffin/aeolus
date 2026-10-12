@@ -22,8 +22,14 @@ import (
 // typically take, and how that moved over a day or a year, can be said.
 
 // The steps kept, in the order they are shown: how long an address took,
-// the gateway, a name, the RADIUS server's answer, and a whole sign-in.
-var networkSteps = []string{"dhcp", "gateway", "dns", "aaa", "signin"}
+// the gateway, a name, the RADIUS server's answer, a whole sign-in, and the
+// internet.
+var networkSteps = []string{"dhcp", "gateway", "dns", "aaa", "signin", "internet"}
+
+// mgmtPrefix begins what an AP's own way out is counted under (0142): no
+// network of Aeolus's, but the AP's management, on the VLAN that follows
+// it. A network's ID can hold no colon, so it is never one.
+const mgmtPrefix = "mgmt:"
 
 // The points of a test's way (0130) that are a network's own answers.
 var testTimed = map[string]bool{"dhcp": true, "gateway": true, "dns": true, "signin": true}
@@ -96,6 +102,42 @@ func radiusSteps(rs []radiusState) []conditions.StepTime {
 // were kept have been counted in.
 const testsCounted = "client-tests-counted"
 
+// pathSteps is what an AP's own way out timed (0142), as a state report
+// says it: its gateway, each of its name servers, and the internet where
+// it has a target, counted under its management VLAN, so that the VLAN the
+// APs themselves live on is said beside the VLANs their clients do. An
+// answer counts where it came since the report before; silence counts as
+// no answer; what is not yet known says nothing.
+func pathSteps(p *pathState, port *uplinkPort) []conditions.StepTime {
+	if p == nil {
+		return nil
+	}
+	network := mgmtPrefix
+	if port != nil && port.ManagementVLAN > 0 {
+		network += strconv.Itoa(port.ManagementVLAN)
+	}
+	var out []conditions.StepTime
+	add := func(step, state string, ms *float64, ago *int64) {
+		switch {
+		case state == "up" && ms != nil && ago != nil && time.Duration(*ago)*time.Second <= stateEvery:
+			v := *ms
+			out = append(out, conditions.StepTime{Network: network, Step: step, MS: &v})
+		case state == "silent":
+			out = append(out, conditions.StepTime{Network: network, Step: step})
+		}
+	}
+	if g := p.Gateway; g != nil {
+		add("gateway", g.State, g.MS, g.Ago)
+	}
+	for _, d := range p.DNS {
+		add("dns", d.State, d.MS, d.Ago)
+	}
+	if i := p.Internet; i != nil {
+		add("internet", i.State, i.MS, i.Ago)
+	}
+	return out
+}
+
 // countKeptTests counts the client tests still kept into the hours they
 // were made in, once ever: so that the history begins with the tests kept,
 // and not with this manager. Those done since this manager started are
@@ -141,10 +183,15 @@ type networkStep struct {
 	Failed int      `json:"failed"`
 }
 
-// networkName is a network by its ID and the SSID it is set to somewhere.
+// networkName is what is on a segment: a network of Aeolus's, by its ID and
+// the SSID it is set to somewhere; the APs' own management (kind
+// management), whose way out is timed there (0142); or a network of an
+// AP's own, not Aeolus's (kind own, 0137), by its SSID, which nothing
+// times.
 type networkName struct {
-	Network string `json:"network"`
+	Network string `json:"network,omitempty"`
 	SSID    string `json:"ssid,omitempty"`
+	Kind    string `json:"kind,omitempty"`
 }
 
 // networkSegment is the networks that share a segment, a VLAN or a tunnel,
@@ -284,6 +331,10 @@ func (s *Server) network(w http.ResponseWriter, r *http.Request, c call) error {
 	}
 	segOf, ssidOf := segmentsOf(c.state)
 	segment := func(network string) string {
+		// The APs' own management is on the VLAN it was counted under.
+		if vlan, ok := strings.CutPrefix(network, mgmtPrefix); ok && vlan != "" {
+			return "vlan:" + vlan
+		}
 		if s, ok := segOf[network]; ok {
 			return s
 		}
@@ -330,6 +381,36 @@ func (s *Server) network(w http.ResponseWriter, r *http.Request, c call) error {
 		return err
 	}
 
+	// The networks the APs have of their own, not Aeolus's (0137), by the
+	// VLAN each is on: said with the segment, so that every VLAN that
+	// carries Wi-Fi here is listed, timed or not. Nothing times them.
+	own := map[string][]string{}
+	for ap := range mine {
+		st, err := s.conds.LatestState(ap)
+		if err != nil {
+			return err
+		}
+		if st == nil {
+			continue
+		}
+		var rep struct {
+			Others []otherNetwork `json:"others"`
+		}
+		if json.Unmarshal(st.Report, &rep) != nil {
+			continue
+		}
+		for _, o := range rep.Others {
+			id := "vlan:" + strconv.Itoa(o.VLAN)
+			if o.VLAN <= 0 || o.SSID == "" || o.Off || slices.Contains(own[id], o.SSID) {
+				continue
+			}
+			own[id] = append(own[id], o.SSID)
+			if bySeg[id] == nil {
+				bySeg[id], nets[id] = map[string]*stepSum{}, map[string]bool{}
+			}
+		}
+	}
+
 	steps := func(m map[string]*stepSum) map[string]networkStep {
 		out := map[string]networkStep{}
 		for k, t := range m {
@@ -348,9 +429,23 @@ func (s *Server) network(w http.ResponseWriter, r *http.Request, c call) error {
 			}
 		}
 		for network := range nets[id] {
+			if strings.HasPrefix(network, mgmtPrefix) {
+				sg.Networks = append(sg.Networks, networkName{Network: network, Kind: "management"})
+				continue
+			}
 			sg.Networks = append(sg.Networks, networkName{Network: network, SSID: ssidOf[network]})
 		}
-		slices.SortFunc(sg.Networks, func(a, b networkName) int { return strings.Compare(a.Network, b.Network) })
+		for _, ssid := range own[id] {
+			sg.Networks = append(sg.Networks, networkName{SSID: ssid, Kind: "own"})
+		}
+		// Aeolus's networks first, then the APs' management, then their own.
+		order := map[string]int{"": 0, "management": 1, "own": 2}
+		slices.SortFunc(sg.Networks, func(a, b networkName) int {
+			if order[a.Kind] != order[b.Kind] {
+				return order[a.Kind] - order[b.Kind]
+			}
+			return strings.Compare(a.Network+a.SSID, b.Network+b.SSID)
+		})
 		segments = append(segments, sg)
 	}
 	// VLANs first, by number; then tunnels; then what is on neither.

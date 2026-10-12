@@ -1570,6 +1570,10 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err := s.conds.AddSteps(c.ap, time.Now(), radiusSteps(req.Radius)); err != nil {
 		return err
 	}
+	// What its own way out timed, under its management VLAN (0142).
+	if err := s.conds.AddSteps(c.ap, time.Now(), pathSteps(req.Path, req.UplinkPort)); err != nil {
+		return err
+	}
 	// What its steering asked of clients, each asking kept once (0139).
 	if _, err := s.conds.AddSteer(c.ap, req.Steer.askings(time.Now(), req.Uptime)); err != nil {
 		return err

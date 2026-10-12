@@ -31,7 +31,11 @@ const STEPS = [
 	['dns', 'DNS', 'How long a name took to look up, as a client test found.'],
 	['aaa', 'AAA', "How long the network's RADIUS server took to answer the AP, as each state report says."],
 	['signin', 'Sign-in', 'A whole 802.1X sign-in, as a client test through the air found.'],
+	['internet', 'Internet', "How long the internet's target took to answer the AP itself, from its management VLAN, as each state report says."],
 ];
+// Those shown only where they were tried: a network that signs clients in,
+// a folder with an internet target.
+const SOMETIMES = new Set(['signin', 'internet']);
 
 // ms writes a time: 4.1 ms, 284 ms, 2.0 s.
 const ms = (n) => (n == null ? '—' : n >= 1000 ? `${(n / 1000).toFixed(1)} s` : n >= 10 ? `${Math.round(n)} ms` : `${n.toFixed(1)} ms`);
@@ -40,9 +44,13 @@ const dated = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'nume
 const day = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
 const when = (hours, t) => (hours > 200 ? day(t) : hours > 49 ? dated(t) : clock(t));
 
+// What is on a segment, as it is called: a network by its SSID, the APs'
+// own management, or a network of an AP's own.
+const called = (n) => (n.kind === 'management' ? 'Management' : n.ssid || n.network);
+
 // What a segment is called: its VLAN or its tunnel, and the networks on it.
 function named(s) {
-	const nets = s.networks.map((n) => n.ssid || n.network).join(', ');
+	const nets = s.networks.map(called).join(', ');
 	if (s.vlan != null) return `VLAN ${s.vlan} · ${nets}`;
 	if (s.vni != null) return `Tunnel ${s.vni} · ${nets}`;
 	return nets;
@@ -113,7 +121,7 @@ export async function networkTab(ctx, id) {
 			v.segments.map((s) => h('option', { value: s.id, selected: at.segment === s.id }, named(s))));
 		const of = at.segment ? v.segments.find((s) => s.id === at.segment).steps : v.all;
 		const any = v.segments.length > 0;
-		const shown = STEPS.filter(([key]) => key !== 'signin' || tried(of.signin));
+		const shown = STEPS.filter(([key]) => !SOMETIMES.has(key) || tried(of[key]));
 		const cards = h('div', { class: 'tiles steptimes' }, shown.map(([key, label, says]) => {
 			const s = of[key];
 			return h('div', { class: 'tile', title: says },
@@ -131,7 +139,9 @@ export async function networkTab(ctx, id) {
 				v.segments.map((s) => h('tr', { class: at.segment === s.id ? 'picked' : '' },
 					h('td', null, h('a', { href: '#', title: 'Draw this one alone', onclick: (e) => { e.preventDefault(); pick(() => { at.segment = at.segment === s.id ? '' : s.id; }); } },
 						s.vlan != null ? `VLAN ${s.vlan}` : s.vni != null ? `Tunnel ${s.vni}` : '—')),
-					h('td', null, s.networks.map((n) => n.ssid || n.network).join(', ')),
+					// A network of an AP's own, not Aeolus's, is dull: nothing times it.
+					h('td', null, s.networks.map((n, i) => [i > 0 && ', ',
+						n.kind === 'own' ? h('span', { class: 'sub', title: "A network of an AP's own, not Aeolus's: nothing here times it." }, called(n)) : called(n)])),
 					shownAll(v).map(([key]) => cell(s.steps[key]))))));
 		box.replaceChildren(
 			h('section', { class: 'panel' },
@@ -148,8 +158,8 @@ export async function networkTab(ctx, id) {
 // tried says whether a step was ever tried: timed, or left unanswered.
 const tried = (s) => !!s && (s.n > 0 || s.failed > 0);
 
-// shownAll is the steps the table has a column for: a sign-in only where
-// some segment tried one.
+// shownAll is the steps the table has a column for: a sign-in or the
+// internet only where some segment tried one.
 function shownAll(v) {
-	return STEPS.filter(([key]) => key !== 'signin' || v.segments.some((s) => tried(s.steps.signin)));
+	return STEPS.filter(([key]) => !SOMETIMES.has(key) || v.segments.some((s) => tried(s.steps[key])));
 }
