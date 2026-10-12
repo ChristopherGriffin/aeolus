@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -123,6 +124,7 @@ func TestTopClientsNameLast(t *testing.T) {
 	if err := f.conds.RecordUse("office-ap", 1, []conditions.ClientUse{{MAC: mac, Host: "old-name", Down: 10, Up: 1}}); err != nil {
 		t.Fatal(err)
 	}
+	*f.skew = time.Minute // a later time by any clock, however coarse
 	if err := f.conds.RecordUse(hierarchy.NodeID(ap), 1, []conditions.ClientUse{{MAC: mac, Host: "new-name", Down: 20, Up: 2}}); err != nil {
 		t.Fatal(err)
 	}
@@ -131,5 +133,31 @@ func TestTopClientsNameLast(t *testing.T) {
 	})
 	if err != nil || len(top) != 1 || top[0].Host != "new-name" || top[0].Down != 30 || len(top[0].APs) != 2 {
 		t.Fatalf("top = %+v, %v", top, err)
+	}
+}
+
+// Of two host names given at one time, as two reports within one tick of a
+// coarse clock are, the one recorded last is the client's: on two APs
+// whichever's rows come first, and on one (0110).
+func TestTopClientsNameAtOneTime(t *testing.T) {
+	now := time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
+	conds, err := conditions.Open(filepath.Join(t.TempDir(), "conditions.db"), func() time.Time { return now })
+	must(t, err)
+	t.Cleanup(func() { conds.Close() })
+	for i, aps := range [][2]hierarchy.NodeID{{"ap-1", "ap-2"}, {"ap-2", "ap-1"}, {"ap-1", "ap-1"}} {
+		mac := fmt.Sprintf("7e:2a:ea:9b:2b:%02x", i)
+		must(t, conds.RecordUse(aps[0], 1, []conditions.ClientUse{{MAC: mac, Host: "old-name", Down: 10, Up: 1}}))
+		must(t, conds.RecordUse(aps[1], 1, []conditions.ClientUse{{MAC: mac, Host: "new-name", Down: 20, Up: 2}}))
+	}
+	top, err := (&Server{conds: conds}).topClients(now.Add(-time.Hour), map[hierarchy.NodeID]*usageAP{
+		"ap-1": {AP: "ap-1", Name: "One"}, "ap-2": {AP: "ap-2", Name: "Two"},
+	})
+	if err != nil || len(top) != 3 {
+		t.Fatalf("top = %+v, %v", top, err)
+	}
+	for _, c := range top {
+		if c.Host != "new-name" || c.Down != 30 {
+			t.Fatalf("top = %+v", top)
+		}
 	}
 }

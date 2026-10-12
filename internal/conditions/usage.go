@@ -48,14 +48,16 @@ type ClientUse struct {
 }
 
 // ClientTotal is what one client moved on one AP since a time, with the
-// host name it last gave there and when.
+// host name it last gave there, when, and in which row: of two names given
+// at one time, the later row's was given last.
 type ClientTotal struct {
-	AP     hierarchy.NodeID
-	MAC    string
-	Host   string
-	HostAt time.Time
-	Down   int64
-	Up     int64
+	AP      hierarchy.NodeID
+	MAC     string
+	Host    string
+	HostAt  time.Time
+	HostRow int64
+	Down    int64
+	Up      int64
 }
 
 // Moved says whether an AP reported, between two times, that a client moved
@@ -104,12 +106,16 @@ func (s *Store) RecordUse(ap hierarchy.NodeID, clients int, moved []ClientUse) e
 	return tx.Commit()
 }
 
+// clientNamed finds the row in which a client last gave a host name on an
+// AP: the newest, and of those of one time the last recorded, as two
+// reports within one tick of a coarse clock have the same time.
+const clientNamed = ` FROM client_usage h WHERE h.ap = c.ap AND h.mac = c.mac AND h.host != '' ORDER BY h.at DESC, h.rowid DESC LIMIT 1`
+
 // ClientTotals is what each client moved on each AP since since (0110),
 // with the last host name it gave there.
 func (s *Store) ClientTotals(since time.Time) ([]ClientTotal, error) {
 	rows, err := s.db.Query(`SELECT c.ap, c.mac, SUM(c.down), SUM(c.up),
-		(SELECT h.host FROM client_usage h WHERE h.ap = c.ap AND h.mac = c.mac AND h.host != '' ORDER BY h.at DESC LIMIT 1),
-		(SELECT h.at FROM client_usage h WHERE h.ap = c.ap AND h.mac = c.mac AND h.host != '' ORDER BY h.at DESC LIMIT 1)
+		(SELECT h.host`+clientNamed+`), (SELECT h.at`+clientNamed+`), (SELECT h.rowid`+clientNamed+`)
 		FROM client_usage c WHERE c.at >= ? GROUP BY c.ap, c.mac`, stamp(since))
 	if err != nil {
 		return nil, err
@@ -120,10 +126,11 @@ func (s *Store) ClientTotals(since time.Time) ([]ClientTotal, error) {
 		var t ClientTotal
 		var ap string
 		var host, at sql.NullString
-		if err := rows.Scan(&ap, &t.MAC, &t.Down, &t.Up, &host, &at); err != nil {
+		var row sql.NullInt64
+		if err := rows.Scan(&ap, &t.MAC, &t.Down, &t.Up, &host, &at, &row); err != nil {
 			return nil, err
 		}
-		t.AP, t.Host = hierarchy.NodeID(ap), host.String
+		t.AP, t.Host, t.HostRow = hierarchy.NodeID(ap), host.String, row.Int64
 		if at.Valid {
 			if t.HostAt, err = time.Parse(time.RFC3339Nano, at.String); err != nil {
 				return nil, err
