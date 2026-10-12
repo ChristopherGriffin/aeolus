@@ -151,9 +151,10 @@ func (s *Store) Events(ap hierarchy.NodeID, since time.Time, limit int) ([]APEve
 }
 
 // AppliesSince is an AP's applies since since, newest first, at most
-// limit.
+// limit. An apply is kept as recorded, so one from before stamp wrote every
+// digit has its time in the form before: each is compared as stamped.
 func (s *Store) AppliesSince(ap hierarchy.NodeID, since time.Time, limit int) ([]Apply, error) {
-	rows, err := s.db.Query(`SELECT at, version, hash, ok, error, checked FROM applies WHERE ap = ? AND at >= ? ORDER BY id DESC LIMIT ?`, string(ap), stamp(since), limit)
+	rows, err := s.db.Query(`SELECT at, version, hash, ok, error, checked FROM applies WHERE ap = ? AND `+stamped("at")+` >= ? ORDER BY id DESC LIMIT ?`, string(ap), stamp(since), limit)
 	if err != nil {
 		return nil, err
 	}

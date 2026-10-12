@@ -17,13 +17,14 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 18
+const schemaVersion = 19
 
 const schema = `
 CREATE TABLE aps (
@@ -139,7 +140,36 @@ CREATE INDEX knocks_last ON knocks (last_at);`,
 	16: capturesTables,
 	// 0139: each asking an AP's steering made of a client.
 	17: steerTable,
+	// 0108, 0110: the times kept as text, in the form that sorts as time.
+	18: fixedTimes,
 }
+
+// fixedTimes rewrites the times kept before stamp wrote every digit, in a
+// form that does not sort as time does, into the one it writes now: the
+// rows of a store already in use then compare as new rows do, and no query
+// has two forms to be right for. A time that has its nine digits is in that
+// form already and is left, as nine in ten are from a clock that tells
+// nanoseconds. Checks and applies are not rewritten: they are kept as
+// recorded, and their triggers say so. Nothing compares a check's time, and
+// AppliesSince reads an apply's through stamped. The list is this
+// migration's, and is not added to: a table made after it has only times
+// that stamp wrote in full.
+var fixedTimes = func() string {
+	var q strings.Builder
+	for _, c := range [][2]string{
+		{"aps", "seen_at"}, {"aps", "running_at"},
+		{"states", "at"},
+		{"usage", "at"},
+		{"client_usage", "at"},
+		{"alert_log", "began"}, {"alert_log", "ended"},
+		{"actions", "at"}, {"actions", "done_at"},
+		{"relay_clients", "first_at"}, {"relay_clients", "last_at"},
+		{"knocks", "first_at"}, {"knocks", "last_at"},
+	} {
+		fmt.Fprintf(&q, "UPDATE %s SET %s = %s WHERE length(%s) < %d;\n", c[0], c[1], stamped(c[1]), c[1], stampLen)
+	}
+	return q.String()
+}()
 
 // Results of a render check (0039).
 const (
@@ -266,7 +296,27 @@ func (s *Store) Close() error { return s.db.Close() }
 // with.
 func (s *Store) Now() time.Time { return s.now() }
 
-func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+// stampLayout is how a time is kept as text: in UTC, with all nine digits of
+// its second's fraction, so every time is as long as every other and the
+// text sorts as time does. SQLite compares these columns byte by byte.
+// time.RFC3339Nano, which the store wrote before, drops the fraction's
+// trailing zeros: 12:00:00Z sorted after 12:00:00.5Z, and .5Z after .51Z, so
+// a look from a whole second left out the rows of that second (0108, 0110),
+// and a trim to one took them. Either form reads with time.RFC3339Nano.
+const stampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
+// stampLen is how long every time so kept is.
+const stampLen = len("2006-01-02T15:04:05.000000000Z")
+
+func stamp(t time.Time) string { return t.UTC().Format(stampLayout) }
+
+// stamped is SQL for the time kept in col, in the form stamp writes, of
+// whichever form it was written in: for the migration that rewrites the
+// form before, and for comparing the times of rows that may not be
+// rewritten.
+func stamped(col string) string {
+	return "substr(" + col + ", 1, 19) || '.' || substr(rtrim(substr(" + col + ", 21), 'Z') || '000000000', 1, 9) || 'Z'"
+}
 
 // Seen records that an AP called, from source.
 func (s *Store) Seen(ap hierarchy.NodeID, source string) error {
