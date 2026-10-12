@@ -17,6 +17,7 @@ import { fieldsForm, changedValues } from './edit.js';
 import { ask, confirm } from './confirm.js';
 import { keysBlock } from './keys.js';
 import { vxlanPath, vlanPath, probed } from './path.js';
+import { othersPanel } from './others.js';
 
 const BANDS = ['2g', '5g', '6g'];
 
@@ -58,6 +59,8 @@ export async function networksTab(ctx, id, page) {
 		writable.length > 0 && h('div', { class: 'below' },
 			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox, lib) }, 'Add a network')),
 		addBox,
+		// What the APs here have of their own, that is not Aeolus's (0137).
+		othersPanel(page, reports),
 		steeringStatus(ctx, reports),
 		transportsStatus(reports),
 		radiusStatus(reports),
