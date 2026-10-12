@@ -1,0 +1,496 @@
+#!/usr/bin/ucode -S
+// aeolus-steer: the Aeolus agent's steering of Wi-Fi clients (0138).
+//
+// On each of the AP's networks that Aeolus is told to steer, and on no
+// other, it hears what hostapd says of clients, looks every five seconds at
+// who is on and how well each is heard, and asks hostapd for what
+// aeolus.steer says is due: a BSS transition request, a client kept off a
+// network for a moment, a client put off.
+//
+// It fails open. hostapd waits for it for nothing: it is told so on every
+// network steered, at each look, because another listener (usteer) asks
+// hostapd to wait for its listeners, and that would have it wait for this
+// one too. What keeps a client off is hostapd's own ban, a few seconds
+// long, which hostapd lifts by its own timer. So with this daemon stopped,
+// hung or gone, clients join as on a network that is not steered. Nothing
+// is asked of hostapd from inside one of its notifications, and nothing
+// asked of it is waited for.
+//
+// It acts only on what it knows to be so now. What hostapd said while the
+// daemon was held up, by whatever, is old when the daemon gets to it: a
+// client that was coming to join then may be on by now, and to keep it off
+// would put it off. So that is let go, and nothing is acted on, at the
+// start or after such a stop, before the daemon has looked at who is on.
+//
+// The manager is in none of this. The settings are the agent's own UCI
+// package, as the renderer made it; what came of each asking goes to
+// /var/run/aeolus/steer.json, which the agent reports. procd runs it beside
+// the agent.
+//
+//	aeolus-steer [-c <UCI directory>] [-o <results file>] [-n] [-m <MAC>] [-d]
+//
+// -c and -o are for trying it out beside the one procd runs; -n has it say
+// what it would ask, and ask nothing; -m has it see one client and no
+// other; -d has it write what it sees at each look beside its results.
+
+'use strict';
+
+import * as fs from 'fs';
+import * as uloop from 'uloop';
+import { cursor } from 'uci';
+import { connect } from 'ubus';
+import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING } from 'log';
+import * as steer from 'aeolus.steer';
+
+let confdir = null, out = '/var/run/aeolus/steer.json', dry = false, only = null, debug = false;
+for (let i = 0; i < length(ARGV); i++) {
+	if (ARGV[i] == '-c')
+		confdir = ARGV[++i];
+	else if (ARGV[i] == '-o')
+		out = ARGV[++i];
+	else if (ARGV[i] == '-n')
+		dry = true;
+	else if (ARGV[i] == '-m')
+		only = lc(ARGV[++i] ?? '');
+	else if (ARGV[i] == '-d')
+		debug = true;
+}
+
+const LOOK_EVERY = 5;        // seconds between looks at the clients
+const NETWORKS_EVERY = 6;    // looks between looks at the settings and the AP's networks
+const KNOWN_EVERY = 60;      // looks between writes of what is known of clients
+const LOST = 6;              // looks at the AP's networks that fail in a row before the daemon starts over
+const STALL = 3;             // seconds without a turn after which the daemon was held up
+const KNOWN = replace(out, /\.json$/, '') + '.known.json';
+const HEARD = { 'probe': true, 'auth': true, 'sta-authorized': true, 'disassoc': true, 'deauth': true, 'bss-transition-response': true };
+const BAND = { '2g': '2.4 GHz', '5g': '5 GHz', '6g': '6 GHz' };
+const DISASSOC_AP_BUSY = 5;  // the reason a client is given: this AP cannot take it now
+
+let bus = connect();
+openlog('aeolus-steer', LOG_PID, LOG_DAEMON);
+
+function log(fmt, ...args) {
+	syslog(LOG_INFO, fmt, ...args);
+}
+
+function note(fmt, ...args) {
+	syslog(LOG_WARNING, fmt, ...args);
+}
+
+function store(path, data) {
+	let tmp = path + '.new';
+	if (fs.writefile(tmp, data) == null)
+		return false;
+	return fs.rename(tmp, path);
+}
+
+// now is monotonic time in seconds: the clock's own steps move nothing here.
+function now() {
+	let c = clock(true);
+	return c[0] + c[1] / 1000000000;
+}
+
+let st = steer.fresh(), cfg = { networks: {} }, view = { bss: {}, clients: {} };
+let subs = {};        // each steered network's listener, by its interface
+let dead = [];        // listeners whose network hostapd took away
+let said = {};        // the bands each client now on said it can use, and where it said so
+let looks = 0, lost = 0, turn = 0, token = 0, started = time();
+let queue = [], flush = null, last = null, moved = false;
+let beat = 0, ready = false;   // when the daemon last had a turn, and whether it has looked since it started or was held up
+
+// ask asks hostapd, or anything on the bus, without waiting: what it says
+// comes to then, or nothing where it did not answer.
+//
+// then is made by a function of its own wherever it is made in a loop: a
+// loop's variable is one variable here, not one a turn, and an answer would
+// otherwise go to whatever the loop came to last.
+function ask(object, method, args, then) {
+	// What hostapd does without a word comes as nothing, with no error.
+	let d = bus.defer(object, method, args ?? {}, (rc, reply) => {
+		if (then)
+			then(rc == 0 ? reply ?? {} : null);
+	});
+	if (!d && then)
+		then(null);
+}
+
+// settings is the networks to steer, and how, as the renderer wrote them:
+// each way lists the networks it is on for, by their IDs, and sticky the
+// signal under which a client is weak ("lab=-75").
+function settings() {
+	let nets = {}, s = cursor(confdir).get_all('aeolus', 'aeolus_steer');
+	if (s?.['.type'] != 'steer')
+		return { networks: nets };
+	let listed = (v) => type(v) == 'array' ? v : (v != null ? [v] : []);
+	let net = (id) => nets[id] ??= { suggest: false, hold: false, sticky: false, weak: -75 };
+	for (let id in listed(s.suggest))
+		net(id).suggest = true;
+	for (let id in listed(s.hold_back))
+		net(id).hold = true;
+	for (let e in listed(s.sticky)) {
+		let m = match(e, /^([^=]+)(=(-[0-9]+))?$/);
+		if (!m)
+			continue;
+		let weak = +(m[3] ?? -75);
+		net(m[1]).sticky = true;
+		nets[m[1]].weak = weak >= -95 && weak <= -50 ? weak : -75;
+	}
+	return { networks: nets };
+}
+
+function name(a) {
+	return BAND[a] ?? a;
+}
+
+// record says in the log what came of each asking that has just ended.
+function record() {
+	let fresh = [];
+	for (let i = length(st.events) - 1; i >= 0 && st.events[i] !== last; i--)
+		unshift(fresh, st.events[i]);
+	for (let e in fresh) {
+		let what = {
+			moved: e.to ? `moved up from ${name(e.from)}` : `left ${name(e.from)} for a better place here`,
+			refused: `said no, and stays on ${name(e.from)}`, stayed: `stayed on ${name(e.from)}`, left: `left ${name(e.from)}`,
+			joined: `joined ${name(e.from)} all the same`, back: `is back on ${name(e.from)}`, recovered: 'is heard well again, and stays',
+		}[e.outcome] ?? e.outcome;
+		log('%s on %s %s, %s s after it was %s', e.mac, e.network, what, e.took,
+			{ btm: 'asked', held: 'held off', kick: 'put off', none: 'moved' }[e.asked] ?? e.asked);
+	}
+	if (length(st.events))
+		last = st.events[length(st.events) - 1];
+}
+
+// act asks hostapd for one thing, and does not wait for it.
+function act(a) {
+	let b = view.bss[a.bss], object = 'hostapd.' + a.bss;
+	let failed = (what) => (r) => {
+		if (r == null)
+			note('hostapd did not take the asking to %s %s on %s', what, a.mac, a.bss);
+	};
+	switch (a.do) {
+	case 'btm':
+		log('%s %s on %s to %s', dry ? 'would ask' : 'asking', a.mac, b?.network,
+			a.imminent ? `leave ${name(b?.band)}, where it is heard weakly, for one of ${length(a.neighbors)}` : `move up from ${name(b?.band)}`);
+		if (dry)
+			return;
+		token = token % 255 + 1;
+		ask(object, 'bss_transition_request', {
+			addr: a.mac, disassociation_imminent: a.imminent, disassociation_timer: a.timer,
+			validity_period: a.validity, neighbors: a.neighbors, abridged: a.abridged, dialog_token: token,
+		}, failed('move'));
+		break;
+	case 'ban':
+		log('%s %s off %s on %s for %s s', dry ? 'would keep' : 'keeping', a.mac, name(b?.band), b?.network, a.ms / 1000.0);
+		if (!dry)
+			ask(object, 'del_client', { addr: a.mac, reason: DISASSOC_AP_BUSY, deauth: false, ban_time: a.ms }, failed('keep off'));
+		break;
+	case 'kick':
+		log('%s %s off %s on %s, where it is heard weakly and stays', dry ? 'would put' : 'putting', a.mac, name(b?.band), b?.network);
+		if (!dry)
+			ask(object, 'del_client', { addr: a.mac, reason: DISASSOC_AP_BUSY, deauth: true, ban_time: a.ms }, failed('put off'));
+		break;
+	}
+}
+
+// drain does what was decided inside one of hostapd's notifications, once
+// that is over.
+function drain() {
+	try {
+		let acts = queue;
+		queue = [];
+		// Decided before the daemon was held up: let go.
+		if (now() - beat > STALL)
+			return;
+		for (let a in acts)
+			act(a);
+		record();
+	} catch (e) {
+		note('%s', e);
+	}
+}
+
+// on_notify takes what hostapd says on a network. Whatever happens here,
+// hostapd is answered that all is well: where it waits for its listeners,
+// an answer of anything else refuses the client.
+function on_notify(ifname, msg) {
+	try {
+		let data = msg.data, t = now();
+		if (msg.type == 'channel-switch')
+			moved = true;
+		if (!ready || t - beat > STALL)
+			return 0;
+		if (!HEARD[msg.type] || type(data) != 'object' || (only && lc(data.address ?? '') != only))
+			return 0;
+		let acts = steer.heard(st, cfg, view, t, ifname, msg.type, data);
+		for (let a in acts)
+			push(queue, a);
+		flush.set(1);
+	} catch (e) {
+		note('%s', e);
+	}
+	return 0;
+}
+
+function listen(ifname) {
+	let s = bus.subscriber((msg) => on_notify(ifname, msg), () => {
+		// hostapd took the network away, as when the Wi-Fi is started
+		// again: it is listened to again at the next look at the networks.
+		if (subs[ifname]) {
+			push(dead, subs[ifname]);
+			delete subs[ifname];
+		}
+	});
+	if (!s)
+		return;
+	if (!s.subscribe('hostapd.' + ifname)) {
+		s.remove();
+		return;
+	}
+	subs[ifname] = s;
+}
+
+// networks takes up the settings and the AP's Wi-Fi networks as netifd has
+// them now, and listens to those that are steered.
+function networks() {
+	cfg = settings();
+	let status = length(cfg.networks) ? bus.call('network.wireless', 'status') : {};
+	if (status == null) {
+		// The bus is gone, as when ubusd started again: procd starts the
+		// daemon again, on the new one.
+		if (++lost >= LOST) {
+			note('netifd does not answer; starting over');
+			exit(1);
+		}
+		return;
+	}
+	lost = 0;
+	let bss = {};
+	for (let r, v in status)
+		for (let i in v.interfaces ?? []) {
+			if (!i.ifname || (i.config?.mode ?? 'ap') != 'ap' || !BAND[v.config?.band])
+				continue;
+			let n = filter(i.config?.network ?? [], x => match(x, /^aeolus_/))[0];
+			let id = n ? replace(substr(n, 7), /_/g, '-') : null;
+			if (!id || !cfg.networks[id])
+				continue;
+			let was = view.bss[i.ifname];
+			bss[i.ifname] = { network: id, band: v.config.band, ssid: was?.ssid ?? null, bssid: was?.bssid ?? null, nr: was?.nr ?? null, listed: was?.listed ?? [], elsewhere: [] };
+		}
+	for (let s in dead)
+		s.remove();
+	dead = [];
+	for (let ifname in keys(subs))
+		if (!bss[ifname]) {
+			subs[ifname].remove();
+			delete subs[ifname];
+		}
+	let had = length(view.bss);
+	view.bss = bss;
+	for (let ifname in keys(bss)) {
+		if (!subs[ifname])
+			listen(ifname);
+		// One hostapd does not have yet is looked for again at the next look.
+		if (!subs[ifname])
+			moved = true;
+	}
+	if (length(bss) != had)
+		log('steering %d network%s on %d radio interface%s', length(cfg.networks), length(cfg.networks) == 1 ? '' : 's', length(bss), length(bss) == 1 ? '' : 's');
+}
+
+// report asks a steered network for its own neighbour report, which a
+// transition request names it by, and for those of the same name hostapd
+// holds for other APs.
+function report(ifname) {
+	let object = 'hostapd.' + ifname;
+	ask(object, 'rrm_nr_get_own', {}, (r) => {
+		let b = view.bss[ifname], v = r?.value;
+		if (!b || type(v) != 'array' || length(v) < 3)
+			return;
+		b.bssid = lc(v[0]);
+		b.ssid = v[1];
+		b.nr = lc(v[2]);
+	});
+	ask(object, 'rrm_nr_list', {}, (r) => {
+		let b = view.bss[ifname];
+		if (b && type(r?.list) == 'array')
+			b.listed = filter(r.list, e => type(e) == 'array' && length(e) >= 3 && type(e[0]) == 'string' && type(e[2]) == 'string');
+	});
+}
+
+// elsewhere tells, of the neighbours hostapd lists for each steered
+// network, those of its name that are not this AP's own: the network on
+// other APs.
+function elsewhere() {
+	let own = {};
+	for (let n, o in view.bss)
+		if (o.bssid)
+			own[o.bssid] = true;
+	for (let n, b in view.bss)
+		b.elsewhere = slice(map(filter(b.listed, e => e[1] == b.ssid && !own[lc(e[0])]), e => lc(e[2])), 0, 8);
+}
+
+// bands asks hostapd what a client said, as it joined, of the bands it can
+// use: once, where it joined.
+function bands(ifname, mac) {
+	said[mac] = { bss: ifname, bands: null };
+	ask('hostapd.' + ifname, 'get_sta_ies', { address: mac }, (r) => {
+		if (said[mac]?.bss == ifname && type(r?.assoc_ie) == 'string')
+			said[mac].bands = steer.bands_of(b64dec(r.assoc_ie) ?? '');
+	});
+}
+
+// seen is the clients hostapd lists on a network, those it has let on: each
+// one's signal, and whether it takes a transition request.
+function seen(ifname, r) {
+	let cs = {};
+	for (let addr, c in r?.clients ?? {}) {
+		let mac = lc(addr);
+		if (!c.authorized || (only && mac != only))
+			continue;
+		let e = { signal: type(c.signal) == 'int' ? c.signal : null, btm: steer.btm_of(c.extended_capabilities) };
+		if (said[mac]?.bss != ifname)
+			bands(ifname, mac);
+		if (said[mac].bands)
+			e.bands = said[mac].bands;
+		cs[mac] = e;
+	}
+	return cs;
+}
+
+function write() {
+	store(out, sprintf('%J\n', steer.summary(st, cfg, view, time(), started)));
+	if (debug)
+		store(replace(out, /\.json$/, '') + '.seen.json', sprintf('%J\n', { view: view, on: st.on, tries: st.tries, said: said }));
+}
+
+// What is known of clients is kept from one run to the next, by the clock,
+// as this run's times are its own.
+function save_known() {
+	let off = time() - now(), k = {};
+	for (let mac, e in st.known) {
+		let bands = {};
+		for (let b, t in e.bands)
+			bands[b] = int(t + off);
+		k[mac] = { bands: bands, btm: e.btm ?? null, at: int((e.at ?? 0) + off) };
+	}
+	store(KNOWN, sprintf('%J\n', k));
+}
+
+function load_known() {
+	let k = null;
+	try {
+		k = json(fs.readfile(KNOWN) ?? 'null');
+	} catch (e) {
+	}
+	if (type(k) != 'object')
+		return;
+	let off = time() - now();
+	for (let mac, e in k) {
+		if (!match(mac, /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/) || type(e?.bands) != 'object')
+			continue;
+		let bands = {};
+		for (let b, t in e.bands)
+			if (steer.RANK[b] != null && type(t) == 'int')
+				bands[b] = t - off;
+		st.known[mac] = { bands: bands, at: (type(e.at) == 'int' ? e.at : 0) - off };
+		if (e.btm != null)
+			st.known[mac].btm = !!e.btm;
+	}
+}
+
+// decide has aeolus.steer look at the clients as they now are, and asks
+// what it says is due.
+function decide(clients) {
+	view.clients = clients;
+	for (let mac in keys(said))
+		if (!clients[said[mac].bss]?.[mac])
+			delete said[mac];
+	elsewhere();
+	for (let a in steer.tick(st, cfg, view, now(), time()))
+		act(a);
+	record();
+	write();
+	ready = true;
+}
+
+// clients_of asks hostapd for a network's clients, in a look: l is the
+// look, which decides once every network has answered. One that hostapd
+// left unanswered when the next look begins is given up for that one.
+function clients_of(ifname, l) {
+	let object = 'hostapd.' + ifname;
+	// hostapd waits for no listener here.
+	ask(object, 'notify_response', { notify_response: 0 });
+	ask(object, 'get_clients', {}, (r) => {
+		// An answer to a look before this one, or one the daemon was held
+		// up before it read: who is on is asked again.
+		if (l.turn != turn || now() - beat > STALL)
+			return;
+		try {
+			l.clients[ifname] = seen(ifname, r);
+			if (--l.left == 0)
+				decide(l.clients);
+		} catch (e) {
+			note('%s', e);
+		}
+	});
+}
+
+// look is the daemon's turn, every five seconds.
+function look() {
+	try {
+		if (looks % NETWORKS_EVERY == 0 || moved) {
+			moved = false;
+			networks();
+			for (let ifname in keys(view.bss))
+				report(ifname);
+		}
+		if (looks % KNOWN_EVERY == KNOWN_EVERY - 1)
+			save_known();
+		looks++;
+		let names = keys(view.bss), l = { turn: ++turn, left: length(names), clients: {} };
+		if (!l.left)
+			return decide(l.clients);
+		for (let ifname in names)
+			clients_of(ifname, l);
+	} catch (e) {
+		note('%s', e);
+	}
+}
+
+function main() {
+	fs.mkdir('/var/run/aeolus');
+	uloop.init();
+	load_known();
+	flush = uloop.timer(1, drain);
+	let again = null, pulse = null;
+	again = uloop.timer(LOOK_EVERY * 1000, () => {
+		again.set(LOOK_EVERY * 1000);
+		look();
+	});
+	// Its pulse, by which it knows it was held up: what it then decided
+	// and had not yet asked is let go with what it heard, and it looks
+	// again before it does anything.
+	beat = now();
+	pulse = uloop.timer(1000, () => {
+		pulse.set(1000);
+		let t = now();
+		if (t - beat > STALL) {
+			note('held up for %d s: what hostapd said meanwhile is let go', t - beat);
+			ready = false;
+			queue = [];
+			beat = t;
+			look();
+		}
+		beat = t;
+	});
+	look();
+	log('started%s%s', dry ? ', to say what it would ask and ask nothing' : '', only ? `, for ${only} alone` : '');
+	uloop.run();
+	// Stopped: what is known of clients is kept. Nothing of this daemon's
+	// is left with hostapd but bans a few seconds long, which end by
+	// themselves.
+	save_known();
+	write();
+}
+
+main();

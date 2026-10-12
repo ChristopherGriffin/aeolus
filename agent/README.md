@@ -17,6 +17,8 @@ The program that runs on each AP (0040). It's written in ucode. It ships as the 
 | `files/usr/sbin/aeolus-clienttest` | The client test (0121): on an AP with a scan radio, that radio joins one of the AP's networks as a client would, and each step of its way online is timed. The agent starts it for a client-test action. |
 | `files/usr/share/ucode/aeolus/clienttest.uc` | What wpa_supplicant is told and what its events mean, a DNS question and its answer, and what a test's findings come to: pure, so they are tested anywhere. |
 | `files/usr/share/ucode/aeolus/journey.uc` | What hostapd's lines mean, the packet filter, how each frame reads, and the record of an attempt: pure, so they are tested anywhere. |
+| `files/usr/sbin/aeolus-steer` | The steering of clients, a network at a time (0138): it hears hostapd on the networks Aeolus has steered, looks every five seconds at who is on, and asks hostapd for a transition request, a client kept off for a moment, or one put off. hostapd never waits for it, and what keeps a client off ends by hostapd's own timer: stopped, clients join as on a network that is not steered. What came of each asking goes to the agent's report. |
+| `files/usr/share/ucode/aeolus/steer.uc` | What is asked of a client, when, and what is made of where it then is: pure, so it is tested anywhere. |
 | `files/usr/share/ucode/aeolus/rrm.uc` | Its advert, HMAC-SHA256, hellos and choice of neighbours: pure, so they are tested anywhere. |
 | `files/etc/init.d/aeolus` | procd service: the agent, its key agent, the prober where ucode-mod-socket is installed, and radio resource management where ucode's nl80211, digest and socket modules are. It starts nothing until `aeolus-setup` has run, and after a sysupgrade it puts back a missing module first (0080). |
 | `files/lib/upgrade/keep.d/aeolus` | Keeps the agent, the token, the certificate and the settings across a sysupgrade. |
@@ -25,7 +27,7 @@ The program that runs on each AP (0040). It's written in ucode. It ships as the 
 | `openwrt/luci-app-aeolus/Makefile` | The page as a package: exactly the files under `luci/`. |
 | `web-install.sh` | The installer the manager serves at `/install` (0083), with the manager's URL filled in. |
 | `install.sh` | Installs the agent from a copy of this directory: copies the files, then runs `aeolus-setup`. |
-| `test/` | Test cases for the renderer: an intent, the config it starts from, and the UCI it must produce (`cases/*.uci`); `probe.uc`, which prints the prober's frames and verdicts, with `probe.out`, what it must print; and `rrm.uc` and `rrm.out`, `radius.uc` and `radius.out`, and `journey.uc` and `journey.out`, the same for radio resource management, for RADIUS status, and for a client coming online. |
+| `test/` | Test cases for the renderer: an intent, the config it starts from, and the UCI it must produce (`cases/*.uci`); `probe.uc`, which prints the prober's frames and verdicts, with `probe.out`, what it must print; and `rrm.uc` and `rrm.out`, `radius.uc` and `radius.out`, `journey.uc` and `journey.out`, and `steer.uc` and `steer.out`, the same for radio resource management, for RADIUS status, for a client coming online, and for the steering of clients. |
 
 ## Install
 
@@ -73,7 +75,7 @@ make package/aeolus-agent/compile package/luci-app-aeolus/compile
 
 `internal/rendercheck` in the manager holds both halves of the contract:
 - Each `cases/*.uci` must pass the render check and leave every section Aeolus doesn't own unchanged. A radio another service owns must come out exactly as it went in (0081).
-- Where ucode is installed, the renderer must produce exactly that output, and `test/probe.uc` must print `test/probe.out`, as `test/rrm.uc`, `test/radius.uc`, `test/journey.uc` and `test/clienttest.uc` must theirs. CI builds ucode to run this.
+- Where ucode is installed, the renderer must produce exactly that output, and `test/probe.uc` must print `test/probe.out`, as `test/rrm.uc`, `test/radius.uc`, `test/journey.uc`, `test/steer.uc` and `test/clienttest.uc` must theirs. CI builds ucode to run this.
 
 To run one case by hand:
 

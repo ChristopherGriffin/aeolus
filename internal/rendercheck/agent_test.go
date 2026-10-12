@@ -290,7 +290,7 @@ func anyList(v any) []string {
 func TestAgentCallsOnlyWhatIsDeclaredAbove(t *testing.T) {
 	decl := regexp.MustCompile(`^(?:export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	call := regexp.MustCompile(`(^|[^A-Za-z0-9_.$])([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/sbin/aeolus-clienttest", "files/usr/libexec/aeolus-gi"}
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/sbin/aeolus-steer", "files/usr/sbin/aeolus-clienttest", "files/usr/libexec/aeolus-gi"}
 	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
 	for _, m := range mods {
 		rel, _ := filepath.Rel(agentDir, m)
@@ -546,6 +546,15 @@ func TestAgentCapture(t *testing.T) {
 	agentPrints(t, "capture", "a failed attempt is captured")
 }
 
+// TestAgentSteer runs the agent's test of its steering of clients (0138):
+// what is asked of a client, when, and what is made of where it then is,
+// for each of the three ways and for a client that does not stay moved.
+// agent/test/steer.uc plays the daemon's looks and hostapd's notifications
+// to aeolus.steer; steer.out is what it must print.
+func TestAgentSteer(t *testing.T) {
+	agentPrints(t, "steer", "clients are steered")
+}
+
 // agentPrints runs agent/test/<name>.uc and holds what it prints to
 // <name>.out beside it.
 func agentPrints(t *testing.T, name, what string) {
@@ -620,7 +629,7 @@ func TestPassphrasesFromRADIUSCheck(t *testing.T) {
 // agent, on every state report, where ports_state had a local uplink).
 func TestAgentHidesNoModule(t *testing.T) {
 	imp := regexp.MustCompile(`^import \* as ([A-Za-z_][A-Za-z0-9_]*) from`)
-	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/sbin/aeolus-clienttest", "files/usr/libexec/aeolus-gi"}
+	files := []string{"files/usr/sbin/aeolus-agent", "files/usr/sbin/aeolus-prober", "files/usr/sbin/aeolus-rrm", "files/usr/sbin/aeolus-journey", "files/usr/sbin/aeolus-steer", "files/usr/sbin/aeolus-clienttest", "files/usr/libexec/aeolus-gi"}
 	mods, _ := filepath.Glob(filepath.Join(agentDir, "files", "usr", "share", "ucode", "aeolus", "*.uc"))
 	for _, m := range mods {
 		rel, _ := filepath.Rel(agentDir, m)

@@ -110,6 +110,10 @@ var Coverage = map[string]string{
 	"network.*.roaming.btm":              "",
 	"network.*.multicast_to_unicast":     "",
 	"network.*.band_steering":            "",
+	"network.*.steering.suggest":         "",
+	"network.*.steering.hold_back":       "",
+	"network.*.steering.sticky":          "",
+	"network.*.steering.sticky_signal":   "",
 	"system.snmp.enabled":                "",
 	"system.snmp.community":              "",
 	"system.snmp.v3.user":                "",
@@ -265,7 +269,8 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.system(obj(doc, "system"))
 	k.hostname(obj(doc, "ap"))
 	k.agent(obj(doc, "system"))
-	k.steering(obj(doc, "network"))
+	k.steering()
+	k.steer(obj(doc, "network"))
 	k.snmp(obj(obj(doc, "system"), "snmp"))
 	k.ports(obj(doc, "ports"), obj(doc, "concentrators"))
 	k.probes(doc)
@@ -913,13 +918,13 @@ func (k *checker) iface(id string, n map[string]any, r device, s *uci.Section) {
 	roaming := obj(n, "roaming")
 	rrm, _ := roaming["rrm"].(bool)
 	btm, _ := roaming["btm"].(bool)
-	steer, _ := n["band_steering"].(bool)
+	asks := steeredOf(n).asks()
 	for opt, v := range map[string]any{
 		"hidden":         n["hidden"],
 		"isolate":        n["isolation"],
 		"ieee80211r":     roaming["ft"],
-		"ieee80211k":     rrm || steer, // band steering works through 11k and 11v (0050)
-		"bss_transition": btm || steer,
+		"ieee80211k":     rrm || asks, // steering asks through 11k and 11v (0050, 0138)
+		"bss_transition": btm || asks,
 	} {
 		want, _ := v.(bool)
 		if s.Flag(opt) != want {
@@ -1032,38 +1037,96 @@ func (k *checker) radius(where, security string, r map[string]any, s *uci.Sectio
 	}
 }
 
-// steering checks that usteer steers exactly the networks that ask for it,
-// and nothing while none does (0050).
-func (k *checker) steering(nets map[string]any) {
-	var want []string
-	for _, id := range keys(nets) {
+// steered is how a network's clients are steered (0138), each way a switch
+// of its own: suggest, of which band_steering is the older name (0050),
+// hold back, and sticky, with the signal under which a client is weak.
+type steered struct {
+	suggest, hold, sticky bool
+	weak                  int
+}
+
+func steeredOf(n map[string]any) steered {
+	s := obj(n, "steering")
+	out := steered{weak: -75}
+	if v, set := s["suggest"].(bool); set {
+		out.suggest = v
+	} else {
+		out.suggest, _ = n["band_steering"].(bool)
+	}
+	out.hold, _ = s["hold_back"].(bool)
+	out.sticky, _ = s["sticky"].(bool)
+	if v, set := s["sticky_signal"].(float64); set {
+		out.weak = int(v)
+	}
+	return out
+}
+
+// asks says the network's clients are asked to move: by 802.11v, to a
+// place its neighbour report names, which is 802.11k's.
+func (s steered) asks() bool { return s.suggest || s.sticky }
+
+// steering checks that usteer steers nothing (0138): Aeolus's own daemon
+// steers, a network at a time, and two that ask a client at once would ask
+// it for different things. An AP without usteer is none the worse.
+func (k *checker) steering() {
+	p := k.c.Package("usteer")
+	if p == nil {
+		return
+	}
+	all := p.OfType("usteer")
+	if len(all) == 0 {
+		return
+	}
+	k.option("usteer", all[0], "band_steering_interval", "0")
+	if got := all[0].List("ssid_list"); len(got) > 0 {
+		k.add("usteer: ssid_list is %q, and usteer is to steer nothing: Aeolus's own daemon does", got)
+	}
+}
+
+// steer checks the steering daemon's section (0138): each way lists
+// exactly the networks it is on for, sticky with the signal under which a
+// client is weak, and with none on there is no section.
+func (k *checker) steer(nets map[string]any) {
+	const where = "aeolus.aeolus_steer"
+	want := map[string][]string{}
+	ids := keys(nets)
+	sort.Strings(ids)
+	for _, id := range ids {
 		n := obj(nets, id)
-		if on, _ := n["band_steering"].(bool); on && n["enabled"] != false {
-			ssid, _ := n["ssid"].(string)
-			want = append(want, ssid)
+		if n["enabled"] == false {
+			continue
+		}
+		st := steeredOf(n)
+		if st.suggest {
+			want["suggest"] = append(want["suggest"], id)
+		}
+		if st.hold {
+			want["hold_back"] = append(want["hold_back"], id)
+		}
+		if st.sticky {
+			want["sticky"] = append(want["sticky"], fmt.Sprintf("%s=%d", id, st.weak))
 		}
 	}
-	sort.Strings(want)
-	want = slices.Compact(want)
-	var s *uci.Section
-	if p := k.c.Package("usteer"); p != nil {
-		if all := p.OfType("usteer"); len(all) > 0 {
-			s = all[0]
-		}
-	}
-	if s == nil {
-		if len(want) > 0 {
-			k.add("usteer: band steering needs usteer, which this AP does not have; install it (apk add usteer)")
+	s := k.c.Package("aeolus").Named("aeolus_steer")
+	if len(want) == 0 {
+		if s != nil {
+			k.add("%s: no network has its clients steered, but the section is there", where)
 		}
 		return
 	}
-	interval := "0"
-	if len(want) > 0 {
-		interval = "30000"
+	if s == nil || s.Type != "steer" {
+		k.add("%s: a network has its clients steered, but the section is missing", where)
+		return
 	}
-	k.option("usteer", s, "band_steering_interval", interval)
-	if got := s.List("ssid_list"); !slices.Equal(got, want) {
-		k.add("usteer: ssid_list is %q, want %q", got, want)
+	for _, o := range s.Names() {
+		if _, known := map[string]bool{"suggest": true, "hold_back": true, "sticky": true}[o]; !known {
+			k.add("%s: %s is %q, and nothing calls for it", where, o, value(s, o))
+		}
+	}
+	for _, o := range []string{"suggest", "hold_back", "sticky"} {
+		if got := s.List(o); !slices.Equal(got, want[o]) {
+			k.add("%s: %s is %q, want %q", where, o, got, want[o])
+		}
 	}
 }
 
@@ -1979,6 +2042,7 @@ func (k *checker) probes(doc map[string]any) {
 	expected["aeolus_rrm"] = true     // radio resource management's, which k.rrm judges (0073)
 	expected["aeolus_gi"] = true      // the 802.11ax guard interval's, which k.guardInterval judges (0089)
 	expected["aeolus_journey"] = true // captures of failed attempts set off, which k.captures judges (0135)
+	expected["aeolus_steer"] = true   // the networks whose clients are steered, which k.steer judges (0138)
 	expected[Unbond] = true           // a bond taken apart, which k.bond judges (0096)
 	if a != nil {
 		for _, s := range a.Sections {

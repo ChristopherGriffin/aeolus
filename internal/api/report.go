@@ -208,6 +208,8 @@ type stateReport struct {
 	Clients []wifiClient `json:"clients,omitempty"`
 	// Its own Wi-Fi networks, set on the AP and not by Aeolus (0137).
 	Others []otherNetwork `json:"others,omitempty"`
+	// What its steering asked of clients, and what came of it (0138).
+	Steer *steerState `json:"steer,omitempty"`
 	// The RADIUS servers its networks sign clients in against (0114).
 	Radius []radiusState `json:"radius,omitempty"`
 	// How the AP itself is doing: processor, memory, storage, heat (0119).
@@ -1028,8 +1030,119 @@ type bondMember struct {
 	Neighbor   *portNeighbor `json:"neighbor,omitempty"`
 }
 
-// steeringState is what usteer is doing on the AP (0050, 0051), so a person
-// can see whether band steering works.
+// steerState is what the AP's steering daemon says (0138): whether it
+// runs, the networks it steers and how, the count of what it asked of
+// clients and what came of it since it started, and the last of those
+// askings, each followed to its end. It is what a person sees of whether
+// steering works. An AP whose config has it steer, and whose daemon has
+// said nothing of late, says only that it is not running: clients there
+// join as on a network that is not steered.
+type steerState struct {
+	Running  bool           `json:"running"`
+	Since    int64          `json:"since,omitempty"`
+	Networks []steerNetwork `json:"networks,omitempty"`
+	Events   []steerEvent   `json:"events,omitempty"`
+	// Known is how many clients it remembers the bands of.
+	Known int `json:"known,omitempty"`
+}
+
+// steerNetwork is one steered network on the AP: which ways are on, the
+// bands it is on there, and for each way the count of what was asked and of
+// each thing that came of it.
+type steerNetwork struct {
+	Network string                    `json:"network"`
+	Suggest bool                      `json:"suggest"`
+	Hold    bool                      `json:"hold"`
+	Sticky  bool                      `json:"sticky"`
+	Weak    *int                      `json:"weak,omitempty"`
+	Bands   []string                  `json:"bands,omitempty"`
+	Counts  map[string]map[string]int `json:"counts,omitempty"`
+}
+
+// steerEvent is one asking, at its end: of which client, on which network,
+// by which way and from which band; what was asked (a transition request,
+// a hold, a putting off, or nothing, where it says a client came back
+// down), what the client answered, and what came of it.
+type steerEvent struct {
+	At      int64    `json:"at"`
+	MAC     string   `json:"mac"`
+	Network string   `json:"network"`
+	Method  string   `json:"method"`
+	From    string   `json:"from"`
+	To      []string `json:"to,omitempty"`
+	Asked   string   `json:"asked"`
+	Answer  string   `json:"answer,omitempty"`
+	Code    *int     `json:"code,omitempty"`
+	Signal  *int     `json:"signal,omitempty"`
+	Outcome string   `json:"outcome"`
+	Took    float64  `json:"took"`
+}
+
+var (
+	steerMethods  = map[string]bool{"suggest": true, "hold": true, "sticky": true}
+	steerAsked    = map[string]bool{"btm": true, "held": true, "kick": true, "none": true}
+	steerAnswers  = map[string]bool{"": true, "accepted": true, "refused": true}
+	steerOutcomes = map[string]bool{"moved": true, "refused": true, "stayed": true, "left": true, "joined": true, "back": true, "recovered": true}
+)
+
+func (e steerEvent) ok() bool {
+	for _, b := range e.To {
+		if !bands[b] {
+			return false
+		}
+	}
+	return e.At > 0 && macRE.MatchString(e.MAC) && networkIDRE.MatchString(e.Network) && steerMethods[e.Method] && bands[e.From] && len(e.To) <= 3 &&
+		steerAsked[e.Asked] && steerAnswers[e.Answer] && steerOutcomes[e.Outcome] && e.Took >= 0 && e.Took <= 86400 &&
+		(e.Code == nil || (*e.Code >= 0 && *e.Code <= 255)) && (e.Signal == nil || (*e.Signal >= -127 && *e.Signal <= 0))
+}
+
+func (n steerNetwork) ok() bool {
+	for _, b := range n.Bands {
+		if !bands[b] {
+			return false
+		}
+	}
+	for method, counts := range n.Counts {
+		if !steerMethods[method] || len(counts) > 16 {
+			return false
+		}
+		for what, c := range counts {
+			if (what != "asked" && !steerOutcomes[what]) || c < 0 || c > 1_000_000_000 {
+				return false
+			}
+		}
+	}
+	return networkIDRE.MatchString(n.Network) && len(n.Bands) <= 3 && len(n.Counts) <= 3 && (n.Weak == nil || (*n.Weak >= -127 && *n.Weak <= 0))
+}
+
+// clean keeps of an AP's word on its steering what is well said, and no
+// more than a report may hold: 32 networks and 50 askings. The rest is left
+// out, as with its own networks (0137), and the report taken.
+func (s *steerState) clean() *steerState {
+	if s == nil {
+		return nil
+	}
+	s.Networks = slices.DeleteFunc(s.Networks, func(n steerNetwork) bool { return !n.ok() })
+	if len(s.Networks) > 32 {
+		s.Networks = s.Networks[:32]
+	}
+	s.Events = slices.DeleteFunc(s.Events, func(e steerEvent) bool { return !e.ok() })
+	if len(s.Events) > 50 {
+		s.Events = s.Events[len(s.Events)-50:]
+	}
+	if s.Since < 0 {
+		s.Since = 0
+	}
+	if s.Known < 0 || s.Known > 1_000_000 {
+		s.Known = 0
+	}
+	return s
+}
+
+// steeringState is what usteer is doing on the AP (0050, 0051). It steers
+// nothing now (0138), and is still said: whether hostapd has 802.11v is
+// here, and what usteer hears of clients' probes is where a client's
+// probes are read from.
 type steeringState struct {
 	Installed bool       `json:"installed"`
 	Running   bool       `json:"running"`
@@ -1151,6 +1264,7 @@ func (st *stateReport) check() error {
 	if len(st.Others) > 64 {
 		st.Others = st.Others[:64]
 	}
+	st.Steer = st.Steer.clean()
 	for _, b := range st.BSSIDs {
 		if !macRE.MatchString(b) {
 			return badRequest("bssids: each a MAC, such as 02:11:22:33:44:55")

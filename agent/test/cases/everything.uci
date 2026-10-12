@@ -273,6 +273,10 @@ config watch 'aeolus_watch30'
 	option device 'wan'
 	option tagged '1'
 
+config steer 'aeolus_steer'
+	list suggest 'iot-lab'
+	list suggest 'sweet-lab'
+
 package usteer
 
 config usteer
@@ -281,9 +285,7 @@ config usteer
 	option local_mode '0'
 	option ipv6 '0'
 	option debug_level '2'
-	option band_steering_interval '30000'
-	list ssid_list 'IoT Lab'
-	list ssid_list 'Sweet Lab'
+	option band_steering_interval '0'
 
 package snmpd
 
