@@ -191,6 +191,7 @@ Each milestone ends in something checkable before the next starts.
 | [0136](docs/decisions/0136-roaming.md) | Roaming |
 | [0137](docs/decisions/0137-an-aps-own-networks.md) | An AP's own networks |
 | [0138](docs/decisions/0138-steering-a-network-at-a-time.md) | Steering, a network at a time |
+| [0139](docs/decisions/0139-steerings-history.md) | Steering's history |
 
 ## Open questions
 
