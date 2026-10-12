@@ -187,14 +187,17 @@ type previewIn struct {
 
 type actionIn struct {
 	AP       string   `json:"ap" jsonschema:"AP ID in the Locations tree"`
-	Kind     string   `json:"kind,omitempty" jsonschema:"locate, restart-wifi, reboot, disconnect, client-test or remove-network; empty to list its latest actions"`
+	Kind     string   `json:"kind,omitempty" jsonschema:"locate, restart-wifi, reboot, disconnect, client-test, remove-network or import-network; empty to list its latest actions"`
 	Target   string   `json:"target,omitempty" jsonschema:"for disconnect: the client's MAC"`
-	Network  string   `json:"network,omitempty" jsonschema:"for client-test: the network to join, by its ID, one the AP offers"`
+	Network  string   `json:"network,omitempty" jsonschema:"for client-test: the network to join, by its ID, one the AP offers; for import-network: the ID the new network is to have"`
 	On       string   `json:"on,omitempty" jsonschema:"for client-test: the AP whose networks to join, the testing AP itself among them; empty for the strongest other AP it hears"`
 	Band     string   `json:"band,omitempty" jsonschema:"for client-test: 2g, 5g or 6g; empty for any; wire for a test over the wire, from the AP itself"`
 	Remote   *bool    `json:"remote,omitempty" jsonschema:"for client-test: false to leave out the speed to the remote server, which moves a good deal over the internet link; measured where one is set unless false"`
-	SSID     string   `json:"ssid,omitempty" jsonschema:"for remove-network: the SSID of the AP's own network to take out"`
-	Sections []string `json:"sections,omitempty" jsonschema:"for remove-network: the AP's names for that network in its config, one a radio, as its state report's others has them"`
+	SSID     string   `json:"ssid,omitempty" jsonschema:"for remove-network and import-network: the SSID of the AP's own network"`
+	Sections []string `json:"sections,omitempty" jsonschema:"for remove-network and import-network: the AP's names for that network in its config, one a radio, as its state report's others has them"`
+	Folder   string   `json:"folder,omitempty" jsonschema:"for import-network: the Services folder the network goes in"`
+	Bands    []string `json:"bands,omitempty" jsonschema:"for import-network: the bands it is to be on, 2g, 5g, 6g; empty for every band"`
+	VLAN     int      `json:"vlan,omitempty" jsonschema:"for import-network: the VLAN its clients are on"`
 }
 
 type changeIn struct {
@@ -393,7 +396,7 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "POST", "/v1/preview", map[string]any{"op": in.Op})
 			return nil, out, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "ap_action", Description: "Ask an AP to do something once (0104): locate (blink every LED for a minute, to find it), restart-wifi (every client drops and joins again), reboot (off the air for about two minutes) or disconnect (0107: one client, by MAC in target, leaves every network it is on there and may join again at once, to make it reconnect); or client-test (0121: an AP with a scan radio joins one of its own networks, named in network, as a client would, on the AP named in on or else the strongest other AP it hears, and times each step: finding it, the keys, DHCP, the gateway, DNS and, where a speed server is set, how fast, to the local one (system.speed_server) and to the remote one (system.speed_server_remote, 0134: a public server by its name, as cloudflare, or one's own by its URL; with remote false that one is left out, as on a link where bytes cost); its result is the action's detail, read by listing the AP's actions a minute or two later; with band wire it is made over the wire instead (0128), by any AP whose agent can, a scan radio or none: from its own uplink, on the network's VLAN or into its tunnel, it asks for an address by DHCP, its gateway by ARP and a name by DNS, joins nothing, uses no radio and takes a few seconds); or remove-network (0137: the AP takes one of its own Wi-Fi networks, set on the AP and not by Aeolus, out of its config, named by ssid and by sections, its names for it, one a radio, as the others of its state report has them; its clients are off it for good, the AP keeps what it takes out in /etc/aeolus/removed, and Aeolus has no copy: ask the person before this one). It needs operator on the AP. The AP takes it up on its next poll, within about a minute; one it does not take up within 10 minutes expires. A second ask of the same kind while one waits is the same action. Without kind, lists the AP's latest actions and what came of each.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
+	mcp.AddTool(s, &mcp.Tool{Name: "ap_action", Description: "Ask an AP to do something once (0104): locate (blink every LED for a minute, to find it), restart-wifi (every client drops and joins again), reboot (off the air for about two minutes) or disconnect (0107: one client, by MAC in target, leaves every network it is on there and may join again at once, to make it reconnect); or client-test (0121: an AP with a scan radio joins one of its own networks, named in network, as a client would, on the AP named in on or else the strongest other AP it hears, and times each step: finding it, the keys, DHCP, the gateway, DNS and, where a speed server is set, how fast, to the local one (system.speed_server) and to the remote one (system.speed_server_remote, 0134: a public server by its name, as cloudflare, or one's own by its URL; with remote false that one is left out, as on a link where bytes cost); its result is the action's detail, read by listing the AP's actions a minute or two later; with band wire it is made over the wire instead (0128), by any AP whose agent can, a scan radio or none: from its own uplink, on the network's VLAN or into its tunnel, it asks for an address by DHCP, its gateway by ARP and a name by DNS, joins nothing, uses no radio and takes a few seconds); or remove-network (0137: the AP takes one of its own Wi-Fi networks, set on the AP and not by Aeolus, out of its config, named by ssid and by sections, its names for it, one a radio, as the others of its state report has them; its clients are off it for good, the AP keeps what it takes out in /etc/aeolus/removed, and Aeolus has no copy: ask the person before this one); or import-network (0137: makes one of the AP's own networks Aeolus's, in the Services folder named in folder, under the ID in network, on bands and vlan: the AP says the network as it has it, its passphrase with it, on its next poll, and the manager makes the network then, in one change; each AP that has the same network of its own, with the same passphrase, takes its own out as Aeolus's goes in; the action's result says which change it was and what was not carried over). It needs operator on the AP. The AP takes it up on its next poll, within about a minute; one it does not take up within 10 minutes expires. A second ask of the same kind while one waits is the same action. Without kind, lists the AP's latest actions and what came of each.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in actionIn) (*mcp.CallToolResult, any, error) {
 			path := "/v1/aps/" + url.PathEscape(in.AP) + "/actions"
 			if in.Kind == "" {
@@ -414,6 +417,15 @@ func server(c client, version string) *mcp.Server {
 			}
 			if in.SSID != "" || len(in.Sections) > 0 {
 				body["ssid"], body["sections"] = in.SSID, in.Sections
+			}
+			if in.Folder != "" {
+				body["folder"] = in.Folder
+			}
+			if len(in.Bands) > 0 {
+				body["bands"] = in.Bands
+			}
+			if in.VLAN != 0 {
+				body["vlan"] = in.VLAN
 			}
 			out, err := c.call(ctx, "POST", path, body)
 			return nil, out, err

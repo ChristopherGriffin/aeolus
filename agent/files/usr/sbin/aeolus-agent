@@ -619,12 +619,42 @@ function hostapd_error() {
 	return length(out) ? substr(join('; ', out), 0, 300) : null;
 }
 
+// keep_own keeps a section of the AP's own Wi-Fi config before Aeolus
+// takes it out (0137): as it was, key and all, in a file only root reads,
+// under a line that says why, and how to have it back. Aeolus has no copy
+// of it and could not put it back. It says whether it was kept.
+function keep_own(s, why) {
+	let at = time(), t = localtime(at);
+	let when = sprintf('%04d-%02d-%02d %02d:%02d:%02d', t.year, t.mon, t.mday, t.hour, t.min, t.sec);
+	fs.mkdir(DIR, 0o755);
+	fs.mkdir(REMOVED, 0o700);
+	// Root's alone, whoever made it.
+	fs.chmod(REMOVED, 0o700);
+	return store(sprintf('%s/%d-%s.uci', REMOVED, at, replace(s['.name'], /[^A-Za-z0-9_]/g, '_')), own_nets.kept(s, when, why), 0o600);
+}
+
+// keep_replaced keeps each of the AP's own sections a config takes the
+// place of (0137, what render says it replaced), before the config is
+// written: nothing goes that is not kept. It says whether all were.
+function keep_replaced(replaced, version) {
+	let w = cursor().get_all('wireless') ?? {};
+	for (let r in replaced) {
+		let s = w[r.section];
+		if (s && !keep_own(s, sprintf('Taken out of /etc/config/wireless by Aeolus, whose network %s takes its place, in version %d', r.network, version)))
+			return false;
+	}
+	return true;
+}
+
 // apply writes the checked packages, reloads, and keeps them only if the
 // manager can still be reached (0008, 0040), and if a change to the Wi-Fi
 // brought back every network that was up before it (0057).
 function apply(out, version, hash) {
 	if (!length(out.changed))
 		return { ok: true };
+	// The AP's own networks this config takes the place of are kept first.
+	if (length(out.replaced) && !keep_replaced(out.replaced, version))
+		return { ok: false, error: 'the AP\'s own network this config takes the place of could not be kept in ' + REMOVED + '; nothing was applied' };
 	fs.mkdir(BACKUP);
 	for (let p in out.changed) {
 		let cur = fs.readfile('/etc/config/' + p);
@@ -641,6 +671,8 @@ function apply(out, version, hash) {
 	for (let p in out.changed)
 		store('/etc/config/' + p, file(out.config[p]));
 	log('applying version %d: %s', version, join(', ', out.changed));
+	for (let r in out.replaced ?? [])
+		log('version %d: network %s takes the place of the AP\'s own section %s', version, r.network, r.section);
 	let clamped = write_clamp(out.config.network, out.config.aeolus);
 	system('reload_config');
 	// fw4 loads the clamp's file; it reloads by itself when its own config
@@ -1843,12 +1875,6 @@ function remove_network(a) {
 	let p = type(a.params) == 'object' ? a.params : {};
 	let c = cursor();
 	let w = c.get_all('wireless');
-	let at = time(), t = localtime(at);
-	let when = sprintf('%04d-%02d-%02d %02d:%02d:%02d', t.year, t.mon, t.mday, t.hour, t.min, t.sec);
-	fs.mkdir(DIR, 0o755);
-	fs.mkdir(REMOVED, 0o700);
-	// Root's alone, whoever made it.
-	fs.chmod(REMOVED, 0o700);
 	// What of the Wi-Fi was down already, to tell it from what does not
 	// come back.
 	let before = wifi_down(), missing = wifi_missing();
@@ -1857,8 +1883,7 @@ function remove_network(a) {
 		let s = own_nets.find(w, name, p.ssid);
 		if (!s)
 			continue;
-		let path = sprintf('%s/%d-%s.uci', REMOVED, at, replace(s['.name'], /[^A-Za-z0-9_]/g, '_'));
-		if (!store(path, own_nets.kept(s, when, 'Taken out of /etc/config/wireless by Aeolus, as asked'), 0o600) || !c.delete('wireless', s['.name'])) {
+		if (!keep_own(s, 'Taken out of /etc/config/wireless by Aeolus, as asked') || !c.delete('wireless', s['.name'])) {
 			c.revert('wireless');
 			return { ok: false, result: 'it could not be kept in ' + REMOVED + ' and taken out, so it was left as it is' };
 		}
@@ -1880,6 +1905,28 @@ function remove_network(a) {
 	// what it shows of this AP's own is then as it is.
 	return { ok: true, report: true, result: sprintf('took it out of %s; kept as it was in %s%s', n == 1 ? 'one radio' : n + ' radios', REMOVED,
 		length(down) ? sprintf('; %d of its other networks did not come back within %d s', length(down), WIFI_WAIT) : '') };
+}
+
+// tell_network says all there is of one of the AP's own Wi-Fi networks to
+// the manager (0137): its section as it stands, its key in it, and its
+// VLAN. Asked by a person who is making the network Aeolus's own: Aeolus
+// then offers it as it was, key and all, which only the AP has. It goes as
+// the AP's own config comes, over the connection the AP knows the manager
+// by, and is asked for by section and SSID, as a taking out is. Nothing
+// here is written or changed, and nothing of it is logged.
+function tell_network(a) {
+	let p = type(a.params) == 'object' ? a.params : {};
+	let c = cursor();
+	let w = c.get_all('wireless');
+	// The section asked for by name, where one is: the manager holds what
+	// is said to it.
+	let s = type(p.tell) == 'string' ? own_nets.find(w, p.tell, p.ssid) : null;
+	if (!s && p.tell == null)
+		for (let name in (type(p.sections) == 'array' ? slice(p.sections, 0, own_nets.MOST) : []))
+			s ??= own_nets.find(w, name, p.ssid);
+	if (!s)
+		return { ok: false, result: 'it has no such network of its own now' };
+	return { ok: true, result: 'said its settings', detail: own_nets.told(w, c.get_all('network'), s) };
 }
 
 // The client test (0121): on an AP with a scan radio, that radio joins one
@@ -1984,7 +2031,7 @@ function do_actions(token) {
 		return false;
 	}
 	let report = false;
-	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap, disconnect: disconnect, 'client-test': client_test, 'remove-network': remove_network };
+	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap, disconnect: disconnect, 'client-test': client_test, 'remove-network': remove_network, 'import-network': tell_network };
 	for (let a in r.json?.actions ?? []) {
 		let out = kinds[a.kind] ? kinds[a.kind](a) : { ok: false, result: 'this agent cannot ' + a.kind };
 		log('action %s%s: %s', a.kind, a.target ? ' ' + a.target : '', out.result);

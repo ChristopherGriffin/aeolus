@@ -75,6 +75,24 @@ print(others.kept(others.find(wireless, 'default_radio0', 'Sweet_Spot_IoT'), '20
 let anon = filter(values(wireless), s => s.ssid == 'Open house')[0];
 print(others.kept(anon, '2026-10-11 19:40:00', 'Taken out'));
 
+// All there is to say of one, where a person asks for it to be made
+// Aeolus's own: every option as it stands, its key among them, and its
+// VLAN. Nothing of uci's own, the names that begin with a dot.
+printf('told: %J\n', others.told(wireless, network, others.find(wireless, 'default_radio1', 'Sweet Spot')));
+printf('told, of one with a list: %J\n', others.told(wireless, network, others.find(wireless, 'default_radio0', 'Sweet_Spot_IoT')));
+// And how many sections hang on it: passphrases or VLANs of its devices'
+// own, which are no part of it. Aeolus's own keys, on Aeolus's networks,
+// are not counted.
+let hung = { ...wireless,
+	st1: { '.type': 'wifi-station', '.name': 'st1', '.index': 50, iface: 'default_radio0', mac: '02:00:00:00:00:09', key: 'a-device-key' },
+	vl1: { '.type': 'wifi-vlan', '.name': 'vl1', '.index': 51, iface: 'default_radio0', vid: '30', network: 'named' },
+	st2: { '.type': 'wifi-station', '.name': 'st2', '.index': 52, iface: 'wifinet2', key: 'another' },
+	aeolus_key_1: { '.type': 'wifi-station', '.name': 'aeolus_key_1', '.index': 53, iface: 'default_radio0', key: 'aeolus-one' },
+};
+printf('told, with sections that hang on it: %J\n', others.told(hung, network, others.find(hung, 'default_radio0', 'Sweet_Spot_IoT')).stations);
+// A WDS network says so, spelled 1 or true.
+printf('wds, spelled true: %J\n', filter(others.list(pkg([['wifi-device', 'radio0', { band: '2g' }], ['wifi-iface', 'far', { device: 'radio0', ssid: 'Far', wds: 'true' }], ['wifi-iface', 'near', { device: 'radio0', ssid: 'Near', wds: 'on' }]]), {}, null), e => e.wds)[0]?.ssid);
+
 // So many are said of an AP, and no more.
 let many = [['wifi-device', 'radio0', { band: '2g' }]];
 for (let i = 0; i < 40; i++)

@@ -45,4 +45,8 @@ config wifi-iface
 	option ssid 'Open house'
 	option encryption 'none'
 	option network 'lan'
+told: { "section": "default_radio1", "ssid": "Sweet Spot", "options": { "device": "radio1", "network": "wifi_trusted", "mode": "ap", "ssid": "Sweet Spot", "encryption": "psk2", "key": "it's a secret", "ieee80211r": "1", "ft_over_ds": "0" }, "vlan": 20 }
+told, of one with a list: { "section": "default_radio0", "ssid": "Sweet_Spot_IoT", "options": { "device": "radio0", "network": "wifi_iot", "mode": "ap", "ssid": "Sweet_Spot_IoT", "encryption": "psk2", "key": "not-the-real-one", "macfilter": "deny", "maclist": [ "F0:AD:4E:2E:3A:1F" ] }, "vlan": 10 }
+told, with sections that hang on it: 2
+wds, spelled true: "Far"
 of 40, said: 32

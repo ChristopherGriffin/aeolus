@@ -316,6 +316,7 @@
         "security": { "enum": ["open", "owe", "wpa2-psk", "wpa3-sae", "wpa2-wpa3", "wpa2-enterprise", "wpa3-enterprise", "wpa2-wpa3-enterprise"], "description": "The PSK modes sign every client in with the passphrase; the enterprise ones sign each in as itself, by 802.1X against the RADIUS server under radius (0098). 6 GHz takes WPA3 and OWE only." },
         "passphrase": { "type": "string", "minLength": 8, "maxLength": 63, "writeOnly": true },
         "isolation": { "type": "boolean", "description": "Client isolation." },
+        "replace_own": { "type": "boolean", "description": "Takes the place of an AP's own network that is this one over again (0137): a Wi-Fi network set on the AP itself and not by Aeolus, with this SSID, this security and, where there is one, this passphrase, on the radios this network is on. The AP keeps what is taken out, as it was, in /etc/aeolus/removed. Set by importing such a network; unset, an AP's own networks are left as they are (0040)." },
         "radius": {
           "type": "object",
           "additionalProperties": false,

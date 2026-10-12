@@ -34,17 +34,44 @@
   - **Each network asked of an AP is an action of its own,** told from another by its sections: an AP's two networks may be taken out one after the other, without waiting for the first.
   - **What the AP says came of it has nothing of the SSID:** an SSID need not be plain words, and the manager takes no other for a result.
 
+- **One of them may be made Aeolus's own: import.** On the same line as Remove, for one with operator on the AP who may change a Services folder that applies there.
+  - **What the person says:** the Services folder the network goes in, its ID there, its bands, and its VLAN. The SSID, the security, the VLAN where the AP's config says it, and the bands it is on now are filled in from what the APs reported.
+  - **What only the AP has, the passphrase above all, is read from the AP then:** an action, `import-network`, asked of the AP that has the most clients on the network. The AP answers with the section as it stands in its config, every option, and the manager makes the network of it at once: one change, under the name of whoever asked, with where it came from for its note.
+  - **The passphrase is in the AP's answer and in the change, where it is sealed as any is (0027).** It is in no report, is not kept with the action, is not logged, and is never shown: the form says it is read, and nothing more.
+  - **What has a place in Aeolus is carried:** SSID, security, passphrase, hidden, client isolation, fast transition, 802.11k and 802.11v, the clients kept off by MAC, the most clients, the DTIM period, multicast to unicast, whether it is on; with WPA Enterprise, the RADIUS servers, their ports and secrets, the NAS identifier and the disconnect client. An option is on as OpenWrt reads one for Wi-Fi, `1` or `true`, and not as `on` or `yes`, which it takes for off. **What has none is named in what came of the action,** by its option's name alone, as many as there is room for and how many more: management frame protection set by hand, WPS, a value outside what Aeolus takes, and whatever else the section has.
+  - **What cannot be Aeolus's is refused, and nothing made:** a security Aeolus has no name for, as WPA alone; a key of 64 digits, which is no passphrase; an ID a network has in that folder, above it or below it; a change that would have an AP's config held (0029).
+  - **So is a network that does what Aeolus's would not, and that its clients, or another AP, may depend on:** it carries another AP's uplink (WDS, or a multi-AP backhaul); it lets on only the clients in a list, or asks a RADIUS server of each MAC its own way; its devices have passphrases of their own, by a file, from a server, or in sections that hang on it (`wifi-station`, `wifi-vlan`); it puts clients in VLANs by a file or as a server says; it has an open network beside it for clients without OWE. Aeolus's network would be offered without it, and the AP's own taken out. Said with why, and the network left as it is.
+  - **The AP's answer is held to what was asked.** An AP's report is up to five minutes old, and a network may have changed since; and an AP is believed for its own network and no more. The answer must be of the section asked for, an access point's, and of the security the form showed: one asked as WPA2 and said as open makes nothing. The change is then tried again as it now is, the ID still free and no config held, before it is made.
+  - **A network that waits to be imported is not asked another way:** a second asking into another folder, under another ID or on another VLAN is refused until the first is made or expires.
+  - **One made is not made again:** an AP's own network still shows until the AP has applied Aeolus's and reported anew, five minutes or so, and an import of it then is refused, with the network it already is.
+  - **It is asked as the security the form showed,** of an AP that has it so: a network on 6 GHz alone at one AP is WPA3 there, whatever it is at another.
+  - Fast transition on a network that signs clients in is left behind and named: Aeolus does not render it yet (0098).
+  - WPA2/WPA3 with WPA3 alone on 6 GHz is one network, as it is that by rule there (0086): the section off 6 GHz is the one asked for.
+- **A network made so takes the place of the APs' own:** `replace_own`, a setting of the network, which import sets. It is a setting like any other, among a network's more settings, and may be set by hand for a network made by hand.
+  - **On each AP that offers it, the AP's own network that is the same one over again is taken out as Aeolus's goes in:** the same SSID, the same security, and the same passphrase (with WPA Enterprise, the same RADIUS server), on radios Aeolus's is on. In the same apply, so the Wi-Fi restarts once, and an apply that is undone (0057) puts the AP's own back.
+  - **The same passphrase, or it is another network.** An AP whose own network of that name has another passphrase keeps it, beside Aeolus's, and it stays in the list of what is not Aeolus's: its clients would be turned away by Aeolus's.
+  - **And not one that does what Aeolus's would not:** a WDS uplink or a backhaul, a list of the only clients let on, passphrases or VLANs of its devices' own, in the section or hung on it, an open network beside it. It stays, whatever its name and key. The security is the same where the encryption is, and on a 6 GHz radio where the AP's own is WPA3 alone and Aeolus's WPA2/WPA3.
+  - A section on two radios goes only where Aeolus's network is on both.
+  - **The AP keeps what is taken out first,** as it does for Remove, and applies nothing where it cannot.
+  - **This is the second way Aeolus removes what it did not make (0040),** and as narrow as the first: only for a network that says so, only a section that is that network, and never a station's, a mesh's, or one on a radio another service owns.
+- **An AP's own network on bands Aeolus's is not on stays where Aeolus's is not.** One on 2.4 GHz alone, imported on 2.4 and 5 GHz, is on both as Aeolus's: the form says which APs gain a band.
+
 ## Consequences
 
 - **A person sees every network their APs offer in one place,** whoever set it, and which are Aeolus's.
 - **A network taken out is gone from Aeolus's sight at the AP's next report.** Its clients' history stays, by SSID.
-- **An AP's passphrases do not leave it** by this: the report has none, and the file kept is on the AP.
+- **An AP's passphrases do not leave it** by a report or a taking out: the report has none, and the file kept is on the AP. An import sends one network's, once, to the manager, at a person's asking, over the connection the AP's own config comes by.
 - **The files an AP keeps go where its config goes:** `/etc/aeolus` is kept over a sysupgrade, and is in a backup of the AP's config, so the networks taken out are too, keys and all, until someone removes them from the AP. Nothing prunes them.
 - **What an AP keeps of its config before each apply is root's alone to read** (`/etc/aeolus/backup`): it has the keys of the AP's own networks in it, and was written as any file is.
 
 ## Not done
 
-- **Import:** making one of these Aeolus's own, with its settings. Next, and written here when it is built.
+- **An import is not seen before it is made:** the form shows what the APs reported, and what else the section has is read only when the change is made. What had no place is said after.
+- **Per-device passphrases of an AP's own network (`wifi-station`) are not imported:** a network that has them is not imported at all.
+- **The AP asked is the one with the most clients on the network in its last report,** up or not: one that is down does not answer, and the asking expires in ten minutes.
+- **A change made between the trying and the making is not seen:** the two are a moment apart.
+- **The network an AP's own was on (its `interface`, its VLAN's bridge entry) is left,** though nothing may use it after.
+- **A network on the AP's own LAN has no VLAN to fill in:** the person gives it.
 - **Nothing says who set such a network, or when.**
 - **A network on the AP's own LAN has no VLAN to show:** its config names none.
 - **A network taken out is not put back where the Wi-Fi does not all come back after:** an apply is undone then (0057), but no config of Aeolus's changed here, and the AP only says so.

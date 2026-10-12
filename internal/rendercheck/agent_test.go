@@ -156,7 +156,10 @@ func TestAgentLeavesReservedRadiosAlone(t *testing.T) {
 
 // untouched checks that every named wifi-iface, interface and bridge-vlan
 // Aeolus does not own comes out exactly as it went in (0040), but for the
-// bridge-vlan entries of the ports the intent sets the VLANs of (0053).
+// bridge-vlan entries of the ports the intent sets the VLANs of (0053), and
+// for a Wi-Fi network of the AP's own that one of Aeolus's took the place
+// of (0137): only where a network of the intent says it replaces the AP's
+// own, and only one the case names as gone.
 func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(agentDir, "test", c.Current))
@@ -168,6 +171,15 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 		t.Fatal(err)
 	}
 	kept := map[string]bool{"wifi-iface": true, "interface": true, "bridge-vlan": true}
+	replaced := map[string]bool{}
+	nets, _ := c.Intent["network"].(map[string]any)
+	for _, n := range nets {
+		if n, _ := n.(map[string]any); n["replace_own"] == true {
+			for _, ref := range c.Gone {
+				replaced[ref] = true
+			}
+		}
+	}
 	ports, _ := c.Intent["ports"].(map[string]any)
 	// A bond's members, which take its place when Aeolus takes it apart, and
 	// give it back (0096): the bond the AP has, or the one Aeolus keeps.
@@ -218,6 +230,9 @@ func untouched(t *testing.T, c agentCase, cfg *uci.Config) {
 				continue
 			}
 			got := cfg.Package(pkg).Named(name)
+			if got == nil && s[".type"] == "wifi-iface" && replaced[pkg+"."+name] {
+				continue
+			}
 			if got == nil {
 				t.Errorf("%s: %s.%s was removed", c.name, pkg, name)
 				continue

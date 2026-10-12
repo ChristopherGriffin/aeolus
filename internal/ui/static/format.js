@@ -41,6 +41,7 @@ const MODE = { access: 'Access', trunk: 'Trunk', tunnel: 'Tunnel', lacp: 'LACP' 
 const NETWORK = {
 	'ssid': 'SSID', 'security': 'Security', 'passphrase': 'Passphrase', 'hidden': 'Hidden',
 	'bands': 'Bands', 'isolation': 'Client isolation', 'enabled': 'Broadcast', 'max_clients': 'Most clients a band', 'dtim': 'DTIM period', 'blocked': 'Blocked clients',
+	'replace_own': 'Replaces the APs’ own',
 	'radius.auth_server': 'RADIUS server', 'radius.auth_port': 'RADIUS port', 'radius.auth_secret': 'RADIUS secret',
 	'radius.acct_server': 'Accounting server', 'radius.acct_port': 'Accounting port', 'radius.acct_secret': 'Accounting secret', 'radius.nas_id': 'NAS-Identifier',
 	'radius.mac_auth': 'MAC authentication', 'radius.passphrases': 'Passphrases from RADIUS', 'radius.vlans': 'VLANs RADIUS may assign', 'radius.vlan_required': 'Require a VLAN from RADIUS',

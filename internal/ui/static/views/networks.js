@@ -60,7 +60,7 @@ export async function networksTab(ctx, id, page) {
 			h('button', { type: 'button', class: 'button', onclick: () => addForm(ctx, d, writable, at.nets, addBox, lib) }, 'Add a network')),
 		addBox,
 		// What the APs here have of their own, that is not Aeolus's (0137).
-		othersPanel(page, reports),
+		othersPanel(page, reports, { folders: writable.map((f) => ({ id: f.id, name: ctx.name('services', f.id) })), taken: new Set(at.nets.map((n) => n.id)), bands: bandsHere }),
 		steeringStatus(ctx, reports),
 		transportsStatus(reports),
 		radiusStatus(reports),
