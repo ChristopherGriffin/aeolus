@@ -10,11 +10,13 @@
 // It fails open. hostapd waits for it for nothing: it is told so on every
 // network steered, at each look, because another listener (usteer) asks
 // hostapd to wait for its listeners, and that would have it wait for this
-// one too. What keeps a client off is hostapd's own ban, a few seconds
-// long, which hostapd lifts by its own timer. So with this daemon stopped,
-// hung or gone, clients join as on a network that is not steered. Nothing
-// is asked of hostapd from inside one of its notifications, and nothing
-// asked of it is waited for.
+// one too. Between usteer's asking, as the Wi-Fi starts, and the next look,
+// five seconds at most, hostapd does wait, 100 ms a frame at most, and is
+// answered at once. What keeps a client off is hostapd's own ban, a few
+// seconds long, which hostapd lifts by its own timer. So with this daemon
+// stopped, hung or gone, clients join as on a network that is not steered.
+// Nothing is asked of hostapd from inside one of its notifications, and
+// nothing it asks of hostapd, or of netifd, is waited for.
 //
 // It acts only on what it knows to be so now. What hostapd said while the
 // daemon was held up, by whatever, is old when the daemon gets to it: a
@@ -206,8 +208,14 @@ function drain() {
 		// Decided before the daemon was held up: let go.
 		if (now() - beat > STALL)
 			return;
-		for (let a in acts)
+		for (let a in acts) {
+			// Let on since it was decided, as where the daemon got to
+			// both of hostapd's words at once: hostapd, asked to keep a
+			// client off, first puts it off.
+			if (a.do == 'ban' && st.on[a.mac])
+				continue;
 			act(a);
+		}
 		record();
 	} catch (e) {
 		note('%s', e);
@@ -256,54 +264,9 @@ function listen(ifname) {
 		return;
 	}
 	subs[ifname] = s;
-}
-
-// networks takes up the settings and the AP's Wi-Fi networks as netifd has
-// them now, and listens to those that are steered.
-function networks() {
-	cfg = settings();
-	let status = length(cfg.networks) ? bus.call('network.wireless', 'status') : {};
-	if (status == null) {
-		// The bus is gone, as when ubusd started again: procd starts the
-		// daemon again, on the new one.
-		if (++lost >= LOST) {
-			note('netifd does not answer; starting over');
-			exit(1);
-		}
-		return;
-	}
-	lost = 0;
-	let bss = {};
-	for (let r, v in status)
-		for (let i in v.interfaces ?? []) {
-			if (!i.ifname || (i.config?.mode ?? 'ap') != 'ap' || !BAND[v.config?.band])
-				continue;
-			let n = filter(i.config?.network ?? [], x => match(x, /^aeolus_/))[0];
-			let id = n ? replace(substr(n, 7), /_/g, '-') : null;
-			if (!id || !cfg.networks[id])
-				continue;
-			let was = view.bss[i.ifname];
-			bss[i.ifname] = { network: id, band: v.config.band, ssid: was?.ssid ?? null, bssid: was?.bssid ?? null, nr: was?.nr ?? null, listed: was?.listed ?? [], elsewhere: [] };
-		}
-	for (let s in dead)
-		s.remove();
-	dead = [];
-	for (let ifname in keys(subs))
-		if (!bss[ifname]) {
-			subs[ifname].remove();
-			delete subs[ifname];
-		}
-	let had = length(view.bss);
-	view.bss = bss;
-	for (let ifname in keys(bss)) {
-		if (!subs[ifname])
-			listen(ifname);
-		// One hostapd does not have yet is looked for again at the next look.
-		if (!subs[ifname])
-			moved = true;
-	}
-	if (length(bss) != had)
-		log('steering %d network%s on %d radio interface%s', length(cfg.networks), length(cfg.networks) == 1 ? '' : 's', length(bss), length(bss) == 1 ? '' : 's');
+	// Who is on it is not known yet: nothing heard is acted on until it
+	// has been looked at.
+	ready = false;
 }
 
 // report asks a steered network for its own neighbour report, which a
@@ -315,15 +278,13 @@ function report(ifname) {
 		let b = view.bss[ifname], v = r?.value;
 		if (!b)
 			return;
-		// With none, the network is not up there, as on a radio that
-		// listens for radar: no client is asked or held to it.
 		if (type(v) != 'array' || length(v) < 3) {
-			b.nr = null;
+			b.own = null;
 			return;
 		}
 		b.bssid = lc(v[0]);
 		b.ssid = v[1];
-		b.nr = lc(v[2]);
+		b.own = lc(v[2]);
 	});
 	ask(object, 'rrm_nr_list', {}, (r) => {
 		let b = view.bss[ifname];
@@ -340,8 +301,14 @@ function elsewhere() {
 	for (let n, o in view.bss)
 		if (o.bssid)
 			own[o.bssid] = true;
-	for (let n, b in view.bss)
+	for (let n, b in view.bss) {
 		b.elsewhere = slice(map(filter(b.listed, e => e[1] == b.ssid && !own[lc(e[0])]), e => lc(e[2])), 0, 8);
+		// A network is a place for a client only while hostapd says it is
+		// up there. One netifd lists and hostapd has not up, as on a
+		// radio that listens for radar before it sends, is none: no client
+		// is asked to it, or held off another band for it.
+		b.nr = b.up ? b.own : null;
+	}
 }
 
 // bands asks hostapd what a client said, as it joined, of the bands it can
@@ -428,22 +395,109 @@ function decide(clients) {
 	ready = true;
 }
 
-// clients_of asks hostapd for a network's clients, in a look: l is the
-// look, which decides once every network has answered. One that hostapd
-// left unanswered when the next look begins is given up for that one.
+// clients_of asks hostapd for a network's clients and whether the network
+// is up, in a round: l is the round, which decides once every network has
+// answered both. One that hostapd left unanswered when the next round
+// begins is given up for that one.
 function clients_of(ifname, l) {
 	let object = 'hostapd.' + ifname;
-	// hostapd waits for no listener here.
-	ask(object, 'notify_response', { notify_response: 0 });
-	ask(object, 'get_clients', {}, (r) => {
-		// An answer to a look before this one, or one the daemon was held
-		// up before it read: who is on is asked again.
+	let answered = (take) => (r) => {
+		// An answer to a round before this one, or one the daemon was
+		// held up before it read: asked again.
 		if (l.turn != turn || now() - beat > STALL)
 			return;
 		try {
-			l.clients[ifname] = seen(ifname, r);
+			take(r);
 			if (--l.left == 0)
 				decide(l.clients);
+		} catch (e) {
+			note('%s', e);
+		}
+	};
+	// hostapd waits for no listener here.
+	ask(object, 'notify_response', { notify_response: 0 });
+	ask(object, 'get_clients', {}, answered((r) => { l.clients[ifname] = seen(ifname, r); }));
+	ask(object, 'get_status', {}, answered((r) => {
+		if (view.bss[ifname])
+			view.bss[ifname].up = r?.status == 'ENABLED';
+	}));
+}
+
+// round asks who is on each steered network, and decides once all is
+// answered.
+function round() {
+	let names = keys(view.bss), l = { turn: ++turn, left: 2 * length(names), clients: {} };
+	if (!l.left)
+		return decide(l.clients);
+	for (let ifname in names)
+		clients_of(ifname, l);
+}
+
+// taken takes up the AP's Wi-Fi networks as netifd says they now are, and
+// listens to those that are steered.
+function taken(status) {
+	let bss = {};
+	for (let r, v in status)
+		for (let i in v.interfaces ?? []) {
+			if (!i.ifname || (i.config?.mode ?? 'ap') != 'ap' || !BAND[v.config?.band])
+				continue;
+			let n = filter(i.config?.network ?? [], x => match(x, /^aeolus_/))[0];
+			let id = n ? replace(substr(n, 7), /_/g, '-') : null;
+			if (!id || !cfg.networks[id])
+				continue;
+			let was = view.bss[i.ifname];
+			bss[i.ifname] = {
+				network: id, band: v.config.band, ssid: was?.ssid ?? null, bssid: was?.bssid ?? null,
+				own: was?.own ?? null, up: was?.up ?? false, nr: null, listed: was?.listed ?? [], elsewhere: [],
+			};
+		}
+	for (let s in dead)
+		s.remove();
+	dead = [];
+	for (let ifname in keys(subs))
+		if (!bss[ifname]) {
+			subs[ifname].remove();
+			delete subs[ifname];
+		}
+	let had = length(view.bss), fresh = false;
+	view.bss = bss;
+	for (let ifname in keys(bss)) {
+		if (!subs[ifname]) {
+			listen(ifname);
+			fresh = fresh || !!subs[ifname];
+		}
+		// One hostapd does not have yet is looked for again at the next look.
+		if (!subs[ifname])
+			moved = true;
+		report(ifname);
+	}
+	if (length(bss) != had)
+		log('steering %d network%s on %d radio interface%s', length(cfg.networks), length(cfg.networks) == 1 ? '' : 's', length(bss), length(bss) == 1 ? '' : 's');
+	// A network newly listened to is looked at now, not five seconds on.
+	if (fresh)
+		round();
+}
+
+// networks takes up the settings, and asks netifd for the AP's Wi-Fi
+// networks without waiting for it: a netifd slow to answer held the daemon
+// up, and the daemon is not to be held up.
+function networks() {
+	cfg = settings();
+	if (!length(cfg.networks))
+		return taken({});
+	ask('network.wireless', 'status', {}, (status) => {
+		try {
+			if (status == null) {
+				// The bus is gone, as when ubusd started again: procd
+				// starts the daemon again, on the new one.
+				if (++lost >= LOST) {
+					note('netifd does not answer; starting over');
+					exit(1);
+				}
+				return;
+			}
+			lost = 0;
+			taken(status);
 		} catch (e) {
 			note('%s', e);
 		}
@@ -456,17 +510,11 @@ function look() {
 		if (looks % NETWORKS_EVERY == 0 || moved) {
 			moved = false;
 			networks();
-			for (let ifname in keys(view.bss))
-				report(ifname);
 		}
 		if (looks % KNOWN_EVERY == KNOWN_EVERY - 1)
 			save_known();
 		looks++;
-		let names = keys(view.bss), l = { turn: ++turn, left: length(names), clients: {} };
-		if (!l.left)
-			return decide(l.clients);
-		for (let ifname in names)
-			clients_of(ifname, l);
+		round();
 	} catch (e) {
 		note('%s', e);
 	}

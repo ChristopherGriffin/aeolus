@@ -217,7 +217,7 @@ const WAYS = [
 	['hold_back', 'Hold back 2.4 GHz',
 		'A client known to use a higher band is kept off 2.4 GHz for two and a half seconds as it comes to join, so that it finds the higher band first. Then 2.4 GHz is open to it again.'],
 	['sticky', 'Move weak clients',
-		'A client whose signal stays weak, while the network has a better place for it, is told to go, and put off for two and a half seconds if it stays. One that comes straight back is left alone for half an hour, and longer each time it does so again.'],
+		'A client whose signal stays weak, while the network has a better place for it, is told to go, and put off for two and a half seconds if it is still there, and still weak, ten seconds on. One that comes straight back is left alone for half an hour, and longer each time it does so again.'],
 ];
 
 // steeringRow switches each way of steering for a network in its service
@@ -231,6 +231,12 @@ function steeringRow(ctx, n, box) {
 		const older = key === 'suggest' && n.fields.band_steering?.value === true;
 		const field = own ?? (key === 'suggest' ? n.fields.band_steering : undefined);
 		const on = field?.value === true;
+		// 802.11k and 802.11v are on already, by the network's own
+		// settings or by the other way that asks: turning this one on or
+		// off then changes nothing an AP's Wi-Fi starts again for.
+		const is = (k2) => n.fields[k2]?.value === true;
+		const other = key === 'suggest' ? is('steering.sticky') : is('steering.suggest') || (n.fields['steering.suggest'] === undefined && is('band_steering'));
+		const asking = key !== 'hold_back', kv = (is('roaming.rrm') && is('roaming.btm')) || other;
 		// Off: unset what this folder set, so it follows what is above; or,
 		// where it would then still be on, set it off here.
 		const op = on
@@ -245,8 +251,8 @@ function steeringRow(ctx, n, box) {
 					after && after.from !== n.from ? ` (from ${ctx.name('services', after.from)})` : ''),
 				h('div', { class: 'sub' }, about),
 				h('div', { class: 'sub' }, `This changes the network in Services › ${ctx.name('services', n.from)}, for every location that uses it. Each AP steers by itself, and its Wi-Fi never waits for that: with an AP's steering stopped, clients join there as on a network that is not steered.`),
-				key !== 'hold_back' && !on && h('div', { class: 'sub' }, 'It also turns on 802.11k and 802.11v for the network, by which a client is asked.'),
-			], key === 'hold_back' ? [] : [h('div', { class: 'sub warn' }, RESTART)]);
+				asking && !on && !kv && h('div', { class: 'sub' }, 'It also turns on 802.11k and 802.11v for the network, by which a client is asked.'),
+			], asking && !kv ? [h('div', { class: 'sub warn' }, RESTART)] : []);
 		};
 		return h('span', { class: 'each' },
 			h('button', {
@@ -311,7 +317,7 @@ const STEERED = {
 const ASKED = { btm: 'asked to move', held: 'held off', kick: 'put off', none: '—' };
 const CAME = {
 	suggest: { moved: 'moved up', refused: 'said no', stayed: 'stayed', left: 'left', back: 'came back down' },
-	hold: { moved: 'joined a higher band', joined: 'joined 2.4 GHz all the same', left: 'joined elsewhere', back: 'came back down' },
+	hold: { moved: 'joined a higher band', joined: 'joined 2.4 GHz all the same', left: 'did not join here', back: 'came back down' },
 	sticky: { moved: 'moved to a better band here', left: 'left', back: 'came straight back', recovered: 'was heard well again', stayed: 'stayed' },
 };
 

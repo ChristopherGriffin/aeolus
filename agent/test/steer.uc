@@ -242,6 +242,37 @@ off(A);
 pass(70);
 records();
 
+begin('Sticky: one whose signal is not known when its time is up is not put off; one that has gone to another of the AP\'s networks has left this one');
+put(A, 'phy0-ap1', -80);
+view.clients['phy0-ap1'][B] = { signal: -80, btm: true };
+look();
+pass(10);
+view.clients['phy0-ap1'][A].signal = null;
+delete view.clients['phy0-ap1'][B];
+view.clients['phy0-ap2'][B] = { signal: -50, btm: true };
+hear('phy0-ap2', 'sta-authorized', { address: B });
+pass(15);
+records();
+
+begin('Suggest and Sticky together: near enough on 2.4 GHz to be asked up, and weak on 5 GHz once there, a client is not sent up and down every half hour');
+put(A, 'phy1-ap2', -64, { bands: ['2g', '5g'] });
+let asked = [];
+for (let end = 48 * 3600; t < end;) {
+	t += 5;
+	for (let a in steer.tick(st, cfg, view, t, WALL + t)) {
+		if (a.do != 'btm' || a.mac != A)
+			continue;
+		// It does as it is asked, two seconds on.
+		let up = a.bss == 'phy1-ap2';
+		push(asked, sprintf('%s %dh%02d', up ? 'up' : 'down', t / 3600, (t % 3600) / 60));
+		t += 2;
+		put(A, up ? 'phy0-ap2' : 'phy1-ap2', up ? -78 : -64, { bands: ['2g', '5g'] });
+		steer.heard(st, cfg, view, t, up ? 'phy0-ap2' : 'phy1-ap2', 'sta-authorized', { address: A });
+	}
+}
+printf('  in two days it is asked: %s\n', join(', ', asked));
+st.events = [];
+
 begin('A network with nothing on is not looked at; one with only Sticky on is not asked up');
 put(A, 'phy1-ap2', -50, { bands: ['2g', '5g'] });
 put(B, 'phy1-ap1', -50, { bands: ['2g', '5g'] });

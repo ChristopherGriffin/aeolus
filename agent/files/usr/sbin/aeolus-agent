@@ -791,11 +791,13 @@ function converge(poll, token) {
 // installed and running, its band steering settings, and for each SSID on
 // each band, its clients and the clients usteer moved off it and onto it.
 function steering_state() {
+	// Whether hostapd has 802.11v is said with usteer or without: Aeolus's
+	// own steering asks by it (0138), and an AP need not have usteer.
 	if (!fs.stat('/sbin/usteerd'))
-		return { installed: false, running: false, interval: 0 };
+		return { installed: false, running: false, interval: 0, bss_transition: has_bss_transition() };
 	let cfg = bus.call('usteer', 'get_config');
 	if (!cfg)
-		return { installed: true, running: false, interval: 0 };
+		return { installed: true, running: false, interval: 0, bss_transition: has_bss_transition() };
 	let bss = [];
 	let info = bus.call('usteer', 'local_info') ?? {};
 	for (let name in sort(keys(info))) {

@@ -42,7 +42,7 @@ const HOLD_EVERY = 30;             // seconds before a client is held again: its
 const HOLD_WAIT = 12;              // seconds in which it joins somewhere
 const WEAK_LOOKS = 3;              // looks in a row a signal is weak before the client is asked to go
 const STICKY_EVERY = 300;          // seconds before a client is asked to go again
-const KICK_AFTER = 8;              // seconds it then has
+const KICK_AFTER = 10;             // seconds it then has
 // How long it is kept off the network it was put off: long enough that its
 // first tries go elsewhere, and no longer. A client refused three times
 // running, with nowhere else to go, gives the network up for ten seconds
@@ -71,6 +71,7 @@ function fresh() {
 		rest: {},     // until when each is left alone
 		backs: {},    // how often each came back, and when last: it is left alone longer each time
 		down: {},     // until when each, sent down for a weak signal, is not asked or held up
+		downs: {},    // how often each was sent down, and when last: it is left down longer each time
 		events: [],
 		counts: {},
 		wall: 0,
@@ -141,18 +142,24 @@ function said(st, e) {
 		shift(st.events);
 }
 
-// rested leaves a client that came back alone: for half an hour, and twice
-// as long each time it comes back again, up to a day. A device heard weakly
-// that has nowhere better to go is then put off a few times in all, and not
-// every half hour for ever.
-function rested(st, mac, now) {
-	let b = st.backs[mac] ??= { n: 0 };
+// longer is how long a client is left alone this time: half an hour, and
+// twice as long each time after, up to a day. times counts them.
+function longer(times, mac, now) {
+	let b = times[mac] ??= { n: 0 };
 	b.n++;
 	b.at = now;
 	let rest = REST;
 	for (let i = 1; i < b.n && rest < REST_MOST; i++)
 		rest *= 2;
-	st.rest[mac] = now + min(rest, REST_MOST);
+	return min(rest, REST_MOST);
+}
+
+// rested leaves a client that came back alone: for half an hour, and twice
+// as long each time it comes back again, up to a day. A device heard weakly
+// that has nowhere better to go is then put off a few times in all, and not
+// every half hour for ever.
+function rested(st, mac, now) {
+	st.rest[mac] = now + longer(st.backs, mac, now);
 }
 
 // done ends an asking: counted, and kept as a record. One made on a
@@ -166,7 +173,7 @@ function done(st, a, outcome, now) {
 	count(st, a.network, a.method, outcome);
 	let e = {
 		at: int(a.at + st.wall), mac: a.mac, network: a.network, method: a.method, from: a.from,
-		asked: a.asked, outcome: outcome, took: int((now - a.at) * 10) / 10,
+		asked: a.asked, outcome: outcome, took: int((now - a.at) * 10) / 10.0,
 	};
 	for (let k in ['to', 'answer', 'code', 'signal'])
 		if (a[k] != null)
@@ -174,9 +181,12 @@ function done(st, a, outcome, now) {
 	said(st, e);
 	if (outcome == 'moved' && a.method != 'sticky')
 		st.moved[a.mac] = { method: a.method, network: a.network, from: a.from, at: now };
-	// Sent off a band where it was weak, it is not sent back up it.
-	if (a.method == 'sticky' && outcome != 'recovered')
-		st.down[a.mac] = now + REST;
+	// Sent off a band where it was weak, it is not sent back up it: for
+	// half an hour, and twice as long each time, as one that is near
+	// enough on 2.4 GHz to be asked up, and weak on 5 GHz once there, would
+	// otherwise go up and down every half hour.
+	if (a.method == 'sticky' && !(outcome in ['recovered', 'stayed']))
+		st.down[a.mac] = now + longer(st.downs, a.mac, now);
 	if (outcome == 'back')
 		rested(st, a.mac, now);
 }
@@ -191,7 +201,7 @@ function arrived(st, view, mac, ifname, now) {
 	let m = st.moved[mac];
 	if (m && m.network == b.network && now - m.at < FELL_BACK && RANK[b.band] <= RANK[m.from]) {
 		count(st, m.network, m.method, 'back');
-		said(st, { at: int(now + st.wall), mac: mac, network: m.network, method: m.method, from: m.from, asked: 'none', outcome: 'back', took: int((now - m.at) * 10) / 10 });
+		said(st, { at: int(now + st.wall), mac: mac, network: m.network, method: m.method, from: m.from, asked: 'none', outcome: 'back', took: int((now - m.at) * 10) / 10.0 });
 		rested(st, mac, now);
 		delete st.moved[mac];
 	}
@@ -219,19 +229,20 @@ function judge(st, view, a, now) {
 			return 'joined';
 		return now < a.until ? null : 'left';
 	case 'sticky':
-		// Put off, it is back where it was, elsewhere here, or gone.
+		// Put off, it is back where it was, elsewhere here, or gone; on
+		// another of the AP's networks, it has left this one.
 		if (a.asked == 'kick') {
 			if (same)
 				return 'back';
-			if (within)
-				return 'moved';
+			if (o)
+				return within ? 'moved' : 'left';
 			return now < a.until ? null : 'left';
 		}
-		if (within && !same)
-			return 'moved';
+		if (o && !same)
+			return within ? 'moved' : 'left';
 		// Gone: a few seconds for it to show elsewhere here.
 		if (!o)
-			return now < a.gone + 5 ? null : 'left';
+			return now < (a.gone ?? now) + 5 ? null : 'left';
 		return null;
 	}
 	return null;
@@ -360,6 +371,11 @@ function tick(st, cfg, view, now, wall) {
 			done(st, a, 'recovered', now);
 			continue;
 		}
+		// How it is heard now is not known: it is not put off for it.
+		if (c.signal == null) {
+			done(st, a, 'stayed', now);
+			continue;
+		}
 		push(acts, { do: 'kick', bss: a.bss, mac: mac, ms: KICK_BAN_MS });
 		a.asked = 'kick';
 		a.until = now + BACK_WAIT;
@@ -438,9 +454,10 @@ function tick(st, cfg, view, now, wall) {
 	for (let mac, t in st.down)
 		if (now >= t)
 			delete st.down[mac];
-	for (let mac, b in st.backs)
-		if (now - b.at >= BACKS_FOR)
-			delete st.backs[mac];
+	for (let times in [st.backs, st.downs])
+		for (let mac, b in times)
+			if (now - b.at >= BACKS_FOR)
+				delete times[mac];
 	for (let mac, m in st.moved)
 		if (now - m.at >= FELL_BACK)
 			delete st.moved[mac];
