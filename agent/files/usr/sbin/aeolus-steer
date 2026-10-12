@@ -100,6 +100,7 @@ let dead = [];        // listeners whose network hostapd took away
 let said = {};        // the bands each client now on said it can use, and where it said so
 let looks = 0, lost = 0, turn = 0, token = 0, started = time();
 let queue = [], flush = null, last = null, moved = false;
+let joined = [];      // clients hostapd has just said it let on, to be asked of what they said as they joined
 let beat = 0, ready = false;   // when the daemon last had a turn, and whether it has looked since it started or was held up
 
 // ask asks hostapd, or anything on the bus, without waiting: what it says
@@ -199,10 +200,21 @@ function act(a) {
 	}
 }
 
+// asked_of is bands, which is declared below what first needs it: a client
+// hostapd has just let on is asked of at once, from drain.
+let asked_of = null;
+
 // drain does what was decided inside one of hostapd's notifications, once
 // that is over.
 function drain() {
 	try {
+		// What each client just let on said as it joined is asked now, not
+		// at the next look: a client test is gone by then.
+		let came = joined;
+		joined = [];
+		for (let j in came)
+			if (asked_of && view.bss[j[0]] && said[j[1]]?.bss != j[0])
+				asked_of(j[0], j[1]);
 		let acts = queue;
 		queue = [];
 		// Decided before the daemon was held up: let go.
@@ -238,8 +250,10 @@ function on_notify(ifname, msg) {
 		let acts = steer.heard(st, cfg, view, t, ifname, msg.type, data);
 		for (let a in acts)
 			push(queue, a);
+		if (msg.type == 'sta-authorized' && length(joined) < 64 && match(lc(data.address ?? ''), /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/))
+			push(joined, [ifname, lc(data.address)]);
 		// Woken only where there is something to ask, or to say.
-		if (length(queue) || (length(st.events) && st.events[length(st.events) - 1] !== last))
+		if (length(queue) || length(joined) || (length(st.events) && st.events[length(st.events) - 1] !== last))
 			flush.set(1);
 	} catch (e) {
 		note('%s', e);
@@ -317,14 +331,21 @@ function elsewhere() {
 }
 
 // bands asks hostapd what a client said, as it joined, of the bands it can
-// use: once, where it joined.
+// use, and whether it said it is an AP's own test client (0121): once,
+// where it joined, and taken in the moment hostapd answers.
 function bands(ifname, mac) {
-	said[mac] = { bss: ifname, bands: null };
+	said[mac] = { bss: ifname, bands: null, own: false };
 	ask('hostapd.' + ifname, 'get_sta_ies', { address: mac }, (r) => {
-		if (said[mac]?.bss == ifname && type(r?.assoc_ie) == 'string')
-			said[mac].bands = steer.bands_of(b64dec(r.assoc_ie) ?? '');
+		if (said[mac]?.bss != ifname || type(r?.assoc_ie) != 'string')
+			return;
+		let ies = b64dec(r.assoc_ie) ?? '';
+		said[mac].bands = steer.bands_of(ies);
+		said[mac].own = steer.own_of(ies);
+		steer.learned(st, mac, said[mac], now());
 	});
 }
+
+asked_of = bands;
 
 // seen is the clients hostapd lists on a network, those it has let on: each
 // one's signal, and whether it takes a transition request.
@@ -339,6 +360,8 @@ function seen(ifname, r) {
 			bands(ifname, mac);
 		if (said[mac].bands)
 			e.bands = said[mac].bands;
+		if (said[mac].own)
+			e.own = true;
 		cs[mac] = e;
 	}
 	return cs;
@@ -359,6 +382,8 @@ function save_known() {
 		for (let b, t in e.bands)
 			bands[b] = int(t + off);
 		k[mac] = { bands: bands, btm: e.btm ?? null, at: int((e.at ?? 0) + off) };
+		if (e.own)
+			k[mac].own = true;
 	}
 	store(KNOWN, sprintf('%J\n', k));
 }
@@ -382,6 +407,8 @@ function load_known() {
 		st.known[mac] = { bands: bands, at: (type(e.at) == 'int' ? e.at : 0) - off };
 		if (e.btm != null)
 			st.known[mac].btm = !!e.btm;
+		if (e.own === true)
+			st.known[mac].own = true;
 	}
 }
 

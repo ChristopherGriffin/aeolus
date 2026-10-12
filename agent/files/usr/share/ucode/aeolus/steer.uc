@@ -30,6 +30,14 @@
 
 const RANK = { '2g': 0, '5g': 1, '6g': 2 };
 
+// The mark of an AP's own test client (0121): a vendor element in its
+// association request, of the OUI Aeolus's beacons use (0073) and a type
+// of its own, 2, at version 1. A client test puts it there; a client that
+// has it is an AP's scan radio making a test, on whichever AP it joins,
+// and is not steered: asked, it would say no, and held, it would say the
+// network was slow to join.
+const OWN_MARK = 'dd0502ae010201';
+
 // The signal a client must have where it is, in dBm, to be asked onto a
 // higher band: that band carries less far, and 6 GHz less far still.
 const NEAR = { '2g': { '5g': -65, '6g': -55 }, '5g': { '6g': -60 } };
@@ -103,6 +111,21 @@ function bands_of(ies) {
 	return sort(keys(out), (a, b) => RANK[a] - RANK[b]);
 }
 
+// own_of says whether a client's association request has the mark of an
+// AP's own test client.
+function own_of(ies) {
+	let i = 0, n = length(ies ?? '');
+	while (i + 2 <= n) {
+		let id = ord(ies, i), len = ord(ies, i + 1);
+		if (i + 2 + len > n)
+			break;
+		if (id == 0xdd && len >= 4 && ord(ies, i + 2) == 0x02 && ord(ies, i + 3) == 0xae && ord(ies, i + 4) == 0x01 && ord(ies, i + 5) == 0x02)
+			return true;
+		i += 2 + len;
+	}
+	return false;
+}
+
 // btm_of says whether a client takes a BSS transition request: bit 19 of
 // its extended capabilities, as hostapd lists them a byte at a time.
 function btm_of(ext) {
@@ -123,6 +146,27 @@ function learn(st, mac, band, now) {
 	let k = st.known[mac] ??= { bands: {} };
 	k.bands[band] = now;
 	k.at = now;
+}
+
+// ours says a client is an AP's own test client, as it said when it joined
+// here, now or before.
+function ours(st, mac) {
+	return st.known[mac]?.own === true;
+}
+
+// learned takes in what a client said of itself as it joined, the moment
+// hostapd gives it: the bands it can use, and whether it is an AP's own
+// test client. It is not left to the next look: a client test is on for a
+// few seconds, and may be gone by then.
+function learned(st, mac, what, now) {
+	for (let band in what?.bands ?? [])
+		if (RANK[band] != null)
+			learn(st, mac, band, now);
+	if (what?.own) {
+		let k = st.known[mac] ??= { bands: {} };
+		k.at = now;
+		k.own = true;
+	}
 }
 
 function can(st, mac, band, now) {
@@ -275,7 +319,7 @@ function candidates(list) {
 // and 2.4 GHz is then all the client has.
 function hold(st, cfg, view, now, ifname, type, data, mac) {
 	let b = view.bss[ifname], net = cfg.networks?.[b.network];
-	if (!net?.hold || b.band != '2g' || st.on[mac] || st.tries[mac])
+	if (!net?.hold || b.band != '2g' || st.on[mac] || st.tries[mac] || ours(st, mac))
 		return [];
 	if (now < (st.rest[mac] ?? 0) || now < (st.down[mac] ?? 0) || now - (st.held[mac] ?? -HOLD_EVERY) < HOLD_EVERY)
 		return [];
@@ -367,6 +411,8 @@ function tick(st, cfg, view, now, wall) {
 				learn(st, mac, band, now);
 		if (c.btm != null)
 			st.known[mac].btm = !!c.btm;
+		if (c.own)
+			st.known[mac].own = true;
 		o.weak = net?.sticky && c.signal != null && c.signal < net.weak ? o.weak + 1 : 0;
 	}
 
@@ -399,7 +445,7 @@ function tick(st, cfg, view, now, wall) {
 
 	for (let mac in sort(keys(st.on))) {
 		let o = st.on[mac], b = view.bss[o.bss], c = view.clients[o.bss][mac], net = cfg.networks?.[o.network];
-		if (!net || st.tries[mac] || now < (st.rest[mac] ?? 0))
+		if (!net || st.tries[mac] || ours(st, mac) || now < (st.rest[mac] ?? 0))
 			continue;
 		let sibs = siblings(view, o.bss);
 
@@ -511,4 +557,4 @@ function summary(st, cfg, view, wall, since) {
 
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
-export { RANK, HOLD_MS, KICK_BAN_MS, fresh, bands_of, btm_of, heard, sent, tick, summary };
+export { RANK, HOLD_MS, KICK_BAN_MS, OWN_MARK, fresh, bands_of, own_of, btm_of, learned, heard, sent, tick, summary };

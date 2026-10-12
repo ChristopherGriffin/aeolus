@@ -226,7 +226,10 @@ function supplicant(dir, ssid, cred, tgt, eap) {
 		push(lines, 'scan_freq=' + join(' ', tgt.freqs), 'freq_list=' + join(' ', tgt.freqs));
 	if (cred.ppsk == '1')
 		return { why: 'each device has a passphrase of its own from RADIUS there, and the test has none' };
-	let conf = () => ({ conf: `ctrl_interface=${dir}/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\t${join('\n\t', lines)}\n}\n` });
+	// The network is off as wpa_supplicant starts: the test turns it on
+	// once it has said, over the control socket, what to put in its
+	// association request (see join_network in aeolus-clienttest).
+	let conf = () => ({ conf: `ctrl_interface=${dir}/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\t${join('\n\t', lines)}\n\tdisabled=1\n}\n` });
 	if (match(e, /^wpa/) || match(e, /eap/)) {
 		if (!eap)
 			return { why: 'it signs clients in by 802.1X, and the test was given no user to sign in as' };

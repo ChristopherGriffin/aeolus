@@ -49,13 +49,14 @@ network={
 	freq_list=5660
 	key_mgmt=WPA-PSK
 	psk="fixture-passphrase-1"
+	disabled=1
 }
-supplicant sae: [ "key_mgmt=SAE", "ieee80211w=2", "sae_password=\"a \"quoted\" passphrase\"\n}\n" ]
-supplicant sae-mixed: [ "key_mgmt=SAE WPA-PSK", "ieee80211w=1", "psk=\"a \"quoted\" passphrase\"\n}\n" ]
-supplicant owe: [ "key_mgmt=OWE", "ieee80211w=2\n}\n" ]
-supplicant none: [ "key_mgmt=NONE\n}\n" ]
-supplicant psk-mixed+ccmp: [ "key_mgmt=WPA-PSK", "psk=\"a \"quoted\" passphrase\"\n}\n" ]
-supplicant no target: "ctrl_interface=/var/run/aeolus/clienttest/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=78\n\tscan_ssid=1\n\tkey_mgmt=NONE\n}\n"
+supplicant sae: [ "key_mgmt=SAE", "ieee80211w=2", "sae_password=\"a \"quoted\" passphrase\"" ]
+supplicant sae-mixed: [ "key_mgmt=SAE WPA-PSK", "ieee80211w=1", "psk=\"a \"quoted\" passphrase\"" ]
+supplicant owe: [ "key_mgmt=OWE", "ieee80211w=2" ]
+supplicant none: [ "key_mgmt=NONE" ]
+supplicant psk-mixed+ccmp: [ "key_mgmt=WPA-PSK", "psk=\"a \"quoted\" passphrase\"" ]
+supplicant no target: "ctrl_interface=/var/run/aeolus/clienttest/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=78\n\tscan_ssid=1\n\tkey_mgmt=NONE\n\tdisabled=1\n}\n"
 supplicant { "encryption": "wpa2", "key": "x" }: { "why": "it signs clients in by 802.1X, and the test was given no user to sign in as" }
 supplicant { "encryption": "wpa3-mixed" }: { "why": "it signs clients in by 802.1X, and the test was given no user to sign in as" }
 supplicant { "encryption": "psk2", "ppsk": "1" }: { "why": "each device has a passphrase of its own from RADIUS there, and the test has none" }
@@ -120,11 +121,11 @@ credentials: an ID the AP has no section for null, its section under another SSI
 dfs: channel 132 true, 36 and 149 false, 2.4 GHz and 6 GHz false, 48 with 52 true, none false
 wanted with a user { "method": "peap", "identity": "aeolus-test", "password": "a \"quoted\" pass" }
 wanted with a user: no password null, a method there is none of null, a name too long null
-enterprise wpa2: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n}\n" }
-enterprise wpa3: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP-SHA256\n\tieee80211w=2\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n}\n" }
-enterprise wpa3-mixed: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP WPA-EAP-SHA256\n\tieee80211w=1\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n}\n" }
+enterprise wpa2: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n\tdisabled=1\n}\n" }
+enterprise wpa3: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP-SHA256\n\tieee80211w=2\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n\tdisabled=1\n}\n" }
+enterprise wpa3-mixed: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tbssid_accept=20:05:b6:01:8b:ed\n\tscan_freq=5220\n\tfreq_list=5220\n\tkey_mgmt=WPA-EAP WPA-EAP-SHA256\n\tieee80211w=1\n\teap=PEAP\n\tidentity=61656f6c75732d74657374\n\tpassword=61202271756f746564222070617373\n\tphase2=\"auth=MSCHAPV2\"\n\tdisabled=1\n}\n" }
 enterprise wpa: { "why": "its security, wpa, is one the test does not know" }
-enterprise by TTLS: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tkey_mgmt=WPA-EAP\n\teap=TTLS\n\tidentity=75\n\tpassword=70\n\tphase2=\"auth=PAP\"\n}\n" }
+enterprise by TTLS: { "conf": "ctrl_interface=/var/run/x/wpa\nupdate_config=0\nsae_pwe=2\nnetwork={\n\tssid=41656f6c75732d456e7465727072697365\n\tscan_ssid=1\n\tkey_mgmt=WPA-EAP\n\teap=TTLS\n\tidentity=75\n\tpassword=70\n\tphase2=\"auth=PAP\"\n\tdisabled=1\n}\n" }
 enterprise with no user: { "why": "it signs clients in by 802.1X, and the test was given no user to sign in as" }
 eap event { "stage": "signin", "what": "sign-in started" }
 eap event null
