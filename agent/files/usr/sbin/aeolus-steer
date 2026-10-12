@@ -250,8 +250,8 @@ function on_notify(ifname, msg) {
 		let acts = steer.heard(st, cfg, view, t, ifname, msg.type, data);
 		for (let a in acts)
 			push(queue, a);
-		if (msg.type == 'sta-authorized' && length(joined) < 64)
-			push(joined, [ifname, lc(data.address ?? '')]);
+		if (msg.type == 'sta-authorized' && length(joined) < 64 && match(lc(data.address ?? ''), /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/))
+			push(joined, [ifname, lc(data.address)]);
 		// Woken only where there is something to ask, or to say.
 		if (length(queue) || length(joined) || (length(st.events) && st.events[length(st.events) - 1] !== last))
 			flush.set(1);
