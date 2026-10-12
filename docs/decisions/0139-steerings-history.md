@@ -18,10 +18,11 @@
 - **The manager keeps each asking,** as its AP said it, once: told from any other by its AP, when the AP said it was, the client, the way and what came of it. A report that says it again adds nothing.
   - They are kept as long as attempts are (0118: 90 days unless `--keep-connection-days` says otherwise), and go with them.
 - **When an asking was is its AP's word, where that can be so.** An AP's steering holds its askings in memory: none it says is from before it last started. One said to be from before the AP itself started, by the uptime in the same report, or from more than ten minutes ahead, was said by a clock not yet set: it is of this run, and is taken to be of when the manager first heard of it.
+  - **Such an asking is told by the run of its AP as well.** A clock not yet set starts from the same time whenever its AP does, and may say the same second of two askings, one in each run. When the AP started, by the manager's clock less the uptime in the report, tells them apart: two reckonings of it within a minute are of one run. Where an AP says no uptime, they are not told apart.
   - **One first heard of more than a week after it was made is not kept.** By then it is one already kept; or one kept, and since let go with its time, which an AP with few askings may still be saying. An AP out of touch with the manager for more than a week loses its older askings so.
 - **`GET /v1/steering` says what steering came to** on the APs the caller may view, below a Locations node where one is named, over a time of up to 30 days:
   - for each network, by each way, how many askings there were and how many came to each end, as an AP's own count has them (0138); and the same an AP at a time;
-  - the twenty clients asked most, each with how often it was asked, moved, said no and came back;
+  - the twenty clients asked most, each with how often it was asked, moved, said no and came back, and when it was last asked. A coming back is no asking: one of whom the time holds nothing else is not listed;
   - the latest hundred askings.
   - A client moved up, by a suggestion or a hold, that came back down within five minutes is said by its AP in a record of its own: a `back`, counted as that, and as no asking. A weak client that came straight back is the end of its own asking.
   - The tests' own clients (0121) are left out, as from roaming (0136). An AP's steering no longer asks them (0138), and did for a day.

@@ -22,7 +22,7 @@ func TestSteer(t *testing.T) {
 		at := now.Add(-ago)
 		return SteerEvent{At: at, Said: at.Unix(), MAC: mac, Network: network, Method: method, From: "2g", To: []string{"6g", "5g"}, Asked: asked, Outcome: outcome, TookMS: 2500}
 	}
-	const a, b, c, own = "aa:00:00:00:00:0a", "aa:00:00:00:00:0b", "aa:00:00:00:00:0c", "aa:00:00:00:00:0f"
+	const a, b, c, d, own = "aa:00:00:00:00:0a", "aa:00:00:00:00:0b", "aa:00:00:00:00:0c", "aa:00:00:00:00:0d", "aa:00:00:00:00:0f"
 	first := []SteerEvent{
 		one(a, "sweet", "suggest", "btm", "moved", 50*time.Minute),
 		one(a, "sweet", "suggest", "none", "back", 48*time.Minute), // what became of the one before: no asking
@@ -32,6 +32,7 @@ func TestSteer(t *testing.T) {
 		one(c, "guest", "sticky", "kick", "back", 20*time.Minute), // a weak client's asking ended so
 		one(own, "sweet", "suggest", "btm", "moved", 10*time.Minute),
 		one(a, "sweet", "suggest", "btm", "moved", 30*time.Hour),
+		one(d, "sweet", "hold", "none", "back", 45*time.Minute), // its asking was before the day: not asked in it
 	}
 	code, signal := 1, -71
 	first[2].Answer, first[2].Code, first[2].Signal = "refused", &code, &signal
@@ -69,8 +70,8 @@ func TestSteer(t *testing.T) {
 	}
 	all, err := s.SteerSince(since, both, nil, 100)
 	must(t, err)
-	if len(all) != 9 {
-		t.Errorf("the day's, no client left out: %d, want 9", len(all))
+	if len(all) != 10 {
+		t.Errorf("the day's, no client left out: %d, want 10", len(all))
 	}
 	for _, e := range all {
 		if e.MAC == b && e.Outcome == "refused" && e.Code != nil {
@@ -91,7 +92,7 @@ func TestSteer(t *testing.T) {
 	}
 	want := []string{
 		"ap-1 guest sticky back 1",
-		"ap-1 sweet hold joined 1",
+		"ap-1 sweet hold back 1", "ap-1 sweet hold joined 1",
 		"ap-1 sweet suggest back 1", "ap-1 sweet suggest moved 1", "ap-1 sweet suggest refused 2", "ap-1 sweet suggest stayed 1",
 		"ap-2 sweet suggest moved 1",
 		// How many askings: a client moved up that came back down is one
@@ -102,17 +103,25 @@ func TestSteer(t *testing.T) {
 		t.Errorf("counts:\n got\n%s\nwant\n%s", g, w)
 	}
 
-	clients, err := s.SteerClients(since, both, not, 2)
+	clients, err := s.SteerClients(since, both, not, 10)
 	must(t, err)
 	got = nil
 	for _, k := range clients {
 		got = append(got, fmt.Sprintf("%s asked %d moved %d refused %d back %d", k.MAC[len(k.MAC)-2:], k.Asked, k.Moved, k.Refused, k.Back))
 	}
-	if g, want := strings.Join(got, "; "), "0b asked 3 moved 0 refused 2 back 0; 0c asked 2 moved 0 refused 0 back 1"; g != want {
-		t.Errorf("the two asked most:\n got %s\nwant %s", g, want)
+	// One that only came back in the day was not asked in it.
+	if g, want := strings.Join(got, "; "), "0b asked 3 moved 0 refused 2 back 0; 0c asked 2 moved 0 refused 0 back 1; 0a asked 2 moved 2 refused 0 back 1"; g != want {
+		t.Fatalf("those asked, the most first:\n got %s\nwant %s", g, want)
 	}
 	if !clients[0].Last.Equal(now.Add(-29 * time.Minute)) {
 		t.Errorf("when the first was last asked: %v", clients[0].Last)
+	}
+	// Its coming back, two minutes after, is no time it was asked.
+	if !clients[2].Last.Equal(now.Add(-50 * time.Minute)) {
+		t.Errorf("when one that came back was last asked: %v", clients[2].Last)
+	}
+	if two, err := s.SteerClients(since, both, not, 2); err != nil || len(two) != 2 {
+		t.Errorf("at most two: %v %v", two, err)
 	}
 
 	// The host names of those last seen on an AP named.
@@ -130,8 +139,55 @@ func TestSteer(t *testing.T) {
 	must(t, err)
 	left, err := s.SteerSince(time.Time{}, both, nil, 100)
 	must(t, err)
-	if len(left) != 9 {
-		t.Errorf("kept after the trim: %d, want 9", len(left))
+	if len(left) != 10 {
+		t.Errorf("kept after the trim: %d, want 10", len(left))
+	}
+}
+
+// A clock not yet set says the same times again each time its AP starts:
+// an asking said by one is told by the run of its AP as well, which is
+// reckoned anew at each report and never quite the same.
+func TestSteerRuns(t *testing.T) {
+	s, clock := open(t)
+	now := *clock
+	started := now.Add(-time.Hour).Unix()
+	said := func(run int64) []SteerEvent {
+		return []SteerEvent{{At: now, Said: 1700000000, Run: run, MAC: "aa:00:00:00:00:0a", Network: "sweet", Method: "suggest", From: "2g", Asked: "btm", Outcome: "moved"}}
+	}
+	for _, c := range []struct {
+		what string
+		run  int64
+		want int
+	}{
+		{"first said", started, 1},
+		{"said again, the run reckoned the same", started, 0},
+		{"said again, the run reckoned a little later", started + 20, 0},
+		{"and a little earlier", started - 20, 0},
+		{"said of the same time in a later run", started + 1800, 1},
+		{"and again in that run", started + 1810, 0},
+		{"said with a clock believed", 0, 0},
+	} {
+		n, err := s.AddSteer("ap-1", said(c.run))
+		must(t, err)
+		if n != c.want {
+			t.Errorf("%s: kept %d, want %d", c.what, n, c.want)
+		}
+	}
+	// One kept as its AP's word is the same one whatever run says it after.
+	believed := said(0)
+	believed[0].Said = 1700000060
+	n, err := s.AddSteer("ap-1", believed)
+	must(t, err)
+	believed[0].Run = started
+	m, err := s.AddSteer("ap-1", believed)
+	must(t, err)
+	if n != 1 || m != 0 {
+		t.Errorf("believed, then said of a run: kept %d and %d, want 1 and 0", n, m)
+	}
+	all, err := s.SteerSince(time.Time{}, []hierarchy.NodeID{"ap-1"}, nil, 100)
+	must(t, err)
+	if len(all) != 3 || all[0].Run != 0 || all[1].Run != started+1800 || all[2].Run != started {
+		t.Errorf("kept: %+v", all)
 	}
 }
 

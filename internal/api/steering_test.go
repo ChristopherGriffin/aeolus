@@ -181,6 +181,15 @@ func TestSteering(t *testing.T) {
 	if nothing := get("tenant", "?under=office"); len(nothing["networks"].([]any)) != 0 || len(nothing["latest"].([]any)) != 0 || len(nothing["clients"].([]any)) != 0 {
 		t.Errorf("the tenant, of the office: %v", nothing)
 	}
+	// North starts again, its clock once more not yet set, and says an
+	// asking of the same time as one of its run before: another asking,
+	// kept as well, and once however often it says it.
+	again := asking(c, "sweet", "suggest", "btm", "stayed", 40*24*time.Hour, nil)
+	report(northToken, 300, nil, again)
+	report(northToken, 330, nil, again)
+	if got, want := counts(get("griff", "?under=office")["networks"].([]any)[1].(map[string]any)["counts"]), "hold asked 1, hold joined 1, suggest asked 5, suggest back 1, suggest moved 2, suggest refused 1, suggest stayed 2"; got != want {
+		t.Errorf("sweet at the office, North started again:\n got %s\nwant %s", got, want)
+	}
 	for _, q := range []string{"?hours=0", "?hours=721", "?hours=many"} {
 		if code, b := f.do("GET", "/v1/steering"+q, "griff", nil); code != 400 {
 			t.Errorf("%s: %d %v", q, code, b)

@@ -16,7 +16,10 @@ import (
 // newer, so each is kept once, by when its AP said it was, of whom, by
 // which way and what came of it. said is that time, in seconds, by the AP's
 // clock; at is when the manager takes it to have been, in ms, as with an
-// attempt (connectionsAt).
+// attempt (connectionsAt). A clock not yet set says the same times again
+// each time its AP starts, so an asking said by one is told by the run of
+// its AP as well: run is when that AP started, in seconds, by the manager's
+// clock, and 0 for an asking whose time is its AP's word.
 const steerTable = `
 CREATE TABLE steer_events (
 	ap      TEXT NOT NULL,
@@ -33,7 +36,8 @@ CREATE TABLE steer_events (
 	signal  INTEGER,
 	outcome TEXT NOT NULL,
 	took_ms INTEGER NOT NULL,
-	UNIQUE (ap, said, mac, method, outcome)
+	run     INTEGER NOT NULL,
+	UNIQUE (ap, said, mac, method, outcome, run)
 );
 CREATE INDEX steer_events_at ON steer_events (at);`
 
@@ -41,11 +45,14 @@ CREATE INDEX steer_events_at ON steer_events (at);`
 // by which way (suggest, hold or sticky) and from which band; what was
 // asked, what the client answered, what came of it, and after how long. At
 // is when it was, as the manager takes it; Said is when its AP said, in
-// seconds since 1970, which with the rest tells it from any other.
+// seconds since 1970, which with the rest tells it from any other. Run is
+// when its AP started, in seconds since 1970, where Said is the word of a
+// clock not yet set; else 0.
 type SteerEvent struct {
 	AP      hierarchy.NodeID
 	At      time.Time
 	Said    int64
+	Run     int64
 	MAC     string
 	Network string
 	Method  string
@@ -71,7 +78,7 @@ type SteerCount struct {
 
 // SteerClient is what was asked of one client: how many times, how many of
 // those it moved for, how many it said no to, and how many times it came
-// back; and when the last was.
+// back; and when it was last asked.
 type SteerClient struct {
 	MAC     string
 	Asked   int
@@ -87,8 +94,15 @@ type SteerClient struct {
 // own end.
 const steerAsking = `NOT (outcome = 'back' AND method != 'sticky')`
 
+// steerRun is how far apart two reckonings of when an AP started may be
+// and be of the same run: each is the manager's time less the uptime the AP
+// said, and so is out by as long as its report took to come.
+const steerRun = time.Minute
+
 // AddSteer keeps the askings an AP reported that are not yet kept, and
-// says how many those were.
+// says how many those were. One is kept already where its AP said the same
+// before of the same time, and both times were its AP's word, or one of
+// them was, or both were said in the same run of the AP.
 func (s *Store) AddSteer(ap hierarchy.NodeID, events []SteerEvent) (int, error) {
 	if len(events) == 0 {
 		return 0, nil
@@ -100,9 +114,13 @@ func (s *Store) AddSteer(ap hierarchy.NodeID, events []SteerEvent) (int, error) 
 	defer tx.Rollback()
 	added := 0
 	for _, e := range events {
-		res, err := tx.Exec(`INSERT OR IGNORE INTO steer_events (ap, said, at, mac, network, method, band, bands, asked, answer, code, signal, outcome, took_ms)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			string(ap), e.Said, e.At.UnixMilli(), strings.ToLower(e.MAC), e.Network, e.Method, e.From, strings.Join(e.To, ","), e.Asked, e.Answer, e.Code, e.Signal, e.Outcome, e.TookMS)
+		mac, near := strings.ToLower(e.MAC), int64(steerRun/time.Second)
+		res, err := tx.Exec(`INSERT OR IGNORE INTO steer_events (ap, said, at, mac, network, method, band, bands, asked, answer, code, signal, outcome, took_ms, run)
+			SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			WHERE NOT EXISTS (SELECT 1 FROM steer_events WHERE ap = ? AND said = ? AND mac = ? AND method = ? AND outcome = ?
+				AND (run = 0 OR ? = 0 OR run BETWEEN ? AND ?))`,
+			string(ap), e.Said, e.At.UnixMilli(), mac, e.Network, e.Method, e.From, strings.Join(e.To, ","), e.Asked, e.Answer, e.Code, e.Signal, e.Outcome, e.TookMS, e.Run,
+			string(ap), e.Said, mac, e.Method, e.Outcome, e.Run, e.Run-near, e.Run+near)
 		if err != nil {
 			return 0, err
 		}
@@ -139,7 +157,7 @@ func (s *Store) SteerSince(since time.Time, aps []hierarchy.NodeID, not []string
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT ap, said, at, mac, network, method, band, bands, asked, answer, code, signal, outcome, took_ms`+steerWhere+`
+	rows, err := s.db.Query(`SELECT ap, said, at, mac, network, method, band, bands, asked, answer, code, signal, outcome, took_ms, run`+steerWhere+`
 		ORDER BY at DESC, rowid DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
@@ -150,7 +168,7 @@ func (s *Store) SteerSince(since time.Time, aps []hierarchy.NodeID, not []string
 		var e SteerEvent
 		var ap, bands string
 		var at int64
-		if err := rows.Scan(&ap, &e.Said, &at, &e.MAC, &e.Network, &e.Method, &e.From, &bands, &e.Asked, &e.Answer, &e.Code, &e.Signal, &e.Outcome, &e.TookMS); err != nil {
+		if err := rows.Scan(&ap, &e.Said, &at, &e.MAC, &e.Network, &e.Method, &e.From, &bands, &e.Asked, &e.Answer, &e.Code, &e.Signal, &e.Outcome, &e.TookMS, &e.Run); err != nil {
 			return nil, err
 		}
 		e.AP, e.At = hierarchy.NodeID(ap), time.UnixMilli(at).UTC()
@@ -205,14 +223,16 @@ func (s *Store) SteerCounts(since time.Time, aps []hierarchy.NodeID, not []strin
 }
 
 // SteerClients lists the clients asked since a time on aps, but for those
-// in not: those asked most first, at most limit.
+// in not: those asked most first, at most limit. One of whom the time holds
+// only a coming back, its asking from before, was not asked in it and is
+// not listed; and a coming back is no time a client was last asked.
 func (s *Store) SteerClients(since time.Time, aps []hierarchy.NodeID, not []string, limit int) ([]SteerClient, error) {
 	args, err := steerArgs(since, aps, not)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT mac, sum(`+steerAsking+`) AS asked, sum(outcome = 'moved'), sum(outcome = 'refused'), sum(outcome = 'back'), max(at)`+steerWhere+`
-		GROUP BY mac ORDER BY asked DESC, max(at) DESC, mac LIMIT ?`, append(args, limit)...)
+	rows, err := s.db.Query(`SELECT mac, sum(`+steerAsking+`) AS askings, sum(outcome = 'moved'), sum(outcome = 'refused'), sum(outcome = 'back'), max(CASE WHEN `+steerAsking+` THEN at END) AS last`+steerWhere+`
+		GROUP BY mac HAVING askings > 0 ORDER BY askings DESC, last DESC, mac LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}

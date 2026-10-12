@@ -38,9 +38,12 @@ const (
 // the time its AP said. An AP's steering holds its askings in memory, so
 // none it says is from before it last started, and one said to be from
 // before the AP itself did, or from a time yet to come, was said by a clock
-// not yet set: it is of this run, and is taken to be of now. uptime is how
-// long the AP says it has been up; where it does not say, no asking is
-// taken to be of now on that ground.
+// not yet set: it is of this run, and is taken to be of now. Such a clock
+// says the same times again the next time its AP starts, so that asking is
+// kept as of this run of the AP: of when it started, by the manager's
+// clock. uptime is how long the AP says it has been up; where it does not
+// say, no asking is taken to be of now on the first ground, and one taken
+// to be of now on the other is of no run that can be told.
 func (s *steerState) askings(now time.Time, uptime int64) []conditions.SteerEvent {
 	if s == nil {
 		return nil
@@ -48,15 +51,18 @@ func (s *steerState) askings(now time.Time, uptime int64) []conditions.SteerEven
 	var out []conditions.SteerEvent
 	for _, e := range s.Events {
 		said := time.Unix(e.At, 0)
-		at := said
+		at, run := said, int64(0)
 		switch {
 		case said.After(now.Add(steerClock)), uptime > 0 && said.Before(now.Add(-time.Duration(uptime)*time.Second-steerClock)):
 			at = now
+			if uptime > 0 {
+				run = now.Unix() - uptime
+			}
 		case said.Before(now.Add(-steerHeard)):
 			continue
 		}
 		out = append(out, conditions.SteerEvent{
-			At: at, Said: e.At, MAC: strings.ToLower(e.MAC), Network: e.Network, Method: e.Method, From: e.From, To: e.To,
+			At: at, Said: e.At, Run: run, MAC: strings.ToLower(e.MAC), Network: e.Network, Method: e.Method, From: e.From, To: e.To,
 			Asked: e.Asked, Answer: e.Answer, Code: e.Code, Signal: e.Signal, Outcome: e.Outcome, TookMS: int(math.Round(e.Took * 1000)),
 		})
 	}
