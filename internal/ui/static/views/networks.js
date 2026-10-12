@@ -581,14 +581,22 @@ function form(d, net, fields, folder, lib, names) {
 	const here = (k) => !!fields[k] && fields[k].from === folder && (fields[k].origin === 'self' || fields[k].origin === 'locked');
 	const goes = Object.keys(fields).filter((k) => (k.startsWith('transport.fallback.') || WITH_FALLBACK.includes(k) || WITH_AUTOMATIC.includes(k)) && here(k));
 	const where = (id) => (names ? `Services › ${names(id)}` : 'a folder above');
+	// Kept from when this folder broke hierarchy: its own copy of what was
+	// above, which cannot be unset here, nor by the folder above.
+	const kept = (k) => fields[k]?.origin === 'baseline' && fields[k].from === folder;
 	// Why it cannot be taken away in this folder, where it cannot: it is
-	// set above; or switching is automatic by a folder above, which needs
-	// a fallback, so the config would be held.
+	// set above, or kept from above; or switching is automatic by a folder
+	// above, which needs a fallback, so the config would be held.
 	const sw = fields['transport.switching'];
 	const stuck = !hadFallback ? null
-		: !here('transport.fallback.type') ? `it is set in ${where(typeField.from)}`
-			: sw?.value === 'automatic' && !here('transport.switching') ? `switching is automatic in ${where(sw.from)}, which needs a fallback`
-				: null;
+		: kept('transport.fallback.type') ? 'kept from when this folder broke hierarchy: it cannot be taken away'
+			: !here('transport.fallback.type') ? `it is set in ${where(typeField.from)}`
+				: sw?.value === 'automatic' && !here('transport.switching')
+					? `switching is automatic${kept('transport.switching') ? ', kept from when this folder broke hierarchy' : ` in ${where(sw.from)}`}, which needs a fallback`
+					: null;
+	// What is left of a fallback that has no type, set in this folder: a
+	// VLAN, a tunnel. Cleared when None is chosen, which it already is.
+	const strays = hadFallback ? [] : goes.filter((k) => k.startsWith('transport.fallback.'));
 	if (fbType) {
 		let none = [...fbType.options].find((o) => o.value === '');
 		if (!none) {
@@ -604,7 +612,7 @@ function form(d, net, fields, folder, lib, names) {
 			if (o.value) o.textContent = value(`${prefix}transport.${slot}.type`, o.value);
 	// dropped is what to unset, where None was picked for a network that
 	// has a fallback this folder may take away.
-	const dropped = () => (fbType && fbType.value === '' && hadFallback && !stuck ? goes.map((k) => prefix + k) : []);
+	const dropped = () => (!fbType || fbType.value !== '' || stuck ? [] : (hadFallback ? goes : strays).map((k) => prefix + k));
 	// A VXLAN fallback can't go to the primary's far end, nor the primary to
 	// the fallback's: each list greys out the other's (Griff, 2026-10-06).
 	const tunnelOf = (slot) => (typeOf(slot) === 'vxlan' ? rows.get(`${prefix}transport.${slot}.concentrator`)?.it.read() : undefined);
@@ -686,6 +694,19 @@ function form(d, net, fields, folder, lib, names) {
 		};
 		security.addEventListener('change', legal);
 		legal();
+		// Where nobody set the bands, the network is on all it may be:
+		// 6 GHz unticked by the form, for a security it does not take, is
+		// no change of the person's, and was listed as one.
+		if (fields.bands === undefined) {
+			const read = bands.it.read;
+			bands.it.changed = () => {
+				try {
+					return JSON.stringify(read()) !== JSON.stringify(BANDS.filter((b) => b !== '6g' || !six.disabled));
+				} catch {
+					return true;
+				}
+			};
+		}
 	}
 	// A passphrase for the PSK modes; a RADIUS server for the enterprise ones
 	// (0098), and for another network once MAC authentication is ticked
@@ -779,30 +800,61 @@ function editForm(ctx, d, n, close, lib) {
 		// Its fallback taken away (None): a change of its own, as fields
 		// are unset in one change and set in another. What else the form
 		// would change is left for a change after it, and said.
-		const drop = dropped();
+		let drop = dropped();
 		if (drop.length) {
-			const op = { kind: 'unset', tree: 'services', node: n.from, paths: drop };
-			const p = await ask(box, op);
+			const typePath = `network.${n.id}.transport.fallback.type`, swPath = `network.${n.id}.transport.switching`;
+			const field = (path) => n.fields[path.split('.').slice(2).join('.')];
+			let op = { kind: 'unset', tree: 'services', node: n.from, paths: drop };
+			let p = await ask(box, op);
 			if (!p) return;
-			const typePath = `network.${n.id}.transport.fallback.type`;
-			// What it becomes: none, or what a folder above sets, which
-			// this folder's stood over.
+			// Switching, taken away here with the fallback, would be what a
+			// folder above has: where that is automatic, which needs a
+			// fallback, every AP's config would be held. Set to report
+			// here, it is left as it is here, which holds none.
+			const back = (q) => q.resolved?.[typePath]?.value == null && q.resolved?.[swPath]?.value === 'automatic';
+			let stays = false;
+			if (drop.includes(swPath) && back(p) && field(swPath)?.value !== 'automatic') {
+				drop = drop.filter((k) => k !== swPath);
+				op = { kind: 'unset', tree: 'services', node: n.from, paths: drop };
+				p = await ask(box, op);
+				if (!p) return;
+				stays = true;
+			}
+			// What it becomes: none, or what a folder above sets, or this
+			// folder kept when it broke hierarchy, which its own stood over.
 			const after = p.resolved?.[typePath];
 			const above = after?.value != null;
-			const switching = drop.filter((k) => !k.includes('.transport.fallback.')).map((k) => group(k).label);
+			const whose = (r) => (r.origin === 'baseline' && r.from === n.from ? 'kept from when this folder broke hierarchy' : `from Services › ${ctx.name('services', r.from)}`);
+			const had = field(typePath);
+			const others = had ? drop.filter((k) => !k.includes('.transport.fallback.')) : [];
+			const locked = drop.filter((k) => field(k)?.origin === 'locked').map((k) => group(k).label);
 			const rest = Object.keys(edits).map((k) => group(k).label);
 			confirm(ctx, box, op, p, [
 				h('div', null, h('strong', null, `${n.fields.ssid?.value || n.id} in Services › ${folderName}`)),
 				h('ul', { class: 'becomes' },
-					h('li', null, `Fallback: ${value(typePath, n.fields['transport.fallback.type'].value)} → ${above ? `${value(typePath, after.value)}, from Services › ${ctx.name('services', after.from)}` : 'none'}`),
-					switching.length > 0 && h('li', null, `${switching.join(', ')}: as set here → ${above ? 'as the folder above has it' : 'unset, as there is nothing to switch between'}`)),
-				h('div', { class: 'sub' }, above
-					? `What this folder sets of the fallback goes, and the folder above’s takes its place: the network still has a fallback. To have none, take it away in Services › ${ctx.name('services', after.from)}.`
+					had
+						? h('li', null, `Fallback: ${value(typePath, had.value)} → ${above ? `${value(typePath, after.value)}, ${whose(after)}` : 'none'}`)
+						: h('li', null, `Fallback: none. What was left of one here is cleared: ${drop.map((k) => group(k).label).join(', ')}.`),
+					// What each setting of how the transports are switched
+					// between becomes, as the manager says it would be.
+					others.map((k) => {
+						const r = p.resolved?.[k];
+						return h('li', null, `${group(k).label}: ${value(k, field(k)?.value)} → ${r?.value != null ? `${value(k, r.value)}, ${whose(r)}` : 'unset'}`);
+					}),
+					stays && h('li', null, `Switching: stays ${value(swPath, field(swPath).value)} here. A folder above has it automatic, which needs a fallback.`)),
+				had && h('div', { class: 'sub' }, above
+					? (after.origin === 'baseline' && after.from === n.from
+						? 'What this folder sets of the fallback goes, and the one it kept when it broke hierarchy takes its place: the network still has a fallback, and that one cannot be taken away.'
+						: `What this folder sets of the fallback goes, and the folder above’s takes its place: the network still has a fallback. To have none, take it away in Services › ${ctx.name('services', after.from)}.`)
 					: `The network travels over its first transport alone. This changes it in Services › ${folderName}, for every location that uses it.`),
+				// Automatic here as well as above: nothing this change can leave behind holds no config.
+				had && !above && !stays && back(p) && h('div', { class: 'sub warn' },
+					`Switching would be automatic still, ${whose(p.resolved[swPath])}, which needs a fallback. Set Switching to report here first, and then take the fallback away.`),
+				locked.length > 0 && h('div', { class: 'sub' }, `This folder’s lock${locked.length === 1 ? '' : 's'} on ${locked.join(', ')} ${locked.length === 1 ? 'goes' : 'go'} with ${locked.length === 1 ? 'it' : 'them'}.`),
 				rest.length > 0 && h('div', { class: 'sub' }, `Not part of this change, and to be made after it: ${rest.join(', ')}.`),
-			], [
+			], had ? [
 				h('div', { class: 'sub warn' }, 'Applying restarts the Wi-Fi on each AP listed; its clients drop for a few seconds and reconnect.'),
-			]);
+			] : []);
 			return;
 		}
 		if (!Object.keys(values).length) {
