@@ -122,7 +122,7 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 			return err
 		}
 	} else if body.Kind != "import-network" && (body.Network != "" || body.On != "" || body.Band != "" || body.Remote != nil) {
-		return badRequest("network, on, band and remote are a client-test's")
+		return badRequest("on, band and remote are a client-test's; network a client-test's or an import-network's")
 	}
 	// The sections of an AP's own network, by which one asking for it is
 	// told from another (0137).
