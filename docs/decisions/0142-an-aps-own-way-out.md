@@ -15,11 +15,11 @@
 ## Decision
 
 - **The prober asks along the AP's own way out, every 30 seconds:**
-  - **the gateway** of the interface that holds its default route, by ping;
+  - **the gateway** of the interface that holds its default route, by ping. Of several default routes, as with a second uplink kept for when the first fails, the one of the lowest metric, which the kernel takes;
   - **each name server** that interface was given, at most three, by a question for a name: the internet target's, where that is a name; else the manager's own; else a time server's. Where the AP is given none of them by name, the servers are not asked;
   - **the internet,** by ping, where the config names a target.
   - Each is `up` while it answers, with how long its last answer took; `silent` once three asks in a row went unanswered; `unknown` until it has been asked that long.
-- **`system.internet` names the internet's target:** a host name or an IPv4 address, in Locations, inherited as any setting is. Nothing of the internet is asked unless it is set.
+- **`system.internet` names the internet's target:** a host name or an IPv4 address, in Locations, inherited as any setting is. A name is held to what a name server can be asked for: labels of 1 to 63 letters, digits and hyphens, 253 in all. Nothing of the internet is asked unless it is set.
   - **A target that is a name is never looked up in a way that could hold the prober up.** Its address is read from the name servers' own answers to the question they are asked anyway. Until one gives an address it is `unresolved`. The first address given is kept while it answers, and another taken only once it has gone silent.
 - **The agent says it in its state report,** as `path`, with how long the manager took to answer its last config poll. The manager keeps it as said; one not well said is left out, and the report kept.
 - **An AP has a Path tab.** Its way out as a path, a hop at a time: the AP's management address and VLAN, its uplink's speed and the switch port it is on, its gateway, and the internet; each coloured by whether it answers, with how long it took. Under it, what the AP leans on: each name server, its time (0069), and the manager.

@@ -539,15 +539,17 @@ function host_of(url) {
 // work, so that the servers are asked wherever it has any such name.
 function out_plan(at) {
 	let c = confdir ? cursor(confdir) : cursor();
-	let m = null, gw = null;
+	// Of several default routes, as with a second uplink kept for when the
+	// first fails, the one of the lowest metric: the one the kernel takes.
+	let m = null, gw = null, least = null;
 	for (let i in bus.call('network.interface', 'dump')?.interface ?? []) {
-		if (i.ip4table || m)
+		if (i.ip4table)
 			continue;
 		for (let r in i.route ?? [])
-			if (r.target == '0.0.0.0' && r.mask == 0 && r.nexthop) {
+			if (r.target == '0.0.0.0' && r.mask == 0 && r.nexthop && (least == null || (r.metric ?? 0) < least)) {
 				m = i;
 				gw = r.nexthop;
-				break;
+				least = r.metric ?? 0;
 			}
 	}
 	if (!m) {

@@ -77,12 +77,15 @@ func TestPathOut(t *testing.T) {
 		code, _ := f.change("griff", map[string]any{"kind": "set", "tree": "locations", "node": "house", "path": "system.internet", "value": value})
 		return code
 	}
-	for _, ok := range []string{"one.one.one.one", "1.1.1.1", "gateway"} {
+	for _, ok := range []string{"one.one.one.one", "1.1.1.1", "gateway", "a-b.example", "a12345678901234567890123456789012345678901234567890123456789012.example"} {
 		if code := set(ok); code != 200 {
 			t.Errorf("target %q: %d", ok, code)
 		}
 	}
-	for _, bad := range []any{"http://one.one.one.one", "one one", "-one", "one.", "", 7} {
+	// Nor a name its name servers could not be asked for: an empty label,
+	// or one longer than 63.
+	long := "a123456789012345678901234567890123456789012345678901234567890123.example"
+	for _, bad := range []any{"http://one.one.one.one", "one one", "-one", "one.", "", 7, "a..b", ".one", "one-.one", long} {
 		if code := set(bad); code == 200 {
 			t.Errorf("target %v was taken", bad)
 		}
