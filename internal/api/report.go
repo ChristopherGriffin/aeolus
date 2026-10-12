@@ -1562,6 +1562,10 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err := s.conds.SeeClients(c.ap, seen); err != nil {
 		return err
 	}
+	// How long each network's RADIUS server took to answer it (0141).
+	if err := s.conds.AddSteps(c.ap, time.Now(), radiusSteps(req.Radius)); err != nil {
+		return err
+	}
 	// What its steering asked of clients, each asking kept once (0139).
 	if _, err := s.conds.AddSteer(c.ap, req.Steer.askings(time.Now(), req.Uptime)); err != nil {
 		return err

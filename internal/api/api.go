@@ -94,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/connections/{id}/capture", s.auth(s.connectionCapture))
 	mux.Handle("GET /v1/roaming", s.auth(s.roaming))
 	mux.Handle("GET /v1/steering", s.auth(s.steering))
+	mux.Handle("GET /v1/network", s.auth(s.network))
 	mux.Handle("GET /v1/aps/{ap}/config", s.auth(s.apConfig))
 	mux.Handle("GET /v1/aps/{ap}/history", s.auth(s.apHistory))
 	mux.Handle("GET /v1/aps/{ap}/health", s.auth(s.apHealthView))
