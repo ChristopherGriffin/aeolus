@@ -22,13 +22,14 @@
 - **A folder's Networks tab shows them under Aeolus's own,** and an AP's does: "On the APs, not Aeolus's".
   - A network a line, by its SSID, whatever APs and radios it is on, with its security, its VLAN, each AP and its bands, and its clients.
   - **Dull:** no card, a dashed edge, grey words. Nothing in it is Aeolus's to change, and nothing there can be edited.
-  - As each AP last reported: an AP reports every five minutes, and at once after it takes one out.
+  - As each AP last reported: an AP reports every five minutes, and once its Wi-Fi is back after it takes one out.
   - One that carries another AP's uplink says so, there and where it is asked to be taken out: that AP would be cut off.
 - **One with operator on an AP may have it take one out:** an action (0104), `remove-network`, asked of each AP that has the network, with its SSID and the sections it is, one a radio.
   - **This is the one way Aeolus removes what it did not make,** and only at a person's asking, of that AP, for that network. Every other time it leaves such a section as it is (0040).
   - The manager asks only for sections the AP last said it has, with that SSID. The AP takes out only a section that still has that SSID: a section with no name of its own is named for where it stands in its config, and another may stand there since.
   - **The AP keeps what it takes out, first,** as it was, key and all: a file a section in `/etc/aeolus/removed`, which only root reads, under a line that says what it is and how to have it back. Aeolus has no copy of the network or its passphrase and could not put it back. Nothing is taken out that cannot be kept.
   - The Wi-Fi then reloads. The network's clients are off it and cannot join it again; the others on its radios join again in a few seconds.
+  - **The AP waits for its Wi-Fi to be back, as after an apply (0057), and then reports its state:** a report made while the radios reload has none of the AP's own BSSIDs in it, and its networks, heard by another AP, would be taken for a stranger's (0105). Where some do not come back, what the AP says came of it says how many.
   - It is asked before it is done, with how many clients are on the network, and logged with who asked, as every action is.
   - **Each network asked of an AP is an action of its own,** told from another by its sections: an AP's two networks may be taken out one after the other, without waiting for the first.
   - **What the AP says came of it has nothing of the SSID:** an SSID need not be plain words, and the manager takes no other for a result.
@@ -46,6 +47,6 @@
 - **Import:** making one of these Aeolus's own, with its settings. Next, and written here when it is built.
 - **Nothing says who set such a network, or when.**
 - **A network on the AP's own LAN has no VLAN to show:** its config names none.
-- **Nothing checks that the Wi-Fi came back after a network is taken out,** as an apply does (0057): no config of Aeolus's changed, and there is nothing to go back to but the file kept.
+- **A network taken out is not put back where the Wi-Fi does not all come back after:** an apply is undone then (0057), but no config of Aeolus's changed here, and the AP only says so.
 - **Changes someone made with `uci` and did not commit are committed with it,** where they are to the AP's Wi-Fi config.
 - **Sections that go with one taken out are left:** a per-device passphrase of its own (`wifi-station`), or the network (`interface`) it was on, which may serve something else.
