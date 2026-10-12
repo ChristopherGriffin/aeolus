@@ -438,12 +438,15 @@ func (s *Server) importFor(c call, ap hierarchy.NodeID, ssid string, sections []
 		return ask, &apiError{http.StatusConflict, fmt.Sprintf("this AP has it as %s, not %s: import it from an AP that has it so", sec, shown)}
 	}
 	// One Aeolus has made its own already, which its AP has yet to take
-	// its own out for, or to report without: not made twice.
-	if res, err := s.compose(c.state, ap, s.reveal); err == nil && !res.Unassigned {
+	// its own out for, or to report without: not made twice. One of that
+	// name still on the AP after that is another network to the AP, with
+	// another passphrase or with what Aeolus's has not, and is said so.
+	// A network that is off takes no place, and stands in no one's way.
+	if res, err := s.compose(c.state, ap, nil); err == nil && !res.Unassigned {
 		nets, _ := res.Doc["network"].(map[string]any)
 		for nid, n := range nets {
-			if n, _ := n.(map[string]any); n["ssid"] == ssid && n["replace_own"] == true {
-				return ask, &apiError{http.StatusConflict, fmt.Sprintf("it is Aeolus's own already, as %s: the AP takes its own out when it applies that, and says so in its next report", nid)}
+			if n, _ := n.(map[string]any); n["ssid"] == ssid && n["replace_own"] == true && n["enabled"] != false {
+				return ask, &apiError{http.StatusConflict, fmt.Sprintf("Aeolus has a network of this name already, %s, that takes the place of the APs' own: the AP takes its own out when it applies that, and says so in its next report. One still on the AP after that is another network to it, with another passphrase or a setting Aeolus's has not: change it on the AP, or remove it", nid)}
 			}
 		}
 	}

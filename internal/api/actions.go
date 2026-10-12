@@ -122,13 +122,16 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 			return err
 		}
 	} else if body.Kind != "import-network" && (body.Network != "" || body.On != "" || body.Band != "" || body.Remote != nil) {
-		return badRequest("network, on, band and remote are a client-test's")
+		return badRequest("on, band and remote are a client-test's; network a client-test's or an import-network's")
 	}
 	// The sections of an AP's own network, by which one asking for it is
 	// told from another (0137).
 	var sections []string
 	switch body.Kind {
 	case "remove-network":
+		if body.Folder != "" || len(body.Bands) > 0 || body.VLAN != 0 || body.Security != "" {
+			return badRequest("folder, bands, vlan and security are an import-network's")
+		}
 		ask, err := s.removeNetworkFor(id, body.SSID, body.Sections)
 		if err != nil {
 			return err

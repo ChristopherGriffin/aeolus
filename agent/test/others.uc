@@ -87,6 +87,9 @@ let hung = { ...wireless,
 	st1: { '.type': 'wifi-station', '.name': 'st1', '.index': 50, iface: 'default_radio0', mac: '02:00:00:00:00:09', key: 'a-device-key' },
 	vl1: { '.type': 'wifi-vlan', '.name': 'vl1', '.index': 51, iface: 'default_radio0', vid: '30', network: 'named' },
 	st2: { '.type': 'wifi-station', '.name': 'st2', '.index': 52, iface: 'wifinet2', key: 'another' },
+	st3: { '.type': 'wifi-station', '.name': 'st3', '.index': 54, iface: ['wifinet2', 'default_radio0'], key: 'on-two' },
+	st4: { '.type': 'wifi-station', '.name': 'st4', '.index': 55, iface: 'wifinet3 default_radio0', key: 'on-two-in-one-option' },
+	st5: { '.type': 'wifi-station', '.name': 'st5', '.index': 56, key: 'on-every-interface' },
 	aeolus_key_1: { '.type': 'wifi-station', '.name': 'aeolus_key_1', '.index': 53, iface: 'default_radio0', key: 'aeolus-one' },
 };
 printf('told, with sections that hang on it: %J\n', others.told(hung, network, others.find(hung, 'default_radio0', 'Sweet_Spot_IoT')).stations);

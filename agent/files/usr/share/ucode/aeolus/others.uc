@@ -112,8 +112,11 @@ function kept(s, when, why) {
 // to make it its own (0137): the section it is, its SSID, every option of
 // the section as it stands, its key among them, and the VLAN it is on.
 // With how many sections hang on it: passphrases or VLANs of its devices'
-// own, which are no part of it and would not come with it. Said only where
-// a person asks, of this network, and never in a report.
+// own, which are no part of it and would not come with it. One hangs on it
+// that names it, alone or among others, as a list or in one option; one
+// that names no interface is every interface's, Aeolus's too, and hangs on
+// none. Said only where a person asks, of this network, and never in a
+// report.
 function told(wireless, network, s) {
 	let options = {};
 	for (let k, v in s)
@@ -123,7 +126,7 @@ function told(wireless, network, s) {
 	let id = vlan(network, names(s.network)[0]);
 	if (id != null)
 		e.vlan = id;
-	let hung = length(filter(values(wireless ?? {}), x => x['.type'] in ['wifi-station', 'wifi-vlan'] && !mine(x['.name']) && x.iface == s['.name']));
+	let hung = length(filter(values(wireless ?? {}), x => x['.type'] in ['wifi-station', 'wifi-vlan'] && !mine(x['.name']) && index(names(x.iface), s['.name']) >= 0));
 	if (hung)
 		e.stations = hung;
 	return e;
