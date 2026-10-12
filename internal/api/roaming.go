@@ -485,6 +485,11 @@ func (s *Server) roaming(w http.ResponseWriter, r *http.Request, c call) error {
 	if err != nil {
 		return err
 	}
+	// A band switch the client gave up is nothing: a client that looked
+	// at the other radio of the AP it is on, and stayed where it was. Not
+	// counted and not listed: there may be many, and they would crowd the
+	// roams that went badly out of their list.
+	roams = slices.DeleteFunc(roams, func(m roam) bool { return m.BandSwitch && m.State == "left" })
 	kinds := map[string]*roamKindsView{}
 	times := map[string][]int{}
 	var all []int

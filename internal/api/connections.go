@@ -378,6 +378,10 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 	}
 	roamed := map[int64]roam{}
 	for _, m := range roams {
+		// A band switch the client gave up is nothing (0136).
+		if m.BandSwitch && m.State == "left" {
+			continue
+		}
 		roamed[m.ID] = m
 	}
 	for _, cn := range list {

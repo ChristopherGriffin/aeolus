@@ -101,7 +101,7 @@ func TestRoaming(t *testing.T) {
 	// A client that says nothing of roaming, as many a phone: it joins
 	// North, and a minute later South, as if for the first time, by WPA3's
 	// exchange. It was on North moments before: a roam, and a hard one.
-	hard, band, late, sitter, guest, failer, prober := client(10), client(11), client(12), client(13), client(14), client(15), client(16)
+	hard, band, late, sitter, guest, failer, prober, looker := client(10), client(11), client(12), client(13), client(14), client(15), client(16), client(17)
 	attempt(northToken, hard, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 150})
 	attempt(southToken, hard, "phy0-ap0", "5g", 640*time.Second, "online", "dns", "", map[string]any{"alg": "sae", "on_ms": 160})
 	// One that goes from North's 5 GHz radio to its other, so.
@@ -136,6 +136,10 @@ func TestRoaming(t *testing.T) {
 	// nothing refused: given up, and no failure.
 	attempt(northToken, prober, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
 	attempt(southToken, prober, "phy0-ap0", "5g", 655*time.Second, "failed", "assoc", "it was never let on", map[string]any{"alg": "open"})
+	// One on North's 5 GHz radio that authenticates at its other and goes
+	// no further: a band switch given up, which is nothing, and nowhere.
+	attempt(northToken, looker, "phy0-ap0", "5g", 700*time.Second, "online", "dns", "", map[string]any{"alg": "open", "on_ms": 30})
+	attempt(northToken, looker, "phy1-ap0", "2g", 645*time.Second, "failed", "assoc", "it was never let on", map[string]any{"alg": "open"})
 	// North's own scan radio, testing: no client's roaming.
 	attempt(southToken, scan, "phy0-ap0", "5g", 60*time.Second, "connected", "key", "", map[string]any{"re": true, "alg": "ft", "on_ms": 15})
 	// How it came costs no record. What this manager cannot take of it is
