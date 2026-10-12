@@ -30,8 +30,10 @@
 //	aeolus-steer [-c <UCI directory>] [-o <results file>] [-n] [-m <MAC>] [-d]
 //
 // -c and -o are for trying it out beside the one procd runs; -n has it say
-// what it would ask, and ask nothing; -m has it see one client and no
-// other; -d has it write what it sees at each look beside its results.
+// what it would ask of clients, and ask nothing of them (hostapd is still
+// told to wait for no listener, which is what keeps this one out of its
+// way); -m has it see one client and no other; -d has it write what it
+// sees at each look beside its results.
 
 'use strict';
 
@@ -239,11 +241,13 @@ function on_notify(ifname, msg) {
 function listen(ifname) {
 	let s = bus.subscriber((msg) => on_notify(ifname, msg), () => {
 		// hostapd took the network away, as when the Wi-Fi is started
-		// again: it is listened to again at the next look at the networks.
+		// again: the networks are looked at again at the next look, and it
+		// is listened to once hostapd has it back.
 		if (subs[ifname]) {
 			push(dead, subs[ifname]);
 			delete subs[ifname];
 		}
+		moved = true;
 	});
 	if (!s)
 		return;
