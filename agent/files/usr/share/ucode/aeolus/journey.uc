@@ -294,8 +294,9 @@ function log_event(line) {
 	let c = match(rest, /^([A-Z][A-Z0-9-]+) ([0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2})( .*)?$/);
 	if (!c)
 		return null;
+	// Said only of a client hostapd held as let on (held): see on_log.
 	if (c[1] == 'AP-STA-DISCONNECTED')
-		return { bss: bss, mac: c[2], stage: 'end', what: 'disconnected', ok: null, end: true };
+		return { bss: bss, mac: c[2], stage: 'end', what: 'disconnected', ok: null, end: true, held: true };
 	let k = EVENT[c[1]];
 	if (!k)
 		return null;
@@ -452,6 +453,24 @@ function begins(e) {
 	return !e.end && !e.aside && (e.stage == 'auth' || e.stage == 'assoc' || e.starts === true);
 }
 
+// again says whether what hostapd said of a client that is being followed
+// is its coming anew, which ends the attempt it is followed in and begins
+// another (0136). An attempt is watched for a while after the client is let
+// on, and for a moment after it left; a client back within that, as one
+// that left without a word and returned, or was put off and came straight
+// back, was written into the attempt before, and its coming back was lost.
+// So: a line that begins an attempt, of a client whose attempt has ended;
+// or, of one that was let on, its authentication or its association, which
+// a client that is on does not do again unless it comes again. What hostapd
+// says beside those is of the attempt it is in.
+function again(a, e) {
+	if (!begins(e))
+		return false;
+	if (a.ended != null)
+		return true;
+	return a.on != null && (e.stage == 'auth' || (e.stage == 'assoc' && e.ok === true));
+}
+
 // begin starts the record of an attempt: who, on which network, and when,
 // at by the AP's steady clock in seconds and wall by the calendar's in ms.
 function begin(who, at, wall) {
@@ -459,7 +478,7 @@ function begin(who, at, wall) {
 		bss: who.bss, mac: who.mac, network: who.network ?? '', ssid: who.ssid ?? '', band: who.band ?? '',
 		started: at, wall: wall, last: at, events: [], more: 0,
 		done: {}, failed: null, on: null, ended: null, left: null, online: null,
-		sent: {}, sae: null, how: {}, own: false, settled: false, held: null, assoc: null, silent: false,
+		sent: {}, sae: null, how: {}, own: false, held: null, assoc: null, silent: false,
 		address: null, host: null, router: null, signal: null, probes: null,
 		dhcp: { asked: 0, first: null, offer: false, ack: false, nak: false },
 		arp: { asked: null, at: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
@@ -499,6 +518,16 @@ function reached(a, at) {
 
 // on_log takes what hostapd said of the client into its attempt.
 function on_log(a, e, at) {
+	// hostapd says a client is disconnected only of one it held as let on.
+	// Said in an attempt that is not yet let on, and in which nothing has
+	// gone wrong, it is of the client's stay before, which hostapd lets go
+	// of as the client comes again: not the end of this attempt, whose keys
+	// are still to come. In one that has failed it is the end, whatever it
+	// is of.
+	if (e.end && e.held && a.on == null && !a.failed) {
+		step(a, at, 'assoc', 'the AP let go of what it held of the client from before', null);
+		return;
+	}
 	if (e.end) {
 		step(a, at, 'end', e.what, null);
 		a.ended = at;
@@ -526,49 +555,41 @@ function on_log(a, e, at) {
 	// with a key from before, and how often the AP asked the client it
 	// remembered to prove itself. An authentication is a new try: what
 	// was known of the one before, as that it was a fast transition, is
-	// not said of this one. Let on, how it came is settled once it
-	// authenticates or associates again while it is still watched: it came
-	// as it did, and what it does then is in its steps. What hostapd says
-	// of its coming just after it is let on, as that it asked as one
-	// already on the network, is still of how it came.
-	if (a.on != null && !e.aside && (e.stage == 'auth' || (e.stage == 'assoc' && e.ok === true)))
-		a.settled = true;
-	let came = a.settled;
-	if (!came) {
-		if (e.stage == 'auth' && e.alg && e.alg != a.how.alg) {
-			// WPA3's exchange, done, and then open authentication: what
-			// a client does that the AP told to come back in a second,
-			// as it does one it still holds as on, while it asks for
-			// proof. The client came by WPA3's exchange, and the key it
-			// then offers is the one that exchange just made, no key
-			// from before.
-			if (a.how.alg == 'sae' && a.sae == 'confirm' && a.done.auth && e.alg == 'open')
-				a.own = true;
-			else {
-				// How often the AP asked for proof is of the attempt,
-				// whichever try it was in.
-				a.how = a.how.saq ? { alg: e.alg, saq: a.how.saq } : { alg: e.alg };
-				a.own = false;
-			}
-		} else if (e.alg && !(a.own && e.alg == 'open'))
-			a.how.alg = e.alg;
-		if (e.re)
-			a.how.re = true;
-	}
+	// not said of this one. What hostapd says of its coming just after it
+	// is let on, as that it asked as one already on the network, is still
+	// of how it came; an authentication or an association after that is
+	// its coming again, and another attempt (again).
+	if (e.stage == 'auth' && e.alg && e.alg != a.how.alg) {
+		// WPA3's exchange, done, and then open authentication: what
+		// a client does that the AP told to come back in a second,
+		// as it does one it still holds as on, while it asks for
+		// proof. The client came by WPA3's exchange, and the key it
+		// then offers is the one that exchange just made, no key
+		// from before.
+		if (a.how.alg == 'sae' && a.sae == 'confirm' && a.done.auth && e.alg == 'open')
+			a.own = true;
+		else {
+			// How often the AP asked for proof is of the attempt,
+			// whichever try it was in.
+			a.how = a.how.saq ? { alg: e.alg, saq: a.how.saq } : { alg: e.alg };
+			a.own = false;
+		}
+	} else if (e.alg && !(a.own && e.alg == 'open'))
+		a.how.alg = e.alg;
+	if (e.re)
+		a.how.re = true;
 	// Of a key made from a sign-in elsewhere hostapd says that, and then
 	// that the key was found, as of one of its own: said once.
-	if (!came && e.pmk == 'pmksa' && a.how.pmk == 'okc')
+	if (e.pmk == 'pmksa' && a.how.pmk == 'okc')
 		return;
 	// The key its own exchange just made is no key from its last time
 	// here.
 	if (a.own && e.pmk == 'pmksa')
 		what = 'the key its WPA3 exchange just made is taken: no exchange again';
-	if (!came) {
-		if (e.pmk && !(a.own && e.pmk == 'pmksa'))
-			a.how.pmk = e.pmk;
-		if (e.saq)
-			a.how.saq = min(64, max(a.how.saq ?? 0, e.saq));
-	}
+	if (e.pmk && !(a.own && e.pmk == 'pmksa'))
+		a.how.pmk = e.pmk;
+	if (e.saq)
+		a.how.saq = min(64, max(a.how.saq ?? 0, e.saq));
 	// Whether anything is said after its association but what is said
 	// beside it: see record.
 	if (!e.aside)
@@ -850,4 +871,4 @@ function log_time(line, at, wall_at) {
 	return [at + off / 1000.0, wall_at + off];
 }
 
-export { STAGES, WATCH, assemble, capture, log_event, log_time, frame, begins, begin, on_log, on_frame, due, silent, record };
+export { STAGES, WATCH, assemble, capture, log_event, log_time, frame, begins, again, begin, on_log, on_frame, due, silent, record };

@@ -749,22 +749,101 @@ said(a, 33301.040, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 said(a, 33301.300, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
 show('a fast transition given up for open authentication, after the AP asked for proof', a, 33332);
 
+// A client that comes again while its last coming is still followed
+// (0136). follow takes a line as the daemon does: one that is the client
+// coming anew ends the attempt it would have gone to, whose record is made
+// as it stands, and begins another.
+let follow = (name, at, pri, rest) => {
+	let e = journey.log_event(`<${pri}>Oct 11 12:43:13 hostapd: phy0-ap0: ${rest}`);
+	if (!e)
+		return;
+	if (journey.again(a, e)) {
+		show(name, a, at);
+		a = journey.begin(who, at, 1791716500000 + int((at - 33500) * 1000));
+	}
+	journey.on_log(a, e, at);
+};
+
 // Let on by a fast transition, and WPA3's exchange again ten seconds
-// later, while it is still watched: how it came is as it came, and the time
-// it took is kept; what it did then is in its steps.
+// later, while it is still watched: two comings, and two records. The
+// first is as it was, a fast transition in 16 ms; what hostapd said of it
+// just after it was let on, that it asked as one already on the network,
+// is still of it.
 a = journey.begin(who, 33500, 1791716500000);
-said(a, 33500.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, FT)`);
-said(a, 33500.016, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
-said(a, 33500.017, 29, `AP-STA-CONNECTED ${STA} auth_alg=ft`);
-said(a, 33500.017, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
-said(a, 33510.000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))`);
-said(a, 33510.040, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
-said(a, 33510.060, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
-said(a, 33510.061, 31, `STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`);
-said(a, 33510.080, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
-said(a, 33510.080, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+follow('', 33500.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, FT)`);
+follow('', 33500.016, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+follow('', 33500.017, 29, `AP-STA-CONNECTED ${STA} auth_alg=ft`);
+follow('', 33500.017, 31, `STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`);
 printf('silent, once let on: %J\n', journey.silent(a));
-show('let on by a fast transition, and authenticated again while watched', a, 33541);
+follow('let on by a fast transition', 33510.000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))`);
+follow('', 33510.040, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
+follow('', 33510.060, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+follow('', 33510.061, 31, `STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`);
+follow('', 33510.080, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+follow('', 33510.080, 29, `EAPOL-4WAY-HS-COMPLETED ${STA}`);
+show("and its coming again ten seconds on, by WPA3's exchange", a, 33541);
+
+// A client let on that left without a word and is back four seconds
+// later, by open authentication, at an AP that still held it: hostapd lets
+// go of the stay before as it associates, and says the client is
+// disconnected in the middle of its coming. That is no end of this
+// attempt: its keys follow, and it is let on.
+a = journey.begin(who, 33600, 1791716600000);
+follow('', 33600.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+follow('', 33600.010, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+follow('', 33600.150, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+follow('', 33600.150, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
+follow('a client let on', 33604.000, 31, `STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, OPEN_SYSTEM)`);
+follow('', 33604.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+follow('', 33604.012, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+follow('', 33604.012, 29, `AP-STA-DISCONNECTED ${STA}`);
+follow('', 33604.160, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+follow('', 33604.160, 29, `AP-STA-CONNECTED ${STA} auth_alg=open`);
+show('and back four seconds later, at an AP that still held it', a, 33635);
+
+// One that was put off and comes straight back: what hostapd says of its
+// going and of its coming is in one batch, taken before the attempt that
+// ended is closed. Its coming is another attempt.
+a = journey.begin(who, 33700, 1791716700000);
+follow('', 33700.000, 30, `STA ${STA} IEEE 802.11: authenticated`);
+follow('', 33700.010, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+follow('', 33700.150, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+follow('', 33710.000, 29, `AP-STA-DISCONNECTED ${STA}`);
+follow('', 33710.000, 30, `STA ${STA} IEEE 802.11: disassociated`);
+follow('a client that was put off', 33710.400, 30, `STA ${STA} IEEE 802.11: authenticated`);
+follow('', 33710.410, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+follow('', 33710.560, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+show('and its coming straight back', a, 33741);
+
+// What does not begin another: what hostapd says beside an attempt, the
+// keys of a client long on made again, and an authentication again by a
+// client that is not yet let on, which is a try of the same attempt.
+a = journey.begin(who, 33800, 1791716800000);
+journey.on_log(a, journey.log_event(`hostapd: phy0-ap0: STA ${STA} IEEE 802.11: authenticated`), 33800);
+for (let line in [
+	`STA ${STA} IEEE 802.11: authenticated`,
+	`STA ${STA} IEEE 802.11: associated (aid 1)`,
+])
+	printf('not yet let on, %s: another attempt %J\n', replace(line, `STA ${STA} `, ''), journey.again(a, journey.log_event('hostapd: phy0-ap0: ' + line)));
+journey.on_log(a, journey.log_event(`hostapd: phy0-ap0: STA ${STA} IEEE 802.11: associated (aid 1)`), 33800.01);
+journey.on_log(a, journey.log_event(`hostapd: phy0-ap0: STA ${STA} WPA: pairwise key handshake completed (RSN)`), 33800.15);
+for (let line in [
+	`STA ${STA} MLME: MLME-REASSOCIATE.indication(${STA})`,
+	`STA ${STA} IEEE 802.11: association SA Query attempt 1`,
+	`STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`,
+	`AP-STA-CONNECTED ${STA} auth_alg=open`,
+	`STA ${STA} WPA: sending 1/4 msg of 4-Way Handshake`,
+	`STA ${STA} WPA: pairwise key handshake completed (RSN)`,
+	`STA ${STA} WPA: group key handshake completed (RSN)`,
+	`STA ${STA} IEEE 802.1X: authenticated - EAP type: 25 (PEAP)`,
+	`AP-STA-DISCONNECTED ${STA}`,
+	`STA ${STA} IEEE 802.11: authenticated`,
+	`STA ${STA} MLME: MLME-AUTHENTICATE.indication(${STA}, FT)`,
+	`STA ${STA} IEEE 802.11: associated (aid 1)`,
+]) {
+	let e = journey.log_event('<31>Oct 11 12:43:13 hostapd: phy0-ap0: ' + line);
+	printf('let on, %s: another attempt %J\n', replace(line, STA, 'it'), e ? journey.again(a, e) : false);
+}
 
 // When the log took a line in, on the daemon's clocks (logread -t): a line
 // logged 45 ms before the daemon took it up, one 6 ms before, one that

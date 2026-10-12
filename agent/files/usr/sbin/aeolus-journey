@@ -535,6 +535,13 @@ function on_log(msg, at, wall_at) {
 	at = when[0];
 	wall_at = when[1];
 	let key = e.bss + ' ' + e.mac, a = open[key];
+	// A client that comes anew while its last coming is still followed, as
+	// one that left without a word and is back within the watch: that
+	// attempt's record is made as it stands, and this is another (0136).
+	if (a && journey.again(a, e)) {
+		finish(key, at);
+		a = null;
+	}
 	if (!a) {
 		// A client leaving, a line that only explains, or the keys of one
 		// long on made again begins nothing.
