@@ -78,12 +78,29 @@ func TestNetwork(t *testing.T) {
 		return map[string]any{"network": network, "server": "192.0.2.10", "port": 1812, "verdict": verdict, "rtt_ms": rtt, "answered_ago": ago,
 			"requests": 1, "accepts": 1, "rejects": 0, "timeouts": 0, "bad": 0}
 	}
-	// The third's answer is from before the report before: counted then.
+	// Each report here comes an hour after the one before. The third's
+	// answer is from before the report before it: counted then.
+	*f.skew = -time.Hour
 	for _, rs := range [][]any{{radius("sweet", "up", 16.5, 12)}, {radius("sweet", "up", 20.5, 40), radius("guest", "unknown", nil, nil)},
-		{radius("sweet", "up", 20.5, 340)}, {radius("sweet", "silent", nil, 900)}} {
+		{radius("sweet", "up", 20.5, 4000)}, {radius("sweet", "silent", nil, 9000)}} {
 		if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60, "radius": rs}, nil); code != 200 {
 			t.Fatalf("its report: %d %v", code, b)
 		}
+	}
+	*f.skew = 0
+	// Two reports seconds apart say the same answer: it is counted once.
+	secs := func(n int64) *int64 { return &n }
+	rtt := 9.5
+	same := []radiusState{{Network: "sweet", Verdict: "up", RTT: &rtt, AnsweredAgo: secs(20)}}
+	if a, b := radiusSteps(same, 5*time.Minute), radiusSteps(same, 8*time.Second); len(a) != 1 || len(b) != 0 {
+		t.Errorf("an answer 20 s old, the report before 5 min ago and 8 s ago: %v, %v", a, b)
+	}
+	gone := &pathState{Gateway: &pathHop{State: "up", MS: &rtt, Ago: secs(20)}, DNS: []pathName{{Server: "192.0.2.1", State: "silent"}}}
+	if a, b := pathSteps(gone, nil, 5*time.Minute), pathSteps(gone, nil, 8*time.Second); len(a) != 2 || len(b) != 1 || b[0].Step != "dns" || b[0].MS != nil {
+		t.Errorf("a way out answered 20 s ago, the report before 5 min ago and 8 s ago: %v, %v", a, b)
+	}
+	if d := sinceBefore(nil, time.Now()); d != stateEvery {
+		t.Errorf("with no report before: %v", d)
 	}
 
 	get := func(as, query string) map[string]any {
@@ -165,8 +182,19 @@ func TestNetwork(t *testing.T) {
 	if _, err := f.conds.TrimTrends(-time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(get("griff", "")["segments"].([]any)); n != 0 {
-		t.Fatalf("after all was let go: %d segments", n)
+	// What is timed is gone; the AP's networks are listed still, with
+	// nothing beside them, as one just made is.
+	gone2 := get("griff", "")
+	if len(gone2["all"].(map[string]any)) != 0 {
+		t.Fatalf("after all was let go: %v", gone2["all"])
+	}
+	for _, sg := range gone2["segments"].([]any) {
+		if sg := sg.(map[string]any); len(sg["steps"].(map[string]any)) != 0 || len(sg["networks"].([]any)) == 0 {
+			t.Errorf("a segment with nothing timed: %v", sg)
+		}
+	}
+	if len(gone2["segments"].([]any)) == 0 {
+		t.Error("the AP's own networks are not listed where nothing was timed")
 	}
 	finished := func(network string) {
 		t.Helper()
@@ -211,7 +239,7 @@ func TestNetwork(t *testing.T) {
 		"gateway": map[string]any{"address": "192.168.30.1", "state": "up", "ms": 2.0, "ago": 10},
 		"dns": []any{map[string]any{"server": "192.168.30.254", "state": "up", "ms": 6.0, "ago": 10, "rcode": 0},
 			map[string]any{"server": "192.168.30.253", "state": "silent", "ms": nil, "ago": nil, "rcode": nil},
-			map[string]any{"server": "192.168.30.252", "state": "up", "ms": 9.0, "ago": 400, "rcode": 0}},
+			map[string]any{"server": "192.168.30.252", "state": "up", "ms": 9.0, "ago": 4000, "rcode": 0}},
 		"internet": map[string]any{"target": "one.one.one.one", "state": "unresolved"}}
 	others := []any{
 		map[string]any{"section": "iot2", "radio": "radio1", "band": "2g", "ssid": "House IoT", "security": "psk2", "vlan": 10, "clients": 3},
@@ -219,9 +247,13 @@ func TestNetwork(t *testing.T) {
 		map[string]any{"section": "house", "radio": "radio0", "band": "5g", "ssid": "House", "security": "psk2", "vlan": 20, "clients": 1},
 		map[string]any{"section": "plain", "radio": "radio0", "band": "5g", "ssid": "No VLAN", "security": "psk2", "clients": 0},
 	}
+	// This report, too, an hour after the one before, and an hour before
+	// the next.
+	*f.skew = -time.Hour
 	if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60, "uplink_port": port, "path": way, "others": others}, nil); code != 200 {
 		t.Fatalf("its report: %d %v", code, b)
 	}
+	*f.skew = 0
 	last30 := get("griff", "")
 	var said30 []string
 	for _, sg := range last30["segments"].([]any) {

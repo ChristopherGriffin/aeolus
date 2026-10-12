@@ -79,16 +79,28 @@ func (s *Server) keepTestSteps(a conditions.Action) {
 	}
 }
 
+// sinceBefore is how long before now an AP's report before this one came:
+// what this one says was answered within that is new, and anything older
+// was counted then. An AP reports when it has news as well as in its turn,
+// so two reports may be seconds apart, with the same answers in both. With
+// no report before, or one not before now, it is an AP's usual turn.
+func sinceBefore(prev *conditions.State, now time.Time) time.Duration {
+	if prev == nil || !prev.At.Before(now) {
+		return stateEvery
+	}
+	return now.Sub(prev.At)
+}
+
 // radiusSteps is how long each network's RADIUS server took to answer an
 // AP, as a state report says it (0114): its last round trip where it
 // answers, and no time where it has gone silent. One not yet asked, or not
-// known to be asked, says nothing; nor does an answer from before the
-// report before, which that report counted.
-func radiusSteps(rs []radiusState) []conditions.StepTime {
+// known to be asked, says nothing; nor does an answer that is not newer
+// than the report before, fresh ago, which that report counted.
+func radiusSteps(rs []radiusState, fresh time.Duration) []conditions.StepTime {
 	var out []conditions.StepTime
 	for _, r := range rs {
 		switch {
-		case r.Verdict == "up" && r.RTT != nil && r.AnsweredAgo != nil && time.Duration(*r.AnsweredAgo)*time.Second <= stateEvery:
+		case r.Verdict == "up" && r.RTT != nil && r.AnsweredAgo != nil && time.Duration(*r.AnsweredAgo)*time.Second < fresh:
 			ms := *r.RTT
 			out = append(out, conditions.StepTime{Network: r.Network, Step: "aaa", MS: &ms})
 		case r.Verdict == "silent":
@@ -106,9 +118,9 @@ const testsCounted = "client-tests-counted"
 // says it: its gateway, each of its name servers, and the internet where
 // it has a target, counted under its management VLAN, so that the VLAN the
 // APs themselves live on is said beside the VLANs their clients do. An
-// answer counts where it came since the report before; silence counts as
-// no answer; what is not yet known says nothing.
-func pathSteps(p *pathState, port *uplinkPort) []conditions.StepTime {
+// answer counts where it is newer than the report before, fresh ago;
+// silence counts as no answer; what is not yet known says nothing.
+func pathSteps(p *pathState, port *uplinkPort, fresh time.Duration) []conditions.StepTime {
 	if p == nil {
 		return nil
 	}
@@ -119,7 +131,7 @@ func pathSteps(p *pathState, port *uplinkPort) []conditions.StepTime {
 	var out []conditions.StepTime
 	add := func(step, state string, ms *float64, ago *int64) {
 		switch {
-		case state == "up" && ms != nil && ago != nil && time.Duration(*ago)*time.Second <= stateEvery:
+		case state == "up" && ms != nil && ago != nil && time.Duration(*ago)*time.Second < fresh:
 			v := *ms
 			out = append(out, conditions.StepTime{Network: network, Step: step, MS: &v})
 		case state == "silent":
@@ -381,11 +393,21 @@ func (s *Server) network(w http.ResponseWriter, r *http.Request, c call) error {
 		return err
 	}
 
-	// The networks the APs have of their own, not Aeolus's (0137), by the
-	// VLAN each is on: said with the segment, so that every VLAN that
-	// carries Wi-Fi here is listed, timed or not. Nothing times them.
+	// Every VLAN that carries Wi-Fi here is listed, timed or not: Aeolus's
+	// networks as each AP in view is given them, one just made or not on
+	// any schedule of tests too; and the networks the APs have of their own
+	// (0137), by the VLAN each is on, which nothing times.
 	own := map[string][]string{}
 	for ap := range mine {
+		if cfg, err := c.state.Org.ResolveAP(ap); err == nil && !cfg.Unassigned {
+			for network := range cfg.Networks {
+				id := segment(network)
+				if bySeg[id] == nil {
+					bySeg[id], nets[id] = map[string]*stepSum{}, map[string]bool{}
+				}
+				nets[id][network] = true
+			}
+		}
 		st, err := s.conds.LatestState(ap)
 		if err != nil {
 			return err

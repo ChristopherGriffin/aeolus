@@ -1566,12 +1566,14 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request, c apCall) error {
 	if err := s.conds.SeeClients(c.ap, seen); err != nil {
 		return err
 	}
-	// How long each network's RADIUS server took to answer it (0141).
-	if err := s.conds.AddSteps(c.ap, time.Now(), radiusSteps(req.Radius)); err != nil {
+	// How long each network's RADIUS server took to answer it (0141), and
+	// what its own way out timed, under its management VLAN (0142): what
+	// was answered since its report before.
+	fresh := sinceBefore(prev, time.Now())
+	if err := s.conds.AddSteps(c.ap, time.Now(), radiusSteps(req.Radius, fresh)); err != nil {
 		return err
 	}
-	// What its own way out timed, under its management VLAN (0142).
-	if err := s.conds.AddSteps(c.ap, time.Now(), pathSteps(req.Path, req.UplinkPort)); err != nil {
+	if err := s.conds.AddSteps(c.ap, time.Now(), pathSteps(req.Path, req.UplinkPort, fresh)); err != nil {
 		return err
 	}
 	// What its steering asked of clients, each asking kept once (0139).
