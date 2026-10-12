@@ -489,20 +489,29 @@ and asked to associate again five seconds later: connected, stage key, 30190 ms,
   { "t": 34, "stage": "key", "what": "key handshake completed", "ok": true }
   { "t": 34, "stage": "key", "what": "let on to the network", "ok": true }
   how it came: { "alg": "open", "re": true, "on_ms": 34 }
-a client let on, with 802.11w: left, stage key, 10000 ms, reason "it came again", address null, host null
+a client let on, with 802.11w: left, stage key, 11050 ms, reason "it came again", address null, host null
   { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
   { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
   { "t": 60, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 200, "stage": "key", "what": "key handshake completed", "ok": true }
-  { "t": 10000, "stage": "end", "what": "it came again" }
+  { "t": 10000, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  { "t": 11020, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
+  { "t": 11030, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
+  { "t": 11050, "stage": "end", "what": "it came again" }
   how it came: { "alg": "sae", "on_ms": 200 }
 and asking to associate again, the AP asking for proof first: connected, stage key, 32000 ms, reason "", address null, host null
   { "t": 0, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
-  { "t": 1020, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
   { "t": 1030, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
   { "t": 1050, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 1080, "stage": "key", "what": "key handshake completed", "ok": true }
   how it came: { "saq": 1, "pmk": "pmksa", "on_ms": 1080, "began": "assoc" }
+asked for proof while it is on, and nothing follows: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 60, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 200, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 10000, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  how it came: { "alg": "sae", "on_ms": 200 }
 let go of, and its coming goes on: over yet false
 disconnected said in the middle of a coming that goes on: connected, stage key, 32000 ms, reason "", address null, host null
   { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
@@ -519,6 +528,13 @@ disconnected said in a coming that does not go on: left, stage auth, 50 ms, reas
   { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
   { "t": 50, "stage": "assoc", "what": "the AP let go of what it held of the client from before" }
   how it came: { "alg": "sae" }
+let go of, and only a line beside it after: over after 3 s true
+disconnected, and then only what is said beside a coming: left, stage auth, 50 ms, reason "before it was let on: disconnected", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 50, "stage": "assoc", "what": "the AP let go of what it held of the client from before" }
+  { "t": 250, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  how it came: { "alg": "sae", "saq": 2 }
 a client that was put off: left, stage key, 10000 ms, reason "disassociated", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
   { "t": 10, "stage": "assoc", "what": "associated", "ok": true }
@@ -544,8 +560,8 @@ let on, STA it IEEE 802.1X: authenticated - EAP type: 25 (PEAP): another attempt
 let on, AP-STA-DISCONNECTED it: another attempt false
 let on, STA it IEEE 802.11: did not acknowledge authentication response: another attempt false
 let on, STA it IEEE 802.11: did not acknowledge association response: another attempt false
-let on, STA it IEEE 802.11: association SA Query attempt 1: another attempt true
-let on, STA it WPA: PMKID found from PMKSA cache eap_type=0 vlan=0: another attempt true
+let on, STA it IEEE 802.11: association SA Query attempt 1: another attempt false
+let on, STA it WPA: PMKID found from PMKSA cache eap_type=0 vlan=0: another attempt false
 let on, STA it IEEE 802.11: authenticated: another attempt true
 let on, STA it MLME: MLME-AUTHENTICATE.indication(it, FT): another attempt true
 let on, STA it IEEE 802.11: associated (aid 1): another attempt true

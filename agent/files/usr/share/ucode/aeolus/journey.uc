@@ -30,6 +30,7 @@ const GAVE_UP_DHCP = 8;  // seconds without an answer to DHCP before a client's 
 const GAVE_UP_GATEWAY = 4;   // and without one from its gateway
 const SAME = 1;          // seconds after a client is let on in which "associated" again is the same association, said twice
 const DROPPED = 2;       // seconds after hostapd let go of a client not yet let on in which its coming must go on
+const CARRIED = 3;       // seconds before a coming in which what hostapd said of its asking is of it
 
 function get16(s, at) {
 	return ord(s, at) << 8 | ord(s, at + 1);
@@ -466,24 +467,31 @@ function begins(e) {
 // A coming is an authentication, an association that was taken, or
 // hostapd's word that a client is connected: not a line that says
 // something failed, which after an attempt that ended is the last of that
-// one. Of a client that was let on, it is also what hostapd says only of a
-// new asking by one it holds as on: that it asks the one it remembers for
-// proof, or takes a key from before. But "associated" again within a
-// second of its being let on is the same association, whose answer the
-// client asked for twice.
+// one; and not what hostapd says beside an attempt. "associated" again
+// within a second of the client's being let on is the same association,
+// whose answer the client asked for twice.
 function again(a, e, at) {
-	if (e.end)
+	if (e.end || e.aside)
 		return false;
-	let comes = !e.aside && ((e.stage == 'auth' && e.ok !== false) || (e.stage == 'assoc' && e.ok === true) || e.starts === true);
 	if (a.ended != null)
-		return comes;
+		return (e.stage == 'auth' && e.ok !== false) || (e.stage == 'assoc' && e.ok === true) || e.starts === true;
 	if (a.on == null)
 		return false;
-	if (e.aside)
-		return e.saq != null || e.pmk != null;
 	if (e.stage == 'assoc')
 		return e.ok === true && at - a.on >= SAME;
 	return e.stage == 'auth' && e.ok !== false;
+}
+
+// carried is what hostapd said, in the seconds before a client that was
+// let on came again, that is of that coming and not of the stay it was
+// held in: that it asks the one it remembers for proof, or takes a key
+// from before, which it says only of a new asking by a client it holds as
+// on, and before it says the association. Each with when it was said. The
+// new attempt begins with them. Where no coming follows, as when the
+// asking was not the client's own, they are steps of the attempt the
+// client is in, and nothing more.
+function carried(a, at) {
+	return filter(a.late ?? [], l => at - l.at <= CARRIED);
 }
 
 // begin starts the record of an attempt: who, on which network, and when,
@@ -493,7 +501,7 @@ function begin(who, at, wall) {
 		bss: who.bss, mac: who.mac, network: who.network ?? '', ssid: who.ssid ?? '', band: who.band ?? '',
 		started: at, wall: wall, last: at, events: [], more: 0,
 		done: {}, failed: null, on: null, ended: null, left: null, online: null,
-		sent: {}, sae: null, how: {}, own: false, held: null, assoc: null, silent: false, dropped: null,
+		sent: {}, sae: null, how: {}, own: false, held: null, assoc: null, silent: false, dropped: null, late: [],
 		address: null, host: null, router: null, signal: null, probes: null,
 		dhcp: { asked: 0, first: null, offer: false, ack: false, nak: false },
 		arp: { asked: null, at: null, answered: false }, lookups: {}, dns: { asked: 0, answered: 0, kept: 0 },
@@ -556,8 +564,8 @@ function on_log(a, e, at) {
 		a.dropped = at;
 		return;
 	}
-	// Its coming goes on.
-	if (!e.end)
+	// Its coming goes on: by a line of its own, not one said beside it.
+	if (!e.end && !e.aside)
 		a.dropped = null;
 	if (e.end) {
 		step(a, at, 'end', e.what, null);
@@ -582,6 +590,12 @@ function on_log(a, e, at) {
 	}
 	if (e.sae)
 		a.sae = e.sae;
+	// Said after the client was let on, of a new asking: a step here, no
+	// part of how this coming came, and kept for the coming that may
+	// follow (carried).
+	let late = a.on != null && e.aside && (e.saq != null || e.pmk != null);
+	if (late && length(a.late) < 8)
+		push(a.late, { e: e, at: at });
 	// How it came (0136): by which authentication, by a reassociation,
 	// with a key from before, and how often the AP asked the client it
 	// remembered to prove itself. An authentication is a new try: what
@@ -590,6 +604,10 @@ function on_log(a, e, at) {
 	// is let on, as that it asked as one already on the network, is still
 	// of how it came; an authentication or an association after that is
 	// its coming again, and another attempt (again).
+	if (late) {
+		step(a, at, e.stage ?? 'note', what, e.ok);
+		return;
+	}
 	if (e.stage == 'auth' && e.alg && e.alg != a.how.alg) {
 		// WPA3's exchange, done, and then open authentication: what
 		// a client does that the AP told to come back in a second,
@@ -913,4 +931,4 @@ function log_time(line, at, wall_at) {
 	return [at + off / 1000.0, wall_at + off];
 }
 
-export { STAGES, WATCH, assemble, capture, log_event, log_time, frame, begins, again, cut, begin, on_log, on_frame, due, silent, record };
+export { STAGES, WATCH, assemble, capture, log_event, log_time, frame, begins, again, carried, cut, begin, on_log, on_frame, due, silent, record };

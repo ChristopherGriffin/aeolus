@@ -538,8 +538,10 @@ function on_log(msg, at, wall_at) {
 	// A client that comes anew while its last coming is still followed, as
 	// one that left without a word and is back within the watch: that
 	// attempt's record is made as it stands, and this is another (0136).
-	let anew = a != null && journey.again(a, e, at);
+	let anew = a != null && journey.again(a, e, at), carry = [];
 	if (anew) {
+		// What hostapd said of its asking, just before, is of this coming.
+		carry = journey.carried(a, at);
 		journey.cut(a, at);
 		finish(key, at);
 		a = null;
@@ -549,9 +551,12 @@ function on_log(msg, at, wall_at) {
 		// long on made again begins nothing.
 		if (!anew && !journey.begins(e))
 			return;
-		a = start(e.bss, e.mac, at, wall_at);
+		let from = length(carry) ? carry[0].at : at;
+		a = start(e.bss, e.mac, from, wall_at - int((at - from) * 1000));
 		if (!a)
 			return;
+		for (let l in carry)
+			journey.on_log(a, l.e, l.at);
 	}
 	journey.on_log(a, e, at);
 	// How strongly the AP hears it, once it is let on.

@@ -758,9 +758,12 @@ let follow = (name, at, pri, rest) => {
 	if (!e)
 		return;
 	if (journey.again(a, e, at)) {
+		let carry = journey.carried(a, at), from = length(carry) ? carry[0].at : at;
 		journey.cut(a, at);
 		show(name, a, at);
-		a = journey.begin(who, at, 1791716500000 + int((at - 33500) * 1000));
+		a = journey.begin(who, from, 1791716500000 + int((from - 33500) * 1000));
+		for (let l in carry)
+			journey.on_log(a, l.e, l.at);
 	}
 	journey.on_log(a, e, at);
 };
@@ -833,12 +836,23 @@ follow('', 33650.000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX 
 follow('', 33650.040, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
 follow('', 33650.060, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 follow('', 33650.200, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
-follow('a client let on, with 802.11w', 33660.000, 31, `STA ${STA} IEEE 802.11: association SA Query attempt 1`);
+follow('NOT TO BE SEEN: an asking for proof that begins an attempt', 33660.000, 31, `STA ${STA} IEEE 802.11: association SA Query attempt 1`);
 follow('', 33661.020, 31, `STA ${STA} IEEE 802.11: association SA Query timed out`);
 follow('', 33661.030, 31, `STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`);
-follow('', 33661.050, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+follow('a client let on, with 802.11w', 33661.050, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
 follow('', 33661.080, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
 show('and asking to associate again, the AP asking for proof first', a, 33692);
+
+// An asking for proof that no coming follows, as where the asking was not
+// the client's own and the client, which is on, proved itself: a step of
+// the attempt it is in, and no other attempt.
+a = journey.begin(who, 33670, 1791716670000);
+follow('', 33670.000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))`);
+follow('', 33670.040, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
+follow('', 33670.060, 30, `STA ${STA} IEEE 802.11: associated (aid 1)`);
+follow('', 33670.200, 30, `STA ${STA} WPA: pairwise key handshake completed (RSN)`);
+follow('NOT TO BE SEEN: an asking for proof that begins an attempt', 33680.000, 31, `STA ${STA} IEEE 802.11: association SA Query attempt 1`);
+show('asked for proof while it is on, and nothing follows', a, 33701);
 
 // hostapd lets go of the stay before in the middle of a coming, and says
 // the client is disconnected there, where it holds a Wi-Fi 7 client as on
@@ -861,6 +875,14 @@ follow('', 33750.040, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confir
 follow('', 33750.050, 29, `AP-STA-DISCONNECTED ${STA}`);
 printf('let go of, and nothing after: over after 1 s %J, after 3 s %J\n', journey.due(a, 33751.050), journey.due(a, 33753.060));
 show('disconnected said in a coming that does not go on', a, 33753.060);
+// Nor does what is said beside it show that it goes on.
+a = journey.begin(who, 33760, 1791716760000);
+follow('', 33760.000, 31, `STA ${STA} IEEE 802.11: start SAE authentication (RX commit, status=0 (SUCCESS))`);
+follow('', 33760.040, 31, `STA ${STA} IEEE 802.11: SAE authentication (RX confirm, status=0 (SUCCESS))`);
+follow('', 33760.050, 29, `AP-STA-DISCONNECTED ${STA}`);
+follow('', 33760.250, 31, `STA ${STA} IEEE 802.11: association SA Query attempt 2`);
+printf('let go of, and only a line beside it after: over after 3 s %J\n', journey.due(a, 33763.060));
+show('disconnected, and then only what is said beside a coming', a, 33763.060);
 
 // One that was put off and comes straight back: what hostapd says of its
 // going and of its coming is in one batch, taken before the attempt that
@@ -900,6 +922,7 @@ for (let line in [
 	`AP-STA-DISCONNECTED ${STA}`,
 	`STA ${STA} IEEE 802.11: did not acknowledge authentication response`,
 	`STA ${STA} IEEE 802.11: did not acknowledge association response`,
+	// Kept for a coming that may follow, and by themselves none.
 	`STA ${STA} IEEE 802.11: association SA Query attempt 1`,
 	`STA ${STA} WPA: PMKID found from PMKSA cache eap_type=0 vlan=0`,
 	`STA ${STA} IEEE 802.11: authenticated`,
