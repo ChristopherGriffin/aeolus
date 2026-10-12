@@ -21,7 +21,7 @@ const ActionsHeader = "Aeolus-Actions"
 
 // actionKinds are what a person may ask an AP to do once (0104), and
 // whether each is of a client, by MAC, its target (0107).
-var actionKinds = map[string]bool{"locate": false, "restart-wifi": false, "reboot": false, "disconnect": true, "client-test": false, "remove-network": false}
+var actionKinds = map[string]bool{"locate": false, "restart-wifi": false, "reboot": false, "disconnect": true, "client-test": false, "remove-network": false, "import-network": false}
 
 // removeNetworkAsk is what an AP is asked to take out of its config (0137):
 // one of its own Wi-Fi networks, not Aeolus's, by its SSID and its
@@ -69,8 +69,12 @@ func (s *Server) removeNetworkFor(ap hierarchy.NodeID, ssid string, sections []s
 // band?, remote?}, one of the AP's networks, the AP whose networks to join,
 // a band, and, false, that the speed to the remote server is not measured
 // (0134), as on a link where bytes cost. A remove-network (0137) says which
-// of the AP's own networks to take out: {kind, ssid, sections}. It needs
-// operator on the AP, as changing it does (0030).
+// of the AP's own networks to take out: {kind, ssid, sections}. An
+// import-network (0137) says which of them to make Aeolus's own, and
+// where: {kind, ssid, sections, folder, network, bands?, vlan}, the
+// Services folder it goes in and its ID there. It needs operator on the
+// AP, as changing it does (0030); an import, the leave to change that
+// folder too.
 func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error {
 	id := hierarchy.NodeID(r.PathValue("ap"))
 	t := c.state.Org.Locations
@@ -87,16 +91,20 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		On      string `json:"on"`
 		Band    string `json:"band"`
 		Remote  *bool  `json:"remote"`
-		// Of a remove-network (0137).
+		// Of a remove-network and an import-network (0137).
 		SSID     string   `json:"ssid"`
 		Sections []string `json:"sections"`
+		// Of an import-network: where the network goes, and as what.
+		Folder string   `json:"folder"`
+		Bands  []string `json:"bands"`
+		VLAN   int      `json:"vlan"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		return err
 	}
 	ofClient, ok := actionKinds[body.Kind]
 	if !ok {
-		return badRequest("an action is locate, restart-wifi, reboot, disconnect, client-test or remove-network")
+		return badRequest("an action is locate, restart-wifi, reboot, disconnect, client-test, remove-network or import-network")
 	}
 	body.Target = strings.ToLower(body.Target)
 	if ofClient != macRE.MatchString(body.Target) {
@@ -111,10 +119,14 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		if params, err = json.Marshal(ask); err != nil {
 			return err
 		}
-	} else if body.Network != "" || body.On != "" || body.Band != "" || body.Remote != nil {
+	} else if body.Kind != "import-network" && (body.Network != "" || body.On != "" || body.Band != "" || body.Remote != nil) {
 		return badRequest("network, on, band and remote are a client-test's")
 	}
-	if body.Kind == "remove-network" {
+	// The sections of an AP's own network, by which one asking for it is
+	// told from another (0137).
+	var sections []string
+	switch body.Kind {
+	case "remove-network":
 		ask, err := s.removeNetworkFor(id, body.SSID, body.Sections)
 		if err != nil {
 			return err
@@ -122,20 +134,31 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		if params, err = json.Marshal(ask); err != nil {
 			return err
 		}
-	} else if body.SSID != "" || len(body.Sections) > 0 {
-		return badRequest("ssid and sections are a remove-network's")
+		sections = ask.Sections
+	case "import-network":
+		if body.On != "" || body.Band != "" || body.Remote != nil {
+			return badRequest("on, band and remote are a client-test's")
+		}
+		ask, err := s.importFor(c, id, body.SSID, body.Sections, body.Folder, body.Network, body.Bands, body.VLAN)
+		if err != nil {
+			return err
+		}
+		if params, err = json.Marshal(ask); err != nil {
+			return err
+		}
+		sections = ask.Sections
+	default:
+		if body.SSID != "" || len(body.Sections) > 0 || body.Folder != "" || len(body.Bands) > 0 || body.VLAN != 0 {
+			return badRequest("ssid and sections are a remove-network's or an import-network's; folder, bands and vlan an import-network's")
+		}
 	}
 	// One open action of a kind for a target stands for every asking of
 	// it (0104). The taking out of a network is told from that of another
 	// by its sections: without them, a second network asked of an AP while
 	// the first waited was dropped, and its asker told it was asked.
 	target := body.Target
-	if body.Kind == "remove-network" {
-		var ask removeNetworkAsk
-		if err := json.Unmarshal(params, &ask); err != nil {
-			return err
-		}
-		target = strings.Join(ask.Sections, ",")
+	if sections != nil {
+		target = strings.Join(sections, ",")
 	}
 	a, err := s.conds.AddActionWith(id, body.Kind, target, string(c.actor), params)
 	if err != nil {
@@ -263,11 +286,25 @@ func (s *Server) apActionDone(w http.ResponseWriter, r *http.Request, c apCall) 
 		if err != nil {
 			return err
 		}
-		if open.Kind != "client-test" {
-			return badRequest("detail: only a client-test has any")
+		switch open.Kind {
+		case "client-test":
+			if detail, err = clientTestDetail(body.Detail); err != nil {
+				return err
+			}
+		case "import-network":
+			// What the AP said of its own network (0137): the network is
+			// made of it now, and what came of that is the action's
+			// result. What it said, its key in it, is not kept.
+			if body.OK {
+				body.OK, body.Result = s.importNetwork(c.ap, open, body.Detail)
+			}
+		default:
+			return badRequest("detail: only a client-test or an import-network has any")
 		}
-		if detail, err = clientTestDetail(body.Detail); err != nil {
-			return err
+	} else if body.OK {
+		// An import whose AP said nothing of the network made nothing.
+		if open, err := s.conds.OpenAction(c.ap, id); err == nil && open.Kind == "import-network" {
+			body.OK, body.Result = false, "the AP said nothing of the network: nothing was made"
 		}
 	}
 	a, err := s.conds.FinishActionWith(c.ap, id, body.OK, body.Result, detail)

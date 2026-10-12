@@ -85,6 +85,7 @@ var Coverage = map[string]string{
 	"network.*.isolation":                "",
 	"network.*.max_clients":              "",
 	"network.*.blocked":                  "",
+	"network.*.replace_own":              "what it takes out is the AP's own, of which the check has no say; the agent's render tests have it (0137)",
 	"network.*.dtim":                     "",
 	"network.*.radius.auth_server":       "",
 	"network.*.radius.auth_port":         "",

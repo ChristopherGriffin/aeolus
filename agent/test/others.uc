@@ -75,6 +75,12 @@ print(others.kept(others.find(wireless, 'default_radio0', 'Sweet_Spot_IoT'), '20
 let anon = filter(values(wireless), s => s.ssid == 'Open house')[0];
 print(others.kept(anon, '2026-10-11 19:40:00', 'Taken out'));
 
+// All there is to say of one, where a person asks for it to be made
+// Aeolus's own: every option as it stands, its key among them, and its
+// VLAN. Nothing of uci's own, the names that begin with a dot.
+printf('told: %J\n', others.told(network, others.find(wireless, 'default_radio1', 'Sweet Spot')));
+printf('told, of one on the AP\'s own LAN, with a list: %J\n', others.told(network, others.find(wireless, 'default_radio0', 'Sweet_Spot_IoT')));
+
 // So many are said of an AP, and no more.
 let many = [['wifi-device', 'radio0', { band: '2g' }]];
 for (let i = 0; i < 40; i++)

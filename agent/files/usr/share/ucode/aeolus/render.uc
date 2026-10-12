@@ -16,7 +16,10 @@
 // section it did not create is never otherwise edited, or removed; nor are
 // the key agent's wifi-station sections, which hold per-user keys (0070). A
 // radio another service owns, such as airscan's scan radio, is left alone
-// altogether (0081).
+// altogether (0081). One exception, and only where a network says so
+// (replace_own, 0137): an AP's own Wi-Fi network that is one of Aeolus's
+// over again, same SSID, security and key, is taken out as Aeolus's goes
+// in, on the radios Aeolus's is on.
 
 'use strict';
 
@@ -668,7 +671,42 @@ function switching(cfg, id, net, intent, facts, errors, keep, uplink) {
 	return br;
 }
 
-function networks(cfg, intent, facts, errors, keep) {
+// same_network says a section of the AP's own is a network of Aeolus's over
+// again (0137): an access point's, not Aeolus's, with the network's SSID,
+// its security, and its key where it has one, or, where it signs clients
+// in, its RADIUS server. One of the same name with another key is another
+// network, whose clients Aeolus's would turn away, and is left as it is.
+function same_network(s, net) {
+	if (owned(s['.name']) || (s.mode ?? 'ap') != 'ap' || (s.ssid ?? '') != net.ssid)
+		return false;
+	let enc = split(s.encryption ?? 'none', '+')[0];
+	// On 6 GHz a WPA2/WPA3 network is WPA3 alone (0086).
+	if (enc != ENCRYPTION[net.security] && !(enc == 'sae' && net.security == 'wpa2-wpa3'))
+		return false;
+	if (NEEDS_KEY[net.security])
+		return net.passphrase != null && s.key == net.passphrase;
+	if (ENTERPRISE[net.security])
+		return net.radius?.auth_server != null && (s.auth_server ?? s.server) == net.radius.auth_server;
+	return true;
+}
+
+// replace_own takes out the AP's own sections that are the network over
+// again, where it says to (0137), and every radio such a section is on is
+// one the network is now on: on, the radios Aeolus's interfaces for it were
+// just put on. It says which it took, for the agent to keep before they go.
+function replace_own(w, id, net, on, replaced) {
+	for (let s in of_type(w, 'wifi-iface')) {
+		if (!same_network(s, net))
+			continue;
+		let radios = filter(type(s.device) == 'array' ? s.device : split(s.device ?? '', /[ \t]+/), r => length(r) > 0);
+		if (!length(radios) || length(filter(radios, r => index(on, r) < 0)))
+			continue;
+		push(replaced, { section: s['.name'], ssid: net.ssid, network: id });
+		delete w[s['.name']];
+	}
+}
+
+function networks(cfg, intent, facts, errors, keep, replaced) {
 	let w = cfg.wireless, n = cfg.network;
 	let bridge = null, looked = false;
 	let uplink = () => {
@@ -722,7 +760,7 @@ function networks(cfg, intent, facts, errors, keep) {
 		// every band, it is not offered there (0086).
 		if (!SIX_GHZ[net.security] && index(net.bands ?? [], '6g') >= 0)
 			push(errors, `network.${id}: 6 GHz takes WPA3 or OWE only, not ${net.security}; take 6g out of its bands, or make it wpa3-sae, wpa2-wpa3 or owe`);
-		let names = [], no_ap_vlan = [];
+		let names = [], no_ap_vlan = [], on = [];
 		for (let d in of_type(w, 'wifi-device')) {
 			if (reserved(d) || (net.bands && index(net.bands, d.band) < 0))
 				continue;
@@ -732,9 +770,14 @@ function networks(cfg, intent, facts, errors, keep) {
 			put(w, name, 'wifi-iface', iface_options(net, d['.name'], d.band, iface, btm));
 			keep[name] = true;
 			push(names, name);
+			push(on, d['.name']);
 			if (facts.radios?.[d['.name']]?.ap_vlan === false)
 				push(no_ap_vlan, d['.name']);
 		}
+		// It takes the place of the AP's own network that is this one
+		// over again, where it says to (0137).
+		if (net.replace_own === true)
+			replace_own(w, id, net, on, replaced);
 		// A key's VLAN is an AP/VLAN interface hostapd makes for its clients.
 		// On a radio whose driver makes none (ath11k), hostapd fails every
 		// network on the radio, and the apply is reverted (0082): refused here
@@ -1517,7 +1560,9 @@ function render(intent, current, facts) {
 	facts.uplinks = bonding(cfg, intent, facts, errors, keep);
 	facts.uplink = facts.uplinks[0];
 	radios(cfg.wireless, intent, facts ?? {});
-	networks(cfg, intent, facts ?? {}, errors, keep);
+	// The AP's own sections a network took the place of (0137).
+	let replaced = [];
+	networks(cfg, intent, facts ?? {}, errors, keep, replaced);
 	ports(cfg, intent, facts ?? {}, errors, keep);
 	hold_bridges(cfg.network, keep);
 	// What Aeolus made earlier and no longer needs goes. The prober's plan
@@ -1541,7 +1586,7 @@ function render(intent, current, facts) {
 	steering(cfg.usteer, intent, errors);
 	snmp(cfg, intent, facts ?? {}, errors);
 	let changed = filter(PACKAGES, p => text(p, cfg[p]) != text(p, current[p] ?? {}));
-	return { config: cfg, changed: changed, errors: errors, needs: needs };
+	return { config: cfg, changed: changed, errors: errors, needs: needs, replaced: replaced };
 }
 
 // without_keys is a wireless package without the key agent's wifi-station

@@ -1,0 +1,129 @@
+{
+	"about": "PumphouseAP, whose own networks are in its config, with networks that take the place of the AP's own (replace_own, 0137). Sweet Spot has the key of the AP's own on 5 GHz, which goes as Aeolus's goes in; its own on 2.4 GHz has another key, which makes it another network, and stays. One of its own on both radios at once, with the key, goes. The IoT network is Aeolus's on 5 GHz alone, and the AP's own is on 2.4 GHz: it stays. The lab network does not say it replaces anything, and the AP's own of its name and key stays beside it.",
+	"current": "pumphouse-current.json",
+	"facts": {
+		"uplink": "wan",
+		"radios": {
+			"radio0": {
+				"htmodes": [
+					"HT20",
+					"HT40",
+					"VHT20",
+					"VHT40",
+					"VHT80",
+					"VHT80+80",
+					"VHT160"
+				]
+			},
+			"radio1": {
+				"htmodes": [
+					"HT20",
+					"HT40"
+				]
+			}
+		}
+	},
+	"intent": {
+		"system": {
+			"country": "US",
+			"poll": 60
+		},
+		"network": {
+			"sweet": {
+				"ssid": "Sweet Spot",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-key-trusted_radio0",
+				"replace_own": true,
+				"roaming": {
+					"ft": true
+				},
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
+			},
+			"things": {
+				"ssid": "Sweet_Spot_IoT",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-key-iot24",
+				"replace_own": true,
+				"bands": [
+					"5g"
+				],
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 10
+					}
+				}
+			},
+			"lab": {
+				"ssid": "Aeolus Lab",
+				"security": "wpa2-psk",
+				"passphrase": "fixture-passphrase-1",
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 50
+					}
+				}
+			}
+		}
+	},
+	"errors": [],
+	"extra": {
+		"wireless": {
+			"both": {
+				".anonymous": false,
+				".type": "wifi-iface",
+				".name": "both",
+				".index": 20,
+				"device": [
+					"radio0",
+					"radio1"
+				],
+				"network": "trusted",
+				"mode": "ap",
+				"ssid": "Sweet Spot",
+				"encryption": "psk2+ccmp",
+				"key": "fixture-key-trusted_radio0"
+			},
+			"lab_own": {
+				".anonymous": false,
+				".type": "wifi-iface",
+				".name": "lab_own",
+				".index": 21,
+				"device": "radio0",
+				"network": "lan",
+				"mode": "ap",
+				"ssid": "Aeolus Lab",
+				"encryption": "psk2",
+				"key": "fixture-passphrase-1"
+			},
+			"uplink_sta": {
+				".anonymous": false,
+				".type": "wifi-iface",
+				".name": "uplink_sta",
+				".index": 22,
+				"device": "radio0",
+				"network": "wwan",
+				"mode": "sta",
+				"ssid": "Sweet Spot",
+				"encryption": "psk2",
+				"key": "fixture-key-trusted_radio0"
+			}
+		}
+	},
+	"gone": [
+		"wireless.trusted_radio0",
+		"wireless.both"
+	],
+	"kept": [
+		"wireless.trusted_radio1",
+		"wireless.iot24",
+		"wireless.lab_own",
+		"wireless.uplink_sta"
+	]
+}

@@ -108,6 +108,22 @@ function kept(s, when, why) {
 		file({ [s['.name']]: s });
 }
 
+// told is all there is to say of one of the AP's own networks, for Aeolus
+// to make it its own (0137): the section it is, its SSID, every option of
+// the section as it stands, its key among them, and the VLAN it is on.
+// Said only where a person asks, of this network, and never in a report.
+function told(network, s) {
+	let options = {};
+	for (let k, v in s)
+		if (substr(k, 0, 1) != '.')
+			options[k] = v;
+	let e = { section: s['.name'], ssid: s.ssid ?? '', options: options };
+	let id = vlan(network, names(s.network)[0]);
+	if (id != null)
+		e.vlan = id;
+	return e;
+}
+
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
-export { MOST, list, find, kept, radios };
+export { MOST, list, find, kept, radios, told };
