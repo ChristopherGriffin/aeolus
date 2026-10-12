@@ -15,11 +15,11 @@ const NR = { g2: '36862d0317d0ef4900005106070603000600', g5: '36862d0317c0ef5900
 function ap() {
 	return {
 		bss: {
-			'phy1-ap2': { network: 'test', band: '2g', nr: NR.g2, elsewhere: [] },
-			'phy0-ap2': { network: 'test', band: '5g', nr: NR.g5, elsewhere: [] },
-			'phy3-ap0': { network: 'test', band: '6g', nr: NR.g6, elsewhere: [] },
-			'phy1-ap1': { network: 'lab', band: '2g', nr: NR.g2, elsewhere: [NR.far] },
-			'phy0-ap1': { network: 'lab', band: '5g', nr: NR.g5, elsewhere: [NR.far] },
+			'phy1-ap2': { network: 'test', band: '2g', up: true, nr: NR.g2, elsewhere: [] },
+			'phy0-ap2': { network: 'test', band: '5g', up: true, nr: NR.g5, elsewhere: [] },
+			'phy3-ap0': { network: 'test', band: '6g', up: true, nr: NR.g6, elsewhere: [] },
+			'phy1-ap1': { network: 'lab', band: '2g', up: true, nr: NR.g2, elsewhere: [NR.far] },
+			'phy0-ap1': { network: 'lab', band: '5g', up: true, nr: NR.g5, elsewhere: [NR.far] },
 		},
 		clients: { 'phy1-ap2': {}, 'phy0-ap2': {}, 'phy3-ap0': {}, 'phy1-ap1': {}, 'phy0-ap1': {} },
 	};
@@ -38,8 +38,10 @@ function begin(what, c) {
 	t = 0;
 }
 
+// show says what the daemon is to ask, and takes it as asked.
 function show(acts) {
 	for (let a in acts) {
+		steer.sent(st, a);
 		let more = '';
 		if (a.do == 'btm')
 			more = sprintf(' %s%s to %s', a.imminent ? 'it is to go, ' : '', a.abridged ? 'these only' : 'these or others',
@@ -164,12 +166,10 @@ look();
 off(A);
 pass(60);
 hear('phy1-ap2', 'auth', { address: A, signal: -80 });
-// 5 GHz is not up, as while its radio listens for radar: hostapd has no
-// neighbour report for the network there.
-let nr5 = view.bss['phy0-ap2'].nr;
-view.bss['phy0-ap2'].nr = null;
+// 5 GHz is not up, as while its radio listens for radar.
+view.bss['phy0-ap2'].up = false;
 hear('phy1-ap2', 'auth', { address: A, signal: -40 });
-view.bss['phy0-ap2'].nr = nr5;
+view.bss['phy0-ap2'].up = true;
 hear('phy1-ap2', 'auth', { address: C, signal: -40 });
 hear('phy1-ap2', 'auth', { address: B, signal: -40 });
 hear('phy1-ap2', 'probe', { address: A, signal: -50 });
@@ -181,6 +181,28 @@ off(A);
 look();
 hear('phy1-ap2', 'probe', { address: A, signal: -50 });
 t += 2;
+put(A, 'phy0-ap2', -60);
+hear('phy0-ap2', 'sta-authorized', { address: A });
+records();
+
+begin('Hold: one the daemon got to late, the client let on before hostapd was asked to keep it off, is no hold and no record; a network with only Hold back on needs no neighbour report of the higher band');
+cfg = { networks: { test: { suggest: false, hold: true, sticky: false, weak: -75 } } };
+for (let name in keys(view.bss))
+	view.bss[name].nr = null;
+put(A, 'phy0-ap2', -60);
+look();
+off(A);
+pass(60);
+// What hostapd said of its authentication and of its being let on are
+// both taken before anything is asked: the daemon then asks nothing.
+let late = steer.heard(st, cfg, view, t, 'phy1-ap2', 'auth', { address: A, signal: -50 });
+put(A, 'phy1-ap2', -50);
+steer.heard(st, cfg, view, t + 0.3, 'phy1-ap2', 'sta-authorized', { address: A });
+printf('  decided: %s; then let on before it was asked: records %d, counted %J\n', join(', ', map(late, a => a.do)), length(st.events), st.counts);
+off(A);
+pass(60);
+hear('phy1-ap2', 'auth', { address: A, signal: -50 });
+t += 1;
 put(A, 'phy0-ap2', -60);
 hear('phy0-ap2', 'sta-authorized', { address: A });
 records();

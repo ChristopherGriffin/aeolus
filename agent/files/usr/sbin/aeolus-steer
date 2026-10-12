@@ -215,6 +215,7 @@ function drain() {
 			if (a.do == 'ban' && st.on[a.mac])
 				continue;
 			act(a);
+			steer.sent(st, a);
 		}
 		record();
 	} catch (e) {
@@ -271,9 +272,13 @@ function listen(ifname) {
 
 // report asks a steered network for its own neighbour report, which a
 // transition request names it by, and for those of the same name hostapd
-// holds for other APs.
+// holds for other APs. Only where clients are asked to move: hostapd, asked
+// for a network's report, begins to say in its beacons that it gives them,
+// and a network that only holds clients back is left as its config has it.
 function report(ifname) {
-	let object = 'hostapd.' + ifname;
+	let object = 'hostapd.' + ifname, net = cfg.networks[view.bss[ifname]?.network];
+	if (!net?.suggest && !net?.sticky)
+		return;
 	ask(object, 'rrm_nr_get_own', {}, (r) => {
 		let b = view.bss[ifname], v = r?.value;
 		if (!b)
@@ -418,8 +423,15 @@ function clients_of(ifname, l) {
 	ask(object, 'notify_response', { notify_response: 0 });
 	ask(object, 'get_clients', {}, answered((r) => { l.clients[ifname] = seen(ifname, r); }));
 	ask(object, 'get_status', {}, answered((r) => {
-		if (view.bss[ifname])
-			view.bss[ifname].up = r?.status == 'ENABLED';
+		let b = view.bss[ifname];
+		if (!b)
+			return;
+		b.up = r?.status == 'ENABLED';
+		// A hostapd that does not say is taken as not up, and no client is
+		// asked or held to the network: said, once, so that it is known why.
+		b.mute = r?.status == null ? (b.mute ?? 0) + 1 : 0;
+		if (b.mute == 3)
+			note('hostapd does not say whether %s is up: no client is asked or held to it', ifname);
 	}));
 }
 
@@ -448,7 +460,7 @@ function taken(status) {
 			let was = view.bss[i.ifname];
 			bss[i.ifname] = {
 				network: id, band: v.config.band, ssid: was?.ssid ?? null, bssid: was?.bssid ?? null,
-				own: was?.own ?? null, up: was?.up ?? false, nr: null, listed: was?.listed ?? [], elsewhere: [],
+				own: was?.own ?? null, up: was?.up ?? false, mute: was?.mute ?? 0, nr: null, listed: was?.listed ?? [], elsewhere: [],
 			};
 		}
 	for (let s in dead)

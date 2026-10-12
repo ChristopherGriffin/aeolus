@@ -37,6 +37,11 @@
  120  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
       { "at": 1791770120, "mac": "02:00:00:00:00:0a", "network": "test", "method": "hold", "from": "2g", "asked": "held", "outcome": "moved", "took": 2.0, "to": [ "5g" ], "signal": -50 }
 
+== Hold: one the daemon got to late, the client let on before hostapd was asked to keep it off, is no hold and no record; a network with only Hold back on needs no neighbour report of the higher band
+  decided: ban; then let on before it was asked: records 0, counted { }
+ 120  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
+      { "at": 1791770120, "mac": "02:00:00:00:00:0a", "network": "test", "method": "hold", "from": "2g", "asked": "held", "outcome": "moved", "took": 1.0, "to": [ "5g" ], "signal": -50 }
+
 == A client moved up that is back down within five minutes did not stay moved: said, and it is left alone for half an hour
   10  btm 02:00:00:00:00:0a on phy1-ap2 these only to 36862d0317c0..0301ff
       { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "test", "method": "suggest", "from": "2g", "asked": "btm", "outcome": "moved", "took": 2.0, "to": [ "5g" ], "signal": -50 }

@@ -162,12 +162,24 @@ function rested(st, mac, now) {
 	st.rest[mac] = now + longer(st.backs, mac, now);
 }
 
+// sent is the daemon's word that it asked hostapd for what was decided: a
+// hold is one only once hostapd was asked to keep the client off.
+function sent(st, act) {
+	let a = st.tries[act.mac];
+	if (a && act.do == 'ban' && a.method == 'hold')
+		a.sent = true;
+}
+
 // done ends an asking: counted, and kept as a record. One made on a
 // client's probe alone, which may have been only a look around, is neither
-// where the client then joined nowhere here.
+// where the client then joined nowhere here. Nor is a hold that was never
+// asked of hostapd, as where the client was let on before the daemon got
+// to it: nothing was done to it.
 function done(st, a, outcome, now) {
 	delete st.tries[a.mac];
 	if (a.quiet && outcome == 'left')
+		return;
+	if (a.method == 'hold' && !a.sent)
 		return;
 	count(st, a.network, a.method, 'asked');
 	count(st, a.network, a.method, outcome);
@@ -241,8 +253,10 @@ function judge(st, view, a, now) {
 		if (o && !same)
 			return within ? 'moved' : 'left';
 		// Gone: a few seconds for it to show elsewhere here.
-		if (!o)
-			return now < (a.gone ?? now) + 5 ? null : 'left';
+		if (!o) {
+			a.gone ??= now;
+			return now < a.gone + 5 ? null : 'left';
+		}
 		return null;
 	}
 	return null;
@@ -256,16 +270,16 @@ function candidates(list) {
 
 // hold keeps a client off 2.4 GHz for a moment: one known to use a higher
 // band this AP has the network on, near enough for it, that is not on this
-// AP now, and was not held a moment ago. The higher band must be there: a
-// network hostapd has no neighbour report for is not up, as on a radio that
-// listens for radar, and 2.4 GHz is then all the client has.
+// AP now, and was not held a moment ago. The higher band must be there: on
+// a radio that listens for radar before it sends the network is not up,
+// and 2.4 GHz is then all the client has.
 function hold(st, cfg, view, now, ifname, type, data, mac) {
 	let b = view.bss[ifname], net = cfg.networks?.[b.network];
 	if (!net?.hold || b.band != '2g' || st.on[mac] || st.tries[mac])
 		return [];
 	if (now < (st.rest[mac] ?? 0) || now < (st.down[mac] ?? 0) || now - (st.held[mac] ?? -HOLD_EVERY) < HOLD_EVERY)
 		return [];
-	let up = filter(siblings(view, ifname), s => RANK[s.band] > 0 && s.nr && can(st, mac, s.band, now) &&
+	let up = filter(siblings(view, ifname), s => RANK[s.band] > 0 && s.up && can(st, mac, s.band, now) &&
 		data.signal != null && data.signal >= NEAR['2g'][s.band]);
 	if (!length(up))
 		return [];
@@ -295,8 +309,8 @@ function heard(st, cfg, view, now, ifname, type, data) {
 		if (st.on[mac]?.bss == ifname)
 			delete st.on[mac];
 		let a = st.tries[mac];
-		if (a && a.bss == ifname && a.gone == null)
-			a.gone = now;
+		if (a && a.bss == ifname)
+			a.gone ??= now;
 		break;
 	}
 	case 'bss-transition-response': {
@@ -319,9 +333,10 @@ function heard(st, cfg, view, now, ifname, type, data) {
 
 // tick looks at who is where and how well each is heard, ends what is at
 // its end, and asks what is now due. view is the AP's steered networks as
-// they now are: bss, each one's network, band and own neighbour report, and
-// those of the same SSID elsewhere; clients, each one's signal and whether
-// it takes a transition request.
+// they now are: bss, each one's network and band, whether it is up, its
+// own neighbour report where clients are asked to it, and those of the
+// same SSID elsewhere; clients, each one's signal and whether it takes a
+// transition request.
 function tick(st, cfg, view, now, wall) {
 	let acts = [];
 	st.wall = wall - now;
@@ -339,8 +354,8 @@ function tick(st, cfg, view, now, wall) {
 	for (let mac in keys(st.on))
 		if (!places[mac]) {
 			let a = st.tries[mac];
-			if (a && a.bss == st.on[mac].bss && a.gone == null)
-				a.gone = now;
+			if (a && a.bss == st.on[mac].bss)
+				a.gone ??= now;
 			delete st.on[mac];
 		}
 
@@ -496,4 +511,4 @@ function summary(st, cfg, view, wall, since) {
 
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
-export { RANK, HOLD_MS, KICK_BAN_MS, fresh, bands_of, btm_of, heard, tick, summary };
+export { RANK, HOLD_MS, KICK_BAN_MS, fresh, bands_of, btm_of, heard, sent, tick, summary };
