@@ -50,7 +50,10 @@ export async function actionsPanel(id, name, canAct) {
 		// What came of one is said where it did not go well; of one that did, on hover.
 		others.length > 0 && h('table', { class: 'list wraps' },
 			others.map((a) => h('tr', { title: a.result || null },
-				h('td', null, a.kind === 'disconnect' ? ['Reconnect ', h('span', { class: 'mono' }, a.target)] : KINDS.find(([k]) => k === a.kind)?.[1] ?? a.kind),
+				h('td', null, a.kind === 'disconnect' ? ['Reconnect ', h('span', { class: 'mono' }, a.target)]
+					// One of its own networks, not Aeolus's, taken out (0137).
+					: a.kind === 'remove-network' ? `Take out its own network ${a.params?.ssid ? `“${a.params.ssid}”` : 'with no name'}`
+						: KINDS.find(([k]) => k === a.kind)?.[1] ?? a.kind),
 				h('td', { class: 'sub' }, `${ago(a.at)} · ${a.actor}`),
 				h('td', null, h('span', { class: `chip ${STATE[a.state]?.[0] ?? ''}` }, STATE[a.state]?.[1] ?? a.state),
 					a.result && a.state !== 'done' && h('span', { class: 'sub' }, ` ${a.result}`))))),

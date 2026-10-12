@@ -1,0 +1,48 @@
+8 of its own:
+  { "section": "default_radio0", "radio": "radio0", "band": "2g", "ssid": "Sweet_Spot_IoT", "security": "psk2", "clients": 13, "vlan": 10 }
+  { "section": "default_radio1", "radio": "radio1", "band": "5g", "ssid": "Sweet Spot", "security": "psk2", "clients": 1, "vlan": 20, "ft": true }
+  { "section": "wifinet2", "radio": "radio0", "band": "2g", "ssid": "Sweet Spot", "security": "psk2", "clients": 0, "vlan": 20, "ft": true }
+  { "section": "wifinet3", "radio": "radio1", "band": "5g", "ssid": "Sweet_Spot_IoT", "security": "psk2", "clients": 0, "vlan": 10 }
+  { "section": "quiet", "radio": "radio1", "band": "5g", "ssid": "Back room", "security": "sae-mixed", "clients": 0, "vlan": 30, "hidden": true, "off": true }
+  { "section": "backhaul", "radio": "radio1", "band": "5g", "ssid": "Far barn", "security": "psk2", "clients": 0, "wds": true }
+  { "section": "cfg098888", "radio": "radio0", "band": "2g", "ssid": "Open house", "security": "none", "clients": 0 }
+  { "section": "cfg098888", "radio": "radio1", "band": "5g", "ssid": "Open house", "security": "none", "clients": 0 }
+nothing of a key in what is said: true
+with nothing to count its clients by: [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+an AP with no Wi-Fi config: [ ]
+find wifinet2, "Sweet Spot": "wifinet2"
+find wifinet2, "Sweet_Spot_IoT": null
+find aeolus_lab_radio0, "Aeolus Lab": null
+find uplink, "Upstream": null
+find radio0, "": null
+find nosuch, "x": null
+find quiet, "Back room": "quiet"
+radios: [ "radio0" ] [ "radio0", "radio1" ] [ "radio0", "radio1" ]
+# Taken out of /etc/config/wireless by Aeolus, asked by griff, 2026-10-11 19:40:00. To have it back, add what follows to /etc/config/wireless, and run: wifi reload
+config wifi-iface 'default_radio1'
+	option device 'radio1'
+	option network 'wifi_trusted'
+	option mode 'ap'
+	option ssid 'Sweet Spot'
+	option encryption 'psk2'
+	option key 'it'\''s a secret'
+	option ieee80211r '1'
+	option ft_over_ds '0'
+# Taken out, 2026-10-11 19:40:00. To have it back, add what follows to /etc/config/wireless, and run: wifi reload
+config wifi-iface 'default_radio0'
+	option device 'radio0'
+	option network 'wifi_iot'
+	option mode 'ap'
+	option ssid 'Sweet_Spot_IoT'
+	option encryption 'psk2'
+	option key 'not-the-real-one'
+	option macfilter 'deny'
+	list maclist 'F0:AD:4E:2E:3A:1F'
+# Taken out, 2026-10-11 19:40:00. To have it back, add what follows to /etc/config/wireless, and run: wifi reload
+config wifi-iface
+	list device 'radio0'
+	list device 'radio1'
+	option ssid 'Open house'
+	option encryption 'none'
+	option network 'lan'
+of 40, said: 32

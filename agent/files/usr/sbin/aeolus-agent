@@ -22,6 +22,7 @@ import { connect } from 'ubus';
 import { render, clamp, PACKAGES, CLAMP, VLAN_END, iface_name, without_keys } from 'aeolus.render';
 import { text, file } from 'aeolus.uciexport';
 import * as uplinks from 'aeolus.uplink';   // not uplink: a local of that name would hide it
+import * as own_nets from 'aeolus.others';   // the AP's own Wi-Fi networks, not Aeolus's (0137)
 
 const AGENT = 'aeolus-agent/1';
 const DIR = '/etc/aeolus';
@@ -37,6 +38,7 @@ const PROBES = '/var/run/aeolus/probes.json';   // what the prober found (0059)
 const PROBES_STALE = 60;   // seconds after which the prober's results are too old to report
 const CONNECTIONS = '/var/run/aeolus/connections.json';   // each client's attempt to come online, as aeolus-journey records it (0118)
 const CAPTURES = '/var/run/aeolus/captures';              // a capture of each attempt that failed, a file each, as aeolus-journey keeps them (0135)
+const REMOVED = '/etc/aeolus/removed';   // each of the AP's own networks taken out at Aeolus's asking, as it was, a file each (0137)
 const PACKAGES_TOOL = '/usr/libexec/aeolus-packages';   // its packages, through the manager (0069)
 const PACKAGES_DONE = '/usr/lib/aeolus/packages';      // gone after a sysupgrade, until they are back
 const RESTORE_EVERY = 3600;   // seconds between tries to install them again
@@ -627,7 +629,7 @@ function apply(out, version, hash) {
 	for (let p in out.changed) {
 		let cur = fs.readfile('/etc/config/' + p);
 		if (cur != null)
-			store(`${BACKUP}/${p}`, cur);
+			store(`${BACKUP}/${p}`, cur, 0o600);
 	}
 	let wifi = index(out.changed, 'wireless') >= 0;
 	let before = wifi ? wifi_down() : [];
@@ -1507,6 +1509,20 @@ function state_report(running) {
 	let clients = probes()?.clients;
 	if (clients && length(clients))
 		report.clients = slice(clients, 0, 256);
+	// Its own networks, that are not Aeolus's (0137): each as its config
+	// has it, with nothing of its key, and how many clients are on it.
+	let ifnames = {};
+	for (let name in keys(status))
+		for (let i in status[name].interfaces ?? [])
+			if (i.section && i.ifname)
+				ifnames[i.section + ' ' + name] = i.ifname;
+	let conf = cursor();
+	let theirs = own_nets.list(conf.get_all('wireless'), conf.get_all('network'), (section, radio) => {
+		let ifname = ifnames[section + ' ' + radio];
+		return ifname ? length(keys(bus.call(`hostapd.${ifname}`, 'get_clients')?.clients ?? {})) : 0;
+	});
+	if (length(theirs))
+		report.others = theirs;
 	// How the AP itself is doing (0119).
 	report.health = health_state();
 	// The RADIUS servers its networks sign clients in against, as the prober
@@ -1808,6 +1824,64 @@ function disconnect(a) {
 		: { ok: false, result: 'it is not connected to this AP' };
 }
 
+// remove_network takes one of the AP's own Wi-Fi networks out of its config
+// (0137): one that is not Aeolus's, which Aeolus otherwise leaves as it is
+// (0040), and takes out only where a person asks it of this AP. It is asked
+// for by its SSID and its sections, one for each radio it is on, and a
+// section is not taken out where it no longer has that SSID. Each is kept
+// first, as it was, key and all, in a file only root reads: Aeolus has no
+// copy of it, and could not put it back. Nothing is taken out that cannot
+// be kept. The Wi-Fi then reloads: the network's clients are off it, and
+// the others on its radios join again in a few seconds. The AP waits for
+// the Wi-Fi to be back, as after an apply (0057), before it says what came
+// of it and reports its state: a report made while the radios reload has
+// none of the AP's own BSSIDs, and the manager would take its networks,
+// heard by another AP, for a stranger's. What it says came of it has
+// nothing of an SSID, which may be more than the manager takes for a
+// result: plain words only.
+function remove_network(a) {
+	let p = type(a.params) == 'object' ? a.params : {};
+	let c = cursor();
+	let w = c.get_all('wireless');
+	let at = time(), t = localtime(at);
+	let when = sprintf('%04d-%02d-%02d %02d:%02d:%02d', t.year, t.mon, t.mday, t.hour, t.min, t.sec);
+	fs.mkdir(DIR, 0o755);
+	fs.mkdir(REMOVED, 0o700);
+	// Root's alone, whoever made it.
+	fs.chmod(REMOVED, 0o700);
+	// What of the Wi-Fi was down already, to tell it from what does not
+	// come back.
+	let before = wifi_down(), missing = wifi_missing();
+	let on = {};
+	for (let name in (type(p.sections) == 'array' ? slice(p.sections, 0, own_nets.MOST) : [])) {
+		let s = own_nets.find(w, name, p.ssid);
+		if (!s)
+			continue;
+		let path = sprintf('%s/%d-%s.uci', REMOVED, at, replace(s['.name'], /[^A-Za-z0-9_]/g, '_'));
+		if (!store(path, own_nets.kept(s, when, 'Taken out of /etc/config/wireless by Aeolus, as asked'), 0o600) || !c.delete('wireless', s['.name'])) {
+			c.revert('wireless');
+			return { ok: false, result: 'it could not be kept in ' + REMOVED + ' and taken out, so it was left as it is' };
+		}
+		for (let r in own_nets.radios(s))
+			on[r] = true;
+	}
+	let n = length(keys(on));
+	if (!n)
+		return { ok: false, result: 'it has no such network of its own now' };
+	if (!c.commit('wireless')) {
+		c.revert('wireless');
+		return { ok: false, result: 'its config could not be written, so it was left as it is' };
+	}
+	system('wifi reload >/dev/null 2>&1');
+	// The reload has begun by then; what was up is waited for.
+	sleep(5000);
+	let down = wifi_back(before, missing);
+	// Said to the manager now, in a state report, and not five minutes on:
+	// what it shows of this AP's own is then as it is.
+	return { ok: true, report: true, result: sprintf('took it out of %s; kept as it was in %s%s', n == 1 ? 'one radio' : n + ' radios', REMOVED,
+		length(down) ? sprintf('; %d of its other networks did not come back within %d s', length(down), WIFI_WAIT) : '') };
+}
+
 // The client test (0121): on an AP with a scan radio, that radio joins one
 // of the AP's networks as a client would. It takes a minute or two, so it
 // runs beside the agent, which says what came of it once its result is
@@ -1901,24 +1975,30 @@ function tests_done(token) {
 }
 
 // do_actions fetches the actions that wait for this AP, does each, and says
-// what came of it (0104).
+// what came of it (0104). It says whether one changed what the AP reports
+// of itself, so that its state is reported at once.
 function do_actions(token) {
 	let r = http('GET', '/v1/ap/actions', null, token);
 	if (r.status != 200) {
 		fail('actions: %s', describe(r));
-		return;
+		return false;
 	}
-	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap, disconnect: disconnect, 'client-test': client_test };
+	let report = false;
+	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap, disconnect: disconnect, 'client-test': client_test, 'remove-network': remove_network };
 	for (let a in r.json?.actions ?? []) {
 		let out = kinds[a.kind] ? kinds[a.kind](a) : { ok: false, result: 'this agent cannot ' + a.kind };
 		log('action %s%s: %s', a.kind, a.target ? ' ' + a.target : '', out.result);
 		// One that runs on beside the agent is said of when it is done.
 		if (out.pending)
 			continue;
+		if (out.report)
+			report = true;
+		delete out.report;
 		let d = http('POST', `/v1/ap/actions/${a.id}`, out, token);
 		if (d.status != 200)
 			fail('action %s: %s', a.kind, describe(d));
 	}
+	return report;
 }
 
 function main() {
@@ -2002,8 +2082,8 @@ function main() {
 			last_state = 0;
 		}
 		// Actions a person asked of this AP, once each (0104).
-		if (reached && int(header(r, 'Aeolus-Actions') ?? '0') > 0)
-			do_actions(token);
+		if (reached && int(header(r, 'Aeolus-Actions') ?? '0') > 0 && do_actions(token))
+			last_state = 0;
 		if (reached)
 			tests_done(token);
 		// What the AP is, where it has changed (0122).
