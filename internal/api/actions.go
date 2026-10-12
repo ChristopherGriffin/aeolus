@@ -129,6 +129,9 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 	var sections []string
 	switch body.Kind {
 	case "remove-network":
+		if body.Folder != "" || len(body.Bands) > 0 || body.VLAN != 0 || body.Security != "" {
+			return badRequest("folder, bands, vlan and security are an import-network's")
+		}
 		ask, err := s.removeNetworkFor(id, body.SSID, body.Sections)
 		if err != nil {
 			return err

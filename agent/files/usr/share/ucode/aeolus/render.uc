@@ -710,8 +710,10 @@ function replace_own(w, id, net, on, replaced) {
 		if (!same_network(s, net, !length(filter(radios, r => w[r]?.band != '6g'))))
 			continue;
 		// Passphrases or VLANs of its devices' own hang on the section,
-		// and would hang on nothing.
-		if (length(filter(values(w), x => x['.type'] in ['wifi-station', 'wifi-vlan'] && !owned(x['.name']) && x.iface == s['.name'])))
+		// and would hang on nothing: one that names it, alone or among
+		// others. One that names no interface is every interface's.
+		let named = (x) => filter(type(x.iface) == 'array' ? x.iface : split(x.iface ?? '', /[ \t]+/), i => length(i) > 0);
+		if (length(filter(values(w), x => x['.type'] in ['wifi-station', 'wifi-vlan'] && !owned(x['.name']) && index(named(x), s['.name']) >= 0)))
 			continue;
 		push(replaced, { section: s['.name'], ssid: net.ssid, network: id });
 		delete w[s['.name']];

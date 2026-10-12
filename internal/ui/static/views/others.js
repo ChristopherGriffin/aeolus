@@ -89,6 +89,7 @@ export function othersPanel(page, reports, into) {
 		// 6 GHz alone has it as WPA3 there, whatever the others have.
 		const has = (a) => a.entries.some((e) => asAeolus(e.security) === sec);
 		const from = [...n.on].filter(has).sort((a, b) => b.entries.reduce((s, e) => s + (e.clients || 0), 0) - a.entries.reduce((s, e) => s + (e.clients || 0), 0))[0];
+		if (!from) return;
 		const offered = ORDER.filter((b) => into.bands.has(b) && (b !== '6g' || SIX.has(sec)));
 		const now = new Set(all.map((e) => e.band));
 		const folder = h('select', null, into.folders.map((f) => h('option', { value: f.id }, `Services › ${f.name}`)));

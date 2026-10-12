@@ -174,8 +174,12 @@ func TestImportNetwork(t *testing.T) {
 
 	// Made, it is not made again: its own still shows on the AP until the
 	// AP has applied the network and reported anew.
-	if code, body := ask("griff", with("network", "sweet-again")); code != 409 || !strings.Contains(fmt.Sprint(body["error"]), "Aeolus's own already, as sweet-spot") {
+	if code, body := ask("griff", with("network", "sweet-again")); code != 409 || !strings.Contains(fmt.Sprint(body["error"]), "a network of this name already, sweet-spot") {
 		t.Errorf("asked again once it is made: %d %v", code, body)
+	}
+	// A remove-network takes none of an import's.
+	if code, body := f.do("POST", "/v1/aps/"+ap+"/actions", "griff", map[string]any{"kind": "remove-network", "ssid": "Sweet Spot", "sections": []string{"wifinet2"}, "security": "wpa2-psk"}); code != 400 {
+		t.Errorf("a remove-network with a security: %d %v", code, body)
 	}
 	// Asked as the security the form showed: another is refused.
 	if code, body := ask("griff", map[string]any{"ssid": "Try 15", "sections": []string{"try15"}, "folder": "household", "network": "shown-other", "vlan": 20, "security": "wpa3-sae"}); code != 409 {
@@ -260,6 +264,13 @@ func TestImportNetwork(t *testing.T) {
 	fields = page["fields"].(map[string]any)
 	if r, _ := fields["network.taken-since.ssid"].(map[string]any); r["value"] != "Someone else's" {
 		t.Errorf("the network made in between was written over: %v", r)
+	}
+	// A network that is off takes no place, and stands in no one's way.
+	if code, b := f.change("griff", map[string]any{"kind": "set", "tree": "services", "node": "household", "path": "network.sweet-spot.enabled", "value": false}); code != 200 {
+		t.Fatalf("the network made, turned off: %d %v", code, b)
+	}
+	if code, body := ask("griff", with("network", "sweet-again")); code != 200 {
+		t.Errorf("asked again of a network that is made and off: %d %v", code, body)
 	}
 	for k := range fields {
 		if strings.HasPrefix(k, "network.try-") {
