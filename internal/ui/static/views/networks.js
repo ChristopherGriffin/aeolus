@@ -4,14 +4,14 @@
 // folder (0013): an edit changes it there, for every location that uses that
 // folder, and the preview names every AP it reaches. Steering and
 // multicast-to-unicast are switched right on each network (0051), and what
-// each AP's steering asked of clients, and what came of it, is shown below
-// them (0138). A VXLAN transport picks one of
+// steering asked of clients here, and what came of it over a day or a
+// month, is shown below them (0138, 0139). A VXLAN transport picks one of
 // the tunnels set where it is being edited (0055). The Org's tab also shows
 // what the manager hears from DHCP relays (0068).
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
-import { bandName, security, group, value, ago, secondsAgo, probeOnly, PROBE_ONLY, dhcpWarnings } from '../format.js';
+import { bandName, security, group, value, ago, when, secondsAgo, probeOnly, PROBE_ONLY, dhcpWarnings } from '../format.js';
 import { fieldPanels, editing } from './fields.js';
 import { only, configs } from './sections.js';
 import { fieldsForm, changedValues } from './edit.js';
@@ -19,6 +19,7 @@ import { ask, confirm } from './confirm.js';
 import { keysBlock } from './keys.js';
 import { vxlanPath, vlanPath, probed } from './path.js';
 import { othersPanel } from './others.js';
+import { journeyPanel } from './journey.js';
 
 const BANDS = ['2g', '5g', '6g'];
 
@@ -43,8 +44,8 @@ const SECTIONS = [
 
 export async function networksTab(ctx, id, page) {
 	const org = id === ctx.trees.locations.root;
-	const [d, at, reports, relayed] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || []),
-		org ? get('/v1/dhcp/relayed').catch(() => null) : null]);
+	const [d, at, reports, relayed, steered] = await Promise.all([schema(), networksAt(page), configs(page.hardware?.aps || []),
+		org ? get('/v1/dhcp/relayed').catch(() => null) : null, steeringOver(id, STEERING_HOURS[0][0]).catch(() => null)]);
 	const lib = tunnelsAt(page.fields);
 	// The bands some AP here has a radio for: one a folder only offers ahead of its APs is not here yet.
 	const bandsHere = new Set((page.hardware?.bands || []).filter((b) => !b.ahead).map((b) => b.band));
@@ -60,7 +61,7 @@ export async function networksTab(ctx, id, page) {
 		addBox,
 		// What the APs here have of their own, that is not Aeolus's (0137).
 		othersPanel(page, reports, { folders: writable.map((f) => ({ id: f.id, name: ctx.name('services', f.id) })), taken: new Set(at.nets.map((n) => n.id)), bands: bandsHere }),
-		steeringStatus(ctx, reports, at.nets),
+		steeringPanel(id, reports, at.nets, steered),
 		transportsStatus(reports),
 		radiusStatus(reports),
 		dhcpStatus(reports),
@@ -321,59 +322,113 @@ const CAME = {
 	sticky: { moved: 'moved to a better band here', left: 'left', back: 'came straight back', recovered: 'was heard well again', stayed: 'stayed' },
 };
 
-// steeringStatus shows what each AP's steering asked of clients and what
-// came of it, as each last reported (0138): for each steered network, how
-// many of those asked by each way then moved. The askings themselves are
-// one click down.
-function steeringStatus(ctx, reports, nets) {
-	const ssid = (id) => nets.find((n) => n.id === id)?.fields.ssid?.value || id;
-	const rows = [];
+// The times steering is counted over, in hours.
+const STEERING_HOURS = [[24, 'A day'], [168, 'A week'], [720, '30 days']];
+const steeringOver = (id, hours) => get(`/v1/steering?under=${encodeURIComponent(id)}&hours=${hours}`);
+
+// steeringPanel shows whether steering works here (0139): for each steered
+// network, how many of the clients asked by each way then moved, over a
+// day, a week or a month, as the manager counts the askings the APs say.
+// Which ways are on, and where steering is not running, is as each AP last
+// reported (0138). The rest is a click down: the same an AP at a time, the
+// clients asked most, and the latest askings.
+function steeringPanel(id, reports, nets, first) {
+	const ssid = (n) => nets.find((x) => x.id === n)?.fields.ssid?.value || n;
+	// What the APs say now: the ways on for each network, and the APs whose
+	// config has them steer and whose steering is not running.
+	const on = new Map(), stopped = [];
 	for (const { ap, cfg } of reports) {
-		const st = cfg?.condition?.state, s = st?.report?.steer;
+		const s = cfg?.condition?.state?.report?.steer;
 		if (!s) continue;
-		const where = link(`/aps/${encodeURIComponent(ap.id)}`, ap.name);
 		if (!s.running) {
-			rows.push(h('tr', null, h('td', null, where), h('td', null, '—'),
-				h('td', null, h('span', { class: 'chip warn' }, 'not running'), ' ', h('span', { class: 'sub' }, 'Clients join here as on a network that is not steered.')),
-				h('td', null, ago(st.at))));
+			stopped.push(ap);
 			continue;
 		}
 		for (const n of s.networks || []) {
-			const ways = Object.keys(STEERED).filter((w) => n[w]).map((w) => {
-				const [name, good, did] = STEERED[w], c = n.counts?.[w] || {};
-				const asked = c.asked || 0, worked = good.reduce((sum, g) => sum + (c[g] || 0), 0);
-				if (!asked) return h('span', { class: 'chip idle', title: 'It has asked no client yet' }, `${name}: none asked yet`);
-				return h('span', { class: 'chip ' + (worked * 2 >= asked ? 'ok' : 'warn'), title: Object.entries(c).filter(([k]) => k !== 'asked').map(([k, v]) => `${v} ${CAME[w][k] || k}`).join(', ') },
-					`${name}: ${worked} of ${asked} ${did}${c.back ? `, ${c.back} came back` : ''}`);
-			});
-			const askings = (s.events || []).filter((e) => e.network === n.network).reverse();
-			rows.push(h('tr', null,
-				h('td', null, where),
-				h('td', null, ssid(n.network)),
-				h('td', null, h('div', { class: 'ways' }, ways)),
-				h('td', null, ago(st.at))));
-			if (askings.length > 0)
-				rows.push(h('tr', { class: 'under' }, h('td', { colspan: 4 }, h('details', null,
-					h('summary', null, `The last ${askings.length === 1 ? 'asking' : `${askings.length} askings`} of ${ssid(n.network)}’s clients on ${ap.name}`),
-					h('table', { class: 'list' },
-						h('tr', null, ['When', 'Client', 'Way', 'It was', 'On', 'It answered', 'What came of it', 'After'].map((t) => h('th', null, t))),
-						askings.map((e) => h('tr', null,
-							h('td', null, ago(e.at * 1000)),
-							h('td', { class: 'mono' }, e.mac),
-							h('td', null, STEERED[e.method]?.[0] || e.method),
-							h('td', null, ASKED[e.asked] ?? e.asked),
-							h('td', null, [bandName(e.from), e.signal != null && `, ${e.signal} dBm`]),
-							h('td', null, e.answer === 'accepted' ? 'yes' : e.answer === 'refused' ? `no${e.code != null ? ` (${e.code})` : ''}` : '—'),
-							h('td', null, CAME[e.method]?.[e.outcome] || e.outcome),
-							h('td', null, `${e.took} s`))))))));
+			const ways = on.get(n.network) || new Set();
+			for (const w of Object.keys(STEERED)) if (n[w]) ways.add(w);
+			if (ways.size) on.set(n.network, ways);
 		}
 	}
-	if (!rows.length) return null;
-	return h('section', { class: 'panel' },
-		h('h2', null, 'Steering on each AP', h('span', { class: 'note' }, 'as each last reported; counted since its steering started')),
-		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'Network', 'What came of it', 'Reported'].map((t) => h('th', null, t))),
-			rows));
+	if (!on.size && !stopped.length && !first?.networks?.length) return null;
+	const chips = (counts, ways) => Object.keys(STEERED).filter((w) => ways?.has(w) || counts?.[w]).map((w) => {
+		const [name, good, did] = STEERED[w], c = counts?.[w] || {};
+		const asked = c.asked || 0, worked = good.reduce((sum, g) => sum + (c[g] || 0), 0);
+		if (!asked) return h('span', { class: 'chip idle', title: 'It asked no client in this time' }, `${name}: none asked`);
+		return h('span', { class: 'chip ' + (worked * 2 >= asked ? 'ok' : 'warn'), title: Object.entries(c).filter(([k]) => k !== 'asked').map(([k, v]) => `${v} ${CAME[w][k] || k}`).join(', ') },
+			`${name}: ${worked} of ${asked} ${did}${c.back ? `, ${c.back} came back` : ''}`);
+	});
+	const box = h('section', { class: 'panel' });
+	const out = h('div');
+	const client = (c) => h('a', { href: '#', class: 'clientlink', title: `${c.host ? c.mac + ': its' : 'Its'} journey, and each time it came online`,
+		onclick: (e) => { e.preventDefault(); out.scrollIntoView({ block: 'nearest' }); journeyPanel(out, c.mac); } }, c.host || c.mac);
+	const fold = (title, table) => h('details', { class: 'fold' }, h('summary', null, title), table);
+	let hours = STEERING_HOURS[0][0], asked = 0;
+	const pick = async (v) => {
+		hours = v;
+		// Only the latest asking is drawn: an answer to an earlier choice
+		// that comes in late does not replace it.
+		const mine = ++asked;
+		const got = await steeringOver(id, v).catch(() => null);
+		if (mine === asked) draw(got);
+	};
+	const draw = (v) => {
+		const counted = new Map((v?.networks || []).map((n) => [n.network, n]));
+		const ids = [...new Set([...on.keys(), ...counted.keys()])].sort((x, y) => ssid(x).localeCompare(ssid(y)));
+		const rows = [];
+		for (const n of ids) {
+			const c = counted.get(n);
+			rows.push(h('tr', null, h('td', null, ssid(n)), h('td', null, h('div', { class: 'ways' }, chips(c?.counts, on.get(n))))));
+			if (c?.aps.length > 1)
+				rows.push(h('tr', { class: 'under' }, h('td', { colspan: 2 }, h('details', null,
+					h('summary', null, `On each of the ${c.aps.length} APs that asked`),
+					h('table', { class: 'list' }, c.aps.map((a) => h('tr', null,
+						h('td', null, link(`/aps/${encodeURIComponent(a.ap)}`, a.name)),
+						h('td', null, h('div', { class: 'ways' }, chips(a.counts))))))))));
+		}
+		const latest = v?.latest || [], most = v?.clients || [];
+		// Which network an asking was of is said where there is more than one.
+		const several = ids.length > 1;
+		// A part there is none of is left out: replaceChildren would write its false.
+		box.replaceChildren(...[
+			h('h2', null,
+				h('span', { class: 'title' }, 'Steering', h('span', { class: 'segmented', role: 'group', 'aria-label': 'Over how long' }, STEERING_HOURS.map(([t, name]) => h('button', {
+					type: 'button', class: hours === t ? 'on' : '', 'aria-pressed': hours === t, onclick: () => pick(t),
+				}, name)))),
+				h('span', { class: 'note' }, 'what was asked of clients, and what came of it')),
+			!v && h('div', { class: 'banner warn' }, 'What steering asked of clients could not be read.'),
+			rows.length > 0 && h('table', { class: 'list' },
+				h('tr', null, ['Network', 'What came of it'].map((t) => h('th', null, t))),
+				rows),
+			stopped.length > 0 && h('p', { class: 'sub pad' }, h('span', { class: 'chip warn' }, 'not running'), ' on ',
+				stopped.map((ap, i) => [i > 0 && ', ', link(`/aps/${encodeURIComponent(ap.id)}`, ap.name)]),
+				': clients join there as on a network that is not steered.'),
+			most.length > 0 && fold(`The ${most.length === 1 ? 'client' : `${most.length} clients`} asked most`, h('table', { class: 'list' },
+				h('tr', null, ['Client', 'Asked', 'Moved', 'Said no', 'Came back', 'Last asked'].map((t) => h('th', null, t))),
+				most.map((c) => h('tr', null,
+					h('td', null, client(c)),
+					h('td', null, String(c.asked)),
+					h('td', null, String(c.moved)),
+					h('td', null, c.refused ? String(c.refused) : h('span', { class: 'sub' }, '0')),
+					h('td', null, c.back ? String(c.back) : h('span', { class: 'sub' }, '0')),
+					h('td', { class: 'sub nowrap' }, ago(c.last)))))),
+			latest.length > 0 && fold(`The latest ${latest.length === 1 ? 'asking' : `${latest.length} askings`}`, h('table', { class: 'list' },
+				h('tr', null, ['When', 'AP', 'Client', several && 'Network', 'Way', 'It was', 'On', 'It answered', 'What came of it', 'After'].filter(Boolean).map((t) => h('th', null, t))),
+				latest.map((e) => h('tr', null,
+					h('td', { class: 'sub nowrap', title: when(e.at) }, ago(e.at)),
+					h('td', { class: 'nowrap' }, e.ap_name),
+					h('td', { class: 'nowrap' }, client(e)),
+					several && h('td', null, ssid(e.network)),
+					h('td', { class: 'nowrap' }, STEERED[e.method]?.[0] || e.method),
+					h('td', { class: 'nowrap' }, ASKED[e.asked] ?? e.asked),
+					h('td', { class: 'nowrap' }, [bandName(e.from), e.signal != null && `, ${e.signal} dBm`]),
+					h('td', null, e.answer === 'accepted' ? 'yes' : e.answer === 'refused' ? `no${e.code != null ? ` (${e.code})` : ''}` : '—'),
+					h('td', null, CAME[e.method]?.[e.outcome] || e.outcome),
+					h('td', { class: 'nowrap' }, `${e.took} s`))))),
+			out].filter(Boolean));
+	};
+	draw(first);
+	return box;
 }
 
 // How each verdict of a network's transport is shown (0059, 0061).

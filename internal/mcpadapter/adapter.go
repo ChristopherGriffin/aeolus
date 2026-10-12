@@ -283,6 +283,18 @@ func server(c client, version string) *mcp.Server {
 			out, err := c.call(ctx, "GET", "/v1/roaming?"+q.Encode(), nil)
 			return nil, out, err
 		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_steering", Description: "Whether steering works (0139): what the steering of the APs you can view asked of clients and what came of it (0138), over the last hours (24 unless set, at most 720); with under, the APs below that Locations node. The manager keeps each asking an AP's steering says in its state reports, once, so the counts are of the time asked for and not since an AP's steering last started. networks: each {network, counts, aps}, counts being for each way (suggest: a client asked to move to a higher band by 802.11v; hold: one kept off 2.4 GHz a moment as it came to join; sticky: a weak client told to go) how many were asked and how many came to each end: moved (it went to a better band here), refused (it said no), stayed, left (it went elsewhere), joined (held off, it joined 2.4 GHz all the same), recovered (a weak client was heard well again), back (moved up, it came back down within five minutes; or, a weak client, it came straight back). aps: the same an AP at a time, each {ap, name, counts}. clients: the 20 asked most, each {mac, host, asked, moved, refused, back, last}. latest: the latest 100 askings, each {at, ap, ap_name, mac, host, network, method, from, to, asked, answer, code, signal, outcome, took}: from the band it was on, to the bands it was pointed at, asked btm (a transition request), held, kick or none, answer accepted or refused with the client's 802.11v status code, signal in dBm, took in seconds. The tests' own clients are left out.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in usageIn) (*mcp.CallToolResult, any, error) {
+			q := url.Values{}
+			if in.Under != "" {
+				q.Set("under", in.Under)
+			}
+			if in.Hours > 0 {
+				q.Set("hours", fmt.Sprint(in.Hours))
+			}
+			out, err := c.call(ctx, "GET", "/v1/steering?"+q.Encode(), nil)
+			return nil, out, err
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "ask_assurance_round", Description: "Ask every AP below a Locations folder, or one AP, for a round of client tests now (0129): each tests every thing it can, once, one at a time from its next poll, whatever its schedule or none: through the air where it has a scan radio (0121), and over the wire where its agent can (0128), whether a folder asks for that on a schedule or not. over says which tests, 0131: air, wire, or both, which it is unless said. For checking a site that was just built or changed. It needs operator there, and is refused where no AP there can test. A round takes about a minute a thing for each AP; what is not asked for within the hour is let go. Read how it goes with get_assurance: round says how many things, asked and done, and checks and tests what they found.", Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(false)}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in roundIn) (*mcp.CallToolResult, any, error) {
 			body := map[string]any{"under": in.Under}

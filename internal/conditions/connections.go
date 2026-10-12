@@ -470,8 +470,12 @@ func (s *Store) Joins(since time.Time) ([]Join, []JoinStop, error) {
 // TrimConnections deletes the attempts begun more than keep ago, and
 // returns how many; and what happened to the APs themselves that long ago
 // (0119), which is kept as long; and the captures that came in that long
-// ago (0135), their attempts gone. The clients themselves are kept.
+// ago (0135), their attempts gone; and what the APs' steering asked of
+// clients that long ago (0139). The clients themselves are kept.
 func (s *Store) TrimConnections(keep time.Duration) (int64, error) {
+	if _, err := s.db.Exec(`DELETE FROM steer_events WHERE at < ?`, s.now().Add(-keep).UnixMilli()); err != nil {
+		return 0, err
+	}
 	if _, err := s.db.Exec(`DELETE FROM ap_events WHERE at < ?`, s.now().Add(-keep).UnixMilli()); err != nil {
 		return 0, err
 	}
