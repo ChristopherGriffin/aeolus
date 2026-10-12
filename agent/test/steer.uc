@@ -208,16 +208,24 @@ hear('phy1-ap2', 'sta-authorized', { address: A });
 pass(900);
 records();
 
-begin('Sticky: one that takes no request is put off at once where another AP has the network; back within the minute, it is left alone');
+begin('Sticky: one that takes no request is put off at once where another AP has the network; back within the minute, it is left alone, and twice as long each time it comes back again');
 view.clients['phy1-ap1'][B] = { signal: -82, btm: false };
 look();
-pass(10);
-hear('phy1-ap1', 'deauth', { address: B });
-off(B);
-pass(10);
-view.clients['phy1-ap1'][B] = { signal: -82, btm: false };
-hear('phy1-ap1', 'sta-authorized', { address: B });
-pass(900);
+// A day and a half: put off at the start, after half an hour, an hour
+// after that, then two, four, eight and sixteen hours.
+for (let end = 36 * 3600; t < end;) {
+	let was = length(st.events);
+	pass(5);
+	if (st.tries[B]?.asked == 'kick' && !st.on[B] && view.clients['phy1-ap1'][B]) {
+		hear('phy1-ap1', 'deauth', { address: B });
+		off(B);
+		pass(5);
+		view.clients['phy1-ap1'][B] = { signal: -82, btm: false };
+		hear('phy1-ap1', 'sta-authorized', { address: B });
+	}
+}
+printf('  put off %d times in a day and a half, at: %s\n', length(st.events), join(' ', map(st.events, e => sprintf('%dh%02d', (e.at - WALL) / 3600, ((e.at - WALL) % 3600) / 60))));
+st.events = slice(st.events, 0, 1);
 records();
 
 begin('Sticky: one told to go that stays is put off after eight seconds, and is gone; one whose signal comes back is left; one with nowhere better to go is never asked');

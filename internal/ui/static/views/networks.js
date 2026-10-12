@@ -217,7 +217,7 @@ const WAYS = [
 	['hold_back', 'Hold back 2.4 GHz',
 		'A client known to use a higher band is kept off 2.4 GHz for two and a half seconds as it comes to join, so that it finds the higher band first. Then 2.4 GHz is open to it again.'],
 	['sticky', 'Move weak clients',
-		'A client whose signal stays weak, while the network has a better place for it, is told to go, and put off for two and a half seconds if it stays. One that comes straight back is left alone for half an hour.'],
+		'A client whose signal stays weak, while the network has a better place for it, is told to go, and put off for two and a half seconds if it stays. One that comes straight back is left alone for half an hour, and longer each time it does so again.'],
 ];
 
 // steeringRow switches each way of steering for a network in its service

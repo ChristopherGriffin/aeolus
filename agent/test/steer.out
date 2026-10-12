@@ -46,9 +46,16 @@
   10  btm 02:00:00:00:00:0a on phy0-ap2 it is to go, these or others to 36862d0317d0..0301ff
       { "at": 1791770010, "mac": "02:00:00:00:00:0a", "network": "test", "method": "sticky", "from": "5g", "asked": "btm", "outcome": "moved", "took": 8, "signal": -80 }
 
-== Sticky: one that takes no request is put off at once where another AP has the network; back within the minute, it is left alone
+== Sticky: one that takes no request is put off at once where another AP has the network; back within the minute, it is left alone, and twice as long each time it comes back again
   10  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
-      { "at": 1791770010, "mac": "02:00:00:00:00:0b", "network": "lab", "method": "sticky", "from": "2g", "asked": "kick", "outcome": "back", "took": 10, "signal": -82 }
+1815  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+5420  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+12625  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+27030  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+55835  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+113440  kick 02:00:00:00:00:0b on phy1-ap1 for 2500 ms
+  put off 7 times in a day and a half, at: 0h00 0h30 1h30 3h30 7h30 15h30 31h30
+      { "at": 1791770010, "mac": "02:00:00:00:00:0b", "network": "lab", "method": "sticky", "from": "2g", "asked": "kick", "outcome": "back", "took": 5, "signal": -82 }
 
 == Sticky: one told to go that stays is put off after eight seconds, and is gone; one whose signal comes back is left; one with nowhere better to go is never asked
   10  btm 02:00:00:00:00:0a on phy0-ap1 it is to go, these or others to 36862d0317d0..0301ff 2005b6018be9..0301fe

@@ -29,11 +29,11 @@
   - **Move weak clients** (`sticky`). A client whose signal stays under `sticky_signal` (-75 dBm unless set) for three looks, while the network has a better place for it, is told to go, with those places named; and put off, for two and a half seconds, if it is still there and still weak eight seconds later.
     - A better place is a lower band of the network on this AP, or the network on another AP, as hostapd's neighbour list has it.
     - One that takes no request is put off at once.
-    - Once in five minutes a client at most. One that comes straight back is left alone for half an hour: it has nowhere better.
+    - Once in five minutes a client at most. One that comes straight back is left alone for half an hour: it has nowhere better. Each time it comes back again it is left alone twice as long, up to a day, so that a device heard weakly at the far end of a house is put off a few times in all, and not every half hour for ever.
     - Told to go, it is given no hour: hostapd puts a client off itself when one it was given comes.
 - **`band_steering` is the older name of `suggest` (0050),** and is read as it where `suggest` is not set.
 - **A client's bands are known by what it said and where it has been:** the operating classes in its association request, and each band it has been let on at this AP, for thirty days, or until the AP starts again.
-- **A client that will not stay moved is left alone.** One moved up that is back down within five minutes is said to have come back, and is neither asked nor held for half an hour. One sent down for a weak signal is not asked or held back up for half an hour.
+- **A client that will not stay moved is left alone.** One moved up that is back down within five minutes is said to have come back, and is neither asked nor held for half an hour, and twice as long each time after. One sent down for a weak signal is not asked or held back up for half an hour.
 - **The AP steers by itself, by a daemon of the agent's** (`aeolus-steer`), which procd runs beside the agent. The manager is in none of it: it says which networks are steered and how, in the AP's config, and hears what came of it.
 - **It fails open:**
   - **hostapd never waits for it.** On every network it steers, at every look, five seconds apart, it tells hostapd to wait for no listener. usteer's own refusals, which are off as OpenWrt ships it, are then not made there.

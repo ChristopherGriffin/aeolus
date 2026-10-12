@@ -52,7 +52,9 @@ const KICK_BAN_MS = 2500;
 const RECOVERED = 3;               // dB over weak at which a client is left where it is
 const BACK_WAIT = 60;              // seconds in which it may come back to where it was
 const FELL_BACK = 300;             // seconds in which a client that moved may come back down
-const REST = 1800;                 // seconds a client that came back is left alone
+const REST = 1800;                 // seconds a client that came back is left alone, the first time
+const REST_MOST = 86400;           // and at the most: twice as long each time it comes back again
+const BACKS_FOR = 7 * 86400;       // seconds its comings back are remembered
 const KNOWN_FOR = 30 * 86400;      // seconds a client's bands are remembered
 const KNOWN_MOST = 4096;
 const EVENTS_KEPT = 200;
@@ -67,6 +69,7 @@ function fresh() {
 		asked: {},    // when each was last asked to go for a weak signal
 		moved: {},    // where each last moved from, for whether it comes back
 		rest: {},     // until when each is left alone
+		backs: {},    // how often each came back, and when last: it is left alone longer each time
 		down: {},     // until when each, sent down for a weak signal, is not asked or held up
 		events: [],
 		counts: {},
@@ -138,6 +141,20 @@ function said(st, e) {
 		shift(st.events);
 }
 
+// rested leaves a client that came back alone: for half an hour, and twice
+// as long each time it comes back again, up to a day. A device heard weakly
+// that has nowhere better to go is then put off a few times in all, and not
+// every half hour for ever.
+function rested(st, mac, now) {
+	let b = st.backs[mac] ??= { n: 0 };
+	b.n++;
+	b.at = now;
+	let rest = REST;
+	for (let i = 1; i < b.n && rest < REST_MOST; i++)
+		rest *= 2;
+	st.rest[mac] = now + min(rest, REST_MOST);
+}
+
 // done ends an asking: counted, and kept as a record. One made on a
 // client's probe alone, which may have been only a look around, is neither
 // where the client then joined nowhere here.
@@ -161,7 +178,7 @@ function done(st, a, outcome, now) {
 	if (a.method == 'sticky' && outcome != 'recovered')
 		st.down[a.mac] = now + REST;
 	if (outcome == 'back')
-		st.rest[a.mac] = now + REST;
+		rested(st, a.mac, now);
 }
 
 // arrived notes a client where it now is. One that was moved up and is back
@@ -175,7 +192,7 @@ function arrived(st, view, mac, ifname, now) {
 	if (m && m.network == b.network && now - m.at < FELL_BACK && RANK[b.band] <= RANK[m.from]) {
 		count(st, m.network, m.method, 'back');
 		said(st, { at: int(now + st.wall), mac: mac, network: m.network, method: m.method, from: m.from, asked: 'none', outcome: 'back', took: int((now - m.at) * 10) / 10 });
-		st.rest[mac] = now + REST;
+		rested(st, mac, now);
 		delete st.moved[mac];
 	}
 	return st.on[mac];
@@ -421,6 +438,9 @@ function tick(st, cfg, view, now, wall) {
 	for (let mac, t in st.down)
 		if (now >= t)
 			delete st.down[mac];
+	for (let mac, b in st.backs)
+		if (now - b.at >= BACKS_FOR)
+			delete st.backs[mac];
 	for (let mac, m in st.moved)
 		if (now - m.at >= FELL_BACK)
 			delete st.moved[mac];

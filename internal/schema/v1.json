@@ -367,7 +367,7 @@
           "properties": {
             "suggest": { "type": "boolean", "description": "A client that can use a higher band the AP has this network on, and is near enough for it, is asked to move there, by an 802.11v BSS transition request. It may say no, and is asked three times at most while it stays joined. Turns on 802.11k and 802.11v for this network." },
             "hold_back": { "type": "boolean", "description": "A client known to use a higher band is kept off 2.4 GHz for two and a half seconds as it comes to join, so that it finds the higher band first; then 2.4 GHz is open to it again. Once in thirty seconds a client at most." },
-            "sticky": { "type": "boolean", "description": "A client whose signal stays under sticky_signal, while the network has a better place for it (a lower band on this AP, or the network on another AP), is told to go, and put off for two and a half seconds if it stays. One that comes straight back is left alone for half an hour. Turns on 802.11k and 802.11v for this network." },
+            "sticky": { "type": "boolean", "description": "A client whose signal stays under sticky_signal, while the network has a better place for it (a lower band on this AP, or the network on another AP), is told to go, and put off for two and a half seconds if it stays. One that comes straight back is left alone for half an hour, and twice as long each time it does so again, up to a day. Turns on 802.11k and 802.11v for this network." },
             "sticky_signal": { "type": "integer", "minimum": -90, "maximum": -60, "description": "The signal, in dBm, under which a client is weak, for sticky. Unset, -75." }
           }
         },
