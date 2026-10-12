@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -205,6 +206,8 @@ type stateReport struct {
 	DHCP map[string]dhcpState `json:"dhcp,omitempty"`
 	// Every Wi-Fi client on the AP (0066).
 	Clients []wifiClient `json:"clients,omitempty"`
+	// Its own Wi-Fi networks, set on the AP and not by Aeolus (0137).
+	Others []otherNetwork `json:"others,omitempty"`
 	// The RADIUS servers its networks sign clients in against (0114).
 	Radius []radiusState `json:"radius,omitempty"`
 	// How the AP itself is doing: processor, memory, storage, heat (0119).
@@ -1060,6 +1063,38 @@ type radioState struct {
 	TxPower *int  `json:"txpower,omitempty"`
 }
 
+// otherNetwork is a Wi-Fi network an AP has of its own, set on the AP and
+// not by Aeolus, on one of its radios (0137): the section of its config it
+// is, by which it is asked for; its SSID; its security, as OpenWrt names
+// the encryption; the VLAN it is on, where its config says; whether it is
+// hidden, off, or offers fast transition; and how many clients are on it.
+// Nothing of its key.
+type otherNetwork struct {
+	Section  string `json:"section"`
+	Radio    string `json:"radio"`
+	Band     string `json:"band"`
+	SSID     string `json:"ssid"`
+	Security string `json:"security"`
+	VLAN     int    `json:"vlan,omitempty"`
+	Hidden   bool   `json:"hidden,omitempty"`
+	Off      bool   `json:"off,omitempty"`
+	FT       bool   `json:"ft,omitempty"`
+	Clients  int    `json:"clients"`
+}
+
+// otherSectionRE is a section of an AP's config, by its name, or the name
+// uci gives one that has none.
+var otherSectionRE = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
+
+// ok says whether one is as an agent says it. One that is not is left out
+// of its AP's report, and the report kept: what someone typed on an AP
+// should not cost the AP its report.
+func (o otherNetwork) ok() bool {
+	return otherSectionRE.MatchString(o.Section) && radioRE.MatchString(o.Radio) && (o.Band == "" || bands[o.Band]) &&
+		len(o.SSID) <= 32 && len(o.Security) >= 1 && len(o.Security) <= 32 && printable(o.Security) &&
+		o.VLAN >= 0 && o.VLAN <= 4094 && o.Clients >= 0 && o.Clients <= 100000
+}
+
 // transportState is one network's transports: which is carrying traffic, and
 // how each is doing (0020, 0022), by the prober's verdicts (0061). A
 // transport not started, a VXLAN fallback waiting, is off. With automatic
@@ -1106,6 +1141,12 @@ func (st *stateReport) check() error {
 	}
 	if len(st.BSSIDs) > 64 {
 		return badRequest("bssids: at most 64")
+	}
+	// Its own networks: those that are not well said are left out, and no
+	// more than 64 kept.
+	st.Others = slices.DeleteFunc(st.Others, func(o otherNetwork) bool { return !o.ok() })
+	if len(st.Others) > 64 {
+		st.Others = st.Others[:64]
 	}
 	for _, b := range st.BSSIDs {
 		if !macRE.MatchString(b) {

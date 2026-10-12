@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,15 +21,53 @@ const ActionsHeader = "Aeolus-Actions"
 
 // actionKinds are what a person may ask an AP to do once (0104), and
 // whether each is of a client, by MAC, its target (0107).
-var actionKinds = map[string]bool{"locate": false, "restart-wifi": false, "reboot": false, "disconnect": true, "client-test": false}
+var actionKinds = map[string]bool{"locate": false, "restart-wifi": false, "reboot": false, "disconnect": true, "client-test": false, "remove-network": false}
+
+// removeNetworkAsk is what an AP is asked to take out of its config (0137):
+// one of its own Wi-Fi networks, not Aeolus's, by its SSID and its
+// sections, one for each radio it is on.
+type removeNetworkAsk struct {
+	SSID     string   `json:"ssid"`
+	Sections []string `json:"sections"`
+}
+
+// removeNetworkFor is the asking for an AP to take out one of its own
+// networks: every section named must be one the AP last said it has, with
+// that SSID. Aeolus's own networks are never among those.
+func (s *Server) removeNetworkFor(ap hierarchy.NodeID, ssid string, sections []string) (removeNetworkAsk, error) {
+	if len(sections) < 1 || len(sections) > 32 {
+		return removeNetworkAsk{}, badRequest("remove-network: sections, the AP's own name for the network on each radio it is on, 1 to 32 of them, and its ssid")
+	}
+	st, err := s.conds.LatestState(ap)
+	if err != nil {
+		return removeNetworkAsk{}, err
+	}
+	var rep struct {
+		Others []otherNetwork `json:"others"`
+	}
+	if st != nil {
+		_ = json.Unmarshal(st.Report, &rep)
+	}
+	ask := removeNetworkAsk{SSID: ssid}
+	for _, sec := range sections {
+		if !slices.ContainsFunc(rep.Others, func(o otherNetwork) bool { return o.Section == sec && o.SSID == ssid }) {
+			return removeNetworkAsk{}, &apiError{http.StatusConflict, "the AP has no network of its own with that SSID and section, as it last reported: look again"}
+		}
+		if !slices.Contains(ask.Sections, sec) {
+			ask.Sections = append(ask.Sections, sec)
+		}
+	}
+	return ask, nil
+}
 
 // addAction asks an AP to do something once (0104): POST /v1/aps/{ap}/actions
 // {kind, target?}, target being the client's MAC for disconnect (0107). A
 // client-test (0121) says what to test instead: {kind, network, on?,
 // band?, remote?}, one of the AP's networks, the AP whose networks to join,
 // a band, and, false, that the speed to the remote server is not measured
-// (0134), as on a link where bytes cost. It needs operator on the AP, as
-// changing it does (0030).
+// (0134), as on a link where bytes cost. A remove-network (0137) says which
+// of the AP's own networks to take out: {kind, ssid, sections}. It needs
+// operator on the AP, as changing it does (0030).
 func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error {
 	id := hierarchy.NodeID(r.PathValue("ap"))
 	t := c.state.Org.Locations
@@ -45,13 +84,16 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		On      string `json:"on"`
 		Band    string `json:"band"`
 		Remote  *bool  `json:"remote"`
+		// Of a remove-network (0137).
+		SSID     string   `json:"ssid"`
+		Sections []string `json:"sections"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		return err
 	}
 	ofClient, ok := actionKinds[body.Kind]
 	if !ok {
-		return badRequest("an action is locate, restart-wifi, reboot, disconnect or client-test")
+		return badRequest("an action is locate, restart-wifi, reboot, disconnect, client-test or remove-network")
 	}
 	body.Target = strings.ToLower(body.Target)
 	if ofClient != macRE.MatchString(body.Target) {
@@ -68,6 +110,17 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		}
 	} else if body.Network != "" || body.On != "" || body.Band != "" || body.Remote != nil {
 		return badRequest("network, on, band and remote are a client-test's")
+	}
+	if body.Kind == "remove-network" {
+		ask, err := s.removeNetworkFor(id, body.SSID, body.Sections)
+		if err != nil {
+			return err
+		}
+		if params, err = json.Marshal(ask); err != nil {
+			return err
+		}
+	} else if body.SSID != "" || len(body.Sections) > 0 {
+		return badRequest("ssid and sections are a remove-network's")
 	}
 	a, err := s.conds.AddActionWith(id, body.Kind, body.Target, string(c.actor), params)
 	if err != nil {

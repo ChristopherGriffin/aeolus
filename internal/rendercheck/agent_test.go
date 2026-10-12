@@ -689,3 +689,32 @@ func TestAgentWireTest(t *testing.T) {
 		t.Errorf("the wire test's parts print other than wiretest.out says:\n%s", out)
 	}
 }
+
+// An AP's own Wi-Fi networks, that are not Aeolus's (0137): what its agent
+// says of each, with nothing of its key; which section one is, where it is
+// asked for; and the section as it is kept before it is taken out.
+// agent/test/others.uc prints them; others.out is what it must print.
+func TestAgentOthers(t *testing.T) {
+	ucode, err := exec.LookPath("ucode")
+	if err != nil {
+		t.Skip("ucode is not installed; CI builds it (0040)")
+	}
+	modules, err := filepath.Abs(filepath.Join(agentDir, "files", "usr", "share", "ucode", "*.uc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(agentDir, "test", "others.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ucode, "-L", modules, filepath.Join(agentDir, "test", "others.uc"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if string(out) != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Errorf("an AP's own networks print other than others.out says:\n%s", out)
+	}
+}
