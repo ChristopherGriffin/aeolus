@@ -57,6 +57,9 @@ func (s *Server) removeNetworkFor(ap hierarchy.NodeID, ssid string, sections []s
 			ask.Sections = append(ask.Sections, sec)
 		}
 	}
+	// In one order however they were asked for: they are what tells this
+	// asking from another.
+	slices.Sort(ask.Sections)
 	return ask, nil
 }
 
@@ -122,7 +125,19 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 	} else if body.SSID != "" || len(body.Sections) > 0 {
 		return badRequest("ssid and sections are a remove-network's")
 	}
-	a, err := s.conds.AddActionWith(id, body.Kind, body.Target, string(c.actor), params)
+	// One open action of a kind for a target stands for every asking of
+	// it (0104). The taking out of a network is told from that of another
+	// by its sections: without them, a second network asked of an AP while
+	// the first waited was dropped, and its asker told it was asked.
+	target := body.Target
+	if body.Kind == "remove-network" {
+		var ask removeNetworkAsk
+		if err := json.Unmarshal(params, &ask); err != nil {
+			return err
+		}
+		target = strings.Join(ask.Sections, ",")
+	}
+	a, err := s.conds.AddActionWith(id, body.Kind, target, string(c.actor), params)
 	if err != nil {
 		return err
 	}

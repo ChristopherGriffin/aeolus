@@ -1067,7 +1067,8 @@ type radioState struct {
 // not by Aeolus, on one of its radios (0137): the section of its config it
 // is, by which it is asked for; its SSID; its security, as OpenWrt names
 // the encryption; the VLAN it is on, where its config says; whether it is
-// hidden, off, or offers fast transition; and how many clients are on it.
+// hidden, off, offers fast transition, or carries another AP's uplink (WDS);
+// and how many clients are on it.
 // Nothing of its key.
 type otherNetwork struct {
 	Section  string `json:"section"`
@@ -1079,7 +1080,9 @@ type otherNetwork struct {
 	Hidden   bool   `json:"hidden,omitempty"`
 	Off      bool   `json:"off,omitempty"`
 	FT       bool   `json:"ft,omitempty"`
-	Clients  int    `json:"clients"`
+	// WDS says another AP may hang off it, as its uplink.
+	WDS     bool `json:"wds,omitempty"`
+	Clients int  `json:"clients"`
 }
 
 // otherSectionRE is a section of an AP's config, by its name, or the name

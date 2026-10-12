@@ -629,7 +629,7 @@ function apply(out, version, hash) {
 	for (let p in out.changed) {
 		let cur = fs.readfile('/etc/config/' + p);
 		if (cur != null)
-			store(`${BACKUP}/${p}`, cur);
+			store(`${BACKUP}/${p}`, cur, 0o600);
 	}
 	let wifi = index(out.changed, 'wireless') >= 0;
 	let before = wifi ? wifi_down() : [];
@@ -1832,7 +1832,9 @@ function disconnect(a) {
 // first, as it was, key and all, in a file only root reads: Aeolus has no
 // copy of it, and could not put it back. Nothing is taken out that cannot
 // be kept. The Wi-Fi then reloads: the network's clients are off it, and
-// the others on its radios join again in a few seconds.
+// the others on its radios join again in a few seconds. What it says came
+// of it has nothing of the SSID, which may be more than the manager takes
+// for a result: plain words only.
 function remove_network(a) {
 	let p = type(a.params) == 'object' ? a.params : {};
 	let c = cursor();
@@ -1841,27 +1843,32 @@ function remove_network(a) {
 	let when = sprintf('%04d-%02d-%02d %02d:%02d:%02d', t.year, t.mon, t.mday, t.hour, t.min, t.sec);
 	fs.mkdir(DIR, 0o755);
 	fs.mkdir(REMOVED, 0o700);
-	let out = 0;
+	// Root's alone, whoever made it.
+	fs.chmod(REMOVED, 0o700);
+	let on = {};
 	for (let name in (type(p.sections) == 'array' ? slice(p.sections, 0, own_nets.MOST) : [])) {
 		let s = own_nets.find(w, name, p.ssid);
 		if (!s)
 			continue;
 		let path = sprintf('%s/%d-%s.uci', REMOVED, at, replace(s['.name'], /[^A-Za-z0-9_]/g, '_'));
-		if (!store(path, own_nets.kept(s, when, 'Taken out of /etc/config/wireless by Aeolus, as asked'), 0o600)) {
+		if (!store(path, own_nets.kept(s, when, 'Taken out of /etc/config/wireless by Aeolus, as asked'), 0o600) || !c.delete('wireless', s['.name'])) {
 			c.revert('wireless');
-			return { ok: false, result: 'it could not be kept in ' + REMOVED + ', so it was left as it is' };
+			return { ok: false, result: 'it could not be kept in ' + REMOVED + ' and taken out, so it was left as it is' };
 		}
-		c.delete('wireless', s['.name']);
-		out++;
+		for (let r in own_nets.radios(s))
+			on[r] = true;
 	}
-	if (!out)
+	let n = length(keys(on));
+	if (!n)
 		return { ok: false, result: 'it has no such network of its own now' };
 	if (!c.commit('wireless')) {
 		c.revert('wireless');
 		return { ok: false, result: 'its config could not be written, so it was left as it is' };
 	}
 	system('setsid wifi reload </dev/null >/dev/null 2>&1 &');
-	return { ok: true, result: sprintf('took %s out of %s; kept as it was in %s', p.ssid ? `"${p.ssid}"` : 'it', out == 1 ? 'one radio' : out + ' radios', REMOVED) };
+	// Said to the manager at once, in its next state report, and not five
+	// minutes on: what it shows of this AP's own is then as it is.
+	return { ok: true, report: true, result: sprintf('took it out of %s; kept as it was in %s', n == 1 ? 'one radio' : n + ' radios', REMOVED) };
 }
 
 // The client test (0121): on an AP with a scan radio, that radio joins one
@@ -1957,13 +1964,15 @@ function tests_done(token) {
 }
 
 // do_actions fetches the actions that wait for this AP, does each, and says
-// what came of it (0104).
+// what came of it (0104). It says whether one changed what the AP reports
+// of itself, so that its state is reported at once.
 function do_actions(token) {
 	let r = http('GET', '/v1/ap/actions', null, token);
 	if (r.status != 200) {
 		fail('actions: %s', describe(r));
-		return;
+		return false;
 	}
+	let report = false;
 	let kinds = { locate: locate, 'restart-wifi': restart_wifi, reboot: reboot_ap, disconnect: disconnect, 'client-test': client_test, 'remove-network': remove_network };
 	for (let a in r.json?.actions ?? []) {
 		let out = kinds[a.kind] ? kinds[a.kind](a) : { ok: false, result: 'this agent cannot ' + a.kind };
@@ -1971,10 +1980,14 @@ function do_actions(token) {
 		// One that runs on beside the agent is said of when it is done.
 		if (out.pending)
 			continue;
+		if (out.report)
+			report = true;
+		delete out.report;
 		let d = http('POST', `/v1/ap/actions/${a.id}`, out, token);
 		if (d.status != 200)
 			fail('action %s: %s', a.kind, describe(d));
 	}
+	return report;
 }
 
 function main() {
@@ -2058,8 +2071,8 @@ function main() {
 			last_state = 0;
 		}
 		// Actions a person asked of this AP, once each (0104).
-		if (reached && int(header(r, 'Aeolus-Actions') ?? '0') > 0)
-			do_actions(token);
+		if (reached && int(header(r, 'Aeolus-Actions') ?? '0') > 0 && do_actions(token))
+			last_state = 0;
 		if (reached)
 			tests_done(token);
 		// What the AP is, where it has changed (0122).

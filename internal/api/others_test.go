@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -82,6 +83,38 @@ func TestOtherNetworks(t *testing.T) {
 	secs, _ := p["sections"].([]any)
 	if a["kind"] != "remove-network" || p["ssid"] != "Sweet Spot" || len(secs) != 2 || secs[0] != "default_radio1" || secs[1] != "wifinet2" {
 		t.Errorf("what the AP is handed: %v", a)
+	}
+	// Another network asked of the same AP while one waits is another
+	// action, and the same network asked again is the one that waits:
+	// each answered with what was asked.
+	first := func(b map[string]any) (float64, string) {
+		t.Helper()
+		code, body := f.do("POST", "/v1/aps/"+ap+"/actions", "griff", b)
+		if code != 200 {
+			t.Fatalf("%v: %d %v", b, code, body)
+		}
+		a := body["action"].(map[string]any)
+		return a["id"].(float64), a["params"].(map[string]any)["ssid"].(string)
+	}
+	iot, was := first(map[string]any{"kind": "remove-network", "ssid": "Sweet_Spot_IoT", "sections": []string{"default_radio0"}})
+	if was != "Sweet_Spot_IoT" {
+		t.Errorf("asked for the IoT network, answered with %q", was)
+	}
+	spot, was := first(map[string]any{"kind": "remove-network", "ssid": "Sweet Spot", "sections": []string{"wifinet2"}})
+	if was != "Sweet Spot" || spot == iot {
+		t.Errorf("asked for Sweet Spot on one radio while the IoT network waits: action %v (the IoT one is %v), answered with %q", spot, iot, was)
+	}
+	if again, _ := first(map[string]any{"kind": "remove-network", "ssid": "Sweet Spot", "sections": []string{"wifinet2"}}); again != spot {
+		t.Errorf("the same asked again: action %v, want the one that waits, %v", again, spot)
+	}
+	_, _, got = f.apDo("GET", "/v1/ap/actions", token, nil, nil)
+	if list, _ := got["actions"].([]any); len(list) != 2 {
+		t.Errorf("the AP is handed %d actions, want the two that wait: %v", len(list), got)
+	}
+	// What an AP says came of it is plain words, whatever the SSID: the
+	// manager takes no other.
+	if code, _, body := f.apDo("POST", "/v1/ap/actions/"+strconv.FormatInt(int64(spot), 10), token, map[string]any{"ok": true, "result": "took it out of one radio; kept as it was in /etc/aeolus/removed"}, nil); code != 200 {
+		t.Errorf("done: %d %v", code, body)
 	}
 	// One who may not see the AP is not told it is there.
 	if code, _ := f.do("POST", "/v1/aps/"+ap+"/actions", "office", map[string]any{"kind": "remove-network", "ssid": "Sweet Spot", "sections": []string{"wifinet2"}}); code != 404 {

@@ -23,7 +23,7 @@ function pkg(list) {
 // An AP with two radios and a scan radio of airscan's. Of its own: an IoT
 // network on both bands, on VLAN 10; a trusted one on both, on VLAN 20,
 // with fast transition and a list of clients kept off; a hidden one that
-// is off; one with no name of its own, on the AP's own LAN, on two radios
+// is off; one another AP hangs off (WDS); one with no name of its own, on the AP's own LAN, on two radios
 // at once; the station it reaches its uplink by, which is no network; one
 // on the scan radio; and Aeolus's own.
 let wireless = pkg([
@@ -34,6 +34,7 @@ let wireless = pkg([
 	['wifi-iface', 'wifinet2', { device: 'radio0', mode: 'ap', ssid: 'Sweet Spot', encryption: 'psk2', key: "it's a secret", network: 'wifi_trusted', ieee80211r: '1' }],
 	['wifi-iface', 'wifinet3', { device: 'radio1', mode: 'ap', ssid: 'Sweet_Spot_IoT', encryption: 'psk2', key: 'not-the-real-one', network: 'wifi_iot' }],
 	['wifi-iface', 'quiet', { device: 'radio1', ssid: 'Back room', encryption: 'sae-mixed', key: 'another', network: 'named', hidden: '1', disabled: '1' }],
+	['wifi-iface', 'backhaul', { device: 'radio1', mode: 'ap', wds: '1', ssid: 'Far barn', encryption: 'psk2', key: 'a-third', network: 'lan' }],
 	['wifi-iface', null, { device: ['radio0', 'radio1'], ssid: 'Open house', encryption: 'none', network: 'lan' }],
 	['wifi-iface', 'uplink', { device: 'radio1', mode: 'sta', ssid: 'Upstream', encryption: 'psk2', key: 'x', network: 'wwan' }],
 	['wifi-device', 'radio2', { type: 'mac80211', band: '5g', airscan: '1' }],
@@ -63,6 +64,9 @@ printf('an AP with no Wi-Fi config: %J\n', others.list(null, null, null));
 // another by now.
 for (let ask in [['wifinet2', 'Sweet Spot'], ['wifinet2', 'Sweet_Spot_IoT'], ['aeolus_lab_radio0', 'Aeolus Lab'], ['uplink', 'Upstream'], ['radio0', ''], ['nosuch', 'x'], ['quiet', 'Back room']])
 	printf('find %s, %J: %J\n', ask[0], ask[1], others.find(wireless, ask[0], ask[1])?.['.name'] ?? null);
+
+// The radios a section is on, however its config names them.
+printf('radios: %J %J %J\n', others.radios(others.find(wireless, 'wifinet2', 'Sweet Spot')), others.radios(filter(values(wireless), s => s.ssid == 'Open house')[0]), others.radios({ device: ' radio0  radio1 ' }));
 
 // As it is kept before it is taken out: its options and its lists, a quote
 // in a value as uci writes one, under a line that says what the file is.

@@ -53,23 +53,29 @@ export function othersPanel(page, reports) {
 	const remove = (n) => {
 		const clients = n.on.reduce((sum, a) => sum + a.entries.reduce((s, e) => s + (e.clients || 0), 0), 0);
 		const aps = n.on.map((a) => a.ap.name);
+		const wds = n.on.some((a) => a.entries.some((e) => e.wds));
 		box.replaceChildren(h('div', { class: 'preview', 'data-editing': true },
 			h('div', null, h('strong', null, `Take ${named(n)} out of ${listed(aps)}?`)),
+			wds && h('div', { class: 'sub warn' }, 'Another AP may reach the network through it (WDS). Taking it out would cut that AP off.'),
 			h('div', { class: 'sub warn' }, `${clients === 0 ? 'No client is on it now.' : clients === 1 ? 'Its one client is disconnected, and cannot join it again.' : `Its ${clients} clients are disconnected, and cannot join it again.`} The other networks on the same radios drop for a few seconds while the Wi-Fi reloads.`),
 			h('div', { class: 'sub' }, 'Aeolus has no copy of this network or its passphrase. Each AP keeps what it takes out, as it was, in /etc/aeolus/removed on the AP, to be put back by hand. It does it on its next poll, within about a minute.'),
 			h('div', { class: 'actions' },
 				h('button', { type: 'button', class: 'button danger', onclick: async (e) => {
 					e.currentTarget.disabled = true;
-					const failed = [];
+					const failed = [], asked = [];
 					for (const a of n.on) {
 						try {
-							await post(`/v1/aps/${encodeURIComponent(a.ap.id)}/actions`, { kind: 'remove-network', ssid: n.ssid, sections: distinct(a.entries.map((x) => x.section)) });
+							const res = await post(`/v1/aps/${encodeURIComponent(a.ap.id)}/actions`, { kind: 'remove-network', ssid: n.ssid, sections: distinct(a.entries.map((x) => x.section)) });
+							// What was asked is what the manager has: not another asking that stood in for it.
+							if (res.action?.params?.ssid !== n.ssid) throw new Error('another asking of this AP is waiting: try again in a minute');
+							asked.push(a.ap.name);
 						} catch (err) {
 							failed.push(`${a.ap.name}: ${err.message}`);
 						}
 					}
 					if (failed.length) {
 						box.replaceChildren(h('div', { 'data-editing': true }, failed.map((f) => h('div', { class: 'error' }, f)),
+							asked.length > 0 && h('div', { class: 'sub' }, `Asked of ${listed(asked)} all the same: ${asked.length === 1 ? 'it takes' : 'each takes'} it out on its next poll.`),
 							h('button', { type: 'button', class: 'button', onclick: () => box.replaceChildren() }, 'Close')));
 						return;
 					}
@@ -87,7 +93,8 @@ export function othersPanel(page, reports) {
 		return h('tr', null,
 			h('td', null, n.ssid || h('span', { class: 'sub' }, 'no name'),
 				all.some((e) => e.hidden) && h('span', { class: 'chip idle', title: 'It does not say its name: a client must know it' }, 'hidden'),
-				all.every((e) => e.off) && h('span', { class: 'chip idle', title: 'It is turned off on the AP, or its radio is' }, 'off')),
+				all.every((e) => e.off) && h('span', { class: 'chip idle', title: 'It is turned off on the AP, or its radio is' }, 'off'),
+				all.some((e) => e.wds) && h('span', { class: 'chip idle', title: 'Another AP may reach the network through it (WDS): taking it out would cut that AP off' }, 'WDS')),
 			h('td', null, distinct(all.map((e) => secured(e.security))).join(' / '),
 				all.some((e) => e.ft) && h('span', { class: 'sub', title: 'It offers fast transition between APs (802.11r)' }, ' · 802.11r')),
 			h('td', { title: vlans.length ? null : 'Its AP’s config does not say: as on the AP’s own LAN' }, vlans.length ? vlans.join(', ') : '—'),

@@ -23,6 +23,11 @@ function names(v) {
 	return filter(type(v) == 'array' ? v : split(v ?? '', /[ \t]+/), x => length(x) > 0);
 }
 
+// radios is the radios a section is on.
+function radios(s) {
+	return names(s?.device);
+}
+
 // vlan is the VLAN a network of the AP's is on, where its device says: a
 // VLAN device with its number, or one named for it, as br-lan.20. Nothing
 // where it does not, as on the AP's own LAN.
@@ -51,9 +56,10 @@ function theirs(s) {
 
 // list is the AP's own networks, a radio of each at a time, in the order
 // its config has them: {section, radio, band, ssid, security, clients,
-// vlan?, hidden?, off?, ft?}. security is the encryption as OpenWrt names
-// it. clients(section, radio) says how many clients one has now. Nothing of
-// a key, and nothing on a radio another service owns (0081).
+// vlan?, hidden?, off?, ft?, wds?}. security is the encryption as OpenWrt
+// names it; wds says another AP may hang off it, as its uplink.
+// clients(section, radio) says how many clients one has now. Nothing of a
+// key, and nothing on a radio another service owns (0081).
 function list(wireless, network, clients) {
 	let out = [];
 	let secs = sort(values(wireless ?? {}), (a, b) => (a['.index'] ?? 0) - (b['.index'] ?? 0));
@@ -76,6 +82,8 @@ function list(wireless, network, clients) {
 				e.clients = clients(s['.name'], r) ?? 0;
 			if (s.ieee80211r == '1')
 				e.ft = true;
+			if (s.wds == '1')
+				e.wds = true;
 			push(out, e);
 			if (length(out) >= MOST)
 				return out;
@@ -102,4 +110,4 @@ function kept(s, when, why) {
 
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
-export { MOST, list, find, kept };
+export { MOST, list, find, kept, radios };
