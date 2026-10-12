@@ -771,11 +771,75 @@ function route_args(r, dev, table) {
 
 // Exported in one statement: this ucode version cannot parse a comment
 // that follows an exported function declaration.
+// dns_query is a question for a name's IPv4 address, with recursion asked
+// for: what the AP asks each of its name servers on its own way out (0142).
+// Null for a name that is none.
+function dns_query(id, name) {
+	let q = u16(id) + chr(1) + chr(0) + u16(1) + u16(0) + u16(0) + u16(0);
+	for (let label in split(name ?? '', '.')) {
+		if (!length(label) || length(label) > 63)
+			return null;
+		q += chr(length(label)) + label;
+	}
+	return length(q) > 12 && length(q) <= 12 + 254 ? q + chr(0) + u16(1) + u16(1) : null;
+}
+
+// dns_answer reads a name server's answer to the question id: {rcode,
+// address}, address being the first IPv4 address it gives, or null where it
+// gives none. Null for what is no answer to that question.
+function dns_answer(pkt, id) {
+	if (length(pkt ?? '') < 12 || get16(pkt, 0) != id || !(ord(pkt, 2) & 0x80))
+		return null;
+	let out = { rcode: ord(pkt, 3) & 15, address: null };
+	let at = 12, end = length(pkt);
+	// A name is labels up to an empty one, or ends at a pointer.
+	let name = function() {
+		while (at < end) {
+			let n = ord(pkt, at);
+			if (n >= 192) {
+				at += 2;
+				return;
+			}
+			at += 1 + n;
+			if (n == 0)
+				return;
+		}
+	};
+	for (let i = get16(pkt, 4); i > 0 && at < end; i--) {
+		name();
+		at += 4;
+	}
+	for (let i = get16(pkt, 6); i > 0 && at < end; i--) {
+		name();
+		if (at + 10 > end)
+			break;
+		let type = get16(pkt, at), len = get16(pkt, at + 8);
+		at += 10;
+		if (type == 1 && len == 4 && at + 4 <= end) {
+			out.address = ip4_text(pkt, at);
+			break;
+		}
+		at += len;
+	}
+	return out;
+}
+
+// out_state says how one thing on the AP's own way out is doing (0142), its
+// gateway, a name server or the internet: up where it answered within
+// misses asks, every seconds apart; silent where it has been asked that
+// long and has not; unknown until then.
+function out_state(now, since, answered, every, misses) {
+	if (answered != null && now - answered <= misses * every)
+		return 'up';
+	return now - since >= misses * every ? 'silent' : 'unknown';
+}
+
 export {
 	GUARD_DST, GUARD_TYPE, OVERLAY_FILTER, GUARD_FILTER, WATCH_FILTER, LLDP_FILTER, WATCH_SPAN,
 	DHCP_FILTER, DHCP_WAIT, DHCP_QUIET, DHCP_WINDOW, DHCP_MEMORY,
 	mac_text, ip6, ip6_text, checksum, segment_mac, arp_probe, dhcp, dhcp_reply, echo6, answer,
 	echo4, echo4_answer, echo6_plain, echo6_plain_answer,
 	guard_frame, guard_seen, verdict, switch_step, link_local, lldp, watch_verdict,
-	dhcp_seen, arp_seen, request_state, client_dhcp, prefix4, start_routes, missing_routes, route_args
+	dhcp_seen, arp_seen, request_state, client_dhcp, prefix4, start_routes, missing_routes, route_args,
+	dns_query, dns_answer, out_state
 };

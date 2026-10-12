@@ -48,6 +48,7 @@ var Coverage = map[string]string{
 
 	"system.country":               "",
 	"system.captures":              "",
+	"system.internet":              "",
 	"system.tz":                    "",
 	"system.ntp":                   "",
 	"system.syslog":                "",
@@ -279,6 +280,7 @@ func CheckAP(doc map[string]any, c *uci.Config, ap string) []string {
 	k.bond(obj(doc, "uplink"))
 	k.guardInterval(obj(doc, "radio"), radios)
 	k.captures(obj(doc, "system"))
+	k.internet(obj(doc, "system"))
 	sort.Strings(k.problems)
 	if k.problems == nil {
 		return []string{}
@@ -520,6 +522,31 @@ func (k *checker) guardInterval(set map[string]any, radios []device) {
 	for _, o := range slices.Sorted(maps.Keys(want)) {
 		k.option(where, s, o, want[o])
 	}
+}
+
+// internet checks what the prober is told to ask of the internet (0142):
+// the agent's path section names the target where system.internet is set,
+// and is there only then.
+func (k *checker) internet(system map[string]any) {
+	const where = "aeolus.aeolus_path"
+	s := k.c.Package("aeolus").Named("aeolus_path")
+	target, _ := system["internet"].(string)
+	if target == "" {
+		if s != nil {
+			k.add("%s: no internet target is set, but the section is there", where)
+		}
+		return
+	}
+	if s == nil || s.Type != "path" {
+		k.add("%s: an internet target is set, but the section is missing", where)
+		return
+	}
+	for _, o := range s.Names() {
+		if o != "internet" {
+			k.add("%s: %s is %q, and nothing calls for it", where, o, value(s, o))
+		}
+	}
+	k.option(where, s, "internet", target)
 }
 
 // captures checks whether aeolus-journey keeps a capture of each attempt
@@ -2042,6 +2069,7 @@ func (k *checker) probes(doc map[string]any) {
 	expected["aeolus_rrm"] = true     // radio resource management's, which k.rrm judges (0073)
 	expected["aeolus_gi"] = true      // the 802.11ax guard interval's, which k.guardInterval judges (0089)
 	expected["aeolus_journey"] = true // captures of failed attempts set off, which k.captures judges (0135)
+	expected["aeolus_path"] = true    // the internet target, which k.internet judges (0142)
 	expected["aeolus_steer"] = true   // the networks whose clients are steered, which k.steer judges (0138)
 	expected[Unbond] = true           // a bond taken apart, which k.bond judges (0096)
 	if a != nil {

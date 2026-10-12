@@ -1259,6 +1259,20 @@ function captures(a, intent, keep) {
 	keep['aeolus_journey'] = true;
 }
 
+// way_out names the internet to the prober (0142): what the AP asks, to say
+// whether the internet answers and how long it takes, where the config
+// names one. With none there is no section, and nothing of the internet is
+// asked.
+function way_out(a, intent, keep) {
+	let target = intent.system?.internet;
+	if (target == null || target == '') {
+		delete a.aeolus_path;
+		return;
+	}
+	put(a, 'aeolus_path', 'path', { internet: target });
+	keep['aeolus_path'] = true;
+}
+
 // host_port splits "host", "host:port", "[v6]" or "[v6]:port".
 function host_port(s) {
 	let m = match(s, /^\[([^\]]+)\](:([0-9]+))?$/);
@@ -1625,6 +1639,7 @@ function render(intent, current, facts) {
 	stp(cfg.network, intent, facts ?? {}, errors, needs);
 	guard_interval(cfg.aeolus, cfg.wireless, intent, keep);
 	captures(cfg.aeolus, intent, keep);
+	way_out(cfg.aeolus, intent, keep);
 	steer(cfg.aeolus, intent, keep);
 	for (let k in keys(cfg.aeolus))
 		if (owned(k) && !keep[k])

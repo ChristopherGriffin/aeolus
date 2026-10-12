@@ -506,6 +506,164 @@ function radius_report(at) {
 	return slice(out, 0, 64);
 }
 
+// The AP's own way out (0142): the gateway of the interface that holds its
+// default route, the name servers that interface was given, and the
+// internet, where the config names a target. Each is asked every OUT_EVERY
+// seconds, and is silent once OUT_MISSES asks in a row go unanswered.
+// wayout.pings are the gateway and the internet, pinged as tunnels' far
+// ends are: { addr, six, start, interval, sent, seq, ok, rtt, since }.
+// wayout.dns are the name servers, by address: { server, sock, id, sent,
+// answered, rtt, rcode, since }. wayout.found is the internet target's own
+// address, where it is a name: the name servers are asked for it, so it is
+// never looked up in a way that could hold everything else here up.
+const OUT_EVERY = 30;
+const OUT_MISSES = 3;
+let wayout = { plan: null, pings: {}, dns: {}, found: null, next: 0 };
+
+function is_address(s) {
+	return match(s ?? '', /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) != null;
+}
+
+// host_of is the host a URL names, where it names one that is no IPv6
+// address.
+function host_of(url) {
+	let m = match(url ?? '', /^[a-z]+:\/\/([^\/:\[\]]+)/);
+	return m ? m[1] : null;
+}
+
+// out_plan reads where the AP's own traffic goes out: the interface with
+// its default route, as netifd has it, its gateway and name servers; and
+// from the agent's config, the internet target and the manager. The name
+// the servers are asked for is the internet target's, where that is a name;
+// else the manager's own; else a time server's: one the AP has to find to
+// work, so that the servers are asked wherever it has any such name.
+function out_plan(at) {
+	let c = confdir ? cursor(confdir) : cursor();
+	let m = null, gw = null;
+	for (let i in bus.call('network.interface', 'dump')?.interface ?? []) {
+		if (i.ip4table || m)
+			continue;
+		for (let r in i.route ?? [])
+			if (r.target == '0.0.0.0' && r.mask == 0 && r.nexthop) {
+				m = i;
+				gw = r.nexthop;
+				break;
+			}
+	}
+	if (!m) {
+		for (let s, d in wayout.dns)
+			close(d.sock);
+		wayout = { plan: null, pings: {}, dns: {}, found: null, next: wayout.next };
+		return;
+	}
+	let a = m['ipv4-address']?.[0];
+	let internet = c.get('aeolus', 'aeolus_path', 'internet');
+	let host = host_of(c.get('aeolus', 'agent', 'url'));
+	let names = [internet, host, ...list(c.get('system', 'ntp', 'server'))];
+	let name = filter(names, n => type(n) == 'string' && length(n) && !is_address(n) && index(n, ':') < 0)[0];
+	let p = {
+		interface: m.interface, device: m.l3_device ?? m.device, address: a?.address, mask: a?.mask, gateway: gw,
+		servers: slice(filter(m['dns-server'] ?? [], is_address), 0, 3), internet: internet, name: name,
+	};
+	if (wayout.plan?.name != name || wayout.plan?.internet != internet) {
+		wayout.found = null;
+		delete wayout.pings.internet;
+	}
+	// Another gateway is another thing, asked afresh.
+	if (wayout.plan?.gateway != gw)
+		delete wayout.pings.gateway;
+	wayout.plan = p;
+	let want = { gateway: gw, internet: internet ? (is_address(internet) ? internet : wayout.found) : null };
+	// What is new is asked at once, and not left to the next turn.
+	let made = false;
+	for (let k in ['gateway', 'internet']) {
+		if (!want[k])
+			delete wayout.pings[k];
+		else if (!wayout.pings[k]) {
+			wayout.pings[k] = { addr: want[k], six: false, start: null, interval: OUT_EVERY, sent: {}, seq: 0, ok: null, rtt: null, since: at };
+			made = true;
+		}
+		else if (wayout.pings[k].addr != want[k]) {
+			// Another address for the same thing: asked from now on, and
+			// silent still until it answers.
+			wayout.pings[k].addr = want[k];
+			wayout.pings[k].sent = {};
+		}
+	}
+	for (let s in keys(wayout.dns))
+		if (!name || !(s in p.servers)) {
+			close(wayout.dns[s].sock);
+			delete wayout.dns[s];
+		}
+	if (name)
+		for (let s in p.servers)
+			if (!wayout.dns[s]) {
+				wayout.dns[s] = { server: s, sock: null, id: math.rand() & 0xffff, sent: null, answered: null, rtt: null, rcode: null, since: at };
+				made = true;
+			}
+	if (made)
+		wayout.next = at;
+}
+
+// on_out reads a name server's answers: one to the last question, whatever
+// it says, shows the server answers, and how long it took.
+function on_out(d, at) {
+	while (true) {
+		let reply = d.sock?.recv(1500, socket.MSG_DONTWAIT);
+		if (!length(reply ?? ''))
+			return;
+		let a = d.sent != null ? probe.dns_answer(reply, d.id) : null;
+		if (!a)
+			continue;
+		d.rtt = (at - d.sent) * 1000;
+		d.answered = at;
+		d.rcode = a.rcode;
+		d.sent = null;
+		// The internet target's own address, where it was the name asked
+		// for. A name with several gives them in turn: the first is kept
+		// while it answers, and another taken only once it has gone silent.
+		if (a.address && wayout.plan?.internet && wayout.plan.internet == wayout.plan.name) {
+			let p = wayout.pings.internet;
+			if (wayout.found == null || (p && probe.out_state(at, p.since, p.ok, OUT_EVERY, OUT_MISSES) == 'silent'))
+				wayout.found = a.address;
+		}
+	}
+}
+
+// out_report is the AP's own way out as it is now: the interface and its
+// address, then the gateway, each name server and the internet, each with
+// whether it answers (up, silent, or unknown until asked long enough), how
+// long its last answer took in ms while it answers, and how many seconds
+// ago that was. An internet target that is a name no server has given an
+// address for is unresolved.
+function out_report(at) {
+	let p = wayout.plan;
+	if (!p)
+		return null;
+	let one = function(x) {
+		let state = probe.out_state(at, x.since, x.ok, OUT_EVERY, OUT_MISSES);
+		return { address: x.addr, state: state, ms: state == 'up' ? tenth(x.rtt) : null, ago: x.ok != null ? int(at - x.ok) : null };
+	};
+	let r = { interface: p.interface, device: p.device, address: p.address, mask: p.mask };
+	if (wayout.pings.gateway)
+		r.gateway = one(wayout.pings.gateway);
+	r.dns = [];
+	for (let s in p.servers) {
+		let d = wayout.dns[s];
+		if (!d) {
+			push(r.dns, { server: s });
+			continue;
+		}
+		let state = probe.out_state(at, d.since, d.answered, OUT_EVERY, OUT_MISSES);
+		push(r.dns, { server: s, state: state, ms: state == 'up' ? tenth(d.rtt) : null, ago: d.answered != null ? int(at - d.answered) : null, rcode: d.rcode });
+	}
+	if (p.name)
+		r.name = p.name;
+	if (p.internet)
+		r.internet = wayout.pings.internet ? { target: p.internet, ...one(wayout.pings.internet) } : { target: p.internet, state: 'unresolved' };
+	return r;
+}
+
 // heard notes that a frame came in on a watched VLAN (0064).
 function heard(vlan, at) {
 	let w = vlan != null ? watch.vlans['' + vlan] : null;
@@ -904,12 +1062,42 @@ function on_raw(r) {
 		if (!a)
 			continue;
 		let addr = r.six ? from.address : a.from;
-		for (let k, p in peers)
-			if (p.six == r.six && p.start == r.start && same(p.addr, addr) && p.sent[a.seq] != null) {
-				p.ok = now();
-				p.rtt = (p.ok - p.sent[a.seq]) * 1000;
-				delete p.sent[a.seq];
+		// The tunnels' far ends, and the AP's own gateway and internet (0142).
+		for (let set in [peers, wayout.pings])
+			for (let k, p in set)
+				if (p.six == r.six && p.start == r.start && same(p.addr, addr) && p.sent[a.seq] != null) {
+					p.ok = now();
+					p.rtt = (p.ok - p.sent[a.seq]) * 1000;
+					delete p.sent[a.seq];
+				}
+	}
+}
+
+// out_ask pings the gateway and the internet, and asks each name server
+// for the name (0142). It is here, after ping: a function is known only
+// below where it is written.
+function out_ask(at) {
+	for (let k, p in wayout.pings)
+		ping(p, at);
+	for (let s, d in wayout.dns) {
+		d.sent = null;
+		if (!d.sock) {
+			d.sock = socket.create(socket.AF_INET, socket.SOCK_DGRAM);
+			if (!d.sock?.connect({ address: d.server, port: 53 })) {
+				close(d.sock);
+				d.sock = null;
+				continue;
 			}
+		}
+		d.id = (d.id + 1) & 0xffff;
+		let q = probe.dns_query(d.id, wayout.plan?.name);
+		if (q == null || d.sock.send(q) == null) {
+			// The route or the socket went: opened again at the next ask.
+			close(d.sock);
+			d.sock = null;
+			continue;
+		}
+		d.sent = now();
 	}
 }
 
@@ -1577,6 +1765,7 @@ function results(at) {
 	store(out, sprintf('%J\n', {
 		at: time(), tunnels: tunnels, vlans: vlans, switches: switches, loops: lp, uplink: uplink,
 		dhcp: dhcp_results(at), clients: clients_report(at), starts: st, radius: radius_report(at),
+		out: out_report(at),
 	}));
 }
 
@@ -1617,6 +1806,7 @@ function main() {
 			open_lldp();
 			dhcp_scan(at);
 			radius_plan(at);
+			out_plan(at);
 			keep_routes(p.starts, at);
 			next_plan = at + PLAN_EVERY;
 		}
@@ -1630,6 +1820,11 @@ function main() {
 		// hostapd's own counts, as often as the servers are asked.
 		if (asked)
 			radius_counts(at);
+		// The AP's own way out (0142).
+		if (at >= wayout.next) {
+			out_ask(at);
+			wayout.next = at + OUT_EVERY;
+		}
 		for (let vni, t in tun)
 			if (at >= t.next) {
 				send_probes(t, at);
@@ -1669,6 +1864,7 @@ function main() {
 				due = min(due, g.next);
 		for (let k, r in rad)
 			due = min(due, r.next);
+		due = min(due, wayout.next);
 		if (length(watch.vlans))
 			due = min(due, watch.sock ? watch.until : watch.next);
 		let wait = max(10, min(1000, int((due - now()) * 1000)));
@@ -1707,6 +1903,12 @@ function main() {
 				by_rad[r.sock.fileno()] = k;
 				push(polls, [r.sock, socket.POLLIN]);
 			}
+		let by_out = {};
+		for (let k, d in wayout.dns)
+			if (d.sock) {
+				by_out[d.sock.fileno()] = k;
+				push(polls, [d.sock, socket.POLLIN]);
+			}
 		if (!length(polls)) {
 			sleep(wait);
 			continue;
@@ -1743,6 +1945,16 @@ function main() {
 			else if (by_rad[fd] != null && rad[by_rad[fd]]) {
 				let server = rad[by_rad[fd]];
 				on_radius(server, now());
+				// Its route or address went: the socket is opened again at
+				// the next ask.
+				if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
+					close(server.sock);
+					server.sock = null;
+				}
+			}
+			else if (by_out[fd] != null && wayout.dns[by_out[fd]]) {
+				let server = wayout.dns[by_out[fd]];
+				on_out(server, now());
 				// Its route or address went: the socket is opened again at
 				// the next ask.
 				if (r[1] & (socket.POLLERR | socket.POLLHUP)) {
