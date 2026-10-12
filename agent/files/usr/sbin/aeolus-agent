@@ -1926,7 +1926,7 @@ function tell_network(a) {
 			s ??= own_nets.find(w, name, p.ssid);
 	if (!s)
 		return { ok: false, result: 'it has no such network of its own now' };
-	return { ok: true, result: 'said its settings', detail: own_nets.told(c.get_all('network'), s) };
+	return { ok: true, result: 'said its settings', detail: own_nets.told(w, c.get_all('network'), s) };
 }
 
 // The client test (0121): on an AP with a scan radio, that radio joins one

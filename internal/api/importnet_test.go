@@ -28,7 +28,7 @@ func TestImportNetwork(t *testing.T) {
 		own("tri5", "radio1", "5g", "Tri", "sae-mixed"),
 	}
 	// Networks to try an answer on, one each.
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 16; i++ {
 		others = append(others, own(fmt.Sprintf("try%d", i), "radio0", "2g", fmt.Sprintf("Try %d", i), "psk2"))
 	}
 	if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60, "others": others}, nil); code != 200 {
@@ -116,7 +116,7 @@ func TestImportNetwork(t *testing.T) {
 	}
 	code, _, done := f.apDo("POST", "/v1/ap/actions/"+id, token, told("default_radio1", "Sweet Spot", map[string]any{
 		"device": "radio1", "network": "wifi_trusted", "mode": "ap", "ssid": "Sweet Spot", "encryption": "psk2+ccmp", "key": secret,
-		"ieee80211r": "1", "ft_over_ds": "0", "ft_psk_generate_local": "1", "isolate": "on", "macfilter": "deny", "maclist": []string{"F0:AD:4E:2E:3A:1F"},
+		"ieee80211r": "1", "ft_over_ds": "0", "ft_psk_generate_local": "1", "isolate": "true", "hidden": "on", "macfilter": "deny", "maclist": []string{"F0:AD:4E:2E:3A:1F"},
 		"ieee80211w": "1", "maxassoc": "40", "dtim_period": "300", "wps_pushbutton": "1",
 	}), nil)
 	if code != 200 {
@@ -139,6 +139,9 @@ func TestImportNetwork(t *testing.T) {
 	for k, want := range map[string]any{
 		"ssid": "Sweet Spot", "security": "wpa2-psk", "replace_own": true, "roaming.ft": true, "isolation": true,
 		"transport.primary.type": "vlan", "transport.primary.vlan": float64(20), "max_clients": float64(40), "dtim": nil,
+		// hidden 'on' is not on, as OpenWrt reads a Wi-Fi option: the AP
+		// says the network's name, and so does Aeolus's.
+		"hidden": nil,
 	} {
 		if val(k) != want {
 			t.Errorf("network.sweet-spot.%s = %v, want %v", k, val(k), want)
@@ -167,6 +170,16 @@ func TestImportNetwork(t *testing.T) {
 	_, log := f.do("GET", "/v1/changes", "griff", nil)
 	if raw, _ := json.Marshal(log); !strings.Contains(string(raw), "Imported from") || !strings.Contains(string(raw), `"griff"`) {
 		t.Errorf("the change is not in the log under the asker's name, with where it came from")
+	}
+
+	// Made, it is not made again: its own still shows on the AP until the
+	// AP has applied the network and reported anew.
+	if code, body := ask("griff", with("network", "sweet-again")); code != 409 || !strings.Contains(fmt.Sprint(body["error"]), "Aeolus's own already, as sweet-spot") {
+		t.Errorf("asked again once it is made: %d %v", code, body)
+	}
+	// Asked as the security the form showed: another is refused.
+	if code, body := ask("griff", map[string]any{"ssid": "Try 15", "sections": []string{"try15"}, "folder": "household", "network": "shown-other", "vlan": 20, "security": "wpa3-sae"}); code != 409 {
+		t.Errorf("asked as WPA3, of a network the AP has as WPA2: %d %v", code, body)
 	}
 
 	// What an AP may answer that makes nothing, each tried on a network of
@@ -219,6 +232,11 @@ func TestImportNetwork(t *testing.T) {
 		{"passphrases of its devices' own", func(ssid, section string) map[string]any {
 			return told(section, ssid, psk(ssid, map[string]any{"wpa_psk_file": "/etc/hostapd.psk"}))
 		}, "passphrases of their own, in a file"},
+		{"sections of its devices' own that hang on it", func(ssid, section string) map[string]any {
+			a := told(section, ssid, psk(ssid, nil))
+			a["detail"].(map[string]any)["stations"] = 2
+			return a
+		}, "in sections that go with it"},
 	} {
 		id, ssid, section := again(fmt.Sprintf("try-%d", n))
 		_, _, done := f.apDo("POST", "/v1/ap/actions/"+id, token, c.answer(ssid, section), nil)
@@ -281,8 +299,8 @@ func TestImportValues(t *testing.T) {
 	for i := 0; i < 50; i++ { // whichever order the options come in
 		v, left, err := importValues(ask, toldNetwork{SSID: "Corp", Options: opt(map[string]any{
 			"encryption": "wpa3-mixed", "auth_server": "10.0.0.5", "auth_port": "1645", "port": "1812", "auth_secret": "radius-secret", "acct_server": "10.0.0.6", "acct_secret": "acct-secret",
-			"nasid": "office-ap", "dae_client": "10.0.0.5", "dae_secret": "das-secret", "dae_port": "3799", "hidden": "true", "ieee80211k": "yes", "bss_transition": "enabled",
-			"multicast_to_unicast": "0", "dtim_period": "3", "macfilter": "disable", "maclist": []string{"02:00:00:00:00:01"}, "disabled": "on", "wpa_group_rekey": "3600", "bad name!": "x",
+			"nasid": "office-ap", "dae_client": "10.0.0.5", "dae_secret": "das-secret", "dae_port": "3799", "hidden": "true", "ieee80211k": "1", "bss_transition": "true", "ieee80211r": "1",
+			"multicast_to_unicast": "0", "dtim_period": "3", "macfilter": "disable", "maclist": []string{"02:00:00:00:00:01"}, "disabled": "1", "wpa_group_rekey": "3600", "bad name!": "x",
 		})})
 		if err != nil {
 			t.Fatal(err)
@@ -304,9 +322,20 @@ func TestImportValues(t *testing.T) {
 		if _, has := v["passphrase"]; has {
 			t.Fatalf("a network that signs clients in was given a passphrase")
 		}
-		if got, want := strings.Join(left, "; "), "wpa_group_rekey"; got != want {
+		// Fast transition on a network that signs clients in is not
+		// rendered yet: left behind and named, and the network made.
+		if _, has := v["roaming.ft"]; has {
+			t.Fatalf("fast transition was carried onto a network that signs clients in")
+		}
+		if got, want := strings.Join(left, "; "), "ieee80211r; wpa_group_rekey"; got != want {
 			t.Fatalf("left behind: %s, want %s", got, want)
 		}
+	}
+	// On is 1 or true, as OpenWrt reads a Wi-Fi option, and nothing else.
+	v, _, err := importValues(ask, toldNetwork{SSID: "Plain", Options: opt(map[string]any{"encryption": "psk2", "key": "long-enough-key",
+		"hidden": "on", "isolate": "yes", "ieee80211k": "enabled", "disabled": "TRUE", "wds": "on", "multicast_to_unicast": "true"})})
+	if err != nil || v["hidden"] != nil || v["isolation"] != nil || v["roaming.rrm"] != nil || v["enabled"] != nil || v["multicast_to_unicast"] != true {
+		t.Errorf("options spelled on, yes, enabled and TRUE: %v, %v", v, err)
 	}
 	// What cannot be Aeolus's at all.
 	for what, o := range map[string]map[string]any{
@@ -318,6 +347,9 @@ func TestImportValues(t *testing.T) {
 		"a VLAN for each client by file":  {"encryption": "psk2", "key": "long-enough-key", "vlan_file": "/etc/vlans"},
 		"VLANs from a RADIUS server":      {"encryption": "psk2", "key": "long-enough-key", "dynamic_vlan": "2"},
 		"MAC addresses asked of a server": {"encryption": "psk2", "key": "long-enough-key", "macfilter": "radius"},
+		"an open network beside it":       {"encryption": "owe", "owe_transition": "1"},
+		"WPA3 passwords in a file":        {"encryption": "sae", "key": "long-enough-key", "sae_password_file": "/etc/sae"},
+		"a backhaul":                      {"encryption": "psk2", "key": "long-enough-key", "multi_ap": "1"},
 	} {
 		if _, _, err := importValues(ask, toldNetwork{SSID: "X", Options: opt(o)}); err == nil {
 			t.Errorf("%s: made a network", what)
@@ -329,7 +361,8 @@ func TestImportValues(t *testing.T) {
 	}
 	// An open network has no key to carry, and one it has by mistake is
 	// neither carried nor named.
-	v, left, err := importValues(ask, toldNetwork{SSID: "Open", Options: opt(map[string]any{"encryption": "none", "key": "left-over"})})
+	var left []string
+	v, left, err = importValues(ask, toldNetwork{SSID: "Open", Options: opt(map[string]any{"encryption": "none", "key": "left-over"})})
 	if err != nil || v["security"] != "open" || v["passphrase"] != nil || len(left) != 0 {
 		t.Errorf("an open network: %v, left %v, %v", v, left, err)
 	}

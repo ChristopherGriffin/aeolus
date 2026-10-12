@@ -58,6 +58,9 @@ type toldNetwork struct {
 	SSID    string                     `json:"ssid"`
 	Options map[string]json.RawMessage `json:"options"`
 	VLAN    int                        `json:"vlan"`
+	// Stations is how many sections of the AP's config hang on this one:
+	// passphrases or VLANs of its devices' own (wifi-station, wifi-vlan).
+	Stations int `json:"stations"`
 }
 
 // aeolusSecurity is a network's security as Aeolus names it, from its
@@ -94,16 +97,17 @@ var importNeeds = map[string]string{
 	"sae_password": "it has WPA3 passwords of its own (sae_password)",
 	"vlan_file":    "it puts clients in VLANs by a file (vlan_file)",
 	"dynamic_vlan": "it puts clients in VLANs as a RADIUS server says (dynamic_vlan)",
+
+	"sae_password_file": "it has WPA3 passwords of its own, in a file (sae_password_file)",
+	"owe_transition":    "it has an open network beside it for clients without OWE (owe_transition)",
+	"multi_ap":          "another AP may reach the network through it (multi_ap)",
 }
 
-// uciTrue says a UCI option is on, as OpenWrt reads one: 1, true, on, yes
-// or enabled.
+// uciTrue says a Wi-Fi option is on, as OpenWrt reads one there: 1 or
+// true, and nothing else. A network with hidden 'on' says its name, and
+// would be made one that does not.
 func uciTrue(s string) bool {
-	switch strings.ToLower(s) {
-	case "1", "true", "on", "yes", "enabled":
-		return true
-	}
-	return false
+	return s == "1" || s == "true"
 }
 
 // importValues is the network Aeolus makes of one an AP said: its fields,
@@ -159,13 +163,21 @@ func importValues(ask importAsk, told toldNetwork) (map[string]any, []string, er
 	if on("wds") {
 		needs = append(needs, importNeeds["wds"])
 	}
-	for _, opt := range []string{"wpa_psk_file", "vlan_file", "sae_password"} {
+	for _, opt := range []string{"wpa_psk_file", "vlan_file", "sae_password", "sae_password_file"} {
 		if len(list(opt)) > 0 {
 			needs = append(needs, importNeeds[opt])
 		}
 	}
-	if on("ppsk") {
-		needs = append(needs, importNeeds["ppsk"])
+	for _, opt := range []string{"ppsk", "owe_transition"} {
+		if on(opt) {
+			needs = append(needs, importNeeds[opt])
+		}
+	}
+	if m := get("multi_ap"); m != "" && m != "0" {
+		needs = append(needs, importNeeds["multi_ap"])
+	}
+	if told.Stations > 0 {
+		needs = append(needs, "its devices have passphrases or VLANs of their own, in sections that go with it (wifi-station, wifi-vlan)")
 	}
 	if d := get("dynamic_vlan"); d != "" && d != "0" {
 		needs = append(needs, importNeeds["dynamic_vlan"])
@@ -227,9 +239,17 @@ func importValues(ask importAsk, told toldNetwork) (map[string]any, []string, er
 	// beyond that it was there.
 	used["key"] = true
 	for _, p := range [][2]string{{"hidden", "hidden"}, {"isolate", "isolation"}, {"ieee80211r", "roaming.ft"}, {"ieee80211k", "roaming.rrm"}, {"bss_transition", "roaming.btm"}} {
-		if on(p[0]) {
-			v[p[1]] = true
+		if !on(p[0]) {
+			continue
 		}
+		// Fast transition on a network that signs clients in is not
+		// rendered yet, and would have every AP's config held: left
+		// behind, and said, rather than the network refused for it.
+		if p[0] == "ieee80211r" && enterprise[sec] {
+			left = append(left, p[0])
+			continue
+		}
+		v[p[1]] = true
 	}
 	if on("disabled") {
 		v["enabled"] = false
@@ -367,7 +387,7 @@ func (s *Server) importReady(actor string, state *change.State, ask importAsk, v
 // the sections and SSID are what the AP last said it has, as for a taking
 // out; its security is one Aeolus has; and the change it will be, tried
 // now with a stand-in for what only the AP knows, is one that can be made.
-func (s *Server) importFor(c call, ap hierarchy.NodeID, ssid string, sections []string, folder, id string, bands []string, vlan int) (importAsk, error) {
+func (s *Server) importFor(c call, ap hierarchy.NodeID, ssid string, sections []string, folder, id string, bands []string, vlan int, shown string) (importAsk, error) {
 	sel, err := s.removeNetworkFor(ap, ssid, sections)
 	if err != nil {
 		return importAsk{}, err
@@ -411,6 +431,22 @@ func (s *Server) importFor(c call, ap hierarchy.NodeID, ssid string, sections []
 		return ask, &apiError{http.StatusConflict, fmt.Sprintf("its security (%s) is none Aeolus has a name for: it cannot be imported", printableText(encryption, 32))}
 	}
 	ask.Security = sec
+	// The security the form showed, where it says: the one asked for must
+	// be it. A network on 6 GHz alone at the AP asked is WPA3 there,
+	// whatever it is on another AP.
+	if shown != "" && shown != sec {
+		return ask, &apiError{http.StatusConflict, fmt.Sprintf("this AP has it as %s, not %s: import it from an AP that has it so", sec, shown)}
+	}
+	// One Aeolus has made its own already, which its AP has yet to take
+	// its own out for, or to report without: not made twice.
+	if res, err := s.compose(c.state, ap, s.reveal); err == nil && !res.Unassigned {
+		nets, _ := res.Doc["network"].(map[string]any)
+		for nid, n := range nets {
+			if n, _ := n.(map[string]any); n["ssid"] == ssid && n["replace_own"] == true {
+				return ask, &apiError{http.StatusConflict, fmt.Sprintf("it is Aeolus's own already, as %s: the AP takes its own out when it applies that, and says so in its next report", nid)}
+			}
+		}
+	}
 	// What only the AP knows has a stand-in here: the change is tried, and
 	// nothing of it is kept.
 	told := toldNetwork{Section: ask.Tell, SSID: ssid, Options: map[string]json.RawMessage{"encryption": mustJSON(encryption)}}

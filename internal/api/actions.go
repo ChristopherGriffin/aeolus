@@ -98,6 +98,8 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		Folder string   `json:"folder"`
 		Bands  []string `json:"bands"`
 		VLAN   int      `json:"vlan"`
+		// The security the asker was shown, which the import must be of.
+		Security string `json:"security"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		return err
@@ -139,7 +141,7 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		if body.On != "" || body.Band != "" || body.Remote != nil {
 			return badRequest("on, band and remote are a client-test's")
 		}
-		ask, err := s.importFor(c, id, body.SSID, body.Sections, body.Folder, body.Network, body.Bands, body.VLAN)
+		ask, err := s.importFor(c, id, body.SSID, body.Sections, body.Folder, body.Network, body.Bands, body.VLAN, body.Security)
 		if err != nil {
 			return err
 		}
@@ -148,8 +150,8 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 		}
 		sections = ask.Sections
 	default:
-		if body.SSID != "" || len(body.Sections) > 0 || body.Folder != "" || len(body.Bands) > 0 || body.VLAN != 0 {
-			return badRequest("ssid and sections are a remove-network's or an import-network's; folder, bands and vlan an import-network's")
+		if body.SSID != "" || len(body.Sections) > 0 || body.Folder != "" || len(body.Bands) > 0 || body.VLAN != 0 || body.Security != "" {
+			return badRequest("ssid and sections are a remove-network's or an import-network's; folder, bands, vlan and security an import-network's")
 		}
 	}
 	// One open action of a kind for a target stands for every asking of

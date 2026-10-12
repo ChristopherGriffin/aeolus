@@ -82,7 +82,7 @@ function list(wireless, network, clients) {
 				e.clients = clients(s['.name'], r) ?? 0;
 			if (s.ieee80211r == '1')
 				e.ft = true;
-			if (s.wds == '1')
+			if (s.wds in ['1', 'true'])
 				e.wds = true;
 			push(out, e);
 			if (length(out) >= MOST)
@@ -111,8 +111,10 @@ function kept(s, when, why) {
 // told is all there is to say of one of the AP's own networks, for Aeolus
 // to make it its own (0137): the section it is, its SSID, every option of
 // the section as it stands, its key among them, and the VLAN it is on.
-// Said only where a person asks, of this network, and never in a report.
-function told(network, s) {
+// With how many sections hang on it: passphrases or VLANs of its devices'
+// own, which are no part of it and would not come with it. Said only where
+// a person asks, of this network, and never in a report.
+function told(wireless, network, s) {
 	let options = {};
 	for (let k, v in s)
 		if (substr(k, 0, 1) != '.')
@@ -121,6 +123,9 @@ function told(network, s) {
 	let id = vlan(network, names(s.network)[0]);
 	if (id != null)
 		e.vlan = id;
+	let hung = length(filter(values(wireless ?? {}), x => x['.type'] in ['wifi-station', 'wifi-vlan'] && !mine(x['.name']) && x.iface == s['.name']));
+	if (hung)
+		e.stations = hung;
 	return e;
 }
 

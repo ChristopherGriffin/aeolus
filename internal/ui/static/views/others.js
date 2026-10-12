@@ -85,7 +85,10 @@ export function othersPanel(page, reports, into) {
 	const bring = (n) => {
 		const all = n.on.flatMap((a) => a.entries);
 		const sec = secOf(all);
-		const from = [...n.on].sort((a, b) => b.entries.reduce((s, e) => s + (e.clients || 0), 0) - a.entries.reduce((s, e) => s + (e.clients || 0), 0))[0];
+		// Asked of an AP that has it as that security: one that has it on
+		// 6 GHz alone has it as WPA3 there, whatever the others have.
+		const has = (a) => a.entries.some((e) => asAeolus(e.security) === sec);
+		const from = [...n.on].filter(has).sort((a, b) => b.entries.reduce((s, e) => s + (e.clients || 0), 0) - a.entries.reduce((s, e) => s + (e.clients || 0), 0))[0];
 		const offered = ORDER.filter((b) => into.bands.has(b) && (b !== '6g' || SIX.has(sec)));
 		const now = new Set(all.map((e) => e.band));
 		const folder = h('select', null, into.folders.map((f) => h('option', { value: f.id }, `Services › ${f.name}`)));
@@ -119,7 +122,7 @@ export function othersPanel(page, reports, into) {
 			try {
 				const res = await post(`/v1/aps/${encodeURIComponent(from.ap.id)}/actions`, {
 					kind: 'import-network', ssid: n.ssid, sections: distinct(from.entries.map((x) => x.section)),
-					folder: folder.value, network: id.value, bands: want, vlan: v });
+					folder: folder.value, network: id.value, bands: want, vlan: v, security: sec });
 				const got = res.action?.params || {};
 				if (res.action?.kind !== 'import-network' || got.network !== id.value || got.folder !== folder.value || got.vlan !== v || (got.bands || []).join() !== want.join())
 					throw new Error('another asking of this AP is waiting: try again in a minute');

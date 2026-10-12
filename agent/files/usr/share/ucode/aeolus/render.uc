@@ -683,8 +683,10 @@ function switching(cfg, id, net, intent, facts, errors, keep, uplink) {
 function same_network(s, net, six) {
 	if (owned(s['.name']) || (s.mode ?? 'ap') != 'ap' || (s.ssid ?? '') != net.ssid)
 		return false;
-	if (s.wds == '1' || s.macfilter in ['allow', 'radius'] || s.wpa_psk_file != null || s.vlan_file != null || s.sae_password != null ||
-		s.ppsk == '1' || (s.dynamic_vlan ?? '0') != '0')
+	// On, as OpenWrt reads a Wi-Fi option: 1 or true.
+	let is = (v) => v in ['1', 'true'];
+	if (is(s.wds) || is(s.ppsk) || is(s.owe_transition) || s.macfilter in ['allow', 'radius'] || s.wpa_psk_file != null || s.vlan_file != null ||
+		s.sae_password != null || s.sae_password_file != null || (s.dynamic_vlan ?? '0') != '0' || (s.multi_ap ?? '0') != '0')
 		return false;
 	let enc = split(s.encryption ?? 'none', '+')[0];
 	if (enc != ENCRYPTION[net.security] && !(six && enc == 'sae' && net.security == 'wpa2-wpa3'))
@@ -706,6 +708,10 @@ function replace_own(w, id, net, on, replaced) {
 		if (!length(radios) || length(filter(radios, r => index(on, r) < 0)))
 			continue;
 		if (!same_network(s, net, !length(filter(radios, r => w[r]?.band != '6g'))))
+			continue;
+		// Passphrases or VLANs of its devices' own hang on the section,
+		// and would hang on nothing.
+		if (length(filter(values(w), x => x['.type'] in ['wifi-station', 'wifi-vlan'] && !owned(x['.name']) && x.iface == s['.name'])))
 			continue;
 		push(replaced, { section: s['.name'], ssid: net.ssid, network: id });
 		delete w[s['.name']];
