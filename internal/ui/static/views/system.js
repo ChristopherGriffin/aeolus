@@ -15,6 +15,8 @@ const MORE = 'Management and more';
 const SECTIONS = [
 	['Place and time', ['system.country', 'system.tz', 'system.ntp']],
 	['Logging', ['system.syslog']],
+	// What an AP asks, to say whether the internet answers (0142).
+	['The way out', ['system.internet']],
 	// What an AP with a scan radio measures its speed against (0121).
 	['Client tests', ['system.speed_server', 'system.speed_server_remote']],
 	['SNMP', ['system.snmp.enabled', 'system.snmp.community', 'system.snmp.v3.user', 'system.snmp.v3.auth',

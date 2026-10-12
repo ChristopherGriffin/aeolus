@@ -212,6 +212,9 @@ type stateReport struct {
 	Steer *steerState `json:"steer,omitempty"`
 	// The RADIUS servers its networks sign clients in against (0114).
 	Radius []radiusState `json:"radius,omitempty"`
+	// Its own way out: its gateway, its name servers, the internet and the
+	// manager, each with how long it took to answer (0142).
+	Path *pathState `json:"path,omitempty"`
 	// How the AP itself is doing: processor, memory, storage, heat (0119).
 	Health *apHealth `json:"health,omitempty"`
 	// Its scan radio, where it has one (0126).
@@ -1265,6 +1268,7 @@ func (st *stateReport) check() error {
 		st.Others = st.Others[:64]
 	}
 	st.Steer = st.Steer.clean()
+	st.Path = st.Path.clean()
 	for _, b := range st.BSSIDs {
 		if !macRE.MatchString(b) {
 			return badRequest("bssids: each a MAC, such as 02:11:22:33:44:55")

@@ -194,6 +194,7 @@ Each milestone ends in something checkable before the next starts.
 | [0139](docs/decisions/0139-steerings-history.md) | Steering's history |
 | [0140](docs/decisions/0140-trends-by-the-hour.md) | Trends: what the reports came to, kept by the hour |
 | [0141](docs/decisions/0141-how-long-the-network-takes.md) | How long the network takes to answer, a VLAN at a time |
+| [0142](docs/decisions/0142-an-aps-own-way-out.md) | An AP's own way out, a hop at a time |
 
 ## Open questions
 

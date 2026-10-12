@@ -265,3 +265,25 @@ print('a gateway that is no address: ', probe.route_args({ dst: '0.0.0.0/0', via
 print('no status: ', probe.start_routes(null), '\n');
 for (let c in [['192.168.20.88', 24], ['10.1.2.3', 8], ['10.1.2.3', 32], ['10.1.2.3', 0], ['172.16.200.9', 13], ['300.1.1.1', 24], ['10.1.1.1', 33]])
 	print('prefix ', c[0], '/', c[1], ': ', probe.prefix4(c[0], c[1]), '\n');
+
+// The AP's own way out (0142): a question for a name, a server's answer to
+// it, and how a thing on the way is doing.
+let q = probe.dns_query(0x1234, 'one.one.one.one');
+print('dns query ', hexs(q), '\n');
+print('dns query of no name: ', probe.dns_query(1, ''), ' ', probe.dns_query(1, 'a..b'), ' ', probe.dns_query(1, null), '\n');
+// Two addresses, each named by a pointer to the question: the first is taken.
+let two = bytes([0x12, 0x34, 0x81, 0x80, 0, 1, 0, 2, 0, 0, 0, 0]) + substr(q, 12) +
+	bytes([0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 1, 1, 1, 1, 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 1, 0, 0, 1]);
+print('dns answer ', probe.dns_answer(two, 0x1234), '\n');
+print('dns answer to another question: ', probe.dns_answer(two, 0x1235), '\n');
+// An alias first, its name written out, then the address.
+let alias = bytes([0x12, 0x34, 0x81, 0x80, 0, 1, 0, 2, 0, 0, 0, 0]) + substr(q, 12) +
+	bytes([0xc0, 0x0c, 0, 5, 0, 1, 0, 0, 0, 60, 0, 7, 3, 0x6f, 0x6e, 0x65, 1, 0x78, 0, 3, 0x6f, 0x6e, 0x65, 1, 0x78, 0, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, 7]);
+print('dns answer by an alias ', probe.dns_answer(alias, 0x1234), '\n');
+// No such name; a question, which is no answer; and one cut short.
+print('dns answer, no such name ', probe.dns_answer(bytes([0x12, 0x34, 0x81, 0x83, 0, 1, 0, 0, 0, 0, 0, 0]) + substr(q, 12), 0x1234), '\n');
+print('dns question read as an answer: ', probe.dns_answer(q, 0x1234), '\n');
+print('dns answer cut short ', probe.dns_answer(substr(two, 0, length(two) - 3), 0x1234), ' ', probe.dns_answer(substr(two, 0, 20), 0x1234), ' ', probe.dns_answer(substr(two, 0, 8), 0x1234), '\n');
+// Asked every 30 s, silent after 3 unanswered: answered lately, never yet
+// and asked long, never yet and asked a little, and answered long ago.
+print('out state ', probe.out_state(100, 0, 95, 30, 3), ' ', probe.out_state(100, 0, null, 30, 3), ' ', probe.out_state(50, 0, null, 30, 3), ' ', probe.out_state(200, 0, 100, 30, 3), '\n');

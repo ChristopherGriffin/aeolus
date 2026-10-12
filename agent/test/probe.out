@@ -118,3 +118,12 @@ prefix 10.1.2.3/0: 0.0.0.0/0
 prefix 172.16.200.9/13: 172.16.0.0/13
 prefix 300.1.1.1/24: 
 prefix 10.1.1.1/33: 
+dns query 123401000001000000000000036f6e65036f6e65036f6e65036f6e650000010001
+dns query of no name:   
+dns answer { "rcode": 0, "address": "1.1.1.1" }
+dns answer to another question: 
+dns answer by an alias { "rcode": 0, "address": "192.0.2.7" }
+dns answer, no such name { "rcode": 3, "address": null }
+dns question read as an answer: 
+dns answer cut short { "rcode": 0, "address": "1.1.1.1" } { "rcode": 0, "address": null } 
+out state up silent unknown silent

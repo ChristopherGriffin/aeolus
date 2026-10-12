@@ -845,6 +845,10 @@ function port_state(d) {
 
 // probes reads what the prober found (0059), if it is recent: by VNI, how
 // each tunnel is doing, and the ports the loop guard took off their tunnels.
+// poll_ms is how long the manager took to answer the last config poll it
+// answered, in ms: the last step of the AP's own way out (0142).
+let poll_ms = null;
+
 function probes() {
 	let p = null;
 	try {
@@ -1588,6 +1592,15 @@ function state_report(running) {
 	let radius = probes()?.radius;
 	if (radius && length(radius))
 		report.radius = slice(radius, 0, 64);
+	// Its own way out, as the prober finds it: its gateway, its name
+	// servers and the internet; and how long the manager took to answer its
+	// last poll (0142).
+	let way = probes()?.out;
+	if (way) {
+		if (poll_ms != null)
+			way.manager = { ms: poll_ms };
+		report.path = way;
+	}
 	// Its scan radio, where it has one (0126).
 	// Its agent can make a client test over the wire (0128): it has the
 	// test, and the socket module the test is made with.
@@ -2115,7 +2128,12 @@ function main() {
 			token = read(TOKEN);
 		}
 		let extra = running != null && !whole ? { 'If-None-Match': `"${running}"` } : null;
+		let asked = clock(true);
 		let r = http('GET', '/v1/ap/config', null, token, extra);
+		if (r.status == 200 || r.status == 304) {
+			let got = clock(true);
+			poll_ms = int(((got[0] - asked[0]) * 1000 + (got[1] - asked[1]) / 1000000.0) * 10 + 0.5) / 10.0;
+		}
 		if (r.status == 401) {
 			log('the manager no longer knows this AP; enrolling again');
 			fs.unlink(TOKEN);
