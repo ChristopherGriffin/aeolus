@@ -501,6 +501,7 @@ a client let on, with 802.11w: left, stage key, 11050 ms, reason "it came again"
   how it came: { "alg": "sae", "on_ms": 200 }
 and asking to associate again, the AP asking for proof first: connected, stage key, 32000 ms, reason "", address null, host null
   { "t": 0, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  { "t": 1020, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
   { "t": 1030, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
   { "t": 1050, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 1080, "stage": "key", "what": "key handshake completed", "ok": true }

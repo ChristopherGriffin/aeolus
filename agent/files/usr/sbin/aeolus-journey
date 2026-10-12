@@ -552,7 +552,7 @@ function on_log(msg, at, wall_at) {
 		if (!anew && !journey.begins(e))
 			return;
 		let from = length(carry) ? carry[0].at : at;
-		a = start(e.bss, e.mac, from, wall_at - int((at - from) * 1000));
+		a = start(e.bss, e.mac, from, wall_at - int((at - from) * 1000 + 0.5));
 		if (!a)
 			return;
 		for (let l in carry)

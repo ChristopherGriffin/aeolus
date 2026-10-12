@@ -204,7 +204,7 @@ function fine(e, sub, t) {
 	if (sub == 'IEEE 802.11' && (m = match(t, /^association SA Query attempt ([0-9]+)/)))
 		return { ...e, stage: 'assoc', what: 'the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)', saq: int(m[1]), aside: true };
 	if (sub == 'IEEE 802.11' && match(t, /^association SA Query timed out/))
-		return { ...e, stage: 'assoc', what: 'no proof came, as from a client that had left: it is taken as new', aside: true };
+		return { ...e, stage: 'assoc', what: 'no proof came, as from a client that had left: it is taken as new', aside: true, asking: true };
 	// Its key from a sign-in before is taken, as it asks to associate, and
 	// it need not sign in again: one this AP holds from the client's last
 	// time here, or one made from its sign-in at another AP (opportunistic
@@ -593,9 +593,13 @@ function on_log(a, e, at) {
 	// Said after the client was let on, of a new asking: a step here, no
 	// part of how this coming came, and kept for the coming that may
 	// follow (carried).
-	let late = a.on != null && e.aside && (e.saq != null || e.pmk != null);
-	if (late && length(a.late) < 8)
+	let late = a.on != null && e.aside && (e.saq != null || e.pmk != null || e.asking === true);
+	if (late) {
+		// The latest are kept: they are the ones of a coming that follows.
+		if (length(a.late) >= 8)
+			shift(a.late);
 		push(a.late, { e: e, at: at });
+	}
 	// How it came (0136): by which authentication, by a reassociation,
 	// with a key from before, and how often the AP asked the client it
 	// remembered to prove itself. An authentication is a new try: what
