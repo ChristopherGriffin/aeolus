@@ -12,6 +12,7 @@
   - The changes are made in the service folder the network comes from, in one change (0045). The Services tree stays, so one network can serve many locations (0013).
   - The preview lists each change, names the service folder it changes, and lists every AP that gets a new config.
   - A field locked above that service folder cannot be changed there.
+- **A network's fallback may be None** (Griff, 2026-10-11). The fallback's type offered VLAN and VXLAN, and a dash only while the network had no fallback yet: one given could not be taken away. None is in the list always. Picked for a network that has a fallback, it unsets the fallback's settings in the folder that sets them, as a change of its own: fields are unset in one change and set in another, so what else the form would change is said, and left for a change after. A fallback that comes from a folder above is taken away there, and None says so.
 - **A network can be added from the Networks tab.**
   - It goes into one of the service folders that apply there and that the person may change.
   - Its name comes from its SSID, made to fit the schema's pattern and unlike any network already here.

@@ -564,6 +564,30 @@ function form(d, net, fields, folder, lib) {
 	const { body, inputs, rows } = fieldsForm(d, sections, byPath, folder, MORE);
 	pickers(prefix, rows, inputs, lib);
 	const typeOf = (slot) => rows.get(`${prefix}transport.${slot}.type`)?.it.el.value;
+	// A network may have no fallback: None, beside VLAN and VXLAN (Griff,
+	// 2026-10-11). The list had it only for a network that had none yet, as
+	// a dash, so a fallback once given could not be taken away. Picked for
+	// a network that has one, it takes the fallback's settings away where
+	// they are set in this folder; one that comes from a folder above is
+	// taken away there.
+	const fbType = rows.get(`${prefix}transport.fallback.type`)?.it.el;
+	const hadFallback = fields['transport.fallback.type']?.value != null;
+	const fallbackHere = Object.keys(fields).filter((k) => k.startsWith('transport.fallback.') && fields[k]?.origin === 'self');
+	if (fbType) {
+		let none = [...fbType.options].find((o) => o.value === '');
+		if (!none) {
+			none = h('option', { value: '' });
+			fbType.prepend(none);
+		}
+		none.textContent = 'None';
+		if (hadFallback && fields['transport.fallback.type'].origin !== 'self') {
+			none.disabled = true;
+			none.textContent = 'None: it comes from a folder above, and is taken away there';
+		}
+	}
+	// dropped is the fallback's settings to unset, where None was picked
+	// for a network that has a fallback.
+	const dropped = () => (fbType && fbType.value === '' && hadFallback ? fallbackHere.map((k) => prefix + k) : []);
 	// A VXLAN fallback can't go to the primary's far end, nor the primary to
 	// the fallback's: each list greys out the other's (Griff, 2026-10-06).
 	const tunnelOf = (slot) => (typeOf(slot) === 'vxlan' ? rows.get(`${prefix}transport.${slot}.concentrator`)?.it.read() : undefined);
@@ -675,7 +699,7 @@ function form(d, net, fields, folder, lib) {
 	}
 	sync();
 	guard();
-	return { body, inputs, rows, sync, clash };
+	return { body, inputs, rows, sync, clash, dropped };
 }
 
 function setOp(folder, values) {
@@ -718,7 +742,7 @@ function leftovers(n, values) {
 
 function editForm(ctx, d, n, close, lib) {
 	const folderName = ctx.name('services', n.from);
-	const { body, inputs, rows, clash } = form(d, n.id, n.fields, n.from, lib);
+	const { body, inputs, rows, clash, dropped } = form(d, n.id, n.fields, n.from, lib);
 	const box = h('div', { class: 'edit flush' });
 	const msg = h('div', { class: 'error' });
 	const review = async () => {
@@ -733,6 +757,26 @@ function editForm(ctx, d, n, close, lib) {
 			values = { ...values, ...leftovers(n, values) };
 		} catch (e) {
 			msg.replaceChildren(e.message);
+			return;
+		}
+		// Its fallback taken away (None): a change of its own, as fields
+		// are unset in one change and set in another. What else the form
+		// would change is left for a change after it, and said.
+		const drop = dropped();
+		if (drop.length) {
+			const op = { kind: 'unset', tree: 'services', node: n.from, paths: drop };
+			const p = await ask(box, op);
+			if (!p) return;
+			const was = n.fields['transport.fallback.type'].value;
+			const rest = Object.keys(values).map((k) => group(k).label);
+			confirm(ctx, box, op, p, [
+				h('div', null, h('strong', null, `${n.fields.ssid?.value || n.id} in Services › ${folderName}`)),
+				h('ul', { class: 'becomes' }, h('li', null, `Fallback: ${value(`network.${n.id}.transport.fallback.type`, was)} → none`)),
+				h('div', { class: 'sub' }, `The network travels over its first transport alone. This changes it in Services › ${folderName}, for every location that uses it.`),
+				rest.length > 0 && h('div', { class: 'sub' }, `Taking a fallback away is a change of its own: what else this form would change (${rest.join(', ')}) is not part of it, and can be made after.`),
+			], [
+				h('div', { class: 'sub warn' }, 'Applying restarts the Wi-Fi on each AP listed; its clients drop for a few seconds and reconnect.'),
+			]);
 			return;
 		}
 		if (!Object.keys(values).length) {
