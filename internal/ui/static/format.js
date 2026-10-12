@@ -239,6 +239,76 @@ export function switchPort(n) {
 	return `${n.system || n.chassis || 'the switch'} ${n.port || ''}`.trim() + (n.port_description ? ` (${n.port_description})` : '');
 }
 
+// ERRORS_WARN and ERRORS_BAD are how many of an uplink's frames were errors,
+// since it came up, before its errors are amber and red: one in 100,000,
+// and one in 1,000. A wrong duplex or a bad cable is far past the first; a
+// frame or two lost as the link came up is far short of it.
+const ERRORS_WARN = 1e-5, ERRORS_BAD = 1e-3;
+
+// uplinkBrief says an AP's uplink in a few words (Griff, 2026-10-12: an AP
+// that came up at the wrong port speed is to show on the APs tab, and a
+// port's errors somewhere). text is the speed each of its wires synced at,
+// a bond's members each, such as "2.5G" or "1G + 1G"; one below what its
+// port and the far end can both do says so, "100M of 1G". grade is warn for
+// that, for half duplex, and for a wire with no link beside one that has
+// it; bad where none has a link. says is the same in full, for a hover,
+// each wire with the switch and port its own LLDP names, where it says:
+// the wires of an uplink may go to different ports, or switches.
+// errors, where the uplink has counted any, is how many, graded by how many
+// of its frames they were. Null where the report names no uplink.
+export function uplinkBrief(r) {
+	const ports = (r?.ports || []).filter((p) => p.uplink);
+	if (!ports.length) return null;
+	const short = (m) => (m >= 1000 ? `${m / 1000}G` : `${m}M`);
+	const rank = { ok: 1, warn: 2, bad: 3 };
+	let grade = 'ok';
+	const worse = (g) => { if (rank[g] > rank[grade]) grade = g; };
+	const wires = ports.flatMap((p) => (p.bond?.members?.length ? p.bond.members : [p]));
+	const says = [];
+	let linked = 0;
+	// Where a wire goes, by its own neighbour.
+	const named = (w) => w.neighbor && (w.neighbor.system || w.neighbor.port);
+	const on = (w) => (named(w) ? `, on ${[w.neighbor.system, w.neighbor.port].filter(Boolean).join(' ')}` : '');
+	const text = wires.map((w) => {
+		if (!w.carrier) {
+			worse('warn');
+			says.push(`${w.name}: no link${on(w)}`);
+			return 'no link';
+		}
+		linked++;
+		const m = /^(\d+)([FH])$/.exec(w.speed || '');
+		if (!m) {
+			says.push(`${w.name}: a link, its speed not said${on(w)}`);
+			return 'up';
+		}
+		const now = Number(m[1]), half = m[2] === 'H';
+		// What the port and the far end can both do, where both say.
+		const best = w.max && w.partner_max ? Math.min(w.max, w.partner_max) : null;
+		const slow = best != null && now < best;
+		if (slow || half) worse('warn');
+		says.push(`${w.name}: synced at ${short(now)}${half ? ', half duplex' : ''}${w.max ? `; the port can do ${short(w.max)}` : ''}${w.partner_max ? `, the far end offers up to ${short(w.partner_max)}` : ''}${slow ? `: below what both can do` : ''}${on(w)}`);
+		return `${short(now)}${half ? ' half' : ''}${slow ? ` of ${short(best)}` : ''}`;
+	}).join(' + ');
+	if (!linked) grade = 'bad';
+	// The uplink's own neighbour, where no wire names one for itself.
+	const to = !wires.some(named) && switchPort(r.uplink_neighbor);
+	if (to) says.push(`on ${to}`);
+	const u = r.uplink_port;
+	const n = u ? (u.rx_errors || 0) + (u.tx_errors || 0) : 0;
+	let errors = null;
+	if (n > 0) {
+		const frames = (u.rx_packets || 0) + (u.tx_packets || 0);
+		const share = frames > 0 ? n / frames : 1;
+		errors = {
+			n,
+			text: `${n.toLocaleString()} error${n === 1 ? '' : 's'}`,
+			grade: share >= ERRORS_BAD ? 'bad' : share >= ERRORS_WARN ? 'warn' : '',
+			says: `Since the uplink came up: ${u.rx_errors || 0} errors in and ${u.tx_errors || 0} out${frames > 0 ? `, one frame in ${Math.max(1, Math.round(frames / n)).toLocaleString()}` : ''}; ${u.rx_dropped || 0} dropped in and ${u.tx_dropped || 0} out.`,
+		};
+	}
+	return { text, grade, says: says.join('. ') + '.', errors };
+}
+
 // secondsAgo writes as ago does the time s seconds before at, such as an
 // AP's report counting from when it was made.
 export function secondsAgo(s, at) {

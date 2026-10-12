@@ -4,7 +4,7 @@
 
 import { h, link } from '../dom.js';
 import { get, schema } from '../api.js';
-import { bandName, ago, value } from '../format.js';
+import { bandName, ago, value, uplinkBrief } from '../format.js';
 import { fieldPanels } from './fields.js';
 import { systemEditor } from './system.js';
 import { renameButton } from './rename.js';
@@ -72,6 +72,15 @@ export function channelsSection(ctx, rows, status, canEdit) {
 		// How it is doing, by its latest report (0119); its Health tab has the rest.
 		const brief = healthBrief(rep?.report?.health);
 		const health = brief && h('a', { class: 'chip ' + brief.grade, href: `#/aps/${encodeURIComponent(ap.id)}/health`, title: 'By its latest report. Open its health and history' }, brief.text);
+		// Its uplink: the speed it synced at, amber where that is below what
+		// both ends can do; and its errors, where they are more than a few.
+		const wire = uplinkBrief(rep?.report);
+		const eth = `#/aps/${encodeURIComponent(ap.id)}/interfaces/ethernet`;
+		const uplink = wire && [
+			h('a', { class: 'chip uplink ' + (wire.grade === 'ok' ? 'idle' : wire.grade), href: eth, title: wire.says, 'aria-label': `Uplink ${wire.text}. ${wire.says}` }, wire.text),
+			wire.errors?.grade && ' ',
+			wire.errors?.grade && h('a', { class: 'chip uplink ' + wire.errors.grade, href: eth, title: wire.errors.says, 'aria-label': `${wire.errors.text}. ${wire.errors.says}` }, wire.errors.text),
+		];
 		// A radio: its band, with the channel it is on and its width.
 		const radio = (r) => {
 			const path = `radio.${r.band}.channel`;
@@ -87,6 +96,7 @@ export function channelsSection(ctx, rows, status, canEdit) {
 			h('td', null, link(`/aps/${encodeURIComponent(ap.id)}`, ap.name)),
 			h('td', null, state, agent && ' ', agent),
 			h('td', { class: 'nowrap' }, health || h('span', { class: 'sub' }, '—')),
+			h('td', { class: 'nowrap' }, uplink || h('span', { class: 'sub' }, '—')),
 			h('td', null, radios.length ? h('span', { class: 'radiochips' }, radios.map(radio)) : h('span', { class: 'sub' }, !cfg ? 'You cannot see this AP' : rep?.at ? 'No radios reported' : 'No report yet')),
 			h('td', null, radios.length ? String(radios.reduce((n, r) => n + (r.clients || 0), 0)) : '—'),
 			h('td', { class: 'sub nowrap' }, rep?.at ? ago(rep.at) : '—'),
@@ -95,7 +105,7 @@ export function channelsSection(ctx, rows, status, canEdit) {
 	return h('section', { class: 'panel' },
 		h('h2', null, 'APs', h('span', { class: 'note' }, 'as each last reported')),
 		h('table', { class: 'list' },
-			h('tr', null, ['AP', 'State', 'Health', 'Radios', 'Clients', 'Reported'].map((c) => h('th', null, c)),
+			h('tr', null, ['AP', 'State', 'Health', 'Uplink', 'Radios', 'Clients', 'Reported'].map((c) => h('th', null, c)),
 				canEdit && h('th', null, h('span', { class: 'sr' }, 'Rename or move'))),
 			lines),
 		box);
