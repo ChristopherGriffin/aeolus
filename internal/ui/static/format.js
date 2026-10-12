@@ -251,7 +251,9 @@ const ERRORS_WARN = 1e-5, ERRORS_BAD = 1e-3;
 // a bond's members each, such as "2.5G" or "1G + 1G"; one below what its
 // port and the far end can both do says so, "100M of 1G". grade is warn for
 // that, for half duplex, and for a wire with no link beside one that has
-// it; bad where none has a link. says is the same in full, for a hover.
+// it; bad where none has a link. says is the same in full, for a hover,
+// each wire with the switch and port its own LLDP names, where it says:
+// the wires of an uplink may go to different ports, or switches.
 // errors, where the uplink has counted any, is how many, graded by how many
 // of its frames they were. Null where the report names no uplink.
 export function uplinkBrief(r) {
@@ -264,16 +266,19 @@ export function uplinkBrief(r) {
 	const wires = ports.flatMap((p) => (p.bond?.members?.length ? p.bond.members : [p]));
 	const says = [];
 	let linked = 0;
+	// Where a wire goes, by its own neighbour.
+	const named = (w) => w.neighbor && (w.neighbor.system || w.neighbor.port);
+	const on = (w) => (named(w) ? `, on ${[w.neighbor.system, w.neighbor.port].filter(Boolean).join(' ')}` : '');
 	const text = wires.map((w) => {
 		if (!w.carrier) {
 			worse('warn');
-			says.push(`${w.name}: no link`);
+			says.push(`${w.name}: no link${on(w)}`);
 			return 'no link';
 		}
 		linked++;
 		const m = /^(\d+)([FH])$/.exec(w.speed || '');
 		if (!m) {
-			says.push(`${w.name}: a link, its speed not said`);
+			says.push(`${w.name}: a link, its speed not said${on(w)}`);
 			return 'up';
 		}
 		const now = Number(m[1]), half = m[2] === 'H';
@@ -281,11 +286,12 @@ export function uplinkBrief(r) {
 		const best = w.max && w.partner_max ? Math.min(w.max, w.partner_max) : null;
 		const slow = best != null && now < best;
 		if (slow || half) worse('warn');
-		says.push(`${w.name}: synced at ${short(now)}${half ? ', half duplex' : ''}${w.max ? `; the port can do ${short(w.max)}` : ''}${w.partner_max ? `, the far end offers up to ${short(w.partner_max)}` : ''}${slow ? `: below what both can do` : ''}`);
+		says.push(`${w.name}: synced at ${short(now)}${half ? ', half duplex' : ''}${w.max ? `; the port can do ${short(w.max)}` : ''}${w.partner_max ? `, the far end offers up to ${short(w.partner_max)}` : ''}${slow ? `: below what both can do` : ''}${on(w)}`);
 		return `${short(now)}${half ? ' half' : ''}${slow ? ` of ${short(best)}` : ''}`;
 	}).join(' + ');
 	if (!linked) grade = 'bad';
-	const to = switchPort(r.uplink_neighbor);
+	// The uplink's own neighbour, where no wire names one for itself.
+	const to = !wires.some(named) && switchPort(r.uplink_neighbor);
 	if (to) says.push(`on ${to}`);
 	const u = r.uplink_port;
 	const n = u ? (u.rx_errors || 0) + (u.tx_errors || 0) : 0;
