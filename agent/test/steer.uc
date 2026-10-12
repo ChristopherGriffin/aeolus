@@ -156,7 +156,7 @@ put(A, 'phy1-ap2', -52);
 hear('phy1-ap2', 'sta-authorized', { address: A });
 records();
 
-begin('Hold: not one that is far, one never seen higher, or one that is on this AP already and comes down; and a probe that is only a look around leaves no record');
+begin('Hold: not one that is far, one never seen higher, or one that is on this AP already and comes down; not while the higher band is not up; and a probe that is only a look around leaves no record');
 put(A, 'phy0-ap2', -60);
 put(B, 'phy0-ap2', -60);
 view.clients['phy0-ap2'][B] = { signal: -60, btm: true };
@@ -164,6 +164,12 @@ look();
 off(A);
 pass(60);
 hear('phy1-ap2', 'auth', { address: A, signal: -80 });
+// 5 GHz is not up, as while its radio listens for radar: hostapd has no
+// neighbour report for the network there.
+let nr5 = view.bss['phy0-ap2'].nr;
+view.bss['phy0-ap2'].nr = null;
+hear('phy1-ap2', 'auth', { address: A, signal: -40 });
+view.bss['phy0-ap2'].nr = nr5;
 hear('phy1-ap2', 'auth', { address: C, signal: -40 });
 hear('phy1-ap2', 'auth', { address: B, signal: -40 });
 hear('phy1-ap2', 'probe', { address: A, signal: -50 });

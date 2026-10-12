@@ -180,7 +180,10 @@ function act(a) {
 		}, failed('move'));
 		break;
 	case 'ban':
-		log('%s %s off %s on %s for %s s', dry ? 'would keep' : 'keeping', a.mac, name(b?.band), b?.network, a.ms / 1000.0);
+		// On a probe, which may be a look around and no more, it is not
+		// said: what came of it is, where anything did.
+		if (!a.quiet || dry)
+			log('%s %s off %s on %s for %s s', dry ? 'would keep' : 'keeping', a.mac, name(b?.band), b?.network, a.ms / 1000.0);
 		if (!dry)
 			ask(object, 'del_client', { addr: a.mac, reason: DISASSOC_AP_BUSY, deauth: false, ban_time: a.ms }, failed('keep off'));
 		break;
@@ -224,7 +227,9 @@ function on_notify(ifname, msg) {
 		let acts = steer.heard(st, cfg, view, t, ifname, msg.type, data);
 		for (let a in acts)
 			push(queue, a);
-		flush.set(1);
+		// Woken only where there is something to ask, or to say.
+		if (length(queue) || (length(st.events) && st.events[length(st.events) - 1] !== last))
+			flush.set(1);
 	} catch (e) {
 		note('%s', e);
 	}
@@ -304,8 +309,14 @@ function report(ifname) {
 	let object = 'hostapd.' + ifname;
 	ask(object, 'rrm_nr_get_own', {}, (r) => {
 		let b = view.bss[ifname], v = r?.value;
-		if (!b || type(v) != 'array' || length(v) < 3)
+		if (!b)
 			return;
+		// With none, the network is not up there, as on a radio that
+		// listens for radar: no client is asked or held to it.
+		if (type(v) != 'array' || length(v) < 3) {
+			b.nr = null;
+			return;
+		}
 		b.bssid = lc(v[0]);
 		b.ssid = v[1];
 		b.nr = lc(v[2]);

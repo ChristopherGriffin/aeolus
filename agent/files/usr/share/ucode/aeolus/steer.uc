@@ -228,14 +228,16 @@ function candidates(list) {
 
 // hold keeps a client off 2.4 GHz for a moment: one known to use a higher
 // band this AP has the network on, near enough for it, that is not on this
-// AP now, and was not held a moment ago.
+// AP now, and was not held a moment ago. The higher band must be there: a
+// network hostapd has no neighbour report for is not up, as on a radio that
+// listens for radar, and 2.4 GHz is then all the client has.
 function hold(st, cfg, view, now, ifname, type, data, mac) {
 	let b = view.bss[ifname], net = cfg.networks?.[b.network];
 	if (!net?.hold || b.band != '2g' || st.on[mac] || st.tries[mac])
 		return [];
 	if (now < (st.rest[mac] ?? 0) || now < (st.down[mac] ?? 0) || now - (st.held[mac] ?? -HOLD_EVERY) < HOLD_EVERY)
 		return [];
-	let up = filter(siblings(view, ifname), s => RANK[s.band] > 0 && can(st, mac, s.band, now) &&
+	let up = filter(siblings(view, ifname), s => RANK[s.band] > 0 && s.nr && can(st, mac, s.band, now) &&
 		data.signal != null && data.signal >= NEAR['2g'][s.band]);
 	if (!length(up))
 		return [];
@@ -244,7 +246,7 @@ function hold(st, cfg, view, now, ifname, type, data, mac) {
 		method: 'hold', at: now, mac: mac, network: b.network, bss: ifname, from: '2g',
 		to: map(up, s => s.band), asked: 'held', signal: data.signal, until: now + HOLD_WAIT, quiet: type == 'probe',
 	};
-	return [{ do: 'ban', bss: ifname, mac: mac, ms: HOLD_MS }];
+	return [{ do: 'ban', bss: ifname, mac: mac, ms: HOLD_MS, quiet: type == 'probe' }];
 }
 
 // heard takes one of hostapd's notifications for a network that is steered.

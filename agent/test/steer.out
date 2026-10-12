@@ -30,7 +30,7 @@
  461  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
       { "at": 1791770461, "mac": "02:00:00:00:00:0a", "network": "test", "method": "hold", "from": "2g", "asked": "held", "outcome": "joined", "took": 4, "to": [ "5g" ], "signal": -52 }
 
-== Hold: not one that is far, one never seen higher, or one that is on this AP already and comes down; and a probe that is only a look around leaves no record
+== Hold: not one that is far, one never seen higher, or one that is on this AP already and comes down; not while the higher band is not up; and a probe that is only a look around leaves no record
   60  ban 02:00:00:00:00:0a on phy1-ap2 for 2500 ms
   records: 0
   A probe, and then it joins 5 GHz: that is a record:
