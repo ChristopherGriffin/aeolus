@@ -1918,9 +1918,12 @@ function tell_network(a) {
 	let p = type(a.params) == 'object' ? a.params : {};
 	let c = cursor();
 	let w = c.get_all('wireless');
-	let s = null;
-	for (let name in (type(p.sections) == 'array' ? slice(p.sections, 0, own_nets.MOST) : []))
-		s ??= own_nets.find(w, name, p.ssid);
+	// The section asked for by name, where one is: the manager holds what
+	// is said to it.
+	let s = type(p.tell) == 'string' ? own_nets.find(w, p.tell, p.ssid) : null;
+	if (!s && p.tell == null)
+		for (let name in (type(p.sections) == 'array' ? slice(p.sections, 0, own_nets.MOST) : []))
+			s ??= own_nets.find(w, name, p.ssid);
 	if (!s)
 		return { ok: false, result: 'it has no such network of its own now' };
 	return { ok: true, result: 'said its settings', detail: own_nets.told(c.get_all('network'), s) };

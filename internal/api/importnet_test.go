@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -9,7 +10,8 @@ import (
 
 // Making an AP's own network Aeolus's (0137): asked as an action, with
 // where the network goes; the AP answers with the network as it has it,
-// key and all; the manager makes the network then, in one change, under
+// key and all; the manager holds the answer to what was asked, tries the
+// change again as it now is, and makes the network, in one change, under
 // the asker's name. The key is sealed in the change, and is nowhere else.
 func TestImportNetwork(t *testing.T) {
 	f := newFixture(t)
@@ -17,13 +19,19 @@ func TestImportNetwork(t *testing.T) {
 	own := func(section, radio, band, ssid, security string) map[string]any {
 		return map[string]any{"section": section, "radio": radio, "band": band, "ssid": ssid, "security": security, "vlan": 20, "clients": 0}
 	}
-	if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60, "others": []any{
+	others := []any{
 		own("default_radio1", "radio1", "5g", "Sweet Spot", "psk2"),
 		own("wifinet2", "radio0", "2g", "Sweet Spot", "psk2"),
 		own("old", "radio0", "2g", "Old net", "psk-mixed"),
-		own("spare", "radio0", "2g", "Spare", "psk2"),
-		own("short", "radio0", "2g", "Short", "psk2"),
-	}}, nil); code != 200 {
+		// On 6 GHz a WPA2/WPA3 network is WPA3 alone: one network all the same.
+		own("tri6", "radio2", "6g", "Tri", "sae"),
+		own("tri5", "radio1", "5g", "Tri", "sae-mixed"),
+	}
+	// Networks to try an answer on, one each.
+	for i := 0; i < 12; i++ {
+		others = append(others, own(fmt.Sprintf("try%d", i), "radio0", "2g", fmt.Sprintf("Try %d", i), "psk2"))
+	}
+	if code, _, b := f.apDo("POST", "/v1/ap/state", token, map[string]any{"version": version, "uptime": 60, "others": others}, nil); code != 200 {
 		t.Fatalf("its report: %d %v", code, b)
 	}
 	const secret = "the-house-passphrase"
@@ -59,10 +67,16 @@ func TestImportNetwork(t *testing.T) {
 		"a section it has not":                {with("sections", []string{"nosuch"}), 409},
 		"a security Aeolus has no name for":   {map[string]any{"ssid": "Old net", "sections": []string{"old"}, "folder": "household", "network": "old-net", "vlan": 20}, 409},
 		"a client test's words, which it has": {with("band", "5g"), 400},
+		"WPA2 on 6 GHz, which would be held":  {with("bands", []string{"6g"}), 409},
 	} {
 		if code, body := ask("griff", c.body); code != c.code {
 			t.Errorf("%s: %d %v, want %d", what, code, body, c.code)
 		}
+	}
+	// An ID a folder below has is one in use: imported above, it would
+	// reach down into that network.
+	if code, body := ask("griff", map[string]any{"ssid": "Sweet Spot", "sections": []string{"wifinet2"}, "folder": "symtus", "network": "sweet", "vlan": 20}); code != 409 {
+		t.Errorf("an ID a folder below has: %d %v", code, body)
 	}
 	// One who may not act on the AP is not told it is there.
 	if code, _ := ask("office", with("network", "theirs")); code != 404 {
@@ -75,6 +89,17 @@ func TestImportNetwork(t *testing.T) {
 		t.Fatalf("asked: %d %v", code, body)
 	}
 	id := strconv.FormatInt(int64(body["action"].(map[string]any)["id"].(float64)), 10)
+	// Asked again another way while that waits: told so, and not that it
+	// was asked.
+	if code, body := ask("griff", with("network", "sweet-two")); code != 409 {
+		t.Errorf("asked again under another ID while one waits: %d %v", code, body)
+	}
+	if code, body := ask("griff", with("vlan", 30)); code != 409 {
+		t.Errorf("asked again on another VLAN while one waits: %d %v", code, body)
+	}
+	if code, again := ask("griff", good); code != 200 || again["action"].(map[string]any)["id"] != body["action"].(map[string]any)["id"] {
+		t.Errorf("the same asked again: %d %v", code, again)
+	}
 	_, page := f.do("GET", "/v1/trees/services/nodes/household", "griff", nil)
 	if _, made := page["fields"].(map[string]any)["network.sweet-spot.ssid"]; made {
 		t.Fatalf("the network is there before the AP answered")
@@ -82,7 +107,7 @@ func TestImportNetwork(t *testing.T) {
 	_, _, got := f.apDo("GET", "/v1/ap/actions", token, nil, nil)
 	handed := got["actions"].([]any)[0].(map[string]any)
 	p := handed["params"].(map[string]any)
-	if handed["kind"] != "import-network" || p["ssid"] != "Sweet Spot" || len(p["sections"].([]any)) != 2 {
+	if handed["kind"] != "import-network" || p["ssid"] != "Sweet Spot" || len(p["sections"].([]any)) != 2 || p["tell"] != "default_radio1" || p["security"] != "wpa2-psk" {
 		t.Errorf("what the AP is handed: %v", handed)
 	}
 	// The AP says the network as it has it.
@@ -91,14 +116,14 @@ func TestImportNetwork(t *testing.T) {
 	}
 	code, _, done := f.apDo("POST", "/v1/ap/actions/"+id, token, told("default_radio1", "Sweet Spot", map[string]any{
 		"device": "radio1", "network": "wifi_trusted", "mode": "ap", "ssid": "Sweet Spot", "encryption": "psk2+ccmp", "key": secret,
-		"ieee80211r": "1", "ft_over_ds": "0", "ft_psk_generate_local": "1", "isolate": "1", "macfilter": "deny", "maclist": []string{"F0:AD:4E:2E:3A:1F"},
-		"wds": "1", "ieee80211w": "1", "maxassoc": "40",
+		"ieee80211r": "1", "ft_over_ds": "0", "ft_psk_generate_local": "1", "isolate": "on", "macfilter": "deny", "maclist": []string{"F0:AD:4E:2E:3A:1F"},
+		"ieee80211w": "1", "maxassoc": "40", "dtim_period": "300", "wps_pushbutton": "1",
 	}), nil)
 	if code != 200 {
 		t.Fatalf("the AP's answer: %d %v", code, done)
 	}
 	a := done["action"].(map[string]any)
-	if a["state"] != "done" || !strings.HasPrefix(a["result"].(string), "made Aeolus's own as sweet-spot, in change ") || !strings.HasSuffix(a["result"].(string), "; not carried over: ieee80211w, wds") {
+	if a["state"] != "done" || !strings.HasPrefix(a["result"].(string), "made Aeolus's own as sweet-spot, in change ") || !strings.HasSuffix(a["result"].(string), "; not carried over: dtim_period, ieee80211w, wps_pushbutton") {
 		t.Errorf("what came of it: %v", a)
 	}
 	if a["detail"] != nil {
@@ -113,7 +138,7 @@ func TestImportNetwork(t *testing.T) {
 	}
 	for k, want := range map[string]any{
 		"ssid": "Sweet Spot", "security": "wpa2-psk", "replace_own": true, "roaming.ft": true, "isolation": true,
-		"transport.primary.type": "vlan", "transport.primary.vlan": float64(20), "max_clients": float64(40),
+		"transport.primary.type": "vlan", "transport.primary.vlan": float64(20), "max_clients": float64(40), "dtim": nil,
 	} {
 		if val(k) != want {
 			t.Errorf("network.sweet-spot.%s = %v, want %v", k, val(k), want)
@@ -130,9 +155,6 @@ func TestImportNetwork(t *testing.T) {
 	doc, _ := cfg["config"].(map[string]any)
 	nets, _ := doc["network"].(map[string]any)
 	net, _ := nets["sweet-spot"].(map[string]any)
-	if net == nil {
-		t.Logf("the AP's config: %v", cfg)
-	}
 	if net["passphrase"] != secret || net["replace_own"] != true {
 		t.Errorf("the AP's config has the network as %v", net)
 	}
@@ -147,42 +169,101 @@ func TestImportNetwork(t *testing.T) {
 		t.Errorf("the change is not in the log under the asker's name, with where it came from")
 	}
 
-	// What an AP may answer that makes nothing: nothing of the network;
-	// another network than the one asked for; a key that is no passphrase.
-	again := func(ssid, section, network string) string {
+	// What an AP may answer that makes nothing, each tried on a network of
+	// its own: the answer is held to what was asked.
+	n := 0
+	again := func(network string) (string, string, string) {
 		t.Helper()
+		ssid, section := fmt.Sprintf("Try %d", n), fmt.Sprintf("try%d", n)
+		n++
 		code, body := ask("griff", map[string]any{"ssid": ssid, "sections": []string{section}, "folder": "household", "network": network, "vlan": 20})
 		if code != 200 {
 			t.Fatalf("asked for %s: %d %v", ssid, code, body)
 		}
 		_, _, _ = f.apDo("GET", "/v1/ap/actions", token, nil, nil)
-		return strconv.FormatInt(int64(body["action"].(map[string]any)["id"].(float64)), 10)
+		return strconv.FormatInt(int64(body["action"].(map[string]any)["id"].(float64)), 10), ssid, section
 	}
-	for what, c := range map[string]struct {
-		ssid, section, network string
-		answer                 map[string]any
-		says                   string
+	psk := func(ssid string, more map[string]any) map[string]any {
+		o := map[string]any{"ssid": ssid, "encryption": "psk2", "key": "long-enough-key"}
+		for k, v := range more {
+			o[k] = v
+		}
+		return o
+	}
+	for _, c := range []struct {
+		what   string
+		answer func(ssid, section string) map[string]any
+		says   string
 	}{
-		"nothing of the network": {"Spare", "spare", "spare-a", map[string]any{"ok": true, "result": "said its settings"}, "the AP said nothing of the network"},
-		"another network":        {"Short", "short", "short-a", told("spare", "Spare", map[string]any{"ssid": "Spare", "encryption": "psk2", "key": "long-enough-key"}), "another network than the one asked for"},
+		{"nothing of the network", func(_, _ string) map[string]any { return map[string]any{"ok": true, "result": "said its settings"} }, "the AP said nothing of the network"},
+		{"another network", func(_, _ string) map[string]any { return told("default_radio1", "Sweet Spot", psk("Sweet Spot", nil)) }, "another network than the one asked for"},
+		{"another section of its own", func(ssid, _ string) map[string]any { return told("wifinet2", ssid, psk(ssid, nil)) }, "another network than the one asked for"},
+		{"a key that is no passphrase", func(ssid, section string) map[string]any {
+			return told(section, ssid, psk(ssid, map[string]any{"key": "tiny"}))
+		}, "no passphrase of 8 to 63 characters"},
+		{"open, where it was asked as WPA2", func(ssid, section string) map[string]any {
+			return told(section, ssid, map[string]any{"ssid": ssid, "encryption": "none"})
+		}, "the AP has it as open now, and it was asked for as wpa2-psk"},
+		{"WPA3, where it was asked as WPA2", func(ssid, section string) map[string]any {
+			return told(section, ssid, psk(ssid, map[string]any{"encryption": "sae"}))
+		}, "the AP has it as wpa3-sae now"},
+		{"a station's section", func(ssid, section string) map[string]any {
+			return told(section, ssid, psk(ssid, map[string]any{"mode": "sta"}))
+		}, "no access point's network"},
+		{"another AP's uplink", func(ssid, section string) map[string]any {
+			return told(section, ssid, psk(ssid, map[string]any{"wds": "1"}))
+		}, "another AP may reach the network through it"},
+		{"a list of the only clients let on", func(ssid, section string) map[string]any {
+			return told(section, ssid, psk(ssid, map[string]any{"macfilter": "allow", "maclist": []string{"02:00:00:00:00:01"}}))
+		}, "it lets on only the clients in a list"},
+		{"passphrases of its devices' own", func(ssid, section string) map[string]any {
+			return told(section, ssid, psk(ssid, map[string]any{"wpa_psk_file": "/etc/hostapd.psk"}))
+		}, "passphrases of their own, in a file"},
 	} {
-		id := again(c.ssid, c.section, c.network)
-		_, _, done := f.apDo("POST", "/v1/ap/actions/"+id, token, c.answer, nil)
+		id, ssid, section := again(fmt.Sprintf("try-%d", n))
+		_, _, done := f.apDo("POST", "/v1/ap/actions/"+id, token, c.answer(ssid, section), nil)
 		a, _ := done["action"].(map[string]any)
-		if a["state"] != "failed" || !strings.Contains(a["result"].(string), c.says) {
-			t.Errorf("%s: %v", what, done)
+		if a["state"] != "failed" || !strings.Contains(fmt.Sprint(a["result"]), c.says) {
+			t.Errorf("%s: %v", c.what, done)
 		}
 	}
-	id = again("Short", "short", "short-b")
-	_, _, done = f.apDo("POST", "/v1/ap/actions/"+id, token, told("short", "Short", map[string]any{"ssid": "Short", "encryption": "psk2", "key": "tiny"}), nil)
-	if a, _ := done["action"].(map[string]any); a["state"] != "failed" || !strings.Contains(a["result"].(string), "no passphrase of 8 to 63 characters") {
-		t.Errorf("a key that is no passphrase: %v", done)
+	// An ID taken between the asking and the answer is not written over.
+	id, ssid, section := again("taken-since")
+	if code, b := f.change("griff", map[string]any{"kind": "set", "tree": "services", "node": "household", "values": map[string]any{
+		"network.taken-since.ssid": "Someone else's", "network.taken-since.security": "open", "network.taken-since.hidden": true,
+		"network.taken-since.transport.primary.type": "vlan", "network.taken-since.transport.primary.vlan": 30}}); code != 200 {
+		t.Fatalf("a network made in between: %d %v", code, b)
+	}
+	_, _, done = f.apDo("POST", "/v1/ap/actions/"+id, token, told(section, ssid, psk(ssid, nil)), nil)
+	if a, _ := done["action"].(map[string]any); a["state"] != "failed" || !strings.Contains(fmt.Sprint(a["result"]), "there is a network taken-since there already") {
+		t.Errorf("an ID taken since it was asked: %v", done)
 	}
 	_, page = f.do("GET", "/v1/trees/services/nodes/household", "griff", nil)
-	for k := range page["fields"].(map[string]any) {
-		if strings.HasPrefix(k, "network.spare-a.") || strings.HasPrefix(k, "network.short-") {
+	fields = page["fields"].(map[string]any)
+	if r, _ := fields["network.taken-since.ssid"].(map[string]any); r["value"] != "Someone else's" {
+		t.Errorf("the network made in between was written over: %v", r)
+	}
+	for k := range fields {
+		if strings.HasPrefix(k, "network.try-") {
 			t.Errorf("a network was made of an answer that made none: %s", k)
 		}
+	}
+	// More left behind than there is room to name: as many as fit, and how
+	// many more.
+	id, ssid, section = again("crowded")
+	many := psk(ssid, nil)
+	for i := 0; i < 40; i++ {
+		many[fmt.Sprintf("some_option_of_its_own_%02d", i)] = "x"
+	}
+	_, _, done = f.apDo("POST", "/v1/ap/actions/"+id, token, told(section, ssid, many), nil)
+	if a, _ := done["action"].(map[string]any); a["state"] != "done" || len(fmt.Sprint(a["result"])) > 300 || !strings.Contains(fmt.Sprint(a["result"]), " more") {
+		t.Errorf("more left behind than fits: %v", done)
+	}
+	// WPA2/WPA3 with WPA3 alone on 6 GHz is one network: the section off
+	// 6 GHz is the one asked for, and its security the network's.
+	code, body = ask("griff", map[string]any{"ssid": "Tri", "sections": []string{"tri6", "tri5"}, "folder": "household", "network": "tri", "vlan": 20})
+	if p, _ := body["action"].(map[string]any)["params"].(map[string]any); code != 200 || p["tell"] != "tri5" || p["security"] != "wpa2-wpa3" {
+		t.Errorf("a network that is WPA3 alone on 6 GHz: %d %v", code, body)
 	}
 }
 
@@ -197,48 +278,58 @@ func TestImportValues(t *testing.T) {
 		return out
 	}
 	ask := importAsk{SSID: "Corp", Network: "corp", Folder: "household", VLAN: 30}
-	v, left, err := importValues(ask, toldNetwork{SSID: "Corp", Options: opt(map[string]any{
-		"encryption": "wpa3-mixed", "auth_server": "10.0.0.5", "auth_port": "1645", "auth_secret": "radius-secret", "acct_server": "10.0.0.6", "acct_secret": "acct-secret",
-		"nasid": "office-ap", "dae_client": "10.0.0.5", "dae_secret": "das-secret", "dae_port": "3799", "hidden": "1", "ieee80211k": "1", "bss_transition": "1",
-		"multicast_to_unicast": "0", "dtim_period": "3", "macfilter": "allow", "maclist": []string{"02:00:00:00:00:01"}, "disabled": "1", "wpa_group_rekey": "3600", "bad name!": "x",
-	})})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for k, want := range map[string]any{
-		"security": "wpa2-wpa3-enterprise", "radius.auth_server": "10.0.0.5", "radius.auth_port": 1645, "radius.auth_secret": "radius-secret",
-		"radius.acct_server": "10.0.0.6", "radius.acct_secret": "acct-secret", "radius.nas_id": "office-ap",
-		"radius.das.client": "10.0.0.5", "radius.das.secret": "das-secret", "radius.das.port": 3799,
-		"hidden": true, "roaming.rrm": true, "roaming.btm": true, "multicast_to_unicast": false, "dtim": 3, "enabled": false,
-		"transport.primary.vlan": 30, "replace_own": true,
-	} {
-		if v[k] != want {
-			t.Errorf("%s = %v, want %v", k, v[k], want)
+	for i := 0; i < 50; i++ { // whichever order the options come in
+		v, left, err := importValues(ask, toldNetwork{SSID: "Corp", Options: opt(map[string]any{
+			"encryption": "wpa3-mixed", "auth_server": "10.0.0.5", "auth_port": "1645", "port": "1812", "auth_secret": "radius-secret", "acct_server": "10.0.0.6", "acct_secret": "acct-secret",
+			"nasid": "office-ap", "dae_client": "10.0.0.5", "dae_secret": "das-secret", "dae_port": "3799", "hidden": "true", "ieee80211k": "yes", "bss_transition": "enabled",
+			"multicast_to_unicast": "0", "dtim_period": "3", "macfilter": "disable", "maclist": []string{"02:00:00:00:00:01"}, "disabled": "on", "wpa_group_rekey": "3600", "bad name!": "x",
+		})})
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if _, has := v["blocked"]; has {
-		t.Errorf("a list of the only clients let on was made a list of those kept off: %v", v["blocked"])
-	}
-	if _, has := v["passphrase"]; has {
-		t.Errorf("a network that signs clients in was given a passphrase")
-	}
-	if got, want := strings.Join(left, "; "), "macfilter (a list of the only clients let on); wpa_group_rekey"; got != want {
-		t.Errorf("left behind: %s, want %s", got, want)
+		for k, want := range map[string]any{
+			"security": "wpa2-wpa3-enterprise", "radius.auth_server": "10.0.0.5", "radius.auth_port": 1645, "radius.auth_secret": "radius-secret",
+			"radius.acct_server": "10.0.0.6", "radius.acct_secret": "acct-secret", "radius.nas_id": "office-ap",
+			"radius.das.client": "10.0.0.5", "radius.das.secret": "das-secret", "radius.das.port": 3799,
+			"hidden": true, "roaming.rrm": true, "roaming.btm": true, "multicast_to_unicast": false, "dtim": 3, "enabled": false,
+			"transport.primary.vlan": 30, "replace_own": true,
+		} {
+			if v[k] != want {
+				t.Fatalf("%s = %v, want %v", k, v[k], want)
+			}
+		}
+		if _, has := v["blocked"]; has {
+			t.Fatalf("a list with no filter was made a list of clients kept off: %v", v["blocked"])
+		}
+		if _, has := v["passphrase"]; has {
+			t.Fatalf("a network that signs clients in was given a passphrase")
+		}
+		if got, want := strings.Join(left, "; "), "wpa_group_rekey"; got != want {
+			t.Fatalf("left behind: %s, want %s", got, want)
+		}
 	}
 	// What cannot be Aeolus's at all.
 	for what, o := range map[string]map[string]any{
-		"WPA alone":                 {"encryption": "psk", "key": "long-enough-key"},
-		"a key of 64 digits":        {"encryption": "psk2", "key": strings.Repeat("a", 64)},
-		"no key":                    {"encryption": "sae"},
-		"signing in, and no server": {"encryption": "wpa2"},
+		"WPA alone":                       {"encryption": "psk", "key": "long-enough-key"},
+		"a key of 64 digits":              {"encryption": "psk2", "key": strings.Repeat("a", 64)},
+		"no key":                          {"encryption": "sae"},
+		"signing in, and no server":       {"encryption": "wpa2"},
+		"a mesh's":                        {"encryption": "sae", "key": "long-enough-key", "mode": "mesh"},
+		"a VLAN for each client by file":  {"encryption": "psk2", "key": "long-enough-key", "vlan_file": "/etc/vlans"},
+		"VLANs from a RADIUS server":      {"encryption": "psk2", "key": "long-enough-key", "dynamic_vlan": "2"},
+		"MAC addresses asked of a server": {"encryption": "psk2", "key": "long-enough-key", "macfilter": "radius"},
 	} {
 		if _, _, err := importValues(ask, toldNetwork{SSID: "X", Options: opt(o)}); err == nil {
 			t.Errorf("%s: made a network", what)
 		}
 	}
+	// Asked as one security, said as another: refused, whichever way.
+	if _, _, err := importValues(importAsk{SSID: "X", Security: "wpa2-psk", VLAN: 20}, toldNetwork{SSID: "X", Options: opt(map[string]any{"encryption": "none"})}); err == nil {
+		t.Errorf("asked as WPA2 and said as open: made a network")
+	}
 	// An open network has no key to carry, and one it has by mistake is
 	// neither carried nor named.
-	v, left, err = importValues(ask, toldNetwork{SSID: "Open", Options: opt(map[string]any{"encryption": "none", "key": "left-over"})})
+	v, left, err := importValues(ask, toldNetwork{SSID: "Open", Options: opt(map[string]any{"encryption": "none", "key": "left-over"})})
 	if err != nil || v["security"] != "open" || v["passphrase"] != nil || len(left) != 0 {
 		t.Errorf("an open network: %v, left %v, %v", v, left, err)
 	}

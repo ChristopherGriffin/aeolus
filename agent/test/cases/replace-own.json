@@ -1,5 +1,5 @@
 {
-	"about": "PumphouseAP, whose own networks are in its config, with networks that take the place of the AP's own (replace_own, 0137). Sweet Spot has the key of the AP's own on 5 GHz, which goes as Aeolus's goes in; its own on 2.4 GHz has another key, which makes it another network, and stays. One of its own on both radios at once, with the key, goes. The IoT network is Aeolus's on 5 GHz alone, and the AP's own is on 2.4 GHz: it stays. The lab network does not say it replaces anything, and the AP's own of its name and key stays beside it.",
+	"about": "PumphouseAP, whose own networks are in its config, with networks that take the place of the AP's own (replace_own, 0137). Sweet Spot has the key of the AP's own on 5 GHz, which goes as Aeolus's goes in; its own on 2.4 GHz has another key, which makes it another network, and stays. One of its own on both radios at once, with the key, goes. The IoT network is Aeolus's on 5 GHz alone, and the AP's own is on 2.4 GHz: it stays. The lab network does not say it replaces anything, and the AP's own of its name and key stays beside it. Three more of the AP's own, each with Sweet Spot's name and key, stay: one another AP hangs off (WDS), one that lets on only the clients in a list, and one that gives its devices passphrases of their own. And the mixed network, WPA2/WPA3, does not take the place of the AP's own WPA3 alone on 5 GHz: only on 6 GHz are the two the same.",
 	"current": "pumphouse-current.json",
 	"facts": {
 		"uplink": "wan",
@@ -69,6 +69,18 @@
 						"vlan": 50
 					}
 				}
+			},
+			"mixed": {
+				"ssid": "Mixed",
+				"security": "wpa2-wpa3",
+				"passphrase": "fixture-key-mixed",
+				"replace_own": true,
+				"transport": {
+					"primary": {
+						"type": "vlan",
+						"vlan": 20
+					}
+				}
 			}
 		}
 	},
@@ -113,6 +125,60 @@
 				"ssid": "Sweet Spot",
 				"encryption": "psk2",
 				"key": "fixture-key-trusted_radio0"
+			},
+			"backhaul": {
+				".anonymous": false,
+				".type": "wifi-iface",
+				"device": "radio0",
+				"network": "trusted",
+				"mode": "ap",
+				"ssid": "Sweet Spot",
+				"encryption": "psk2",
+				"key": "fixture-key-trusted_radio0",
+				".name": "backhaul",
+				".index": 23,
+				"wds": "1"
+			},
+			"listed": {
+				".anonymous": false,
+				".type": "wifi-iface",
+				"device": "radio0",
+				"network": "trusted",
+				"mode": "ap",
+				"ssid": "Sweet Spot",
+				"encryption": "psk2",
+				"key": "fixture-key-trusted_radio0",
+				".name": "listed",
+				".index": 24,
+				"macfilter": "allow",
+				"maclist": [
+					"02:00:00:00:00:01"
+				]
+			},
+			"each": {
+				".anonymous": false,
+				".type": "wifi-iface",
+				"device": "radio0",
+				"network": "trusted",
+				"mode": "ap",
+				"ssid": "Sweet Spot",
+				"encryption": "psk2",
+				"key": "fixture-key-trusted_radio0",
+				".name": "each",
+				".index": 25,
+				"wpa_psk_file": "/etc/hostapd.psk"
+			},
+			"wpa3_5g": {
+				".anonymous": false,
+				".type": "wifi-iface",
+				".name": "wpa3_5g",
+				".index": 26,
+				"device": "radio0",
+				"network": "trusted",
+				"mode": "ap",
+				"ssid": "Mixed",
+				"encryption": "sae",
+				"key": "fixture-key-mixed"
 			}
 		}
 	},
@@ -124,6 +190,10 @@
 		"wireless.trusted_radio1",
 		"wireless.iot24",
 		"wireless.lab_own",
-		"wireless.uplink_sta"
+		"wireless.uplink_sta",
+		"wireless.backhaul",
+		"wireless.listed",
+		"wireless.each",
+		"wireless.wpa3_5g"
 	]
 }

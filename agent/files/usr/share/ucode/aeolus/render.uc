@@ -676,12 +676,18 @@ function switching(cfg, id, net, intent, facts, errors, keep, uplink) {
 // its security, and its key where it has one, or, where it signs clients
 // in, its RADIUS server. One of the same name with another key is another
 // network, whose clients Aeolus's would turn away, and is left as it is.
-function same_network(s, net) {
+// So is one that does what Aeolus's would not: it carries another AP's
+// uplink (WDS), lets on only the clients in a list, or gives its devices
+// passphrases or VLANs of their own. six says every radio it is on is a
+// 6 GHz one, where a WPA2/WPA3 network is WPA3 alone (0086).
+function same_network(s, net, six) {
 	if (owned(s['.name']) || (s.mode ?? 'ap') != 'ap' || (s.ssid ?? '') != net.ssid)
 		return false;
+	if (s.wds == '1' || s.macfilter in ['allow', 'radius'] || s.wpa_psk_file != null || s.vlan_file != null || s.sae_password != null ||
+		s.ppsk == '1' || (s.dynamic_vlan ?? '0') != '0')
+		return false;
 	let enc = split(s.encryption ?? 'none', '+')[0];
-	// On 6 GHz a WPA2/WPA3 network is WPA3 alone (0086).
-	if (enc != ENCRYPTION[net.security] && !(enc == 'sae' && net.security == 'wpa2-wpa3'))
+	if (enc != ENCRYPTION[net.security] && !(six && enc == 'sae' && net.security == 'wpa2-wpa3'))
 		return false;
 	if (NEEDS_KEY[net.security])
 		return net.passphrase != null && s.key == net.passphrase;
@@ -696,10 +702,10 @@ function same_network(s, net) {
 // just put on. It says which it took, for the agent to keep before they go.
 function replace_own(w, id, net, on, replaced) {
 	for (let s in of_type(w, 'wifi-iface')) {
-		if (!same_network(s, net))
-			continue;
 		let radios = filter(type(s.device) == 'array' ? s.device : split(s.device ?? '', /[ \t]+/), r => length(r) > 0);
 		if (!length(radios) || length(filter(radios, r => index(on, r) < 0)))
+			continue;
+		if (!same_network(s, net, !length(filter(radios, r => w[r]?.band != '6g'))))
 			continue;
 		push(replaced, { section: s['.name'], ssid: net.ssid, network: id });
 		delete w[s['.name']];

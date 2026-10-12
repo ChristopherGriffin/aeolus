@@ -24,15 +24,26 @@ import (
 // replaces the APs' own (replace_own): each AP that has the same network
 // of its own takes that out as Aeolus's goes in.
 //
+// What the AP answers is held to what was asked: the same network, of the
+// security the form showed, an access point's, with nothing in it Aeolus
+// cannot keep and its clients may depend on; and the change is tried again
+// as it now is, before it is made. An AP's report is up to five minutes
+// old, and a network may have changed since; and an AP is believed for its
+// own network, and for no more than that.
+//
 // The passphrase is in what the AP answers and in the change, where it is
 // sealed as any passphrase is (0027). It is in no report, is not kept with
 // the action, and is never logged.
 
 // importAsk is what an import was asked with, kept with its action until
-// the AP answers.
+// the AP answers: the network, by its SSID and the AP's sections; the
+// section the AP is to say, Tell; the security it was asked as, as Aeolus
+// names it; and where it goes.
 type importAsk struct {
 	SSID     string   `json:"ssid"`
 	Sections []string `json:"sections"`
+	Tell     string   `json:"tell"`
+	Security string   `json:"security"`
 	Folder   string   `json:"folder"`
 	Network  string   `json:"network"`
 	Bands    []string `json:"bands,omitempty"`
@@ -73,11 +84,35 @@ var importQuiet = map[string]bool{
 	"pmk_r1_push": true, "r0kh": true, "r1kh": true,
 }
 
+// importNeeds is the options Aeolus has no place for and a network's
+// clients, or another AP, may depend on: a network that has one is not
+// imported, as Aeolus's would be offered without it. Each with why.
+var importNeeds = map[string]string{
+	"wds":          "another AP may reach the network through it (wds)",
+	"wpa_psk_file": "its devices have passphrases of their own, in a file (wpa_psk_file)",
+	"ppsk":         "its devices have passphrases of their own, from a RADIUS server (ppsk)",
+	"sae_password": "it has WPA3 passwords of its own (sae_password)",
+	"vlan_file":    "it puts clients in VLANs by a file (vlan_file)",
+	"dynamic_vlan": "it puts clients in VLANs as a RADIUS server says (dynamic_vlan)",
+}
+
+// uciTrue says a UCI option is on, as OpenWrt reads one: 1, true, on, yes
+// or enabled.
+func uciTrue(s string) bool {
+	switch strings.ToLower(s) {
+	case "1", "true", "on", "yes", "enabled":
+		return true
+	}
+	return false
+}
+
 // importValues is the network Aeolus makes of one an AP said: its fields,
 // by their paths below network.<id>., and the options of the AP's that
 // have no place among them, by name alone, for whoever imports to see what
-// was left behind. It fails where the network cannot be Aeolus's at all:
-// a security Aeolus has no name for, or a key that is no passphrase.
+// was left behind. It fails where the network cannot be Aeolus's: what the
+// AP said is no access point's, or of another security than it was asked
+// as; a security Aeolus has no name for; a key that is no passphrase; or
+// something Aeolus cannot keep that its clients may depend on.
 func importValues(ask importAsk, told toldNetwork) (map[string]any, []string, error) {
 	used := map[string]bool{}
 	list := func(k string) []string {
@@ -102,17 +137,50 @@ func importValues(ask importAsk, told toldNetwork) (map[string]any, []string, er
 		}
 		return ""
 	}
-	on := func(k string) bool { return get(k) == "1" }
+	on := func(k string) bool { return uciTrue(get(k)) }
 	number := func(k string, lo, hi int) (int, bool) {
 		n, err := strconv.Atoi(get(k))
 		return n, err == nil && n >= lo && n <= hi
 	}
 	var left []string
 
+	if mode := get("mode"); mode != "" && mode != "ap" {
+		return nil, nil, fmt.Errorf("what the AP said is no access point's network (mode %s)", printableText(mode, 16))
+	}
 	sec, ok := aeolusSecurity(get("encryption"))
 	if !ok {
 		return nil, nil, fmt.Errorf("its security (%s) is none Aeolus has a name for", printableText(get("encryption"), 32))
 	}
+	if ask.Security != "" && sec != ask.Security {
+		return nil, nil, fmt.Errorf("the AP has it as %s now, and it was asked for as %s: look again, and ask again", sec, ask.Security)
+	}
+	// What Aeolus cannot keep, and its clients or another AP may depend on.
+	var needs []string
+	if on("wds") {
+		needs = append(needs, importNeeds["wds"])
+	}
+	for _, opt := range []string{"wpa_psk_file", "vlan_file", "sae_password"} {
+		if len(list(opt)) > 0 {
+			needs = append(needs, importNeeds[opt])
+		}
+	}
+	if on("ppsk") {
+		needs = append(needs, importNeeds["ppsk"])
+	}
+	if d := get("dynamic_vlan"); d != "" && d != "0" {
+		needs = append(needs, importNeeds["dynamic_vlan"])
+	}
+	filter := get("macfilter")
+	switch filter {
+	case "allow":
+		needs = append(needs, "it lets on only the clients in a list (macfilter allow)")
+	case "radius":
+		needs = append(needs, "it asks a RADIUS server of each client's MAC its own way (macfilter radius)")
+	}
+	if len(needs) > 0 {
+		return nil, nil, fmt.Errorf("Aeolus cannot keep what it has: %s. It is left as it is", strings.Join(needs, "; "))
+	}
+
 	v := map[string]any{
 		"ssid": told.SSID, "security": sec, "replace_own": true,
 		"transport.primary.type": "vlan", "transport.primary.vlan": ask.VLAN,
@@ -143,48 +211,52 @@ func importValues(ask importAsk, told toldNetwork) (map[string]any, []string, er
 		if secret != "" {
 			v["radius.auth_secret"] = secret
 		}
-		for opt, field := range map[string]string{"auth_port": "radius.auth_port", "port": "radius.auth_port", "acct_port": "radius.acct_port", "dae_port": "radius.das.port"} {
-			if n, ok := number(opt, 1, 65535); ok {
-				v[field] = n
+		// The option that names it outright, before OpenWrt's older word.
+		for _, p := range [][2]string{{"port", "radius.auth_port"}, {"auth_port", "radius.auth_port"}, {"acct_port", "radius.acct_port"}, {"dae_port", "radius.das.port"}} {
+			if n, ok := number(p[0], 1, 65535); ok {
+				v[p[1]] = n
 			}
 		}
-		for opt, field := range map[string]string{"acct_server": "radius.acct_server", "acct_secret": "radius.acct_secret", "nasid": "radius.nas_id", "dae_client": "radius.das.client", "dae_secret": "radius.das.secret"} {
-			if s := get(opt); s != "" {
-				v[field] = s
+		for _, p := range [][2]string{{"acct_server", "radius.acct_server"}, {"acct_secret", "radius.acct_secret"}, {"nasid", "radius.nas_id"}, {"dae_client", "radius.das.client"}, {"dae_secret", "radius.das.secret"}} {
+			if s := get(p[0]); s != "" {
+				v[p[1]] = s
 			}
 		}
 	}
 	// A key on a network that takes none is not carried, and not named
 	// beyond that it was there.
 	used["key"] = true
-	for opt, field := range map[string]string{"hidden": "hidden", "isolate": "isolation", "ieee80211r": "roaming.ft", "ieee80211k": "roaming.rrm", "bss_transition": "roaming.btm"} {
-		if on(opt) {
-			v[field] = true
+	for _, p := range [][2]string{{"hidden", "hidden"}, {"isolate", "isolation"}, {"ieee80211r", "roaming.ft"}, {"ieee80211k", "roaming.rrm"}, {"bss_transition", "roaming.btm"}} {
+		if on(p[0]) {
+			v[p[1]] = true
 		}
 	}
 	if on("disabled") {
 		v["enabled"] = false
 	}
-	for opt, field := range map[string]string{"maxassoc": "max_clients", "dtim_period": "dtim"} {
-		if get(opt) == "" {
+	// The most clients (0097), and the DTIM period, each within what
+	// Aeolus takes: one outside it is left behind, and said.
+	for _, p := range []struct {
+		opt, field string
+		hi         int
+	}{{"maxassoc", "max_clients", 2007}, {"dtim_period", "dtim", 255}} {
+		if get(p.opt) == "" {
 			continue
 		}
-		if n, ok := number(opt, 1, 2007); ok {
-			v[field] = n
+		if n, ok := number(p.opt, 1, p.hi); ok {
+			v[p.field] = n
 		} else {
-			left = append(left, opt)
+			left = append(left, p.opt)
 		}
 	}
-	for _, opt := range []string{"multicast_to_unicast", "multicast_to_unicast_all"} {
-		if s := get(opt); s == "1" || s == "0" {
-			v["multicast_to_unicast"] = s == "1"
+	for _, opt := range []string{"multicast_to_unicast_all", "multicast_to_unicast"} {
+		if s := get(opt); s != "" {
+			v["multicast_to_unicast"] = uciTrue(s)
 		}
 	}
-	// The clients it turns away, by MAC (0100). A list of the only clients
-	// it lets on has no place in Aeolus.
+	// The clients it turns away, by MAC (0100).
 	macs := list("maclist")
-	switch get("macfilter") {
-	case "deny":
+	if filter == "deny" {
 		var blocked []string
 		for _, m := range macs {
 			if macRE.MatchString(strings.ToLower(m)) && !slices.Contains(blocked, strings.ToLower(m)) {
@@ -194,8 +266,6 @@ func importValues(ask importAsk, told toldNetwork) (map[string]any, []string, er
 		if len(blocked) > 0 {
 			v["blocked"] = blocked
 		}
-	case "allow":
-		left = append(left, "macfilter (a list of the only clients let on)")
 	}
 	// Management frame protection is as the security has it in Aeolus.
 	if w := get("ieee80211w"); w != "" && w != "0" {
@@ -243,11 +313,60 @@ func importOp(ask importAsk, values map[string]any) (change.Op, error) {
 	return op, nil
 }
 
+// importReady tries the change an import would be, as actor, and keeps
+// nothing: the folder is one, the ID is no network's there, above it or
+// below it; the values are ones the schema takes; the actor may make the
+// change; and no AP's config would be held for it (0029). It is asked
+// twice: when the import is asked, with a stand-in for what only the AP
+// has, and again when the AP has answered, with what it said, before the
+// change is made. It gives back the change, ready to be made.
+func (s *Server) importReady(actor string, state *change.State, ask importAsk, values map[string]any) (change.Op, error) {
+	t := state.Org.Services
+	folder := hierarchy.NodeID(ask.Folder)
+	if n, ok := t.Node(folder); !ok || n.Kind == hierarchy.KindAP {
+		return change.Op{}, badRequest("import-network: folder, the Services folder the network goes in")
+	}
+	mark := hierarchy.Path("network." + ask.Network + ".ssid")
+	_, has := t.Resolve(folder, mark)
+	for _, below := range t.Descendants(folder) {
+		if _, set := t.Own(below, mark); set {
+			has = true
+		}
+	}
+	if has {
+		return change.Op{}, &apiError{http.StatusConflict, fmt.Sprintf("there is a network %s there already, or in a folder below: give this one another ID", ask.Network)}
+	}
+	op, err := importOp(ask, values)
+	if err != nil {
+		return op, err
+	}
+	if op, err = s.prepare(op); err != nil {
+		return op, err
+	}
+	after, _, changed, err := s.log.Preview(actor, op)
+	if err != nil {
+		return op, err
+	}
+	held := s.checks(after, changed)
+	ids := make([]string, 0, len(held))
+	for id := range held {
+		ids = append(ids, string(id))
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		name := id
+		if n, ok := after.Org.Locations.Node(hierarchy.NodeID(id)); ok {
+			name = n.Name
+		}
+		return op, &apiError{http.StatusConflict, fmt.Sprintf("Aeolus would hold %s's config with this network: %s", name, held[hierarchy.NodeID(id)][0])}
+	}
+	return op, nil
+}
+
 // importFor is the asking for an AP's own network to be made Aeolus's:
 // the sections and SSID are what the AP last said it has, as for a taking
-// out; its security is one Aeolus has; the folder and ID are free; and the
-// change it will be, tried now with a stand-in for what only the AP knows,
-// is one the asker may make and no AP's config would be held for.
+// out; its security is one Aeolus has; and the change it will be, tried
+// now with a stand-in for what only the AP knows, is one that can be made.
 func (s *Server) importFor(c call, ap hierarchy.NodeID, ssid string, sections []string, folder, id string, bands []string, vlan int) (importAsk, error) {
 	sel, err := s.removeNetworkFor(ap, ssid, sections)
 	if err != nil {
@@ -272,27 +391,29 @@ func (s *Server) importFor(c call, ap hierarchy.NodeID, ssid string, sections []
 	if st != nil {
 		_ = json.Unmarshal(st.Report, &rep)
 	}
+	// The section the AP is to say: one off 6 GHz where there is one, as
+	// a WPA2/WPA3 network is WPA3 alone there (0086), and it is the
+	// network's own security that is asked for.
 	encryption := ""
 	for _, o := range rep.Others {
-		if o.SSID == ssid && slices.Contains(ask.Sections, o.Section) {
-			encryption = o.Security
-			break
+		if o.SSID != ssid || !slices.Contains(ask.Sections, o.Section) {
+			continue
+		}
+		if ask.Tell == "" || o.Band != "6g" {
+			ask.Tell, encryption = o.Section, o.Security
+			if o.Band != "6g" {
+				break
+			}
 		}
 	}
 	sec, ok := aeolusSecurity(encryption)
 	if !ok {
 		return ask, &apiError{http.StatusConflict, fmt.Sprintf("its security (%s) is none Aeolus has a name for: it cannot be imported", printableText(encryption, 32))}
 	}
-	t := c.state.Org.Services
-	if n, ok := t.Node(hierarchy.NodeID(folder)); !ok || n.Kind == hierarchy.KindAP {
-		return ask, badRequest("import-network: folder, the Services folder the network goes in")
-	}
-	if _, has := t.Resolve(hierarchy.NodeID(folder), hierarchy.Path("network."+id+".ssid")); has {
-		return ask, &apiError{http.StatusConflict, fmt.Sprintf("there is a network %s there already: give this one another ID", id)}
-	}
+	ask.Security = sec
 	// What only the AP knows has a stand-in here: the change is tried, and
 	// nothing of it is kept.
-	told := toldNetwork{SSID: ssid, Options: map[string]json.RawMessage{"encryption": mustJSON(encryption)}}
+	told := toldNetwork{Section: ask.Tell, SSID: ssid, Options: map[string]json.RawMessage{"encryption": mustJSON(encryption)}}
 	switch {
 	case needsPassphrase[sec]:
 		told.Options["key"] = mustJSON("a-stand-in-for-its-key")
@@ -303,23 +424,8 @@ func (s *Server) importFor(c call, ap hierarchy.NodeID, ssid string, sections []
 	if err != nil {
 		return ask, badRequest("import-network: %v", err)
 	}
-	op, err := importOp(ask, values)
-	if err != nil {
+	if _, err := s.importReady(string(c.actor), c.state, ask, values); err != nil {
 		return ask, err
-	}
-	if op, err = s.prepare(op); err != nil {
-		return ask, err
-	}
-	state, _, changed, err := s.log.Preview(string(c.actor), op)
-	if err != nil {
-		return ask, err
-	}
-	for held, problems := range s.checks(state, changed) {
-		name := string(held)
-		if n, ok := state.Org.Locations.Node(held); ok {
-			name = n.Name
-		}
-		return ask, &apiError{http.StatusConflict, fmt.Sprintf("Aeolus would hold %s's config with this network: %s", name, problems[0])}
 	}
 	return ask, nil
 }
@@ -332,43 +438,55 @@ func mustJSON(v any) json.RawMessage {
 }
 
 // importNetwork makes the network, once the AP has said it: one change,
-// under the name of whoever asked. It says whether it was made, and what
-// came of it in plain words: the change it is, and the options of the AP's
-// that had no place in Aeolus. What the AP said is not kept.
+// under the name of whoever asked. What the AP said is held to what was
+// asked, and the change tried again as it now is, before it is made. It
+// says whether the network was made, and what came of it in plain words:
+// the change it is, and the options of the AP's that had no place in
+// Aeolus. What the AP said is not kept.
 func (s *Server) importNetwork(ap hierarchy.NodeID, a conditions.Action, detail json.RawMessage) (bool, string) {
 	var ask importAsk
 	var told toldNetwork
 	if json.Unmarshal(a.Params, &ask) != nil || json.Unmarshal(detail, &told) != nil {
 		return false, "what the AP said of the network could not be read"
 	}
-	if told.SSID != ask.SSID || !slices.Contains(ask.Sections, told.Section) {
+	if told.SSID != ask.SSID || told.Section != ask.Tell {
 		return false, "the AP said another network than the one asked for: nothing was made"
 	}
+	no := func(err error) (bool, string) { return false, "not imported: " + printableText(err.Error(), 280) }
 	values, left, err := importValues(ask, told)
 	if err != nil {
-		return false, "not imported: " + printableText(err.Error(), 240)
+		return no(err)
 	}
-	op, err := importOp(ask, values)
-	if err == nil {
-		op, err = s.prepare(op)
+	state := s.log.Snapshot()
+	if state == nil {
+		return false, "not imported: the manager has no state to make it in"
 	}
+	op, err := s.importReady(a.Actor, state, ask, values)
 	if err != nil {
-		return false, "not imported: " + printableText(err.Error(), 240)
+		return no(err)
 	}
 	name := string(ap)
-	if state := s.log.Snapshot(); state != nil {
-		if n, ok := state.Org.Locations.Node(ap); ok {
-			name = n.Name
-		}
+	if n, ok := state.Org.Locations.Node(ap); ok {
+		name = n.Name
 	}
 	e, err := s.log.Commit(a.Actor, fmt.Sprintf("Imported from %s, which had it as a network of its own", name), op)
 	if err != nil {
-		return false, "not imported: " + printableText(err.Error(), 240)
+		return no(err)
 	}
 	slog.Info("network imported", "ap", ap, "network", ask.Network, "folder", ask.Folder, "by", a.Actor, "change", e.Seq)
+	// What was left behind, as many as there is room to name, and how
+	// many more there are.
 	result := fmt.Sprintf("made Aeolus's own as %s, in change %d", ask.Network, e.Seq)
-	if len(left) > 0 {
-		result += "; not carried over: " + strings.Join(left, ", ")
+	for i, k := range left {
+		sep, rest := ", ", fmt.Sprintf(" and %d more", len(left)-i)
+		if i == 0 {
+			sep = "; not carried over: "
+		}
+		if len(result)+len(sep)+len(k)+len(rest) > 300 {
+			result += rest
+			break
+		}
+		result += sep + k
 	}
 	return true, printableText(result, 300)
 }

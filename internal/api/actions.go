@@ -164,6 +164,12 @@ func (s *Server) addAction(w http.ResponseWriter, r *http.Request, c call) error
 	if err != nil {
 		return err
 	}
+	// An import of a network that waits stands for no other: one asked
+	// again into another folder, under another ID, or on another VLAN is
+	// told that one waits, and not that it was asked.
+	if body.Kind == "import-network" && string(a.Params) != string(params) {
+		return &apiError{http.StatusConflict, "an import of this network is asked of this AP already, and waits for it: let it be made, or wait for it to expire, before asking another way"}
+	}
 	slog.Info("action asked", "ap", id, "kind", a.Kind, "target", a.Target, "by", c.actor, "id", a.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"action": a})
 	return nil

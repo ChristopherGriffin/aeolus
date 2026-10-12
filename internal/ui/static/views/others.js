@@ -51,6 +51,18 @@ export function idFor(ssid, taken) {
 	return out;
 }
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
+
+// secOf is the one security of a network's entries as Aeolus names it, or
+// null where they have more than one. WPA3 alone on 6 GHz beside WPA2/WPA3
+// on the other bands is WPA2/WPA3: it is WPA3 alone there by rule (0086).
+function secOf(entries) {
+	const off6 = distinct(entries.filter((e) => e.band !== '6g').map((e) => asAeolus(e.security)));
+	const on6 = distinct(entries.filter((e) => e.band === '6g').map((e) => asAeolus(e.security)));
+	if (off6.length > 1 || on6.length > 1) return null;
+	if (!off6.length) return on6[0] ?? null;
+	if (!on6.length || on6[0] === off6[0] || (off6[0] === 'wpa2-wpa3' && on6[0] === 'wpa3-sae')) return off6[0];
+	return null;
+}
 const SIX = new Set(['owe', 'wpa3-sae', 'wpa2-wpa3', 'wpa3-enterprise', 'wpa2-wpa3-enterprise']);
 const named = (n) => (n.ssid ? `“${n.ssid}”` : 'the network with no name');
 const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
@@ -72,7 +84,7 @@ export function othersPanel(page, reports, into) {
 	// on the network.
 	const bring = (n) => {
 		const all = n.on.flatMap((a) => a.entries);
-		const sec = asAeolus(all[0].security);
+		const sec = secOf(all);
 		const from = [...n.on].sort((a, b) => b.entries.reduce((s, e) => s + (e.clients || 0), 0) - a.entries.reduce((s, e) => s + (e.clients || 0), 0))[0];
 		const offered = ORDER.filter((b) => into.bands.has(b) && (b !== '6g' || SIX.has(sec)));
 		const now = new Set(all.map((e) => e.band));
@@ -108,7 +120,9 @@ export function othersPanel(page, reports, into) {
 				const res = await post(`/v1/aps/${encodeURIComponent(from.ap.id)}/actions`, {
 					kind: 'import-network', ssid: n.ssid, sections: distinct(from.entries.map((x) => x.section)),
 					folder: folder.value, network: id.value, bands: want, vlan: v });
-				if (res.action?.kind !== 'import-network' || res.action?.params?.network !== id.value) throw new Error('another asking of this AP is waiting: try again in a minute');
+				const got = res.action?.params || {};
+				if (res.action?.kind !== 'import-network' || got.network !== id.value || got.folder !== folder.value || got.vlan !== v || (got.bands || []).join() !== want.join())
+					throw new Error('another asking of this AP is waiting: try again in a minute');
 				box.replaceChildren();
 				flash(`Asked of ${from.ap.name}: it says the network on its next poll, and Aeolus makes ${named(n)} its own then, within about a minute. What came of it is under Actions on ${from.ap.name}’s page.`);
 			} catch (err) {
@@ -126,7 +140,7 @@ export function othersPanel(page, reports, into) {
 			row('Bands', ticks.map(([b, t]) => h('label', { class: 'tick' }, t, ` ${bandName(b)}`))),
 			row('VLAN', [vlan, vlans.length !== 1 && h('span', { class: 'sub' }, vlans.length ? ` its APs have it on ${vlans.join(' and ')}` : ' its AP’s config does not say: the VLAN its clients are to be on')]),
 			widerNote,
-			h('div', { class: 'sub' }, `Its passphrase and its other settings are read from ${from.ap.name} when it next polls, within about a minute, and go into the network as they are: none is shown here, and the passphrase is sealed as any is. What has no place in Aeolus is said in what came of it.`),
+			h('div', { class: 'sub' }, `Its passphrase and its other settings are read from ${from.ap.name} when it next polls, within about a minute, and go into the network as they are: none is shown here, and the passphrase is sealed as any is. What has no place in Aeolus is said in what came of it; a network that has what Aeolus cannot keep, and its clients may depend on, is not imported, and that says why.`),
 			h('div', { class: 'sub warn' }, `Each AP that has ${named(n)} of its own, with the same passphrase, takes its own out as Aeolus’s goes in, and keeps it in /etc/aeolus/removed. Clients drop for a few seconds and join again, by the same name and passphrase. An AP whose own has another passphrase keeps it, beside Aeolus’s.`),
 			msg,
 			h('div', { class: 'actions' },
@@ -136,9 +150,10 @@ export function othersPanel(page, reports, into) {
 	};
 	// Whether one can be imported, and why not where it cannot.
 	const cannot = (n) => {
-		const secs = distinct(n.on.flatMap((a) => a.entries).map((e) => asAeolus(e.security)));
-		if (secs.includes(null)) return 'Aeolus has no name for its security, so it cannot be made Aeolus’s own';
-		if (secs.length > 1) return 'Its APs have it with more than one kind of security: import it from one AP’s own Networks tab';
+		const all = n.on.flatMap((a) => a.entries);
+		if (all.some((e) => asAeolus(e.security) === null)) return 'Aeolus has no name for its security, so it cannot be made Aeolus’s own';
+		if (secOf(all) === null) return 'Its APs have it with more than one kind of security: import it from one AP’s own Networks tab';
+		if (all.some((e) => e.wds)) return 'Another AP may reach the network through it (WDS), which Aeolus cannot keep';
 		if (!into?.folders?.length) return 'No Services folder that applies here is yours to change';
 		return null;
 	};
