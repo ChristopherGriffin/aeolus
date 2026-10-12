@@ -78,9 +78,15 @@ type usageClient struct {
 }
 
 // topClients is the clients that moved the most over the span on the APs
-// in mine, at most 10, the most first.
-func (s *Server) topClients(since time.Time, mine map[hierarchy.NodeID]*usageAP) ([]usageClient, error) {
-	totals, err := s.conds.ClientTotals(since)
+// in mine, at most 10, the most first. long is a span whose reports' own
+// rows may be gone (0140): where they are, the clients are counted by
+// whole days, from the first wholly in it.
+func (s *Server) topClients(since time.Time, mine map[hierarchy.NodeID]*usageAP, long bool) ([]usageClient, error) {
+	read := s.conds.ClientTotals
+	if long {
+		read = s.conds.ClientTotalsOver
+	}
+	totals, err := read(since)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +132,15 @@ const (
 	usageGap   = 3 * stateEvery
 )
 
+// A span of usage longer than usageFine is read from the trends (0140): an
+// AP's hours and each client's days, which are kept when the reports' own
+// rows are gone. trendHours is the longest span that can be asked for, a
+// year.
+const (
+	usageFine  = 48 * time.Hour
+	trendHours = 8760
+)
+
 // usageBucket is one stretch of a usage chart: the clients the APs had at
 // most in it, summed over the APs, and what they moved in it.
 type usageBucket struct {
@@ -147,17 +162,21 @@ type usageAP struct {
 
 // usageView is the Wi-Fi clients and traffic of the APs the caller may
 // view (0108), below one Locations node where ?under= names it, over the
-// last ?hours= (24 unless set, at most 720): GET /v1/usage. It is in at
-// most 48 buckets of whole minutes, each the clients the APs had at most in
-// it, summed over the APs, and the bytes they moved; with each AP's peak and
-// totals, the busiest first, and whether it reported in each bucket, its
-// connectivity; and the ten clients that moved the most (0110).
+// last ?hours= (24 unless set, at most 8760, a year): GET /v1/usage. It is
+// in at most 48 buckets of whole minutes, each the clients the APs had at
+// most in it, summed over the APs, and the bytes they moved; with each AP's
+// peak and totals, the busiest first, and whether it reported in each
+// bucket, its connectivity; and the ten clients that moved the most (0110).
+// Over more than two days it is read from the trends (0140): its buckets
+// are whole hours, and where the reports' own rows no longer reach back to
+// its start, its clients are counted by whole days, from the first wholly
+// in the span.
 func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error {
 	hours := 24
 	if q := r.URL.Query().Get("hours"); q != "" {
 		n, err := strconv.Atoi(q)
-		if err != nil || n < 1 || n > 720 {
-			return badRequest("hours: from 1 to 720")
+		if err != nil || n < 1 || n > trendHours {
+			return badRequest("hours: from 1 to %d", trendHours)
 		}
 		hours = n
 	}
@@ -175,8 +194,15 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 		mine[id] = &usageAP{AP: id, Name: n.Name, Heard: []bool{}}
 	}
 	span := time.Duration(hours) * time.Hour
-	// Whole minutes, rounded up, so there are never more than 48.
+	// Whole minutes, rounded up, so there are never more than 48; whole
+	// hours where it is read by the hour.
 	bucket := max(stateEvery, ((span+47)/48 + time.Minute - 1).Truncate(time.Minute))
+	long := span > usageFine
+	uses := s.conds.Uses
+	if long {
+		bucket = ((span+47)/48 + time.Hour - 1).Truncate(time.Hour)
+		uses = s.conds.UsesByHour
+	}
 	end := time.Now().UTC().Truncate(bucket).Add(bucket)
 	count := int((span + bucket - 1) / bucket)
 	start := end.Add(-time.Duration(count) * bucket)
@@ -189,7 +215,7 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 	}
 	// The most clients each AP had in each bucket.
 	peaks := map[hierarchy.NodeID][]int{}
-	err := s.conds.Uses(start, func(u conditions.Use) error {
+	err := uses(start, func(u conditions.Use) error {
 		a := mine[u.AP]
 		i := int(u.At.Sub(start) / bucket)
 		if a == nil || i < 0 || i >= count {
@@ -222,7 +248,7 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 		down += buckets[i].Down
 		up += buckets[i].Up
 	}
-	top, err := s.topClients(start, mine)
+	top, err := s.topClients(start, mine, long)
 	if err != nil {
 		return err
 	}
@@ -232,7 +258,11 @@ func (s *Server) usageView(w http.ResponseWriter, r *http.Request, c call) error
 	}
 	// Before the oldest row kept, a bucket says nothing of an AP.
 	var from any
-	if t, ok, err := s.conds.UsageFrom(); err != nil {
+	kept := s.conds.UsageFrom
+	if long {
+		kept = s.conds.UsageHoursFrom
+	}
+	if t, ok, err := kept(); err != nil {
 		return err
 	} else if ok {
 		from = t

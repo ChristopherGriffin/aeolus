@@ -172,12 +172,12 @@ export async function healthTab(ctx, id) {
 		box.replaceChildren(
 			tiles(hl.now),
 			h('section', { class: 'panel' },
-				h('h2', null, h('span', { class: 'title' }, 'Processor and memory', seg(view.hours, (v) => { view.hours = v; }, [[24, 'A day'], [168, 'A week']])),
+				h('h2', null, h('span', { class: 'title' }, 'Processor and memory', seg(view.hours, (v) => { view.hours = v; }, [[24, 'A day'], [168, 'A week'], [720, '30 days'], [8760, 'A year']])),
 					h('span', { class: 'note' }, 'from each of its reports; where there are many, the worst of each run')),
 				h('div', { class: 'sub pad' }, h('span', { class: 'swatch cpu' }), ' processor busy · ', h('span', { class: 'swatch mem' }), ' memory in use, each from 0 to 100%'),
 				chart(hl)),
 			h('section', { class: 'panel' },
-				h('h2', null, h('span', { class: 'title' }, 'History', seg(view.history, (v) => { view.history = v; }, [[168, 'A week'], [720, '30 days']])),
+				h('h2', null, h('span', { class: 'title' }, 'History', seg(view.history, (v) => { view.history = v; }, [[24, 'A day'], [168, 'A week'], [720, '30 days']])),
 					h('span', { class: 'note' }, 'what happened to it, newest first')),
 				history(tl)));
 	};

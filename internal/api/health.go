@@ -304,34 +304,40 @@ func apNode(c call, id hierarchy.NodeID) error {
 	return nil
 }
 
-func hoursOf(r *http.Request, def int) (int, error) {
+func hoursOf(r *http.Request, def, most int) (int, error) {
 	q := r.URL.Query().Get("hours")
 	if q == "" {
 		return def, nil
 	}
 	n, err := strconv.Atoi(q)
-	if err != nil || n < 1 || n > 720 {
-		return 0, badRequest("hours: from 1 to 720")
+	if err != nil || n < 1 || n > most {
+		return 0, badRequest("hours: from 1 to %d", most)
 	}
 	return n, nil
 }
 
 // apHealthView is an AP's health over the last ?hours= (24 unless set, at
-// most 720): GET /v1/aps/{ap}/health. now is its latest report's: how busy
-// its processor was, its load and cores, memory, storage, temperature,
-// processes and connections. points is the series, oldest first, at most
-// 300: where there are more reports, each point is the worst of a run of
-// them, the busiest processor, the least memory free, the hottest.
+// most 8760, a year): GET /v1/aps/{ap}/health. now is its latest report's:
+// how busy its processor was, its load and cores, memory, storage,
+// temperature, processes and connections. points is the series, oldest
+// first, at most 300: where there are more reports, each point is the worst
+// of a run of them, the busiest processor, the least memory free, the
+// hottest. Over more than two days it is read from the trends (0140), the
+// worst of each hour, which are kept when the reports' own rows are gone.
 func (s *Server) apHealthView(w http.ResponseWriter, r *http.Request, c call) error {
 	id := hierarchy.NodeID(r.PathValue("ap"))
 	if err := apNode(c, id); err != nil {
 		return err
 	}
-	hours, err := hoursOf(r, 24)
+	hours, err := hoursOf(r, 24, trendHours)
 	if err != nil {
 		return err
 	}
-	pts, err := s.conds.Health(id, time.Now().Add(-time.Duration(hours)*time.Hour))
+	read := s.conds.Health
+	if time.Duration(hours)*time.Hour > usageFine {
+		read = s.conds.HealthByHour
+	}
+	pts, err := read(id, time.Now().Add(-time.Duration(hours)*time.Hour))
 	if err != nil {
 		return err
 	}
@@ -405,7 +411,7 @@ func (s *Server) apTimeline(w http.ResponseWriter, r *http.Request, c call) erro
 	if err := apNode(c, id); err != nil {
 		return err
 	}
-	hours, err := hoursOf(r, 168)
+	hours, err := hoursOf(r, 168, 720)
 	if err != nil {
 		return err
 	}
