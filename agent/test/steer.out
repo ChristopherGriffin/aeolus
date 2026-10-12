@@ -78,6 +78,11 @@
 == Suggest and Sticky together: near enough on 2.4 GHz to be asked up, and weak on 5 GHz once there, a client is not sent up and down every half hour
   in two days it is asked: up 0h00, down 0h00, up 0h30, down 0h30, up 1h30, down 1h31, up 3h31, down 3h31, up 7h31, down 7h31, up 15h31, down 15h32, up 31h32, down 31h32
 
+== An AP's own test client, which says so as it joins, is not asked up, held or put off: here, and when it comes again
+  one on for a moment, known at once: asked or held 0
+ 105  btm 02:00:00:00:00:0c on phy1-ap2 these only to 36862d0317c0..0301ff
+  records: 0, of the test client 0
+
 == A network with nothing on is not looked at; one with only Sticky on is not asked up
   records: 0, on: [ "02:00:00:00:00:0a", "02:00:00:00:00:0b" ]
 
@@ -144,3 +149,5 @@ all three: [ "2g", "5g", "6g" ]
 says nothing: [ ]
 cut short: [ ]
 takes a transition request: true false false
+an AP's own test client: true; as the mark is written for wpa_supplicant: dd0502ae010201
+not one: false false false false

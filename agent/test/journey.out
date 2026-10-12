@@ -29,7 +29,7 @@ log { "bss": "phy1-ap5", "mac": "72:bb:66:12:2a:94", "stage": "signin", "what": 
 log { "bss": "phy1-ap5", "mac": "72:bb:66:12:2a:94", "stage": "signin", "what": "the server refused the sign-in", "ok": false }
 log { "bss": "phy1-ap0", "mac": "6c:ac:c2:60:aa:3f", "stage": "end", "what": "disassociated due to inactivity", "ok": null, "end": true }
 log { "bss": "phy1-ap0", "mac": "6c:ac:c2:60:aa:3f", "stage": "end", "what": "deauthenticated due to inactivity (timer DEAUTH/REMOVE)", "ok": null, "end": true }
-log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "end", "what": "disconnected", "ok": null, "end": true }
+log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": "end", "what": "disconnected", "ok": null, "end": true, "held": true }
 log { "bss": "phy0-ap0", "mac": "72:bb:66:12:2a:94", "stage": null, "what": "Station tried to associate before authentication (aid=-1 flags=0x0)", "ok": null }
 log null
 log null
@@ -443,17 +443,130 @@ a fast transition given up for open authentication, after the AP asked for proof
   { "t": 1300, "stage": "key", "what": "let on to the network", "ok": true }
   how it came: { "alg": "open", "saq": 2, "on_ms": 1300 }
 silent, once let on: false
-let on by a fast transition, and authenticated again while watched: connected, stage key, 41000 ms, reason "", address null, host null
+let on by a fast transition: left, stage key, 10000 ms, reason "it came again", address null, host null
   { "t": 0, "stage": "auth", "what": "authenticated, by a fast transition from another AP (802.11r)", "ok": true }
   { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
   { "t": 17, "stage": "key", "what": "let on to the network", "ok": true }
   { "t": 17, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
-  { "t": 10000, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
-  { "t": 10040, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
-  { "t": 10060, "stage": "assoc", "what": "associated", "ok": true }
-  { "t": 10061, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
-  { "t": 10080, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 10000, "stage": "end", "what": "it came again" }
   how it came: { "alg": "ft", "on_ms": 16, "re": true }
+and its coming again ten seconds on, by WPA3's exchange: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 60, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 61, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
+  { "t": 80, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "alg": "sae", "pmk": "pmksa", "on_ms": 80 }
+a fast transition whose association hostapd says twice: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated, by a fast transition from another AP (802.11r)", "ok": true }
+  { "t": 16, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 320, "stage": "key", "what": "let on to the network", "ok": true }
+  how it came: { "alg": "ft", "on_ms": 16 }
+a client that asked for an address and came again a second later: left, stage key, 1200 ms, reason "it came again", address null, host "Griffs-iPhone"
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 10, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 150, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 300, "stage": "dhcp", "what": "asks for an address (discover)" }
+  { "t": 1200, "stage": "end", "what": "it came again" }
+  how it came: { "alg": "open", "on_ms": 150 }
+and its coming again: connected, stage key, 30800 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 60, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 100, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "alg": "sae", "on_ms": 100 }
+a client let on, without 802.11w: left, stage key, 4808 ms, reason "disconnected", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 14, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 36, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 36, "stage": "key", "what": "let on to the network", "ok": true }
+  { "t": 4808, "stage": "end", "what": "disconnected" }
+  how it came: { "alg": "open", "on_ms": 36 }
+and asked to associate again five seconds later: connected, stage key, 30190 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 12, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 12, "stage": "assoc", "what": "it asked as one already on the network (a reassociation)" }
+  { "t": 34, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 34, "stage": "key", "what": "let on to the network", "ok": true }
+  how it came: { "alg": "open", "re": true, "on_ms": 34 }
+a client let on, with 802.11w: left, stage key, 11050 ms, reason "it came again", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 60, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 200, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 10000, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  { "t": 11020, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
+  { "t": 11030, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
+  { "t": 11050, "stage": "end", "what": "it came again" }
+  how it came: { "alg": "sae", "on_ms": 200 }
+and asking to associate again, the AP asking for proof first: connected, stage key, 32000 ms, reason "", address null, host null
+  { "t": 0, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  { "t": 1020, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
+  { "t": 1030, "stage": "assoc", "what": "its key from its last time here is still held (PMKSA cache): no sign-in again" }
+  { "t": 1050, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 1080, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "saq": 1, "pmk": "pmksa", "on_ms": 1080, "began": "assoc" }
+asked for proof while it is on, and nothing follows: connected, stage key, 31000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 60, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 200, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 10000, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  how it came: { "alg": "sae", "on_ms": 200 }
+let go of, and its coming goes on: over yet false
+disconnected said in the middle of a coming that goes on: connected, stage key, 32000 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 50, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  { "t": 1060, "stage": "assoc", "what": "no proof came, as from a client that had left: it is taken as new" }
+  { "t": 1070, "stage": "assoc", "what": "the AP let go of what it held of the client from before" }
+  { "t": 1080, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 1200, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "alg": "sae", "saq": 1, "on_ms": 1200 }
+let go of, and nothing after: over after 1 s false, after 3 s true
+disconnected said in a coming that does not go on: left, stage auth, 50 ms, reason "before it was let on: disconnected", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 50, "stage": "assoc", "what": "the AP let go of what it held of the client from before" }
+  how it came: { "alg": "sae" }
+let go of, and only a line beside it after: over after 3 s true
+disconnected, and then only what is said beside a coming: left, stage auth, 50 ms, reason "before it was let on: disconnected", address null, host null
+  { "t": 0, "stage": "auth", "what": "starts WPA3 authentication (SAE commit)" }
+  { "t": 40, "stage": "auth", "what": "sends its WPA3 confirm (SAE confirm)" }
+  { "t": 50, "stage": "assoc", "what": "the AP let go of what it held of the client from before" }
+  { "t": 250, "stage": "assoc", "what": "the AP still holds it as on, and asks the client it remembers to prove itself (SA Query)" }
+  how it came: { "alg": "sae", "saq": 2 }
+a client that was put off: left, stage key, 10000 ms, reason "disassociated", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 10, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 150, "stage": "key", "what": "key handshake completed", "ok": true }
+  { "t": 10000, "stage": "end", "what": "disconnected" }
+  { "t": 10000, "stage": "end", "what": "disassociated" }
+  { "t": 10100, "stage": "assoc", "what": "did not acknowledge the AP's answer", "ok": false }
+  how it came: { "alg": "open", "on_ms": 150 }
+and its coming straight back: connected, stage key, 30600 ms, reason "", address null, host null
+  { "t": 0, "stage": "auth", "what": "authenticated", "ok": true }
+  { "t": 10, "stage": "assoc", "what": "associated", "ok": true }
+  { "t": 160, "stage": "key", "what": "key handshake completed", "ok": true }
+  how it came: { "alg": "open", "on_ms": 160 }
+not yet let on, IEEE 802.11: authenticated: another attempt false
+not yet let on, IEEE 802.11: associated (aid 1): another attempt false
+not yet let on, IEEE 802.11: association SA Query attempt 1: another attempt false
+let on, STA it MLME: MLME-REASSOCIATE.indication(it): another attempt false
+let on, AP-STA-CONNECTED it auth_alg=open: another attempt false
+let on, STA it WPA: sending 1/4 msg of 4-Way Handshake: another attempt false
+let on, STA it WPA: pairwise key handshake completed (RSN): another attempt false
+let on, STA it WPA: group key handshake completed (RSN): another attempt false
+let on, STA it IEEE 802.1X: authenticated - EAP type: 25 (PEAP): another attempt false
+let on, AP-STA-DISCONNECTED it: another attempt false
+let on, STA it IEEE 802.11: did not acknowledge authentication response: another attempt false
+let on, STA it IEEE 802.11: did not acknowledge association response: another attempt false
+let on, STA it IEEE 802.11: association SA Query attempt 1: another attempt false
+let on, STA it WPA: PMKID found from PMKSA cache eap_type=0 vlan=0: another attempt false
+let on, STA it IEEE 802.11: authenticated: another attempt true
+let on, STA it MLME: MLME-AUTHENTICATE.indication(it, FT): another attempt true
+let on, STA it IEEE 802.11: associated (aid 1): another attempt true
+let on, associated again within the second: another attempt false
 log time [1791742263.455]: 5000.455 s, 1791742263455
 log time [1791742263.494]: 5000.494 s, 1791742263494
 log time [1791742263.503]: 5000.503 s, 1791742263503
