@@ -49,17 +49,30 @@ func TestSteps(t *testing.T) {
 	if got := stepsOf(t, s, at.Add(55*time.Minute)); got != "13:00 ap-1 sweet dhcp n 1 ms 50 most 50 failed 0" {
 		t.Errorf("since the second hour:\n%s", got)
 	}
-	if kept, err := s.StepsKept("signin", "dhcp"); err != nil || !kept {
-		t.Errorf("something of a test was timed: %v %v", kept, err)
+	// Counted in once ever, by name: all of it, with what was counted
+	// before; and never again, whatever is handed the second time.
+	old := []StepsAt{{"ap-1", at, []StepTime{{"sweet", "gateway", ms(4)}}}, {"ap-2", at.Add(70 * time.Minute), []StepTime{{"guest", "dns", nil}}}}
+	if done, err := s.Marked("tests"); err != nil || done {
+		t.Errorf("before it was done: %v %v", done, err)
 	}
-	if kept, err := s.StepsKept("signin"); err != nil || kept {
-		t.Errorf("no sign-in was timed: %v %v", kept, err)
+	for i, wantDone := range []bool{true, false} {
+		done, err := s.AddStepsOnce("tests", old)
+		must(t, err)
+		if done != wantDone {
+			t.Errorf("counted once, time %d: %v", i+1, done)
+		}
+	}
+	if done, err := s.Marked("tests"); err != nil || !done {
+		t.Errorf("after it was done: %v %v", done, err)
+	}
+	if got := stepsOf(t, s, at); !strings.Contains(got, "12:00 ap-1 sweet gateway n 2 ms 6 most 4 failed 0") || !strings.Contains(got, "13:00 ap-2 guest dns n 0 ms 0 most 0 failed 1") {
+		t.Errorf("with what was counted once:\n%s", got)
 	}
 	// They go with the other trends, by when their hour began.
 	*clock = at.Add(26 * time.Hour)
 	n, err := s.TrimTrends(25*time.Hour + 30*time.Minute)
 	must(t, err)
-	if got := stepsOf(t, s, time.Time{}); n != 4 || got != "13:00 ap-1 sweet dhcp n 1 ms 50 most 50 failed 0" {
+	if got := stepsOf(t, s, time.Time{}); n != 4 || got != "13:00 ap-1 sweet dhcp n 1 ms 50 most 50 failed 0\n13:00 ap-2 guest dns n 0 ms 0 most 0 failed 1" {
 		t.Errorf("after the trim, %d gone:\n%s", n, got)
 	}
 }
@@ -72,7 +85,7 @@ func TestMigratedStoreGetsSteps(t *testing.T) {
 	must(t, s.Close())
 	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
 	must(t, err)
-	for _, q := range []string{`DROP TABLE step_hours`, `PRAGMA user_version = 19`} {
+	for _, q := range []string{`DROP TABLE step_hours`, `DROP TABLE marks`, `PRAGMA user_version = 19`} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +96,10 @@ func TestMigratedStoreGetsSteps(t *testing.T) {
 	defer s.Close()
 	v := 12.5
 	must(t, s.AddSteps("ap-1", time.Now(), []StepTime{{"sweet", "dns", &v}}))
-	if kept, err := s.StepsKept("dns"); err != nil || !kept {
-		t.Errorf("after the migration: %v %v", kept, err)
+	if done, err := s.AddStepsOnce("tests", nil); err != nil || !done {
+		t.Errorf("after the migration: %v %v", done, err)
+	}
+	if got := stepsOf(t, s, time.Time{}); !strings.Contains(got, "sweet dns n 1 ms 12.5") {
+		t.Errorf("after the migration:\n%s", got)
 	}
 }

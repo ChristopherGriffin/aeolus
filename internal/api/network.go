@@ -92,34 +92,42 @@ func radiusSteps(rs []radiusState) []conditions.StepTime {
 	return out
 }
 
+// testsCounted marks that the client tests kept from before these times
+// were kept have been counted in.
+const testsCounted = "client-tests-counted"
+
 // countKeptTests counts the client tests still kept into the hours they
-// were made in, where nothing of a test was ever counted: so that the
-// history begins with the tests kept, and not with this manager.
+// were made in, once ever: so that the history begins with the tests kept,
+// and not with this manager. Those done since this manager started are
+// left out: each was counted as its result came. It is done whole or not
+// at all, and marked so in the same transaction (AddStepsOnce): a manager
+// stopped part way does it again from the start, and one that has done it
+// never does it twice, whatever was counted in between.
 func (s *Server) countKeptTests() {
-	kept, err := s.conds.StepsKept("dhcp", "gateway", "dns", "signin")
-	if err != nil || kept {
+	if done, err := s.conds.Marked(testsCounted); err != nil || done {
 		return
 	}
-	tests, err := s.conds.ClientTests(time.Now().Add(-assureKeep))
+	tests, err := s.conds.ClientTests(s.started.Add(-assureKeep))
 	if err != nil {
 		slog.Error("counting the client tests kept", "err", err)
 		return
 	}
-	n := 0
+	var all []conditions.StepsAt
 	for _, a := range tests {
-		if a.DoneAt == nil {
+		if a.DoneAt == nil || !a.DoneAt.Before(s.started) {
 			continue
 		}
 		if steps := testSteps(a); len(steps) > 0 {
-			if err := s.conds.AddSteps(hierarchy.NodeID(a.AP), *a.DoneAt, steps); err != nil {
-				slog.Error("counting the client tests kept", "err", err)
-				return
-			}
-			n++
+			all = append(all, conditions.StepsAt{AP: hierarchy.NodeID(a.AP), At: *a.DoneAt, Steps: steps})
 		}
 	}
-	if n > 0 {
-		slog.Info("counted the client tests kept into the network's hours", "tests", n)
+	done, err := s.conds.AddStepsOnce(testsCounted, all)
+	if err != nil {
+		slog.Error("counting the client tests kept", "err", err)
+		return
+	}
+	if done && len(all) > 0 {
+		slog.Info("counted the client tests kept into the network's hours", "tests", len(all))
 	}
 }
 

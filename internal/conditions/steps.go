@@ -1,6 +1,7 @@
 package conditions
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/hierarchy"
@@ -17,6 +18,9 @@ import (
 //
 // hour is when it began, in seconds since 1970, in UTC; ms and most are in
 // milliseconds.
+//
+// marks are the things done once ever, by name, and when: such as counting
+// in the tests kept from before this was (AddStepsOnce).
 const stepTable = `
 CREATE TABLE step_hours (
 	ap      TEXT NOT NULL,
@@ -29,7 +33,11 @@ CREATE TABLE step_hours (
 	failed  INTEGER NOT NULL,
 	PRIMARY KEY (ap, network, step, hour)
 ) WITHOUT ROWID;
-CREATE INDEX step_hours_hour ON step_hours (hour);`
+CREATE INDEX step_hours_hour ON step_hours (hour);
+CREATE TABLE marks (
+	name TEXT NOT NULL PRIMARY KEY,
+	at   INTEGER NOT NULL
+) WITHOUT ROWID;`
 
 // StepTime is one thing timed on a network: which step, and how long its
 // answer took, in ms; nil where none came.
@@ -54,6 +62,13 @@ type StepHour struct {
 	Failed  int
 }
 
+// StepsAt is what one AP timed at one time.
+type StepsAt struct {
+	AP    hierarchy.NodeID
+	At    time.Time
+	Steps []StepTime
+}
+
 // AddSteps counts what an AP timed at a time into the hours of its
 // networks' steps.
 func (s *Store) AddSteps(ap hierarchy.NodeID, at time.Time, steps []StepTime) error {
@@ -65,6 +80,46 @@ func (s *Store) AddSteps(ap hierarchy.NodeID, at time.Time, steps []StepTime) er
 		return err
 	}
 	defer tx.Rollback()
+	if err := addSteps(tx, ap, at, steps); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Marked says whether the thing named was done: see AddStepsOnce.
+func (s *Store) Marked(name string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM marks WHERE name = ?)`, name).Scan(&n)
+	return n != 0, err
+}
+
+// AddStepsOnce counts all in, once ever, by name: all of it and the mark
+// that it was done in one transaction, so that a manager stopped part way
+// has done none of it and does it whole the next time; and one that has
+// done it, whatever else was counted since, never does it again. It says
+// whether this was the time.
+func (s *Store) AddStepsOnce(name string, all []StepsAt) (bool, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`INSERT OR IGNORE INTO marks (name, at) VALUES (?, ?)`, name, s.now().Unix())
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, nil
+	}
+	for _, a := range all {
+		if err := addSteps(tx, a.AP, a.At, a.Steps); err != nil {
+			return false, err
+		}
+	}
+	return true, tx.Commit()
+}
+
+func addSteps(tx *sql.Tx, ap hierarchy.NodeID, at time.Time, steps []StepTime) error {
 	for _, st := range steps {
 		n, ms, failed := 1, 0.0, 0
 		if st.MS == nil {
@@ -79,7 +134,7 @@ func (s *Store) AddSteps(ap hierarchy.NodeID, at time.Time, steps []StepTime) er
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // StepsSince calls fn with what each AP timed of each network's steps since
@@ -104,19 +159,4 @@ func (s *Store) StepsSince(since time.Time, fn func(StepHour) error) error {
 		}
 	}
 	return rows.Err()
-}
-
-// StepsKept says whether anything was ever timed of a step among steps:
-// where nothing was, what is still kept of the tests can be counted in.
-func (s *Store) StepsKept(steps ...string) (bool, error) {
-	for _, st := range steps {
-		var n int
-		if err := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM step_hours WHERE step = ?)`, st).Scan(&n); err != nil {
-			return false, err
-		}
-		if n != 0 {
-			return true, nil
-		}
-	}
-	return false, nil
 }

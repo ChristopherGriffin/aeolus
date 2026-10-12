@@ -22,7 +22,8 @@ function svg(tag, attrs, ...kids) {
 const SPANS = [[24, 'A day'], [168, 'A week'], [720, '30 days'], [8760, 'A year']];
 
 // The steps shown, with what each is in full for a hover. A whole sign-in
-// is shown only where one was timed: where a network signs clients in.
+// is shown only where one was tried, whether or not any was answered:
+// where a network signs clients in.
 const STEPS = [
 	['dhcp', 'DHCP', 'From asking for an address to having one, as a client test found.'],
 	['gateway', 'Gateway', 'How long the gateway took to answer, as a client test found.'],
@@ -111,7 +112,7 @@ export async function networkTab(ctx, id) {
 			v.segments.map((s) => h('option', { value: s.id, selected: at.segment === s.id }, named(s))));
 		const of = at.segment ? v.segments.find((s) => s.id === at.segment).steps : v.all;
 		const any = v.segments.length > 0;
-		const shown = STEPS.filter(([key]) => key !== 'signin' || of.signin?.n > 0);
+		const shown = STEPS.filter(([key]) => key !== 'signin' || tried(of.signin));
 		const cards = h('div', { class: 'tiles steptimes' }, shown.map(([key, label, says]) => {
 			const s = of[key];
 			return h('div', { class: 'tile', title: says },
@@ -143,8 +144,11 @@ export async function networkTab(ctx, id) {
 	return box;
 }
 
+// tried says whether a step was ever tried: timed, or left unanswered.
+const tried = (s) => !!s && (s.n > 0 || s.failed > 0);
+
 // shownAll is the steps the table has a column for: a sign-in only where
-// some segment timed one.
+// some segment tried one.
 function shownAll(v) {
-	return STEPS.filter(([key]) => key !== 'signin' || v.segments.some((s) => s.steps.signin?.n > 0));
+	return STEPS.filter(([key]) => key !== 'signin' || v.segments.some((s) => tried(s.steps.signin)));
 }

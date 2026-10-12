@@ -575,7 +575,7 @@ func (s *Server) AssureAt(now time.Time) int { return len(s.assure(now)) }
 // looking every interval until ctx ends, and forgets tests older than a
 // month.
 func (s *Server) Assure(ctx context.Context, every time.Duration) {
-	// Once, where nothing of a test was ever counted (0141).
+	// Once ever (0141).
 	s.countKeptTests()
 	pruned := time.Time{}
 	look := func() {

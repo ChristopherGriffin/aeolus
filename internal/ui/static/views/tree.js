@@ -88,7 +88,7 @@ export async function treePage(ctx, tree, id, tab, sub, view) {
 		else if (tab === 'network') main.push(await networkTab(ctx, id));
 		else if (tab === 'templates') main.push(await templatesTab(ctx, id, page, editing(ctx, tree, page)));
 		else main.push(await systemSection(ctx, id, page, editing(ctx, tree, page)));
-		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients' || tab === 'aps' || tab === 'alerts' || tab === 'assurance' || tab === 'overview') refresh = 30; // live
+		if ((tab === 'interfaces' && interfacesLive(sub, view)) || tab === 'clients' || tab === 'aps' || tab === 'alerts' || tab === 'assurance' || tab === 'network' || tab === 'overview') refresh = 30; // live
 	} else {
 		main.push(fieldPanels(ctx, tree, id, page.fields, editing(ctx, tree, page)));
 		// A Services folder's networks' per-user keys (0070).

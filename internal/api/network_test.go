@@ -160,27 +160,43 @@ func TestNetwork(t *testing.T) {
 		t.Errorf("no token: %d %v", code, b)
 	}
 
-	// Where nothing of a test was ever counted, the tests still kept are:
-	// once.
+	// The tests kept from before this manager are counted in, once ever:
+	// not one done since it started, which was counted as it came.
 	if _, err := f.conds.TrimTrends(-time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(get("griff", "")["segments"].([]any)); n != 0 {
 		t.Fatalf("after all was let go: %d segments", n)
 	}
-	a, err := f.conds.AddActionWith(id, "client-test", "", "griff", raw(map[string]any{"network": "sweet", "ssid": "Sweet Spot", "band": "5g"}))
-	if err != nil {
-		t.Fatal(err)
+	finished := func(network string) {
+		t.Helper()
+		a, err := f.conds.AddActionWith(id, "client-test", network, "griff", raw(map[string]any{"network": network, "ssid": "x", "band": "5g"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.conds.ClaimActions(id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.conds.FinishActionWith(id, a.ID, true, "passed", raw(passed)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := f.conds.ClaimActions(id); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.conds.FinishActionWith(id, a.ID, true, "passed", raw(passed)); err != nil {
-		t.Fatal(err)
-	}
+	*f.skew = -2 * time.Hour
+	finished("sweet")
+	*f.skew = 0
+	finished("guest")
 	f.api.countKeptTests()
 	f.api.countKeptTests()
-	if got, want := steps(get("griff", "")["all"]), "dhcp n 1 ms 284 most 284 failed 0; dns n 1 ms 42 most 42 failed 0; gateway n 1 ms 4 most 4 failed 0"; got != want {
-		t.Errorf("counted from the tests kept:\n got %s\nwant %s", got, want)
+	after := get("griff", "")
+	if got, want := steps(after["all"]), "dhcp n 1 ms 284 most 284 failed 0; dns n 1 ms 42 most 42 failed 0; gateway n 1 ms 4 most 4 failed 0"; got != want || len(after["segments"].([]any)) != 1 {
+		t.Errorf("counted from the tests kept:\n got %s\nwant %s\n%v", got, want, after["segments"])
+	}
+	// And never again, whatever comes to be kept.
+	*f.skew = -3 * time.Hour
+	finished("sweet")
+	*f.skew = 0
+	f.api.countKeptTests()
+	if got := steps(get("griff", "")["all"]); !strings.HasPrefix(got, "dhcp n 1 ") {
+		t.Errorf("counted a second time: %s", got)
 	}
 }

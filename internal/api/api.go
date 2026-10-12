@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ChristopherGriffin/aeolus/internal/access"
 	"github.com/ChristopherGriffin/aeolus/internal/bundle"
@@ -40,6 +41,7 @@ type Server struct {
 	schema  *schema.Schema
 	box     *secret.Box
 	conds   *conditions.Store
+	started time.Time       // when this manager began: what was done before it was counted by none (0141)
 	watch   *dhcpwatch.Book // what the manager's DHCP listeners hear (0068); nil if none
 	psks    pskCache        // per-user keys' PSKs, worked out (0070)
 	agents  *bundle.Store   // the agent bundles it offers its APs (0079); nil if none
@@ -53,7 +55,7 @@ type Server struct {
 // New returns a Server. The log should be opened with Check(sch) as its
 // commit check. conds records what APs say and do (0039).
 func New(log *changelog.Log, sch *schema.Schema, box *secret.Box, conds *conditions.Store) *Server {
-	return &Server{log: log, schema: sch, box: box, conds: conds}
+	return &Server{log: log, schema: sch, box: box, conds: conds, started: time.Now()}
 }
 
 // Check is the commit check every change passes: permissions against the

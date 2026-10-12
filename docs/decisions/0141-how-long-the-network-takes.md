@@ -17,7 +17,7 @@
 - **The manager keeps what was timed of each network's steps, by the hour:** for an AP, a network and a step, how many times it was timed, the sum of the times and the slowest, and how many times no answer came. It is a trend (0140), kept as long as the others.
   - **From a client test,** as its result comes: `dhcp`, from asking for an address to having one; `gateway`; `dns`; and `signin`, a whole 802.1X sign-in. A test that stopped at one of them counts there as no answer.
   - **From a state report:** `aaa`, the round trip of each network's RADIUS server, where it answered since the report before; and no answer where the AP finds it silent. One not yet asked says nothing.
-  - **The tests still kept are counted in once,** where nothing of a test was ever counted, so the history begins with them. Of the RADIUS servers it begins with this manager.
+  - **The tests still kept are counted in once ever,** so the history begins with them: all of them in one transaction with the mark that it was done, so a manager stopped part way does it whole the next time, and never twice. Those done since the manager started are left out, each having been counted as it came. Of the RADIUS servers the history begins with this manager.
 - **`GET /v1/network` says it of the APs the caller may view,** below a Locations node where one is named, over up to a year:
   - **a segment at a time:** the networks are put together by the VLAN, or the tunnel, their primary transport has. A VLAN's DHCP server, gateway and names are its own, whichever network a test joined it by. A network on neither is said by itself;
   - for each step, how many times it was timed, its average and its slowest, and how many times no answer came; and the same of all together;
