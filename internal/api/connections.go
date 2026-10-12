@@ -384,7 +384,7 @@ func (s *Server) clientConnections(w http.ResponseWriter, r *http.Request, c cal
 		way, _ := connWay(cn)
 		e := entry{Connection: cn, Way: way}
 		if m, ok := roamed[cn.ID]; ok {
-			e.Roam = &roamSaid{Kind: m.Kind, MS: m.MS}
+			e.Roam = &roamSaid{Kind: m.Kind, MS: m.MS, BandSwitch: m.BandSwitch}
 		}
 		if k := cn.Capture; k != nil {
 			e.Capture = &captureSaid{Frames: k.Frames, Bytes: k.Bytes, May: roleOn(c, change.Locations, t, cn.AP) >= access.Operator}

@@ -160,15 +160,20 @@ func TestRoaming(t *testing.T) {
 		t.Fatalf("roaming: %d %v", code, v)
 	}
 	if got, want := fmt.Sprintf("%v roams, %v failed, %v slow, %v left, %v not timed, %v clients, typically %v ms, slow past %v, more %v", v["roams"], v["failed"], v["slow"], v["left"], v["untimed"], v["clients"], v["typical_ms"], v["slow_over_ms"], v["more"]),
-		"16 roams, 2 failed, 2 slow, 2 left, 2 not timed, 12 clients, typically 35 ms, slow past 250, more <nil>"; got != want {
+		"14 roams, 2 failed, 2 slow, 2 left, 2 not timed, 11 clients, typically 35 ms, slow past 250, more <nil>"; got != want {
 		t.Errorf("in all: %s, want %s", got, want)
+	}
+	// From one radio of an AP to another is a band switch, and no roam:
+	// the laptop's at South, and the one at North.
+	if v["band_switches"] != float64(2) {
+		t.Errorf("band switches: %v, want 2", v["band_switches"])
 	}
 	var kinds []string
 	for _, k := range v["kinds"].([]any) {
 		k := k.(map[string]any)
 		kinds = append(kinds, fmt.Sprintf("%v: %v, %v failed, %v slow, %v ms (%v to %v)", k["kind"], k["roams"], k["failed"], k["slow"], k["typical_ms"], k["low_ms"], k["high_ms"]))
 	}
-	if got, want := strings.Join(kinds, "; "), "ft: 4, 0 failed, 0 slow, 19 ms (17 to 21); okc: 1, 0 failed, 0 slow, 30 ms (30 to 30); pmksa: 1, 0 failed, 1 slow, 1198 ms (1198 to 1198); keys: 7, 2 failed, 1 slow, 35 ms (25 to 280); full: 3, 0 failed, 0 slow, 160 ms (130 to 160)"; got != want {
+	if got, want := strings.Join(kinds, "; "), "ft: 4, 0 failed, 0 slow, 19 ms (17 to 21); okc: 1, 0 failed, 0 slow, 30 ms (30 to 30); pmksa: 1, 0 failed, 1 slow, 1198 ms (1198 to 1198); keys: 5, 2 failed, 1 slow, 35 ms (33 to 280); full: 3, 0 failed, 0 slow, 160 ms (130 to 160)"; got != want {
 		t.Errorf("a kind at a time:\n got %s\nwant %s", got, want)
 	}
 	said := func(list any) []string {
@@ -186,6 +191,9 @@ func TestRoaming(t *testing.T) {
 			if r["untimed"] == true {
 				s += ", not timed"
 			}
+			if r["band_switch"] == true {
+				s += ", a band switch"
+			}
 			if r["sa_queries"] != nil {
 				s += fmt.Sprintf(" after %v SA Queries", r["sa_queries"])
 			}
@@ -200,7 +208,7 @@ func TestRoaming(t *testing.T) {
 		"0d to South 5g from North 5g, full, ok in 130 ms",
 		"04 to South 5g from somewhere not known, ft, ok, not timed",
 		"03 to South 5g from somewhere not known, keys, left",
-		"02 to South 5g from South 2g, keys, ok in 45 ms",
+		"02 to South 5g from South 2g, keys, ok in 45 ms, a band switch",
 		"02 to South 2g from North 2g, okc, ok in 30 ms",
 		"02 to North 2g from somewhere not known, pmksa, slow in 1198 ms after 5 SA Queries",
 		"01 to North 5g from South 5g, keys, ok in 35 ms",
@@ -212,7 +220,7 @@ func TestRoaming(t *testing.T) {
 		"0a to South 5g from North 5g, full, ok in 160 ms",
 		"10 to South 5g from North 5g, keys, left",
 		"0f to South 5g from North 5g, keys, failed",
-		"0b to North 2g from North 5g, keys, ok in 25 ms",
+		"0b to North 2g from North 5g, keys, ok in 25 ms, a band switch",
 		"07 to North 5g from South 5g, keys, ok in 33 ms",
 		"09 to South 5g from North 5g, full, ok, not timed",
 	}, "\n"); got != want {
@@ -254,8 +262,8 @@ func TestRoaming(t *testing.T) {
 	}
 	// Below one AP, its own alone, with where each came from all the same.
 	_, one := f.do("GET", "/v1/roaming?under="+north+"&hours=1", "griff", nil)
-	if one["roams"] != float64(6) || one["hours"] != float64(1) {
-		t.Errorf("below North: %v roams over %v hours, want 6 over 1", one["roams"], one["hours"])
+	if one["roams"] != float64(5) || one["band_switches"] != float64(1) || one["hours"] != float64(1) {
+		t.Errorf("below North: %v roams and %v band switches over %v hours, want 5 and 1 over 1", one["roams"], one["band_switches"], one["hours"])
 	}
 	if got := said(one["latest"]); len(got) != 6 || got[1] != "01 to North 5g from South 5g, keys, ok in 35 ms" {
 		t.Errorf("below North, the latest: %q", got)

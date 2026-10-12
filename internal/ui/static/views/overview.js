@@ -59,7 +59,11 @@ function gotOn(a, base) {
 // opens the panel below. No tile where no client roamed.
 function roamed(r, panel) {
 	if (!panel) return null;
-	const sub = [`${r.roams} roam${r.roams === 1 ? '' : 's'} today`, r.failed > 0 && `${r.failed} failed`, r.slow > 0 && `${r.slow} slow`].filter(Boolean).join(' · ');
+	// Band switches, from one radio of an AP to another, are no roams:
+	// said here only where there is nothing else to say.
+	const sub = r.roams || !r.band_switches
+		? [`${r.roams} roam${r.roams === 1 ? '' : 's'} today`, r.failed > 0 && `${r.failed} failed`, r.slow > 0 && `${r.slow} slow`].filter(Boolean).join(' · ')
+		: `no roams today · ${r.band_switches} band switch${r.band_switches === 1 ? '' : 'es'}`;
 	const many = r.failed >= 3 && r.failed * 10 >= r.roams;
 	const t = tile('Roaming', r.typical_ms != null ? took(r.typical_ms) : '—', sub, many ? 'bad' : r.failed || r.slow ? 'warn' : 'ok', '#');
 	t.title = 'How long a roam typically took, at the AP the client came to, from its authentication there to its being let on. Opens the roams below';

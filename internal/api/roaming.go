@@ -124,24 +124,28 @@ func (h *connHow) ok() bool {
 // line of its authentication is let on with no time: what there is, from
 // its association, is not what it took.
 type roam struct {
-	ID        int64            `json:"id"`
-	At        time.Time        `json:"at"`
-	MAC       string           `json:"mac"`
-	Host      string           `json:"host,omitempty"`
-	AP        hierarchy.NodeID `json:"ap"`
-	APName    string           `json:"ap_name"`
-	Network   string           `json:"network"`
-	SSID      string           `json:"ssid"`
-	Band      string           `json:"band"`
-	FromAP    hierarchy.NodeID `json:"from_ap,omitempty"`
-	FromName  string           `json:"from_ap_name,omitempty"`
-	FromBand  string           `json:"from_band,omitempty"`
-	Kind      string           `json:"kind"`
-	MS        *int             `json:"ms,omitempty"`
-	Untimed   bool             `json:"untimed,omitempty"`
-	State     string           `json:"state"`
-	Reason    string           `json:"reason,omitempty"`
-	SAQueries int              `json:"sa_queries,omitempty"`
+	ID       int64            `json:"id"`
+	At       time.Time        `json:"at"`
+	MAC      string           `json:"mac"`
+	Host     string           `json:"host,omitempty"`
+	AP       hierarchy.NodeID `json:"ap"`
+	APName   string           `json:"ap_name"`
+	Network  string           `json:"network"`
+	SSID     string           `json:"ssid"`
+	Band     string           `json:"band"`
+	FromAP   hierarchy.NodeID `json:"from_ap,omitempty"`
+	FromName string           `json:"from_ap_name,omitempty"`
+	FromBand string           `json:"from_band,omitempty"`
+	Kind     string           `json:"kind"`
+	MS       *int             `json:"ms,omitempty"`
+	Untimed  bool             `json:"untimed,omitempty"`
+	// BandSwitch is set where the client came from another radio of the
+	// same AP: a band switch, and counted apart from the roams, which are
+	// from one AP to another.
+	BandSwitch bool   `json:"band_switch,omitempty"`
+	State      string `json:"state"`
+	Reason     string `json:"reason,omitempty"`
+	SAQueries  int    `json:"sa_queries,omitempty"`
 }
 
 // roamRecord is what a roam is read from in an attempt's record.
@@ -214,18 +218,21 @@ type roamKindsView struct {
 // tests' own clients are left out (0121): what an AP's scan radio does is
 // no client's roaming.
 type roamingView struct {
-	Hours   int             `json:"hours"`
-	SlowMS  int             `json:"slow_over_ms"`
-	Roams   int             `json:"roams"`
-	Failed  int             `json:"failed"`
-	Slow    int             `json:"slow"`
-	Left    int             `json:"left"`
-	Untimed int             `json:"untimed"`
-	Clients int             `json:"clients"`
-	MS      *int            `json:"typical_ms,omitempty"`
-	Kinds   []roamKindsView `json:"kinds"`
-	Latest  []roam          `json:"latest"`
-	Bad     []roam          `json:"bad"`
+	Hours   int `json:"hours"`
+	SlowMS  int `json:"slow_over_ms"`
+	Roams   int `json:"roams"`
+	Failed  int `json:"failed"`
+	Slow    int `json:"slow"`
+	Left    int `json:"left"`
+	Untimed int `json:"untimed"`
+	// Switches is how many moves were from one radio of an AP to another
+	// of the same: band switches, in no other count here.
+	Switches int             `json:"band_switches"`
+	Clients  int             `json:"clients"`
+	MS       *int            `json:"typical_ms,omitempty"`
+	Kinds    []roamKindsView `json:"kinds"`
+	Latest   []roam          `json:"latest"`
+	Bad      []roam          `json:"bad"`
 	// More is set where the APs asked about had more attempts in the time
 	// than are read: the counts are then of the latest of them.
 	More bool `json:"more,omitempty"`
@@ -264,8 +271,9 @@ func (s *Server) signsIn(state *change.State) func(hierarchy.NodeID, string) boo
 // roamSaid is what a client's own attempts say of one that was a roam: of
 // which kind, and how long it took to be let on, where that is known.
 type roamSaid struct {
-	Kind string `json:"kind"`
-	MS   *int   `json:"ms,omitempty"`
+	Kind       string `json:"kind"`
+	MS         *int   `json:"ms,omitempty"`
+	BandSwitch bool   `json:"band_switch,omitempty"`
 }
 
 // roamsAmong reads the roams among attempts, which are the caller's to
@@ -336,6 +344,8 @@ func (s *Server) roamsAmong(c call, list []conditions.Connection) ([]roam, error
 		if n, ok := t.Node(before.ap); known && ok && roleOn(c, change.Locations, t, before.ap) >= access.Viewer {
 			r.FromAP, r.FromName, r.FromBand = before.ap, n.Name, before.band
 		}
+		// From another radio of the AP it came to: a band switch.
+		r.BandSwitch = known && before.ap == cn.AP
 		switch {
 		case rec.How.OnMS != nil && rec.How.Began == "assoc":
 			r.State, r.Untimed = "ok", true
@@ -480,6 +490,12 @@ func (s *Server) roaming(w http.ResponseWriter, r *http.Request, c call) error {
 	var all []int
 	who := map[string]bool{}
 	for _, m := range roams {
+		// A band switch is no roam: counted by itself, however it went,
+		// and listed with the roams below.
+		if m.BandSwitch {
+			view.Switches++
+			continue
+		}
 		who[m.MAC] = true
 		if m.State == "left" {
 			view.Left++

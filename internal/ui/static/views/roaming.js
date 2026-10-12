@@ -18,6 +18,10 @@ export const KIND = {
 	full: ['Hard roam', 'A hard roam, everything again: the sign-in, or WPA3’s exchange, and then the four key messages'],
 };
 const kind = (k) => KIND[k]?.[0] || k;
+// A kind in a few words after another, as of a band switch: "band switch,
+// full sign-in".
+export const kindWords = (k) => (k === 'full' ? 'full sign-in' : kind(k));
+const switches = (n) => `${n} band switch${n === 1 ? '' : 'es'}`;
 
 export const took = (n) => (n == null ? '—' : n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`);
 const many = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
@@ -46,7 +50,7 @@ const place = (name, band) => [name, band && bandName(band)].filter(Boolean).joi
 // roamingPanel is the roams of a view, r, as GET /v1/roaming gives them:
 // the panel, or nothing where no client roamed.
 export function roamingPanel(r) {
-	if (!r || !(r.roams || r.left)) return null;
+	if (!r || !(r.roams || r.left || r.band_switches)) return null;
 	const out = h('div');
 	const client = (m) => h('a', { href: '#', class: 'clientlink', title: 'Its journey, and each time it came online',
 		onclick: async (e) => {
@@ -61,15 +65,16 @@ export function roamingPanel(r) {
 		h('td', null, client(m)),
 		h('td', null, m.from_ap_name ? place(m.from_ap_name, m.from_band) : h('span', { class: 'sub' }, 'not known')),
 		h('td', null, place(m.ap_name || m.ap, m.band)),
-		h('td', { class: 'nowrap', title: KIND[m.kind]?.[1] || '' }, kind(m.kind)),
+		h('td', { class: 'nowrap', title: `${m.band_switch ? 'A band switch: the client moved from one radio of this AP to another. ' : ''}${KIND[m.kind]?.[1] || ''}` },
+			m.band_switch ? ['Band switch', h('span', { class: 'sub' }, ` · ${kindWords(m.kind)}`)] : kind(m.kind)),
 		h('td', { class: 'mono nowrap', title: m.untimed ? 'Let on, and not timed: its AP’s log has its association and nothing of its authentication, so what it took is not known' : null }, took(m.ms)),
 		h('td', null, what(m, r.slow_over_ms)),
 		more && h('td', { class: 'sub' }, why(m)));
 	const head = (more) => h('tr', null, ['When', 'Client', 'From', 'To', 'Kind', 'Took', '', ...(more ? ['What the AP said'] : [])].map((t) => h('th', null, t)));
 	const d = h('details', { class: 'panel logpanel', open },
 		h('summary', null, h('h2', null, 'Roaming', h('span', { class: 'note' },
-			[many(r.roams, 'roam'), r.typical_ms != null && `typically ${took(r.typical_ms)}`, r.failed > 0 && `${r.failed} failed`, r.slow > 0 && `${r.slow} slow`].filter(Boolean).join(' · ')))),
-		h('p', { class: 'sub pad' }, `${many(r.clients, 'client')} over the last ${r.hours} h. A roam is a client’s move to another AP, or another radio of one, on the same network, whether it says it is already on the network or joins as if for the first time. It is timed at the AP the client comes to, from its authentication there, as the AP’s log has it, to its being let on; past ${took(r.slow_over_ms)} it is called slow.${r.untimed ? ` ${r.untimed} ${r.untimed === 1 ? 'is' : 'are'} not timed: the AP’s log has no line of the authentication, as on a network that signs clients in.` : ''}${r.left ? ` ${r.left} more ${r.left === 1 ? 'was' : 'were'} given up by the client before it was let on.` : ''}${r.more ? ' There were more attempts than are read: these are of the latest.' : ''}`),
+			[many(r.roams, 'roam'), r.typical_ms != null && `typically ${took(r.typical_ms)}`, r.failed > 0 && `${r.failed} failed`, r.slow > 0 && `${r.slow} slow`, r.band_switches > 0 && switches(r.band_switches)].filter(Boolean).join(' · ')))),
+		h('p', { class: 'sub pad' }, `${many(r.clients, 'client')} over the last ${r.hours} h. A roam is a client’s move to another AP on the same network, whether it says it is already on the network or joins as if for the first time. A move to another radio of the same AP is a band switch: listed below, and in none of the counts but its own. Each is timed at the AP the client comes to, from its authentication there, as the AP’s log has it, to its being let on; past ${took(r.slow_over_ms)} it is called slow.${r.untimed ? ` ${r.untimed} ${r.untimed === 1 ? 'is' : 'are'} not timed: the AP’s log has no line of the authentication, as on a network that signs clients in.` : ''}${r.left ? ` ${r.left} more ${r.left === 1 ? 'was' : 'were'} given up by the client before it was let on.` : ''}${r.more ? ' There were more attempts than are read: these are of the latest.' : ''}`),
 		r.kinds.length > 0 && h('table', { class: 'list' },
 			h('tr', null, ['Kind', 'Roams', 'Typical', 'Fastest', 'Slowest', 'Slow', 'Failed'].map((t) => h('th', null, t))),
 			r.kinds.map((k) => h('tr', null,
