@@ -22,10 +22,9 @@ import { actionsPanel } from './actions.js';
 import { canWire, clientTestPanel, hasScanRadio } from './clienttest.js';
 import { usagePanel } from './usage.js';
 import { healthTab } from './health.js';
-import { pathTab } from './pathout.js';
 import { tile } from './overview.js';
 
-const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['path', 'Path'], ['networks', 'Networks'], ['clients', 'Clients'], ['health', 'Health'], ['system', 'System']];
+const TABS = [['overview', 'Overview'], ['interfaces', 'Interfaces'], ['networks', 'Networks'], ['clients', 'Clients'], ['health', 'Health'], ['system', 'System']];
 // An AP that can test a network from a client's side (0121, 0128) has its
 // tests under Assurance, as a folder has (0123).
 const ASSURANCE = ['assurance', 'Assurance'];
@@ -117,8 +116,6 @@ export async function apPage(ctx, id, tab, sub, view) {
 		// (0121); any whose agent says so can over the wire (0128).
 		main.push(await clientTestPanel(ctx, id, page, cfg, !!edit));
 	} else if (tab === 'interfaces') main.push(await interfacesTab(ctx, base, id, page, sub, view, thisAP, edit));
-	// Its own way out, a hop at a time (0142).
-	else if (tab === 'path') main.push(...[pathTab(cond)].flat());
 	else if (tab === 'networks') main.push(await networksTab(ctx, id, page));
 	else if (tab === 'clients') main.push(await clientsTab(ctx, page, thisAP));
 	else if (tab === 'health') main.push(await healthTab(ctx, id));

@@ -27,8 +27,12 @@ import { followButton } from './follow.js';
 import { inheritsBar } from './inherits.js';
 import { tunnelsAt, tunnelName } from './networks.js';
 import { vxlanPath, probed } from './path.js';
+import { networkTab } from './network.js';
+import { pathTab } from './pathout.js';
 
-const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels']];
+// Network Paths (Griff, 2026-10-12): how long the networks' own services
+// take to answer (0141), and on an AP its own way out before that (0142).
+const INTERFACES = [['radios', 'Radios'], ['ethernet', 'Ethernet'], ['tunnels', 'Tunnels'], ['paths', 'Network Paths']];
 // Radios' views: the band cards, the channel map (0075), the other Aeolus
 // APs each hears, how it rates each channel (0073), and the other networks
 // heard (0106).
@@ -75,6 +79,7 @@ export async function interfacesTab(ctx, base, id, page, sub, view, ap, edit) {
 		else body = bandsSection(ctx, id, page, ap?.cfg?.condition?.state, await rows());
 		return [bar, tabBar(`${base}/interfaces/radios`, RADIOS, view, 'minor'), body];
 	}
+	if (sub === 'paths') return [bar, ap && pathTab(ap.cfg?.condition), await networkTab(ctx, id)].flat().filter(Boolean);
 	const body = sub === 'tunnels' ? await tunnels(ctx, id, page, ap, edit) : await ethernet(ctx, id, page, ap, edit);
 	return [bar, body];
 }
