@@ -295,6 +295,25 @@ for (let end = 48 * 3600; t < end;) {
 printf('  in two days it is asked: %s\n', join(', ', asked));
 st.events = [];
 
+begin('An AP\'s own test client, which says so as it joins, is not asked up, held or put off: here, and when it comes again');
+put(A, 'phy1-ap2', -40, { bands: ['2g', '5g', '6g'], own: true });
+view.clients['phy0-ap1'][B] = { signal: -85, btm: false, own: true };
+look();
+pass(60);
+off(A);
+pass(30);
+hear('phy1-ap2', 'auth', { address: A, signal: -40 });
+// What it said is taken in the moment hostapd gives it, though it is gone
+// before the next look: it is known as a test client when it comes again.
+steer.learned(st, D, { bands: ['2g', '5g'], own: true }, t);
+hear('phy1-ap2', 'auth', { address: D, signal: -40 });
+printf('  one on for a moment, known at once: asked or held %d\n', length(keys(st.tries)));
+// One that does not say so, beside it, is steered as any is.
+put(C, 'phy1-ap2', -40, { bands: ['2g', '5g'] });
+pass(15);
+printf('  records: %d, of the test client %d\n', length(st.events), length(filter(st.events, e => e.mac in [A, B])));
+st.events = [];
+
 begin('A network with nothing on is not looked at; one with only Sticky on is not asked up');
 put(A, 'phy1-ap2', -50, { bands: ['2g', '5g'] });
 put(B, 'phy1-ap1', -50, { bands: ['2g', '5g'] });
@@ -327,3 +346,8 @@ printf('all three: %J\n', steer.bands_of(ies([59, [131, 81, 115, 131, 132, 133, 
 printf('says nothing: %J\n', steer.bands_of(ies([0, [116]], [127, [0, 0, 8]])));
 printf('cut short: %J\n', steer.bands_of(substr(ies([59, [81, 115, 116]]), 0, 4)));
 printf('takes a transition request: %J %J %J\n', steer.btm_of([4, 0, 8, 0]), steer.btm_of([4, 0, 0, 0]), steer.btm_of(null));
+// The mark of an AP's own test client: Aeolus's OUI, type 2. Not the
+// advert of its beacons (type 1), another vendor's element, or one cut short.
+printf('an AP\'s own test client: %J; as the mark is written for wpa_supplicant: %s\n', steer.own_of(ies([0, [116]], [221, [0x02, 0xae, 0x01, 2, 1]], [127, [0, 0, 8]])), steer.OWN_MARK);
+printf('not one: %J %J %J %J\n', steer.own_of(ies([221, [0x02, 0xae, 0x01, 1, 1]])), steer.own_of(ies([221, [0x00, 0x50, 0xf2, 2, 1]])),
+	steer.own_of(substr(ies([221, [0x02, 0xae, 0x01, 2, 1]]), 0, 5)), steer.own_of(ies([0, [116]])));

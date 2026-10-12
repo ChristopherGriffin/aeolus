@@ -55,6 +55,7 @@ import { openlog, syslog, LOG_PID, LOG_DAEMON, LOG_INFO, LOG_WARNING } from 'log
 import * as ct from 'aeolus.clienttest';
 import * as wt from 'aeolus.wiretest';
 import * as uplinks from 'aeolus.uplink';   // not uplink: a local of that name would hide it
+import { OWN_MARK } from 'aeolus.steer';
 
 const IF = 'aet-sta0';
 const DIR = '/var/run/aeolus/clienttest';
@@ -473,6 +474,13 @@ function join_network(res) {
 	let k = ctl_open();
 	if (!k)
 		return { stage: 'find', why: 'wpa_supplicant did not start' };
+	// The test says what it is, in its association request (frame 13): an
+	// AP's steering that reads the mark leaves the client alone (0138),
+	// where asked up it would say no, and held off 2.4 GHz it would join
+	// late and the test would say the network is slow. Then the network,
+	// which its config has off, is turned on, and it looks for it.
+	k.send('VENDOR_ELEM_ADD 13 ' + OWN_MARK);
+	k.send('ENABLE_NETWORK all');
 	let connected = false, failed = null, notfound = 0, last = 'find';
 	while (!connected && !failed && now() - t0 < CONNECT_WAIT) {
 		socket.poll(250, [k, socket.POLLIN]);
