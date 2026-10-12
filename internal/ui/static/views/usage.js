@@ -21,8 +21,8 @@ function svg(tag, attrs, ...kids) {
 const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
-// Whether a folder's tables were left open, over a redraw.
-let more = false;
+// The folders whose tables were left open, over a redraw: each its own.
+const more = new Set();
 
 // usagePanel draws the usage of the APs below node id; folder adds its
 // busiest APs, and has its tables a click down: on a folder's Overview the
@@ -62,8 +62,8 @@ export async function usagePanel(id, folder) {
 	// folded on a folder's.
 	const under = (tables) => {
 		if (!folder || !tables.length) return tables;
-		const d = h('details', { class: 'fold', open: more }, h('summary', null, 'Top clients and APs'), tables);
-		d.addEventListener('toggle', () => { more = d.open; });
+		const d = h('details', { class: 'fold', open: more.has(id) }, h('summary', null, 'Top clients and APs'), tables);
+		d.addEventListener('toggle', () => (d.open ? more.add(id) : more.delete(id)));
 		return d;
 	};
 	return h('section', { class: 'panel' },
