@@ -386,6 +386,13 @@ div.field.start input[type=number] { height: 34px; width: 110px; padding: 0 10px
 .usage .clients { fill: none; stroke: var(--warn); stroke-width: 1.5; }
 .usage .base { stroke: var(--line-2); }
 .usagekey { padding: 0 20px 6px; }
+/* The Network tab (0141): a tile a step, its line under its number; the
+   segment picked marked in the table under them. */
+.tiles.steptimes { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); padding: 4px 20px 0; margin-bottom: 4px; }
+.steptime .dot { fill: var(--warn); }
+.panel > h2 select { margin-left: auto; flex-shrink: 0; text-transform: none; letter-spacing: 0; font-weight: 400; }
+table.list tr.picked td { background: var(--accent-bg); }
+table.list td.warnish { color: var(--warn); }
 .usage .axis { font-size: 10px; fill: var(--ink-2); }
 .usageaxis { display: flex; justify-content: space-between; padding: 2px 20px 8px; font-size: 12px; color: var(--muted); }
 /* An AP's connectivity strip (0108): a cell a bucket. */

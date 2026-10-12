@@ -326,6 +326,8 @@ func (s *Server) apActionDone(w http.ResponseWriter, r *http.Request, c apCall) 
 		return err
 	}
 	slog.Info("action done", "ap", c.ap, "kind", a.Kind, "state", a.State, "result", a.Result)
+	// What a client test timed of its network, counted into its hour (0141).
+	s.keepTestSteps(a)
 	writeJSON(w, http.StatusOK, map[string]any{"action": a})
 	return nil
 }

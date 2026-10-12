@@ -282,6 +282,7 @@ func (s *Store) TrimTrends(keep time.Duration) (int64, error) {
 		`DELETE FROM usage_hours WHERE hour < ?`,
 		`DELETE FROM client_usage_days WHERE day < ?`,
 		`DELETE FROM health_hours WHERE hour < ?`,
+		`DELETE FROM step_hours WHERE hour < ?`,
 	} {
 		res, err := s.db.Exec(q, cut)
 		if err != nil {

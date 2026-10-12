@@ -142,7 +142,7 @@ type connectionsIn struct {
 
 type usageIn struct {
 	Under string `json:"under,omitempty" jsonschema:"optional: a Locations folder or AP; only the APs below it"`
-	Hours int    `json:"hours,omitempty" jsonschema:"optional: how many hours back, 24 unless set, at most 720; for get_usage at most 8760, a year"`
+	Hours int    `json:"hours,omitempty" jsonschema:"optional: how many hours back, 24 unless set, at most 720; for get_usage and get_network at most 8760, a year"`
 }
 
 type roundIn struct {
@@ -281,6 +281,18 @@ func server(c client, version string) *mcp.Server {
 				q.Set("hours", fmt.Sprint(in.Hours))
 			}
 			out, err := c.call(ctx, "GET", "/v1/roaming?"+q.Encode(), nil)
+			return nil, out, err
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_network", Description: "How long the networks' own services took to answer the APs you can view (0141), over the last hours (24 unless set, at most 8760): for each VLAN or tunnel the networks are on, and for all together, how many times each step was timed, its average and its slowest in ms, and how many times no answer came. The steps are dhcp (an address, from asking to having one), gateway and dns, as client tests found them, aaa (the RADIUS server's answer to the AP, from each state report) and signin (a whole 802.1X sign-in). With series, each step's average over the time in at most 48 buckets of whole hours. With under, only the APs below that Locations node."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in usageIn) (*mcp.CallToolResult, any, error) {
+			q := url.Values{}
+			if in.Under != "" {
+				q.Set("under", in.Under)
+			}
+			if in.Hours > 0 {
+				q.Set("hours", fmt.Sprint(in.Hours))
+			}
+			out, err := c.call(ctx, "GET", "/v1/network?"+q.Encode(), nil)
 			return nil, out, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_steering", Description: "Whether steering works (0139): what the steering of the APs you can view asked of clients and what came of it (0138), over the last hours (24 unless set, at most 720); with under, the APs below that Locations node. The manager keeps each asking an AP's steering says in its state reports, once, so the counts are of the time asked for and not since an AP's steering last started. networks: each {network, counts, aps}, counts being for each way (suggest: a client asked to move to a higher band by 802.11v; hold: one kept off 2.4 GHz a moment as it came to join; sticky: a weak client told to go) how many were asked and how many came to each end: moved (it went to a better band here), refused (it said no), stayed, left (it went elsewhere), joined (held off, it joined 2.4 GHz all the same), recovered (a weak client was heard well again), back (moved up, it came back down within five minutes; or, a weak client, it came straight back). aps: the same an AP at a time, each {ap, name, counts}. clients: the 20 asked most, each {mac, host, asked, moved, refused, back, last}. latest: the latest 100 askings, each {at, ap, ap_name, mac, host, network, method, from, to, asked, answer, code, signal, outcome, took}: from the band it was on, to the bands it was pointed at, asked btm (a transition request), held, kick or none, answer accepted or refused with the client's 802.11v status code, signal in dBm, took in seconds. The tests' own clients are left out.", Annotations: readOnly},

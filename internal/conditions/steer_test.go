@@ -201,7 +201,7 @@ func TestMigratedStoreKeepsSteer(t *testing.T) {
 	must(t, s.Close())
 	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(path))
 	must(t, err)
-	for _, q := range []string{`DROP TABLE steer_events`, `DROP TABLE usage_hours`, `DROP TABLE client_usage_days`, `DROP TABLE health_hours`, `PRAGMA user_version = 17`} {
+	for _, q := range []string{`DROP TABLE steer_events`, `DROP TABLE usage_hours`, `DROP TABLE client_usage_days`, `DROP TABLE health_hours`, `DROP TABLE step_hours`, `DROP TABLE marks`, `PRAGMA user_version = 17`} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)
 		}
