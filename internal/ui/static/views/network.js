@@ -1,5 +1,6 @@
-// The Network tab of a Locations folder or the Org (0141): how long the
-// networks' own services take to answer the APs below it. An address from
+// Network Paths, under Interfaces, of a Locations folder, the Org or an AP
+// (0141; named and put there by Griff, 2026-10-12): how long the networks'
+// own services take to answer the APs below it, or that AP. An address from
 // DHCP, the gateway, a name looked up, and the RADIUS server, each as what
 // it typically takes and as a line over the time chosen; of every VLAN
 // together, or of the one picked. It reads what the client tests and the

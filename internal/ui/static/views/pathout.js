@@ -1,4 +1,5 @@
-// An AP's Path tab (0142): its own way out, a hop at a time. Its management
+// An AP's own way out, a hop at a time (0142), at the head of its Network
+// Paths, under Interfaces. Its management
 // address and VLAN, its uplink and the switch port it is on, its gateway
 // and the internet, each with whether it answers and how long it took; and
 // under them what it leans on to work at all: its name servers, its time

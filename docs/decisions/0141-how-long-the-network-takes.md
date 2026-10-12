@@ -23,6 +23,7 @@
   - for each step, how many times it was timed, its average and its slowest, and how many times no answer came; and the same of all together;
   - each step's average over the time, in at most 48 buckets of whole hours, of all or of one segment.
   - The MCP adapter has it as `get_network`.
+- **It is under Interfaces, as Network Paths** (Griff, 2026-10-12, on seeing a tab called Network beside Networks): of a folder, and of an AP, where it is of what that AP timed. What follows said a tab of its own.
 - **A folder has a Network tab.** A tile a step: what it typically takes, its slowest, how often no answer came, and its line over the time. The time is chosen there, a day, a week, 30 days or a year, and the VLAN from a list, all of them unless one is picked. Under them, a line a VLAN with what each step takes on it.
 - **Typical is the average,** Griff's word. An hour keeps a sum and a count, so the average of any stretch of hours is exact.
 
